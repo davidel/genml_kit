@@ -32,6 +32,7 @@ from torchvision.transforms.functional import InterpolationMode
 from scdiag.checkpointing import (
     CheckpointSaver,
     create_model_report,
+    fetch_remote_checkpoint,
     parse_state_flags,
     restore_training_state,
     resume_checkpoint,
@@ -712,6 +713,7 @@ def main(argv=None):
   if args.resume:
     ckpt_latest = args.checkpoint + "_latest.pt"
     ckpt_best = args.checkpoint + "_best.pt"
+    fetch_remote_checkpoint(args.remote_checkpoint, ckpt_latest, ckpt_best)
     model, start_epoch, _, ckpt_extra = resume_checkpoint(
         ckpt_latest,
         ckpt_best,

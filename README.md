@@ -344,6 +344,7 @@ scdiag-pretrain --method supcon \
 | `--model` | `convvit` | Model name registered in scdiag or HuggingFace model ID. |
 | `--datasets` | (required) | Space-separated dataset names or local paths. |
 | `--cache_dir` | `None` | HuggingFace cache directory for downloads. |
+| `--remote_checkpoint` | `None` | Remote URI for checkpoint sync (`gs://BUCKET/PREFIX`, `r2://BUCKET/PREFIX`, or `s3://BUCKET/PREFIX`). |
 | `--hf_token` | `None` | HuggingFace token for gated datasets (or set `HF_TOKEN` env var). |
 | `--image_column` | auto-detected | Explicit HF image column name. |
 | `--label_column` | `None` | Explicit HF label column name. Required by `--method supcon` if non-standard. |
@@ -722,7 +723,14 @@ checkpoint if one exists at the `--checkpoint` path.
 
 `--remote_checkpoint` uploads each saved checkpoint to cloud storage.
 Requires `pip install "scdiag[s3]"` for `s3://` and `r2://` URIs (both
-use boto3), or `scdiag[gcs]` for `gs://`.
+use boto3), or `scdiag[gcs]` for `gs://`. Both `scdiag-train` and
+`scdiag-pretrain` accept the flag.
+
+The sync also works in reverse at startup: before auto-resume, any missing
+`_latest.pt` / `_best.pt` is downloaded from the remote prefix (latest is
+tried first, matching resume precedence). A locally present checkpoint is
+never overwritten — the local copy always wins — and connection or
+credential failures degrade to a warning instead of aborting startup.
 
 **AWS S3** — credentials come from the standard environment variables:
 

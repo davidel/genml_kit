@@ -139,6 +139,137 @@ def storage_upload(bucket_name, local_path, prefix="", scheme="gs"):
     fatal(f"Unsupported storage scheme: {scheme!r}", ValueError)
 
 
+def _s3_head_exists(s3_client, bucket_name, blob_name):
+  """Return ``True`` when *blob_name* exists in *bucket_name*.
+
+    A missing object maps to ``False``; any other error (credentials,
+    connectivity, permissions) propagates to the caller so it can be
+    reported as a failed fetch instead of a silent miss.
+    """
+  try:
+    s3_client.head_object(Bucket=bucket_name, Key=blob_name)
+  except s3_client.exceptions.ClientError as error:
+    code = str(error.response.get("Error", {}).get("Code", ""))
+    if code in ("404", "NoSuchKey"):
+      return False
+    raise
+  return True
+
+
+def _download_s3(bucket_name, local_path, prefix):
+  """Download an object from AWS S3 to *local_path*.
+
+    The object key mirrors :func:`_upload_s3` exactly
+    (``{prefix}/{basename}``), and credentials follow the same strategy.
+
+    Returns:
+        The remote URI of the downloaded object, or ``None`` when the
+        object does not exist.
+    """
+  import boto3
+
+  access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+  secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+  client_kwargs = {}
+  if access_key and secret_key:
+    client_kwargs = {
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
+        "aws_session_token": os.environ.get("AWS_SESSION_TOKEN"),
+    }
+  s3_client = boto3.client("s3", **client_kwargs)
+
+  blob_name = os.path.basename(local_path)
+  if prefix:
+    blob_name = f"{prefix}/{blob_name}"
+  if not _s3_head_exists(s3_client, bucket_name, blob_name):
+    return None
+  s3_client.download_file(bucket_name, blob_name, local_path)
+  return f"s3://{bucket_name}/{blob_name}"
+
+
+def _download_gcs(bucket_name, local_path, prefix):
+  """Download an object from GCS to *local_path*.
+
+    Returns:
+        The remote URI of the downloaded object, or ``None`` when the
+        object does not exist.
+    """
+  from google.cloud import storage
+
+  client = storage.Client()
+  blob_name = os.path.basename(local_path)
+  if prefix:
+    blob_name = f"{prefix}/{blob_name}"
+  bucket = client.bucket(bucket_name)
+  blob = bucket.blob(blob_name)
+  if not blob.exists():
+    return None
+  blob.download_to_filename(local_path)
+  return f"gs://{bucket_name}/{blob_name}"
+
+
+def _download_r2(bucket_name, local_path, prefix):
+  """Download an object from Cloudflare R2 to *local_path*.
+
+    Returns:
+        The remote URI of the downloaded object, or ``None`` when the
+        object does not exist.
+    """
+  import boto3
+
+  s3_client = boto3.client(
+      "s3",
+      endpoint_url=os.environ.get("R2_ENDPOINT_URL"),
+      aws_access_key_id=os.environ.get("R2_ACCESS_KEY_ID"),
+      aws_secret_access_key=os.environ.get("R2_SECRET_ACCESS_KEY"),
+  )
+  blob_name = os.path.basename(local_path)
+  if prefix:
+    blob_name = f"{prefix}/{blob_name}"
+  if not _s3_head_exists(s3_client, bucket_name, blob_name):
+    return None
+  s3_client.download_file(bucket_name, blob_name, local_path)
+  return f"r2://{bucket_name}/{blob_name}"
+
+
+def storage_download(remote_uri, local_path):
+  """Download a remote object into *local_path*.
+
+    The remote object name mirrors :func:`storage_upload` exactly:
+    ``{prefix}/{basename(local_path)}``.  A missing object is a normal,
+    silent miss; connection or credential problems are logged as
+    warnings because the download is a resume fallback and must never
+    crash startup.
+
+    Args:
+        remote_uri: ``gs://``, ``r2://``, or ``s3://`` prefix URI (the
+            ``--remote_checkpoint`` value).
+        local_path: Destination file path; its basename selects the
+            remote object.
+
+    Returns:
+        ``True`` when *local_path* was written from remote storage.
+    """
+  scheme, bucket, prefix = parse_storage_uri(remote_uri)
+  try:
+    if scheme == "gs":
+      result = _download_gcs(bucket, local_path, prefix)
+    elif scheme == "r2":
+      result = _download_r2(bucket, local_path, prefix)
+    elif scheme == "s3":
+      result = _download_s3(bucket, local_path, prefix)
+    else:
+      fatal(f"Unsupported storage scheme: {scheme!r}", ValueError)
+  except Exception as error:
+    logging.warning(f"  Remote checkpoint fetch from {remote_uri} failed: {error}")
+    return False
+  if result is None:
+    return False
+  logging.info(f"  Fetched remote checkpoint: {result}")
+  return True
+
+
 def save_checkpoint(save_dict, path, remote_uri=None):
   """Save a checkpoint dict to disk and optionally sync to cloud storage.
 

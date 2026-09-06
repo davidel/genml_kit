@@ -9,6 +9,7 @@ from torch import nn
 
 from scdiag.checkpointing import (
     CheckpointSaver,
+    fetch_remote_checkpoint,
     filter_state_dict,
     format_count,
     load_checkpoint_weights,
@@ -256,3 +257,55 @@ class TestLoadCheckpointWeights:
     assert "model.* <- model.*  (2 keys)" in text
     assert "head.weight" not in text
     assert "head.bias" not in text
+
+
+class TestFetchRemoteCheckpoint:
+
+  def test_no_uri_is_noop(self, tmp_path):
+    latest = str(tmp_path / "run_latest.pt")
+    best = str(tmp_path / "run_best.pt")
+    assert fetch_remote_checkpoint(None, latest, best) == []
+
+  def test_local_present_skips_remote(self, tmp_path, monkeypatch, caplog):
+    """A locally present latest is never clobbered; only best is fetched."""
+    latest = tmp_path / "run_latest.pt"
+    latest.write_bytes(b"local")
+    best = tmp_path / "run_best.pt"
+    downloads = []
+    monkeypatch.setattr("scdiag.checkpointing.storage_download",
+                        lambda uri, path: downloads.append(path) or True)
+    with caplog.at_level(logging.INFO):
+      restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
+    assert restored == [str(best)]
+    assert downloads == [str(best)]
+    assert "skipping remote fetch" in caplog.text
+
+  def test_downloads_missing_latest_and_best(self, tmp_path, monkeypatch):
+    latest = tmp_path / "run_latest.pt"
+    best = tmp_path / "run_best.pt"
+    monkeypatch.setattr("scdiag.checkpointing.storage_download", lambda uri, path: True)
+    restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
+    assert restored == [str(latest), str(best)]
+    assert latest.exists() is False  # stub does not write; path bookkeeping only
+
+  def test_latest_tried_before_best(self, tmp_path, monkeypatch, caplog):
+    """Precedence mirrors resume_checkpoint: latest first, then best."""
+    latest = tmp_path / "run_latest.pt"
+    best = tmp_path / "run_best.pt"
+    order = []
+    monkeypatch.setattr("scdiag.checkpointing.storage_download",
+                        lambda uri, path: order.append(path) or True)
+    fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
+    assert order == [str(latest), str(best)]
+
+  def test_both_missing_silent_noop(self, tmp_path, monkeypatch, caplog):
+    latest = tmp_path / "run_latest.pt"
+    best = tmp_path / "run_best.pt"
+    monkeypatch.setattr("scdiag.checkpointing.storage_download",
+                        lambda uri, path: False)
+    with caplog.at_level(logging.WARNING):
+      restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
+    assert restored == []
+    assert caplog.records == []  # no warnings: a miss is normal
+    assert not latest.exists()
+    assert not best.exists()

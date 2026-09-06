@@ -16,7 +16,7 @@ import torch
 from scdiag.attr_utils import MISSING, get_attribute
 from scdiag.logging_utils import fatal
 from scdiag.param_align import AlignConfig, align_state_dicts, report_to_str
-from scdiag.storage_utils import save_checkpoint
+from scdiag.storage_utils import save_checkpoint, storage_download
 
 
 def rename_keys(state_dict, patterns):
@@ -502,6 +502,38 @@ def resume_checkpoint(ckpt_latest, ckpt_best, model, device):
 
   logging.info(f"  Resumed at epoch {start_epoch}, best_metric={best_metric:.4f}")
   return model, start_epoch, best_metric, extra
+
+
+def fetch_remote_checkpoint(remote_uri, ckpt_latest, ckpt_best):
+  """Pull missing local checkpoints from *remote_uri* before auto-resume.
+
+    :func:`resume_checkpoint` only reads local files, so a run restarted
+    on a fresh machine would otherwise silently train from scratch.  For
+    each candidate, in the same precedence order as
+    :func:`resume_checkpoint` (latest, then best), the remote copy is
+    downloaded when — and only when — the local file is absent.  Existing
+    local files are never overwritten: for a single-writer run the local
+    copy is authoritative.
+
+    Args:
+        remote_uri: Remote prefix URI (the ``--remote_checkpoint``
+            value); ``None`` disables the fallback entirely.
+        ckpt_latest: Local path of the ``_latest.pt`` checkpoint.
+        ckpt_best: Local path of the ``_best.pt`` checkpoint.
+
+    Returns:
+        List of local paths restored from remote storage.
+    """
+  if not remote_uri:
+    return []
+  restored = []
+  for path in (ckpt_latest, ckpt_best):
+    if os.path.isfile(path):
+      logging.info(f"  Local checkpoint present, skipping remote fetch: {path}")
+      continue
+    if storage_download(remote_uri, path):
+      restored.append(path)
+  return restored
 
 
 def restore_training_state(extra, optimizer, scheduler, scaler, states_to_load):
