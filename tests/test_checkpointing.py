@@ -1,5 +1,7 @@
 """Tests for the shared checkpointing utilities."""
 
+import copy
+import logging
 import os
 
 import torch
@@ -55,6 +57,23 @@ class _TinyModel(nn.Module):
   def __init__(self):
     super().__init__()
     self.fc = nn.Linear(2, 3)
+
+
+class _NestedWrapper(nn.Module):
+  """Registers one module under two names, like the I-JEPA student."""
+
+  def __init__(self, module):
+    super().__init__()
+    self.encoder = module
+    self.model = module
+
+
+class _WrappedAdapter(nn.Module):
+  """Holds the backbone under model.*, like ConvViTAdapter for fine-tuning."""
+
+  def __init__(self, module):
+    super().__init__()
+    self.model = module
 
 
 class TestCheckpointSaver:
@@ -178,3 +197,62 @@ class TestLoadCheckpointWeights:
     new_model = nn.Linear(10, 8)  # different output dim
     report = load_checkpoint_weights(path, new_model)
     assert report.unused_old or report.unmatched_new
+
+  def _save_ijepa_like(self, tmp_path, name="ijepa.pt"):
+    """Mimic an I-JEPA checkpoint: aliased student, EMA teacher, predictor."""
+    backbone = nn.Linear(10, 5)
+    student = _NestedWrapper(backbone)
+    teacher = _NestedWrapper(copy.deepcopy(backbone))
+    predictor = nn.Linear(10, 5)
+    ckpt = {}
+    # "student." prefix: the IJEPA wrapper holds the student as an attribute.
+    ckpt.update({f"student.{k}": v for k, v in student.state_dict().items()})
+    ckpt.update({f"teacher.{k}": v for k, v in teacher.state_dict().items()})
+    ckpt.update({f"predictor.{k}": v for k, v in predictor.state_dict().items()})
+    path = str(tmp_path / name)
+    torch.save({"model_state_dict": ckpt}, path)
+    return path, backbone
+
+  def _loaded_record(self, caplog):
+    """Return only the 'actually loaded' log record (not the align report)."""
+    return next(r.message for r in caplog.records if "actually loaded" in r.message)
+
+  def test_logs_actually_loaded_params(self, tmp_path, caplog):
+    path, backbone = self._save_ijepa_like(tmp_path)
+    # Adapter-style target (backbone under model.*), as in fine-tuning.
+    new_model = _WrappedAdapter(nn.Linear(10, 5))
+    with caplog.at_level(logging.INFO):
+      load_checkpoint_weights(path,
+                              new_model,
+                              param_rename=["student\\.encoder\\.(.*);model.$1"])
+    text = self._loaded_record(caplog)
+    # Headline: exactly the backbone's keys, not the teacher's/predictor's.
+    assert (f"param_align: {len(backbone.state_dict())} keys actually loaded" in text)
+    # The renamed student keys matched exactly and are what got loaded.
+    assert "model.* <- model.*  (2 keys)" in text
+    # If the EMA teacher or the alias had won, their prefixes would show.
+    assert "<- teacher." not in text
+    assert "<- student.model." not in text
+    assert "<- predictor." not in text
+
+  def test_loaded_log_skips_head_keys(self, tmp_path, caplog):
+    """A fresh head (no same-shape source key) never shows up as loaded."""
+    path, _ = self._save_ijepa_like(tmp_path)
+
+    class _WithHead(nn.Module):
+      """Adapter backbone plus a freshly initialised classifier head."""
+
+      def __init__(self):
+        super().__init__()
+        self.model = nn.Linear(10, 5)
+        self.head = nn.Linear(5, 2)
+
+    with caplog.at_level(logging.INFO):
+      load_checkpoint_weights(path,
+                              _WithHead(),
+                              param_rename=["student\\.encoder\\.(.*);model.$1"])
+    text = self._loaded_record(caplog)
+    # Only the transferred backbone appears; the fresh head does not.
+    assert "model.* <- model.*  (2 keys)" in text
+    assert "head.weight" not in text
+    assert "head.bias" not in text

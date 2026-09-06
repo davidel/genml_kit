@@ -543,6 +543,52 @@ def restore_training_state(extra, optimizer, scheduler, scaler, states_to_load):
       logging.info("  Skipped GradScaler state")
 
 
+def _format_loaded_params(report, state, unexpected_keys):
+  """Build the "actually loaded" summary for :func:`load_checkpoint_weights`.
+
+    The alignment report already lists what *could* be matched
+    (unmatched/unused/divergent); this summarises what was really
+    transferred into the model, grouped by common dotted prefix on both
+    sides so large checkpoints collapse to a handful of lines.
+
+    Args:
+        report: ``AlignReport`` whose *mapping* is ``{new_key: old_key}``.
+        state: The (already renamed) source state dict the mapping
+            points into; used to count transferred parameters.
+        unexpected_keys: Keys rejected by ``load_state_dict``; excluded
+            from the summary and reported separately by the caller.
+
+    Returns:
+        A ready-to-log string.  Empty when nothing was loaded.
+    """
+  unexpected = set(unexpected_keys)
+  loaded = {k: v for k, v in report.mapping.items() if k not in unexpected}
+  if not loaded:
+    return ""
+
+  groups = {}
+  for new_key, old_key in loaded.items():
+    new_prefix = new_key.rpartition(".")[0]
+    old_prefix = old_key.rpartition(".")[0]
+    groups.setdefault((new_prefix, old_prefix), []).append(new_key)
+
+  param_total = sum(state[old_key].numel() for old_key in loaded.values())
+  lines = [
+      f"param_align: {len(loaded)} keys actually loaded "
+      f"({param_total:,} parameters)"
+  ]
+  for (new_prefix, old_prefix), keys in sorted(groups.items()):
+    if len(keys) == 1:
+      # A lone key carries full information — print it verbatim.
+      lines.append(f"  {keys[0]} <- {loaded[keys[0]]}")
+    else:
+      # An empty prefix means the keys live at the state-dict root.
+      new_label = f"{new_prefix}.*" if new_prefix else "(root)"
+      old_label = f"{old_prefix}.*" if old_prefix else "(root)"
+      lines.append(f"  {new_label} <- {old_label}  ({len(keys)} keys)")
+  return "\n".join(lines)
+
+
 def load_checkpoint_weights(path,
                             model,
                             device="cpu",
@@ -606,6 +652,9 @@ def load_checkpoint_weights(path,
   result = model.load_state_dict(aligned, strict=strict)
   matched = len(aligned) - len(result.unexpected_keys)
   logging.info(f"  Loaded weights from {path} ({matched}/{len(aligned)} keys)")
+  loaded_block = _format_loaded_params(report, state, result.unexpected_keys)
+  if loaded_block:
+    logging.info(loaded_block)
   if result.missing_keys:
     logging.warning(f"  Missing keys: {result.missing_keys}")
   if result.unexpected_keys:
