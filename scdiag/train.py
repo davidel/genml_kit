@@ -732,7 +732,10 @@ def mixup_data(x, y, alpha=0.2):
   if alpha <= 0:
     return x, y, y, 1.0
   lam = np.random.beta(alpha, alpha)
-  lam = max(lam, 1.0 - lam)  # keep lambda > 0.5 for consistency
+  # Fold into lam so y_a is always the dominant label and callers can
+  # use y_a alone for hard-label metrics; the y_b contribution survives
+  # only through the 1-lam weight in the soft-target loss.
+  lam = max(lam, 1.0 - lam)
   batch_size = x.size(0)
   index = torch.randperm(batch_size, device=x.device)
   mixed_x = lam * x + (1.0 - lam) * x[index]
@@ -841,8 +844,11 @@ def train_one_epoch(
         )
 
     with torch.no_grad():
-      orig_targets = (targets if not use_mixup else
-                      (targets_a if lam >= 0.5 else targets_b))
+      # Report metrics against the dominant label only (targets_a always
+      # holds it, see the clamp in mixup_data).  The loss above uses the
+      # full lam / (1-lam) mixture; only these hard-label metrics are
+      # conservative on blended inputs.
+      orig_targets = targets_a if use_mixup else targets
 
     batch_size = orig_targets.size(0)
     report_now = (batch_idx + 1) == total_batches
