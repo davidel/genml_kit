@@ -50,6 +50,7 @@ from scdiag.models import load_model, load_processor
 from scdiag.optim_factory import build_optimization
 from scdiag.script_utils import load_extern
 from scdiag.seed_utils import seed_everything, seed_worker
+from scdiag.signal_utils import InterruptedException, sigexcept
 from scdiag.train_reporting import TrainReporting
 from scdiag.tta import create_default_tta_transform, load_tta_transform
 from scdiag.xgb_pipeline import train_xgboost_on_backbone
@@ -866,8 +867,10 @@ DataBundle = collections.namedtuple(
     "class_weights, clinical_m, criterion, data_generator, tta_transform")
 
 # Bookkeeping handed back after the training loop finishes.
-TrainingResult = collections.namedtuple("TrainingResult",
-                                        "completed_epoch, best_macro_f1, global_step")
+# ``interrupt_signals`` lists the signals that fired inside the loop (empty
+# on clean completion); ``main()`` uses it to gate the post-training stage.
+TrainingResult = collections.namedtuple(
+    "TrainingResult", "completed_epoch, best_macro_f1, global_step, interrupt_signals")
 
 
 def resolve_augmentations(args, processor):
@@ -1204,71 +1207,77 @@ def run_training(args, model, data, optimization, device, writer, start_epoch,
       save_every=args.save_every,
   )
 
-  try:
-    for epoch in range(start_epoch, args.epochs):
-      effective_batch = args.batch_size * args.grad_accum_steps
-      logging.info(f"=== Epoch {epoch + 1}/{args.epochs} "
-                   f"(eff_batch={effective_batch}) ===")
+  # Signals arriving inside the loop become InterruptedException, so the
+  # finally-block below still runs and a consistent checkpoint lands on
+  # disk before a clean exit.  __exit__ restores the handlers only after
+  # that save completed (the with-block encloses the try/finally).
+  with sigexcept() as interrupts:
+    try:
+      for epoch in range(start_epoch, args.epochs):
+        effective_batch = args.batch_size * args.grad_accum_steps
+        logging.info(f"=== Epoch {epoch + 1}/{args.epochs} "
+                     f"(eff_batch={effective_batch}) ===")
 
-      train_loss, train_t1, global_step = train_one_epoch(
-          model,
-          data.train_loader,
-          data.criterion,
-          optimization.optimizer,
-          optimization.scaler,
-          optimization.scheduler,
-          device,
-          args.amp_dtype,
-          epoch,
-          args,
-          writer=writer,
-          monitor=grad_monitor,
-          global_step=global_step,
-          saver=saver,
-          best_macro_f1=best_macro_f1,
-      )
-
-      if optimization.scheduler is not None:
-        optimization.scheduler.step()
-      writer.add_scalar("Epoch/Loss_Train", train_loss, epoch)
-      writer.add_scalar("Epoch/Accuracy_Train_Top1", train_t1, epoch)
-
-      val_metrics = evaluate_performance(
-          model,
-          data.val_loader,
-          data.criterion,
-          device,
-          args.amp_dtype,
-          id2label=data.train_proxy.id2label,
-          tta_transform=data.tta_transform,
-      )
-      log_epoch_validation(writer, epoch, data, val_metrics)
-      v_macro_f1 = val_metrics[3]
-
-      if v_macro_f1 > best_macro_f1:
-        best_macro_f1 = v_macro_f1
-        saver.save_best(
+        train_loss, train_t1, global_step = train_one_epoch(
+            model,
+            data.train_loader,
+            data.criterion,
+            optimization.optimizer,
+            optimization.scaler,
+            optimization.scheduler,
+            device,
+            args.amp_dtype,
             epoch,
-            best_macro_f1=best_macro_f1,
+            args,
+            writer=writer,
+            monitor=grad_monitor,
             global_step=global_step,
-            lora_state_blob=serialize_lora_state(model) if args.lora else None,
+            saver=saver,
+            best_macro_f1=best_macro_f1,
         )
-        logging.info(f"New best macro F1, checkpoint saved: {best_macro_f1:.2f}%")
 
-      completed_epoch = epoch
-  except KeyboardInterrupt:
-    logging.warning("Interrupt detected!")
-  finally:
-    saver.save_latest(
-        completed_epoch,
-        best_macro_f1=best_macro_f1,
-        global_step=global_step,
-        lora_state_blob=serialize_lora_state(model) if args.lora else None,
-    )
-    logging.info("Checkpoint saved on exit.")
-    writer.close()
+        if optimization.scheduler is not None:
+          optimization.scheduler.step()
+        writer.add_scalar("Epoch/Loss_Train", train_loss, epoch)
+        writer.add_scalar("Epoch/Accuracy_Train_Top1", train_t1, epoch)
 
-  return TrainingResult(completed_epoch, best_macro_f1, global_step)
+        val_metrics = evaluate_performance(
+            model,
+            data.val_loader,
+            data.criterion,
+            device,
+            args.amp_dtype,
+            id2label=data.train_proxy.id2label,
+            tta_transform=data.tta_transform,
+        )
+        log_epoch_validation(writer, epoch, data, val_metrics)
+        v_macro_f1 = val_metrics[3]
+
+        if v_macro_f1 > best_macro_f1:
+          best_macro_f1 = v_macro_f1
+          saver.save_best(
+              epoch,
+              best_macro_f1=best_macro_f1,
+              global_step=global_step,
+              lora_state_blob=serialize_lora_state(model) if args.lora else None,
+          )
+          logging.info(f"New best macro F1, checkpoint saved: {best_macro_f1:.2f}%")
+
+        completed_epoch = epoch
+    except InterruptedException:
+      logging.warning(f"Interrupted by {interrupts.received}; saving checkpoint.")
+    finally:
+      saver.save_latest(
+          completed_epoch,
+          best_macro_f1=best_macro_f1,
+          global_step=global_step,
+          lora_state_blob=serialize_lora_state(model) if args.lora else None,
+      )
+      logging.info("Checkpoint saved on exit.")
+      writer.close()
+
+  return TrainingResult(completed_epoch, best_macro_f1, global_step,
+                        interrupts.received)
 
 
 def maybe_train_xgboost(args, data, device):
@@ -1346,7 +1355,7 @@ def main():
   )
   del ckpt_extra
 
-  run_training(
+  result = run_training(
       args,
       model,
       data,
@@ -1357,7 +1366,15 @@ def main():
       best_macro_f1=best_macro_f1,
       global_step=optimizer_global_step,
   )
-  maybe_train_xgboost(args, data, device)
+  # The checkpoint was already saved by run_training's finally-block in
+  # every case.  The remaining post-training stage (XGBoost) only runs on
+  # a clean exit or on Ctrl-C; SIGTERM/SIGHUP (or a second Ctrl-C) exit
+  # cleanly right here with code 0.
+  if result.interrupt_signals and result.interrupt_signals != ["SIGINT"]:
+    logging.info("Interrupted by %s; checkpoint saved, exiting.",
+                 result.interrupt_signals)
+  else:
+    maybe_train_xgboost(args, data, device)
 
 
 if __name__ == "__main__":

@@ -55,6 +55,7 @@ from scdiag.models.registry import load_model
 from scdiag.optim_factory import build_optimization, report_lr
 from scdiag.pretrain_methods import get_method, list_methods
 from scdiag.seed_utils import seed_everything, seed_worker
+from scdiag.signal_utils import InterruptedException, sigexcept
 
 
 def build_pretrain_transform(image_size=448):
@@ -604,8 +605,10 @@ def parse_args(argv=None):
 
 # Bookkeeping handed back after the pre-training loop finishes.
 # ``best_macro_f1`` is not tracked during pre-training and is always 0.0.
-TrainingResult = collections.namedtuple("TrainingResult",
-                                        "completed_epoch, best_macro_f1, global_step")
+# ``interrupt_signals`` mirrors train.py's TrainingResult for shape
+# symmetry; there is no post-loop stage, so it is not consumed here.
+TrainingResult = collections.namedtuple(
+    "TrainingResult", "completed_epoch, best_macro_f1, global_step, interrupt_signals")
 
 
 def build_pretrain_loaders(args, dataset, ensemble, device, needs_labels):
@@ -753,43 +756,51 @@ def run_pretraining(args, model, loader, ensemble, method, optimization, device,
       extra_fn=lambda: {"method_state": method.get_checkpoint_state(model, args)},
   )
 
-  try:
-    for epoch in range(start_epoch, args.epochs):
-      logging.info(f"=== Epoch {epoch + 1}/{args.epochs} ===")
-      avg_loss, global_step = train_one_epoch(
-          method,
-          model,
-          loader,
-          ensemble,
-          optimization.optimizer,
-          device,
-          args.amp_dtype,
-          epoch,
-          global_step,
-          writer,
-          log_every=args.log_every,
-          vis_every=args.vis_every,
-          monitor=grad_monitor,
-          grad_accum_steps=args.grad_accum_steps,
-          scaler=optimization.scaler,
-          saver=saver,
-      )
-      writer.add_scalar("Train/loss_epoch", avg_loss, epoch)
-      if optimization.scheduler is not None:
-        optimization.scheduler.step()
-      completed_epoch = epoch
-      method.on_epoch_end(model, epoch, writer)
+  # Signals arriving inside the loop become InterruptedException, so the
+  # finally-block below still runs and a consistent checkpoint lands on
+  # disk before a clean exit.  __exit__ restores the handlers only after
+  # that save completed (the with-block encloses the try/finally).
+  with sigexcept() as interrupts:
+    try:
+      for epoch in range(start_epoch, args.epochs):
+        logging.info(f"=== Epoch {epoch + 1}/{args.epochs} ===")
+        avg_loss, global_step = train_one_epoch(
+            method,
+            model,
+            loader,
+            ensemble,
+            optimization.optimizer,
+            device,
+            args.amp_dtype,
+            epoch,
+            global_step,
+            writer,
+            log_every=args.log_every,
+            vis_every=args.vis_every,
+            monitor=grad_monitor,
+            grad_accum_steps=args.grad_accum_steps,
+            scaler=optimization.scaler,
+            saver=saver,
+        )
+        writer.add_scalar("Train/loss_epoch", avg_loss, epoch)
+        if optimization.scheduler is not None:
+          optimization.scheduler.step()
+        completed_epoch = epoch
+        method.on_epoch_end(model, epoch, writer)
 
+        saver.save_latest(completed_epoch, global_step=global_step, loss=avg_loss)
+
+    except InterruptedException:
+      logging.warning(f"Interrupted by {interrupts.received}; saving checkpoint.")
+    finally:
       saver.save_latest(completed_epoch, global_step=global_step, loss=avg_loss)
+      logging.info("Checkpoint saved on exit.")
+      writer.close()
 
-  except KeyboardInterrupt:
-    logging.warning("Interrupt detected!")
-  finally:
-    saver.save_latest(completed_epoch, global_step=global_step, loss=avg_loss)
-    logging.info("Checkpoint saved on exit.")
-    writer.close()
-
-  return TrainingResult(completed_epoch, best_macro_f1=0.0, global_step=global_step)
+  return TrainingResult(completed_epoch,
+                        best_macro_f1=0.0,
+                        global_step=global_step,
+                        interrupt_signals=interrupts.received)
 
 
 def main(argv=None):
