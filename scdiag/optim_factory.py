@@ -8,10 +8,82 @@ import collections
 import logging
 import re
 
+import torch
 import torch.optim as optim
 
+from scdiag.checkpointing import restore_training_state
 from scdiag.logging_utils import fatal
 from scdiag.script_utils import extern_call
+
+# Everything needed to drive the training loop: the param groups (as
+# logged/reported), the optimizer, the LR scheduler (may be None) and the
+# AMP GradScaler (only set for float16 AMP on CUDA, else None).
+Optimization = collections.namedtuple("Optimization",
+                                      "param_groups, optimizer, scheduler, scaler")
+
+
+def build_optimization(args, model, device, ckpt_extra, states_to_load):
+  """Build param groups, optimizer, scheduler and AMP scaler for a run.
+
+  Wraps the optimizer/scheduler/scaler setup that ``train.py`` and
+  ``pretrain.py`` used to carry as near-verbatim copies, then restores
+  any optimizer/scheduler/scaler state requested via ``--state_load``.
+
+  Args:
+      args: Parsed CLI args (lr, weight_decay, llrd_decay, lr_group,
+          optimizer, opt_arg, scheduler, sched_arg, epochs, amp_dtype).
+      model: The model whose ``named_parameters()`` feed the groups.
+      device: The run's ``torch.device`` (selects the GradScaler device).
+      ckpt_extra: Extra dict from the resumed checkpoint (may carry
+          optimizer/scheduler/scaler state); may be empty.
+      states_to_load: State sources to restore, from ``--state_load``.
+
+  Returns:
+      An ``Optimization`` namedtuple.
+  """
+  if args.llrd_decay is not None:
+    param_groups = build_param_groups_llrd(
+        dict(model.named_parameters()),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        decay_factor=args.llrd_decay,
+    )
+  else:
+    param_groups = build_param_groups(
+        dict(model.named_parameters()),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        lr_groups=args.lr_group,
+    )
+  optimizer = create_optimizer(
+      param_groups,
+      name=args.optimizer,
+      **args.opt_arg,
+  )
+
+  scheduler = create_scheduler(
+      optimizer,
+      name=args.scheduler,
+      epochs=args.epochs,
+      base_lr=args.lr,
+      **args.sched_arg,
+  )
+
+  # Only use GradScaler with float16 AMP (not bfloat16 which has native
+  # wider dynamic range and doesn't need loss scaling).
+  scaler = (torch.amp.GradScaler(device)
+            if args.amp_dtype == torch.float16 and device.type == "cuda" else None)
+  if scaler is not None:
+    logging.info("GradScaler enabled for float16 AMP stability.")
+
+  restore_training_state(
+      ckpt_extra,
+      optimizer,
+      scheduler,
+      scaler,
+      states_to_load,
+  )
+  return Optimization(param_groups, optimizer, scheduler, scaler)
 
 
 def build_param_groups(named_params, lr, weight_decay, lr_groups=None):

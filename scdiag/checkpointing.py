@@ -536,6 +536,33 @@ def fetch_remote_checkpoint(remote_uri, ckpt_latest, ckpt_best):
   return restored
 
 
+def open_resume_context(args, model, device):
+  """Fetch remote checkpoints and auto-resume into ``model``.
+
+  Wraps the resume boilerplate shared by ``train.py`` and ``pretrain.py``:
+  derive the ``_latest.pt`` / ``_best.pt`` paths from ``--checkpoint``,
+  pull missing local copies from ``--remote_checkpoint``, then resume.
+
+  Args:
+      args: Parsed CLI args (``checkpoint``, ``remote_checkpoint``).
+      model: The freshly built model to load weights into.
+      device: Device used for tensor remapping during the load.
+
+  Returns:
+      Tuple ``(model, start_epoch, best_macro_f1, ckpt_extra)``.
+  """
+  ckpt_latest = args.checkpoint + "_latest.pt"
+  ckpt_best = args.checkpoint + "_best.pt"
+  fetch_remote_checkpoint(args.remote_checkpoint, ckpt_latest, ckpt_best)
+  model, start_epoch, best_macro_f1, ckpt_extra = resume_checkpoint(
+      ckpt_latest,
+      ckpt_best,
+      model,
+      device,
+  )
+  return model, start_epoch, best_macro_f1, ckpt_extra
+
+
 def restore_training_state(extra, optimizer, scheduler, scaler, states_to_load):
   """Restore optimizer, scheduler, and AMP state from checkpoint extras.
 

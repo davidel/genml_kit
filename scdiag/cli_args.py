@@ -9,6 +9,26 @@ two CLIs cannot drift again.
 
 import argparse
 
+import torch
+
+
+def normalize_args(args):
+  """Post-process parsed CLI args shared by the training entry points.
+
+  Performs the ``--amp_dtype`` string -> ``torch.dtype`` conversion so the
+  rest of the code can rely on a dtype object (or ``None``).
+
+  Args:
+      args: The ``argparse.Namespace`` returned by a training script's
+          ``parse_args()``.  Modified in place.
+
+  Returns:
+      The same ``args`` namespace, for call-site readability.
+  """
+  # Convert string amp_dtype to torch.dtype.
+  args.amp_dtype = getattr(torch, args.amp_dtype, None) if args.amp_dtype else None
+  return args
+
 
 def add_checkpoint_args(parser, checkpoint_default, resume_default=None):
   """Add the shared checkpoint-location flags.

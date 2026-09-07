@@ -1,9 +1,9 @@
 """Fine-tune a HuggingFace image-classification model."""
 
 import argparse
+import collections
 import gc
 import logging
-import os
 import re
 
 import datasets
@@ -12,17 +12,14 @@ import torch
 import torch.nn.functional as F
 from datasets import load_dataset
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms import v2
 from torchvision.transforms.v2 import InterpolationMode
 
 from scdiag.checkpointing import (
     CheckpointSaver,
     create_model_report,
-    fetch_remote_checkpoint,
+    open_resume_context,
     parse_state_flags,
-    restore_training_state,
-    resume_checkpoint,
     serialize_lora_state,
 )
 from scdiag.cli_args import (
@@ -31,13 +28,15 @@ from scdiag.cli_args import (
     add_optimization_args,
     add_source_checkpoint_args,
     add_training_state_args,
+    normalize_args,
 )
 from scdiag.cli_utils import KVPairAction
 from scdiag.datasets.hf_proxy import HFDatasetProxy
 from scdiag.datasets.weighted_sampler import build_weighted_sampler
 from scdiag.eval import evaluate_performance
-from scdiag.grad_monitor import GradMonitor
-from scdiag.logging_utils import fatal, setup_logging
+from scdiag.gpu_utils import resolve_device
+from scdiag.grad_monitor import create_grad_monitor
+from scdiag.logging_utils import fatal, open_writer, setup_logging
 from scdiag.losses.focal import CombinedFocalLoss
 from scdiag.metrics import confusion_row_strings
 from scdiag.model_utils import (
@@ -48,12 +47,7 @@ from scdiag.model_utils import (
     set_train_mode,
 )
 from scdiag.models import load_model, load_processor
-from scdiag.optim_factory import (
-    build_param_groups,
-    build_param_groups_llrd,
-    create_optimizer,
-    create_scheduler,
-)
+from scdiag.optim_factory import build_optimization
 from scdiag.script_utils import load_extern
 from scdiag.seed_utils import seed_everything, seed_worker
 from scdiag.train_reporting import TrainReporting
@@ -866,36 +860,28 @@ def train_one_epoch(
   return avg_loss, top1, global_step
 
 
-def main():
-  args = parse_args()
-  setup_logging(args.log_level, args.log_targets)
-  seed_everything(args.seed, args.deterministic)
+# Everything the training loop needs from the data pipeline.
+DataBundle = collections.namedtuple(
+    "DataBundle", "train_proxy, val_proxy, train_loader, val_loader, num_labels, "
+    "class_weights, clinical_m, criterion, data_generator, tta_transform")
 
-  # Convert string amp_dtype to torch.dtype.
-  args.amp_dtype = getattr(torch, args.amp_dtype, None) if args.amp_dtype else None
+# Bookkeeping handed back after the training loop finishes.
+TrainingResult = collections.namedtuple("TrainingResult",
+                                        "completed_epoch, best_macro_f1, global_step")
 
-  states_to_save = parse_state_flags(args.state_save)
-  states_to_load = parse_state_flags(args.state_load)
 
-  if args.device:
-    device = torch.device(args.device)
-  else:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-  logging.info(f"Using device: {device}")
+def resolve_augmentations(args, processor):
+  """Resolve the train/val transforms and the optional TTA transform.
 
-  log_dir = args.log_dir or os.path.join(
-      os.path.dirname(args.checkpoint) or ".", "logs")
-  os.makedirs(log_dir, exist_ok=True)
-  writer = SummaryWriter(log_dir=log_dir)
+  Args:
+      args: Parsed CLI args (``train_augmentation_script``, ``tta``,
+          ``image_size``).
+      processor: The loaded model processor feeding ``build_transforms``.
 
-  # Load processor — unified registry dispatches to HF or custom.
-  processor = load_processor(
-      args.model,
-      image_size=args.image_size,
-      cache_dir=args.cache_dir,
-      **args.proc_arg,
-  )
-
+  Returns:
+      Tuple ``(train_transforms, val_transforms, tta_transform)``, where
+      ``tta_transform`` is ``None`` when TTA is disabled.
+  """
   # Resolve custom augmentation script to a callable, if provided.
   train_aug_fn = None
   if args.train_augmentation_script:
@@ -918,13 +904,26 @@ def main():
   logging.info(f"Image size: {args.image_size}")
   logging.info(f"Train transforms: {train_transforms}")
   logging.info(f"Val transforms:   {val_transforms}")
+  return train_transforms, val_transforms, tta_transform
 
+
+def build_data(args, device):
+  """Load the dataset and build loaders, class weights and the criterion.
+
+  Args:
+      args: Parsed CLI args (dataset, split, sampler, loss and batch
+          settings).
+      device: The run's ``torch.device`` (class weights are moved onto it).
+
+  Returns:
+      A ``DataBundle`` namedtuple.
+  """
   train_proxy, val_proxy = load_and_split_dataset(
       args.dataset,
       cache_dir=args.cache_dir,
       test_size=args.val_split,
-      train_transform=train_transforms,
-      val_transform=val_transforms,
+      train_transform=args.train_transforms,
+      val_transform=args.val_transforms,
       image_column=args.image_column,
       label_column=args.label_column,
       seed=args.seed,
@@ -1008,11 +1007,54 @@ def main():
       pin_memory=(device.type == "cuda"),
   )
 
+  if args.focal_gamma > 0 and args.label_smoothing > 0:
+    logging.warning(
+        "Both --focal_gamma (%.1f) and --label_smoothing (%.2f) are > 0. "
+        "Focal loss and label smoothing conflict. Proceeding anyway — "
+        "monitor for instability.",
+        args.focal_gamma,
+        args.label_smoothing,
+    )
+
+  criterion = CombinedFocalLoss(
+      weights=class_weights,
+      gamma=args.focal_gamma,
+      label_smoothing=args.label_smoothing,
+  )
+
+  return DataBundle(
+      train_proxy=train_proxy,
+      val_proxy=val_proxy,
+      train_loader=train_loader,
+      val_loader=val_loader,
+      num_labels=num_labels,
+      class_weights=class_weights,
+      clinical_m=clinical_m,
+      criterion=criterion,
+      data_generator=data_generator,
+      tta_transform=args.tta_transform,
+  )
+
+
+def build_model(args, device, num_labels, id2label, label2id):
+  """Load the model and apply gradient checkpointing / source weights / LoRA.
+
+  Args:
+      args: Parsed CLI args (model spec, grad_checkpoint,
+          source_checkpoint, LoRA settings).
+      device: Device to place the model on.
+      num_labels: Number of target classes (0 for backbone-only loads).
+      id2label: Mapping of class index to class name.
+      label2id: Mapping of class name to class index.
+
+  Returns:
+      The prepared ``torch.nn.Module``.
+  """
   model = load_model(
       args.model,
       num_labels=num_labels,
-      id2label=train_proxy.id2label,
-      label2id=train_proxy.label2id,
+      id2label=id2label,
+      label2id=label2id,
       image_size=args.image_size,
       device=device,
       checkpoint_path=args.checkpoint,
@@ -1039,24 +1081,6 @@ def main():
         param_rename=args.param_rename,
     )
 
-  if args.focal_gamma > 0 and args.label_smoothing > 0:
-    logging.warning(
-        "Both --focal_gamma (%.1f) and --label_smoothing (%.2f) are > 0. "
-        "Focal loss and label smoothing conflict. Proceeding anyway — "
-        "monitor for instability.",
-        args.focal_gamma,
-        args.label_smoothing,
-    )
-
-  criterion = CombinedFocalLoss(
-      weights=class_weights,
-      gamma=args.focal_gamma,
-      label_smoothing=args.label_smoothing,
-  )
-
-  scaler = (torch.amp.GradScaler(device)
-            if args.amp_dtype == torch.float16 and device.type == "cuda" else None)
-
   if args.lora:
     target = (args.lora_target_modules.split(",") if args.lora_target_modules else None)
     model = apply_lora(
@@ -1066,76 +1090,101 @@ def main():
         dropout=args.lora_dropout,
         target_modules=target,
     )
-  ckpt_latest = args.checkpoint + "_latest.pt"
-  ckpt_best = args.checkpoint + "_best.pt"
-  fetch_remote_checkpoint(args.remote_checkpoint, ckpt_latest, ckpt_best)
-  model, start_epoch, best_macro_f1, ckpt_extra = resume_checkpoint(
-      ckpt_latest,
-      ckpt_best,
-      model,
-      device,
-  )
+  return model
 
+
+def apply_freeze_patterns(args, model):
+  """Freeze parameters matching the user/LORA patterns, when requested.
+
+  Args:
+      args: Parsed CLI args (``freeze``, ``lora``).
+      model: The model to freeze, modified in place.
+  """
   if args.freeze or args.lora:
     patterns = list(args.freeze.split(",")) if args.freeze else []
     if args.lora:
       patterns.extend(re.escape(k) for k in extract_lora_params(model))
     freeze_model(model, tuple(patterns))
 
-  if args.llrd_decay is not None:
-    param_groups = build_param_groups_llrd(
-        dict(model.named_parameters()),
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        decay_factor=args.llrd_decay,
-    )
-  else:
-    param_groups = build_param_groups(
-        dict(model.named_parameters()),
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        lr_groups=args.lr_group,
-    )
-  optimizer = create_optimizer(
-      param_groups,
-      name=args.optimizer,
-      **args.opt_arg,
-  )
 
-  scheduler = create_scheduler(
-      optimizer,
-      name=args.scheduler,
-      epochs=args.epochs,
-      base_lr=args.lr,
-      **args.sched_arg,
-  )
+def log_epoch_validation(writer, epoch, data, val_metrics):
+  """Log and TensorBoard-plot one epoch of validation results.
 
-  restore_training_state(
-      ckpt_extra,
-      optimizer,
-      scheduler,
-      scaler,
-      states_to_load,
-  )
+  Args:
+      writer: TensorBoard ``SummaryWriter``.
+      epoch: Current epoch index.
+      data: The ``DataBundle`` (id2label used for the confusion matrix).
+      val_metrics: Tuple as returned by :func:`evaluate_performance`:
+          ``(loss, top1, balanced_acc, macro_f1, weighted_f1,
+          per_class_metrics, confusion_matrix, original_metrics)``.
+  """
+  (v_loss, v_t1, v_balanced_acc, v_macro_f1, v_weighted_f1, v_per_class_metrics, v_cm,
+   v_original_metrics) = val_metrics
+  writer.add_scalar("Epoch/Loss_Val", v_loss, epoch)
+  writer.add_scalar("Epoch/Accuracy_Val_Top1", v_t1, epoch)
+  writer.add_scalar("Epoch/Balanced_Accuracy_Val", v_balanced_acc, epoch)
+  writer.add_scalar("Epoch/Macro_F1_Val", v_macro_f1, epoch)
+  writer.add_scalar("Epoch/Weighted_F1_Val", v_weighted_f1, epoch)
+  logging.info(f"Epoch {epoch + 1} Results -> "
+               f"Val Loss: {v_loss:.4f} | Top1: {v_t1:.2f}%"
+               f" | Balanced Acc: {v_balanced_acc:.2f}%"
+               f" | Macro F1: {v_macro_f1:.2f}%"
+               f" | Weighted F1: {v_weighted_f1:.2f}%")
+  if v_original_metrics is not None:
+    orig = v_original_metrics
+    logging.info(f"  Original-view metrics (TTA comparison): Top1={orig['top1']:.2f}% "
+                 f"| Balanced Acc={orig['balanced_accuracy']:.2f}% "
+                 f"| Macro F1={orig['macro_f1']:.2f}% "
+                 f"| Weighted F1={orig['weighted_f1']:.2f}%")
+    logging.info(f"  TTA delta: Top1={v_t1 - orig['top1']:+.2f}% "
+                 f"| Balanced Acc={v_balanced_acc - orig['balanced_accuracy']:+.2f}% "
+                 f"| Macro F1={v_macro_f1 - orig['macro_f1']:+.2f}% "
+                 f"| Weighted F1={v_weighted_f1 - orig['weighted_f1']:+.2f}%")
+    writer.add_scalar("Epoch/Accuracy_Val_Original_Top1", orig["top1"], epoch)
+    writer.add_scalar("Epoch/Balanced_Accuracy_Val_Original", orig["balanced_accuracy"],
+                      epoch)
+    writer.add_scalar("Epoch/Macro_F1_Val_Original", orig["macro_f1"], epoch)
+    writer.add_scalar("Epoch/Weighted_F1_Val_Original", orig["weighted_f1"], epoch)
+  logging.info("Confusion matrix:")
+  for line in confusion_row_strings(v_cm, id2label=data.train_proxy.id2label):
+    logging.info(f"  {line}")
+  if v_per_class_metrics:
+    logging.info("Class metrics:")
+    for cls_name, metrics in v_per_class_metrics.items():
+      writer.add_scalar(f"Epoch/F1_Val/{cls_name}", metrics["f1"], epoch)
+      logging.info(f"  {cls_name}: precision={metrics['precision']:.2f}% "
+                   f"recall={metrics['recall']:.2f}% F1={metrics['f1']:.2f}% "
+                   f"support={metrics['support']}")
 
-  optimizer_global_step = ckpt_extra.get(
-      "global_step",
-      start_epoch * (len(train_loader) // args.grad_accum_steps),
-  )
-  del ckpt_extra
+
+def run_training(args, model, data, optimization, device, writer, start_epoch,
+                 best_macro_f1, global_step):
+  """Run the supervised fine-tuning loop.
+
+  Owns the model report, the gradient monitor, the ``CheckpointSaver``
+  (including the save-on-exit in the ``finally`` block) and the
+  per-epoch train/validate cycle with best-checkpoint selection.
+
+  Args:
+      args: Parsed CLI args (epochs, batch/accum, checkpoint, monitor
+          and save settings).
+      model: The prepared model; mutated in place by training.
+      data: The ``DataBundle`` from :func:`build_data`.
+      optimization: The ``Optimization`` namedtuple from
+          :func:`build_optimization`.
+      device: The run's ``torch.device``.
+      writer: TensorBoard ``SummaryWriter`` (closed here on exit).
+      start_epoch: First epoch to run (0 on a fresh run).
+      best_macro_f1: Best validation macro F1 so far (%).
+      global_step: Optimizer step counter restored from the checkpoint.
+
+  Returns:
+      A ``TrainingResult`` namedtuple.
+  """
+  states_to_save = parse_state_flags(args.state_save)
 
   completed_epoch = start_epoch - 1  # last fully completed (-1 = none yet)
-  grad_monitor = None
-  if args.grad_monitor >= 0:
-    grad_monitor = GradMonitor(
-        model,
-        log_every=args.grad_monitor,
-        norm_history=args.norm_history,
-        trend_top_n=args.trend_top_n,
-    )
-    logging.info(f"Gradient monitoring enabled (every {args.grad_monitor} steps).")
-    if args.norm_history > 0:
-      logging.info(f"  Norm trend history: last {args.norm_history} snapshots")
+  grad_monitor = create_grad_monitor(args, model)
 
   # Report the final model state after LoRA, freezing, optimizer setup, and
   # checkpoint restoration, immediately before training begins.
@@ -1145,11 +1194,11 @@ def main():
   # per-save data (epoch, global_step, metrics) passed per call.
   saver = CheckpointSaver(
       model,
-      optimizer,
-      scheduler,
+      optimization.optimizer,
+      optimization.scheduler,
       root=args.checkpoint,
       states_to_save=states_to_save,
-      scaler=scaler,
+      scaler=optimization.scaler,
       save_frozen=args.save_frozen,
       remote_uri=args.remote_checkpoint,
       save_every=args.save_every,
@@ -1161,83 +1210,47 @@ def main():
       logging.info(f"=== Epoch {epoch + 1}/{args.epochs} "
                    f"(eff_batch={effective_batch}) ===")
 
-      train_loss, train_t1, optimizer_global_step = train_one_epoch(
+      train_loss, train_t1, global_step = train_one_epoch(
           model,
-          train_loader,
-          criterion,
-          optimizer,
-          scaler,
-          scheduler,
+          data.train_loader,
+          data.criterion,
+          optimization.optimizer,
+          optimization.scaler,
+          optimization.scheduler,
           device,
           args.amp_dtype,
           epoch,
           args,
           writer=writer,
           monitor=grad_monitor,
-          global_step=optimizer_global_step,
+          global_step=global_step,
           saver=saver,
           best_macro_f1=best_macro_f1,
       )
 
-      if scheduler is not None:
-        scheduler.step()
+      if optimization.scheduler is not None:
+        optimization.scheduler.step()
       writer.add_scalar("Epoch/Loss_Train", train_loss, epoch)
       writer.add_scalar("Epoch/Accuracy_Train_Top1", train_t1, epoch)
 
-      (v_loss, v_t1, v_balanced_acc, v_macro_f1, v_weighted_f1, v_per_class_metrics,
-       v_cm, v_original_metrics) = evaluate_performance(
-           model,
-           val_loader,
-           criterion,
-           device,
-           args.amp_dtype,
-           id2label=train_proxy.id2label,
-           tta_transform=tta_transform,
-       )
-      writer.add_scalar("Epoch/Loss_Val", v_loss, epoch)
-      writer.add_scalar("Epoch/Accuracy_Val_Top1", v_t1, epoch)
-      writer.add_scalar("Epoch/Balanced_Accuracy_Val", v_balanced_acc, epoch)
-      writer.add_scalar("Epoch/Macro_F1_Val", v_macro_f1, epoch)
-      writer.add_scalar("Epoch/Weighted_F1_Val", v_weighted_f1, epoch)
-      logging.info(f"Epoch {epoch + 1} Results -> "
-                   f"Val Loss: {v_loss:.4f} | Top1: {v_t1:.2f}%"
-                   f" | Balanced Acc: {v_balanced_acc:.2f}%"
-                   f" | Macro F1: {v_macro_f1:.2f}%"
-                   f" | Weighted F1: {v_weighted_f1:.2f}%")
-      if v_original_metrics is not None:
-        orig = v_original_metrics
-        logging.info(
-            f"  Original-view metrics (TTA comparison): Top1={orig['top1']:.2f}% "
-            f"| Balanced Acc={orig['balanced_accuracy']:.2f}% "
-            f"| Macro F1={orig['macro_f1']:.2f}% "
-            f"| Weighted F1={orig['weighted_f1']:.2f}%")
-        logging.info(
-            f"  TTA delta: Top1={v_t1 - orig['top1']:+.2f}% "
-            f"| Balanced Acc={v_balanced_acc - orig['balanced_accuracy']:+.2f}% "
-            f"| Macro F1={v_macro_f1 - orig['macro_f1']:+.2f}% "
-            f"| Weighted F1={v_weighted_f1 - orig['weighted_f1']:+.2f}%")
-        writer.add_scalar("Epoch/Accuracy_Val_Original_Top1", orig["top1"], epoch)
-        writer.add_scalar("Epoch/Balanced_Accuracy_Val_Original",
-                          orig["balanced_accuracy"], epoch)
-        writer.add_scalar("Epoch/Macro_F1_Val_Original", orig["macro_f1"], epoch)
-        writer.add_scalar("Epoch/Weighted_F1_Val_Original", orig["weighted_f1"], epoch)
-      logging.info("Confusion matrix:")
-      for line in confusion_row_strings(v_cm, id2label=train_proxy.id2label):
-        logging.info(f"  {line}")
-      if v_per_class_metrics:
-        logging.info("Class metrics:")
-        for cls_name, metrics in v_per_class_metrics.items():
-          writer.add_scalar(f"Epoch/F1_Val/{cls_name}", metrics["f1"], epoch)
-          logging.info(f"  {cls_name}: precision={metrics['precision']:.2f}% "
-                       f"recall={metrics['recall']:.2f}% F1={metrics['f1']:.2f}% "
-                       f"support={metrics['support']}")
+      val_metrics = evaluate_performance(
+          model,
+          data.val_loader,
+          data.criterion,
+          device,
+          args.amp_dtype,
+          id2label=data.train_proxy.id2label,
+          tta_transform=data.tta_transform,
+      )
+      log_epoch_validation(writer, epoch, data, val_metrics)
+      v_macro_f1 = val_metrics[3]
 
       if v_macro_f1 > best_macro_f1:
         best_macro_f1 = v_macro_f1
         saver.save_best(
             epoch,
             best_macro_f1=best_macro_f1,
-            global_step=optimizer_global_step,
+            global_step=global_step,
             lora_state_blob=serialize_lora_state(model) if args.lora else None,
         )
         logging.info(f"New best macro F1, checkpoint saved: {best_macro_f1:.2f}%")
@@ -1249,48 +1262,102 @@ def main():
     saver.save_latest(
         completed_epoch,
         best_macro_f1=best_macro_f1,
-        global_step=optimizer_global_step,
+        global_step=global_step,
         lora_state_blob=serialize_lora_state(model) if args.lora else None,
     )
     logging.info("Checkpoint saved on exit.")
     writer.close()
 
-    # Free training model VRAM before XGBoost block.
-    del saver
-    del model
-    del optimizer
-    del scaler
-    del scheduler
-    del train_loader
-    del val_loader
-    gc.collect()
-    torch.cuda.empty_cache()
+  return TrainingResult(completed_epoch, best_macro_f1, global_step)
 
-    if args.xgboost_model:
-      # Access raw HF datasets (before proxy wrapping) for XGBoost.
-      train_xgboost_on_backbone(
-          train_proxy.dataset,
-          val_proxy.dataset,
-          device,
-          num_labels,
-          checkpoint_dir=args.checkpoint,
-          model_spec=args.model,
-          cache_dir=args.cache_dir,
-          proc_kwargs=args.proc_arg,
-          image_size=args.image_size,
-          output_path=args.xgboost_model,
-          batch_size=args.batch_size,
-          use_gpu=args.xgb_use_gpu,
-          max_depth=args.xgb_max_depth,
-          n_estimators=args.xgb_n_estimators,
-          learning_rate=args.xgb_learning_rate,
-          subsample=args.xgb_subsample,
-          colsample_bytree=args.xgb_colsample_bytree,
-          min_child_weight=args.xgb_min_child_weight,
-          gamma=args.xgb_gamma,
-          reg_alpha=args.xgb_reg_alpha,
-          random_state=args.seed,
-      )
+
+def maybe_train_xgboost(args, data, device):
+  """Free training VRAM, then optionally train the XGBoost head.
+
+  Args:
+      args: Parsed CLI args (``xgboost_model`` gates the run).
+      data: The ``DataBundle`` whose raw (pre-proxy) datasets feed the
+          backbone feature extraction.
+      device: The run's ``torch.device``.
+  """
+  # Free training model VRAM before XGBoost block.
+  gc.collect()
+  torch.cuda.empty_cache()
+
+  if args.xgboost_model:
+    # Access raw HF datasets (before proxy wrapping) for XGBoost.
+    train_xgboost_on_backbone(
+        data.train_proxy.dataset,
+        data.val_proxy.dataset,
+        device,
+        data.num_labels,
+        checkpoint_dir=args.checkpoint,
+        model_spec=args.model,
+        cache_dir=args.cache_dir,
+        proc_kwargs=args.proc_arg,
+        image_size=args.image_size,
+        output_path=args.xgboost_model,
+        batch_size=args.batch_size,
+        use_gpu=args.xgb_use_gpu,
+        max_depth=args.xgb_max_depth,
+        n_estimators=args.xgb_n_estimators,
+        learning_rate=args.xgb_learning_rate,
+        subsample=args.xgb_subsample,
+        colsample_bytree=args.xgb_colsample_bytree,
+        min_child_weight=args.xgb_min_child_weight,
+        gamma=args.xgb_gamma,
+        reg_alpha=args.xgb_reg_alpha,
+        random_state=args.seed,
+    )
+
+
+def main():
+  args = normalize_args(parse_args())
+  setup_logging(args.log_level, args.log_targets)
+  seed_everything(args.seed, args.deterministic)
+
+  states_to_load = parse_state_flags(args.state_load)
+  device = resolve_device(args.device)
+  writer = open_writer(log_dir=args.log_dir, checkpoint=args.checkpoint)
+
+  # Load processor — unified registry dispatches to HF or custom.
+  processor = load_processor(
+      args.model,
+      image_size=args.image_size,
+      cache_dir=args.cache_dir,
+      **args.proc_arg,
+  )
+  (args.train_transforms, args.val_transforms,
+   args.tta_transform) = resolve_augmentations(args, processor)
+
+  data = build_data(args, device)
+
+  model = build_model(args, device, data.num_labels, data.train_proxy.id2label,
+                      data.train_proxy.label2id)
+  apply_freeze_patterns(args, model)
+
+  model, start_epoch, best_macro_f1, ckpt_extra = open_resume_context(
+      args, model, device)
+
+  optimization = build_optimization(args, model, device, ckpt_extra, states_to_load)
+  optimizer_global_step = ckpt_extra.get(
+      "global_step",
+      start_epoch * (len(data.train_loader) // args.grad_accum_steps),
+  )
+  del ckpt_extra
+
+  run_training(
+      args,
+      model,
+      data,
+      optimization,
+      device,
+      writer,
+      start_epoch=start_epoch,
+      best_macro_f1=best_macro_f1,
+      global_step=optimizer_global_step,
+  )
+  maybe_train_xgboost(args, data, device)
 
 
 if __name__ == "__main__":

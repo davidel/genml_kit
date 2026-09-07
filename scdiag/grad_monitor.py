@@ -69,6 +69,35 @@ def _strip_common_prefix(rows):
   return pfx, [(name[len(pfx):], s, st) for name, s, st in rows]
 
 
+def create_grad_monitor(args, model):
+  """Build a :class:`GradMonitor` from the shared ``--grad_monitor`` CLI args.
+
+  Both training scripts used identical inline blocks for this; centralised
+  here so they cannot drift apart.
+
+  Args:
+      args: Parsed CLI args (``grad_monitor``, ``norm_history``,
+          ``trend_top_n``).
+      model: The model whose gradients will be monitored.
+
+  Returns:
+      A configured ``GradMonitor``, or ``None`` when gradient monitoring
+      is disabled (``--grad_monitor < 0``).
+  """
+  monitor = None
+  if args.grad_monitor >= 0:
+    monitor = GradMonitor(
+        model,
+        log_every=args.grad_monitor,
+        norm_history=args.norm_history,
+        trend_top_n=args.trend_top_n,
+    )
+    logging.info(f"Gradient monitoring enabled (every {args.grad_monitor} steps).")
+    if args.norm_history > 0:
+      logging.info(f"  Norm trend history: last {args.norm_history} snapshots")
+  return monitor
+
+
 class GradMonitor:
   """Architecture-agnostic gradient inspector.
 

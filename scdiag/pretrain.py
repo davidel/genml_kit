@@ -19,23 +19,21 @@ model via ``--source_checkpoint`` in ``scdiag-train``.
 """
 
 import argparse
+import collections
 import logging
 import os
 import time
 
 import torch
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms import v2
 from torchvision.transforms.functional import InterpolationMode
 
 from scdiag.checkpointing import (
     CheckpointSaver,
     create_model_report,
-    fetch_remote_checkpoint,
+    open_resume_context,
     parse_state_flags,
-    restore_training_state,
-    resume_checkpoint,
 )
 from scdiag.cli_args import (
     add_checkpoint_args,
@@ -43,23 +41,18 @@ from scdiag.cli_args import (
     add_optimization_args,
     add_source_checkpoint_args,
     add_training_state_args,
+    normalize_args,
 )
 from scdiag.cli_utils import KVPairAction
 from scdiag.datasets.balanced_sampler import BalancedBatchSampler
 from scdiag.datasets.ensemble import DatasetEnsemble
 from scdiag.datasets.field_dataset import FieldSectorDataset
-from scdiag.gpu_utils import gpu_stats_str
-from scdiag.grad_monitor import GradMonitor
-from scdiag.logging_utils import fatal, setup_logging
+from scdiag.gpu_utils import gpu_stats_str, resolve_device
+from scdiag.grad_monitor import create_grad_monitor
+from scdiag.logging_utils import fatal, open_writer, setup_logging
 from scdiag.model_utils import enable_grad_checkpointing, model_mode, set_train_mode
 from scdiag.models.registry import load_model
-from scdiag.optim_factory import (
-    build_param_groups,
-    build_param_groups_llrd,
-    create_optimizer,
-    create_scheduler,
-    report_lr,
-)
+from scdiag.optim_factory import build_optimization, report_lr
 from scdiag.pretrain_methods import get_method, list_methods
 from scdiag.seed_utils import seed_everything, seed_worker
 
@@ -609,45 +602,31 @@ def parse_args(argv=None):
   return args
 
 
-def main(argv=None):
-  args = parse_args(argv)
-  setup_logging(args.log_level, args.log_targets)
-  seed_everything(args.seed, args.deterministic)
+# Bookkeeping handed back after the pre-training loop finishes.
+# ``best_macro_f1`` is not tracked during pre-training and is always 0.0.
+TrainingResult = collections.namedtuple("TrainingResult",
+                                        "completed_epoch, best_macro_f1, global_step")
 
-  args.amp_dtype = getattr(torch, args.amp_dtype, None) if args.amp_dtype else None
 
-  method_cls = get_method(args.method)
-  method = method_cls()
+def build_pretrain_loaders(args, dataset, ensemble, device, needs_labels):
+  """Build the training DataLoader for a pre-training run.
 
-  logging.info("=" * 60)
-  logging.info(f"Pre-training method: {args.method}")
-  logging.info("=" * 60)
-  logging.info(f"Args: {vars(args)}")
+  Args:
+      args: Parsed CLI args (batch_size, num_workers, samples_per_class).
+      dataset: The wrapped dataset to iterate.
+      ensemble: The ``DatasetEnsemble`` feeding label info (used by the
+          balanced batch sampler).
+      device: The run's ``torch.device`` (selects ``pin_memory``).
+      needs_labels: Whether the method needs labels; selects the balanced
+          batch sampler vs plain shuffled loader.
 
-  if args.device:
-    device = torch.device(args.device)
-  else:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-  logging.info(f"Using device: {device}")
-  if device.type == "cuda":
-    logging.info(gpu_stats_str(device))
-
+  Returns:
+      Tuple ``(loader, data_generator)``.
+  """
   # Seeded generator for DataLoader shuffling.
   data_generator = torch.Generator().manual_seed(args.seed)
 
-  logging.info("Building dataset ...")
-  transform = method.build_transform(args.image_size)
-  dataset, ensemble = build_pretrain_dataset(
-      args,
-      needs_labels=method.needs_labels,
-      transform=transform,
-  )
-  logging.info(f"Total images: {len(dataset):,}")
-  if len(dataset) == 0:
-    fatal("No images loaded from any dataset. "
-          "Check --datasets, --hf_token, and --cache_dir.")
-
-  if method.needs_labels:
+  if needs_labels:
     sampler = BalancedBatchSampler(
         labels=ensemble.labels_array,
         batch_size=args.batch_size,
@@ -673,7 +652,22 @@ def main(argv=None):
         pin_memory=(device.type == "cuda"),
         drop_last=True,
     )
+  return loader, data_generator
 
+
+def build_pretrain_model(args, device, method):
+  """Load the backbone, build the method's model and apply source weights.
+
+  Args:
+      args: Parsed CLI args (model spec, grad_checkpoint,
+          source_checkpoint, LoRA settings).
+      device: Device to place the model on.
+      method: The pre-training method instance (builds the model and
+          owns method-specific state).
+
+  Returns:
+      The prepared ``torch.nn.Module``.
+  """
   logging.info("Loading model '%s' via registry ...", args.model)
   base_model = load_model(
       args.model,
@@ -704,116 +698,60 @@ def main(argv=None):
         device=device,
         param_rename=args.param_rename,
     )
+  return model
 
-  logging.info(f"Effective batch size: {args.batch_size} x {args.grad_accum_steps}"
-               f" = {args.batch_size * args.grad_accum_steps}")
 
-  start_epoch = 0
-  ckpt_extra = {}
-  if args.resume:
-    ckpt_latest = args.checkpoint + "_latest.pt"
-    ckpt_best = args.checkpoint + "_best.pt"
-    fetch_remote_checkpoint(args.remote_checkpoint, ckpt_latest, ckpt_best)
-    model, start_epoch, _, ckpt_extra = resume_checkpoint(
-        ckpt_latest,
-        ckpt_best,
-        model,
-        device,
-    )
-    # Restore method-specific state from checkpoint.
-    method_state = ckpt_extra.get("method_state", {})
-    method.load_checkpoint_state(model, method_state, args)
+def run_pretraining(args, model, loader, ensemble, method, optimization, device, writer,
+                    start_epoch, global_step):
+  """Run the self-supervised pre-training loop.
 
-  if args.llrd_decay is not None:
-    param_groups = build_param_groups_llrd(
-        dict(model.named_parameters()),
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        decay_factor=args.llrd_decay,
-    )
-  else:
-    param_groups = build_param_groups(
-        dict(model.named_parameters()),
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        lr_groups=args.lr_group,
-    )
-  optimizer = create_optimizer(
-      param_groups,
-      name=args.optimizer,
-      **args.opt_arg,
-  )
+  Owns the model report, the gradient monitor, the ``CheckpointSaver``
+  (with the method-state ``extra_fn`` and the save-on-exit in the
+  ``finally`` block) and the per-epoch training cycle.
 
-  # Only use GradScaler with float16 AMP (not bfloat16 which has native
-  # wider dynamic range and doesn't need loss scaling).
-  scaler = (torch.amp.GradScaler("cuda")
-            if args.amp_dtype == torch.float16 and device.type == "cuda" else None)
-  if scaler is not None:
-    logging.info("GradScaler enabled for float16 AMP stability.")
+  Args:
+      args: Parsed CLI args (epochs, logging, monitor and save settings).
+      model: The prepared model; mutated in place by training.
+      loader: The training DataLoader from :func:`build_pretrain_loaders`.
+      ensemble: The ``DatasetEnsemble`` consumed by the method hooks.
+      method: The pre-training method instance.
+      optimization: The ``Optimization`` namedtuple from
+          :func:`build_optimization`.
+      device: The run's ``torch.device``.
+      writer: TensorBoard ``SummaryWriter`` (closed here on exit).
+      start_epoch: First epoch to run (0 on a fresh run).
+      global_step: Optimizer step counter restored from the checkpoint.
 
-  scheduler = create_scheduler(
-      optimizer,
-      name=args.scheduler,
-      epochs=args.epochs,
-      base_lr=args.lr,
-      **args.sched_arg,
-  )
-
+  Returns:
+      A ``TrainingResult`` namedtuple.
+  """
   states_to_save = parse_state_flags(args.state_save)
-  states_to_load = parse_state_flags(args.state_load)
-
-  # All checkpoint writes go through one saver: state sources bound once,
-  # per-save data (epoch, global_step, method state) passed per call.
-  # extra_fn computes the method-specific state at save time.
-  saver = CheckpointSaver(
-      model,
-      optimizer,
-      scheduler,
-      root=args.checkpoint,
-      states_to_save=states_to_save,
-      scaler=scaler,
-      remote_uri=args.remote_checkpoint,
-      save_every=args.save_every,
-      extra_fn=lambda: {"method_state": method.get_checkpoint_state(model, args)},
-  )
-
-  restore_training_state(
-      ckpt_extra,
-      optimizer,
-      scheduler,
-      scaler,
-      states_to_load,
-  )
-
-  os.makedirs(args.log_dir, exist_ok=True)
-  writer = SummaryWriter(log_dir=args.log_dir)
 
   completed_epoch = start_epoch - 1  # last fully completed (-1 = none yet)
   # Loss of the last *completed* epoch (0.0 before the first epoch
   # finishes).  The finally-block below checkpoints it as-is, so on an
   # interrupt mid-epoch this value is intentionally the previous epoch's.
   avg_loss = 0.0
-  global_step = ckpt_extra.get(
-      "global_step",
-      start_epoch * (len(loader) // args.grad_accum_steps),
-  )
-  del ckpt_extra
-
-  grad_monitor = None
-  if args.grad_monitor >= 0:
-    grad_monitor = GradMonitor(
-        model,
-        log_every=args.grad_monitor,
-        norm_history=args.norm_history,
-        trend_top_n=args.trend_top_n,
-    )
-    logging.info(f"Gradient monitoring enabled (every {args.grad_monitor} steps).")
-    if args.norm_history > 0:
-      logging.info(f"  Norm trend history: last {args.norm_history} snapshots")
+  grad_monitor = create_grad_monitor(args, model)
 
   # Report the final model state after checkpoint restoration and all training
   # initialization, immediately before pre-training begins.
   logging.info(create_model_report(model))
+
+  # All checkpoint writes go through one saver: state sources bound once,
+  # per-save data (epoch, global_step, method state) passed per call.
+  # extra_fn computes the method-specific state at save time.
+  saver = CheckpointSaver(
+      model,
+      optimization.optimizer,
+      optimization.scheduler,
+      root=args.checkpoint,
+      states_to_save=states_to_save,
+      scaler=optimization.scaler,
+      remote_uri=args.remote_checkpoint,
+      save_every=args.save_every,
+      extra_fn=lambda: {"method_state": method.get_checkpoint_state(model, args)},
+  )
 
   try:
     for epoch in range(start_epoch, args.epochs):
@@ -823,7 +761,7 @@ def main(argv=None):
           model,
           loader,
           ensemble,
-          optimizer,
+          optimization.optimizer,
           device,
           args.amp_dtype,
           epoch,
@@ -833,12 +771,12 @@ def main(argv=None):
           vis_every=args.vis_every,
           monitor=grad_monitor,
           grad_accum_steps=args.grad_accum_steps,
-          scaler=scaler,
+          scaler=optimization.scaler,
           saver=saver,
       )
       writer.add_scalar("Train/loss_epoch", avg_loss, epoch)
-      if scheduler is not None:
-        scheduler.step()
+      if optimization.scheduler is not None:
+        optimization.scheduler.step()
       completed_epoch = epoch
       method.on_epoch_end(model, epoch, writer)
 
@@ -850,6 +788,81 @@ def main(argv=None):
     saver.save_latest(completed_epoch, global_step=global_step, loss=avg_loss)
     logging.info("Checkpoint saved on exit.")
     writer.close()
+
+  return TrainingResult(completed_epoch, best_macro_f1=0.0, global_step=global_step)
+
+
+def main(argv=None):
+  args = normalize_args(parse_args(argv))
+  setup_logging(args.log_level, args.log_targets)
+  seed_everything(args.seed, args.deterministic)
+
+  method_cls = get_method(args.method)
+  method = method_cls()
+
+  logging.info("=" * 60)
+  logging.info(f"Pre-training method: {args.method}")
+  logging.info("=" * 60)
+  logging.info(f"Args: {vars(args)}")
+
+  device = resolve_device(args.device)
+  if device.type == "cuda":
+    logging.info(gpu_stats_str(device))
+
+  logging.info("Building dataset ...")
+  transform = method.build_transform(args.image_size)
+  dataset, ensemble = build_pretrain_dataset(
+      args,
+      needs_labels=method.needs_labels,
+      transform=transform,
+  )
+  logging.info(f"Total images: {len(dataset):,}")
+  if len(dataset) == 0:
+    fatal("No images loaded from any dataset. "
+          "Check --datasets, --hf_token, and --cache_dir.")
+
+  loader, data_generator = build_pretrain_loaders(args,
+                                                  dataset,
+                                                  ensemble,
+                                                  device,
+                                                  needs_labels=method.needs_labels)
+
+  model = build_pretrain_model(args, device, method)
+
+  logging.info(f"Effective batch size: {args.batch_size} x {args.grad_accum_steps}"
+               f" = {args.batch_size * args.grad_accum_steps}")
+
+  start_epoch = 0
+  ckpt_extra = {}
+  if args.resume:
+    model, start_epoch, _, ckpt_extra = open_resume_context(args, model, device)
+    # Restore method-specific state from checkpoint.
+    method_state = ckpt_extra.get("method_state", {})
+    method.load_checkpoint_state(model, method_state, args)
+
+  states_to_load = parse_state_flags(args.state_load)
+  optimization = build_optimization(args, model, device, ckpt_extra, states_to_load)
+
+  writer = open_writer(log_dir=args.log_dir)
+
+  global_step = ckpt_extra.get(
+      "global_step",
+      start_epoch * (len(loader) // args.grad_accum_steps),
+  )
+  del ckpt_extra
+
+  run_pretraining(
+      args,
+      model,
+      loader,
+      ensemble,
+      method,
+      optimization,
+      device,
+      writer,
+      start_epoch=start_epoch,
+      global_step=global_step,
+  )
 
 
 if __name__ == "__main__":

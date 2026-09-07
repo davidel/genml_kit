@@ -5,6 +5,29 @@ import logging
 import os
 import sys
 
+from torch.utils.tensorboard import SummaryWriter
+
+
+def open_writer(log_dir=None, checkpoint=None):
+  """Create the TensorBoard ``SummaryWriter`` for a training run.
+
+  Centralises the log-directory defaulting that the two training scripts
+  used to implement inline (and slightly differently): when ``log_dir``
+  is not given it falls back to ``<checkpoint dir>/logs``.
+
+  Args:
+      log_dir: Directory for TensorBoard event files, or ``None``.
+      checkpoint: Checkpoint path used to derive the default directory
+          (only consulted when ``log_dir`` is ``None``).
+
+  Returns:
+      A ``SummaryWriter`` with the directory already created.
+  """
+  if log_dir is None:
+    log_dir = os.path.join(os.path.dirname(checkpoint) or ".", "logs")
+  os.makedirs(log_dir, exist_ok=True)
+  return SummaryWriter(log_dir=log_dir)
+
 
 class GlogFormatter(logging.Formatter):
   """Glog-style formatter: ``E0924 22:19:15.123456 PID MODULE:LINE] MESSAGE``"""

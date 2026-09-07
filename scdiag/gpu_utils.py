@@ -1,8 +1,28 @@
 """GPU statistics helpers (copied from conv_vit)."""
 
 import contextlib
+import logging
 
 import torch
+
+
+def resolve_device(device_arg):
+  """Resolve a CLI ``--device`` argument to a ``torch.device``.
+
+  Args:
+      device_arg: The raw ``--device`` string (``cpu``, ``cuda`` or
+          ``cuda:INDEX``), or ``None`` for auto-detection.
+
+  Returns:
+      ``torch.device(device_arg)`` if given, otherwise the best available
+      device (CUDA if present, else CPU).  Logs the resolved device.
+  """
+  if device_arg:
+    device = torch.device(device_arg)
+  else:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  logging.info(f"Using device: {device}")
+  return device
 
 
 def gpu_stats_str(device):
