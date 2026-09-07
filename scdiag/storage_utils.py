@@ -89,8 +89,15 @@ def _upload_gcs(bucket_name, local_path, prefix):
   return f"gs://{bucket_name}/{blob_name}"
 
 
-def _upload_r2(bucket_name, local_path, prefix):
-  """Upload *local_path* to a Cloudflare R2 bucket under *prefix*."""
+def _r2_client():
+  """Build a boto3 client targeting the Cloudflare R2 S3 API.
+
+  The endpoint is taken from ``R2_ENDPOINT_URL`` when set, and otherwise
+  derived from ``CLOUDFLARE_ACCOUNT_ID``.
+
+    Returns:
+        A boto3 S3 client configured for R2.
+  """
   import boto3
 
   endpoint_url = os.environ.get("R2_ENDPOINT_URL")
@@ -100,14 +107,19 @@ def _upload_r2(bucket_name, local_path, prefix):
       endpoint_url = f"https://{account_id}.r2.cloudflarestorage.com"
     else:
       fatal("CLOUDFLARE_ACCOUNT_ID or R2_ENDPOINT_URL must be set for R2 "
-            "uploads.", ValueError)
-
-  s3_client = boto3.client(
+            "access.", ValueError)
+  return boto3.client(
       "s3",
       endpoint_url=endpoint_url,
+      region_name="auto",
       aws_access_key_id=os.environ.get("R2_ACCESS_KEY_ID"),
       aws_secret_access_key=os.environ.get("R2_SECRET_ACCESS_KEY"),
   )
+
+
+def _upload_r2(bucket_name, local_path, prefix):
+  """Upload *local_path* to a Cloudflare R2 bucket under *prefix*."""
+  s3_client = _r2_client()
 
   blob_name = os.path.basename(local_path)
   if prefix:
@@ -216,14 +228,7 @@ def _download_r2(bucket_name, local_path, prefix):
         The remote URI of the downloaded object, or ``None`` when the
         object does not exist.
     """
-  import boto3
-
-  s3_client = boto3.client(
-      "s3",
-      endpoint_url=os.environ.get("R2_ENDPOINT_URL"),
-      aws_access_key_id=os.environ.get("R2_ACCESS_KEY_ID"),
-      aws_secret_access_key=os.environ.get("R2_SECRET_ACCESS_KEY"),
-  )
+  s3_client = _r2_client()
   blob_name = os.path.basename(local_path)
   if prefix:
     blob_name = f"{prefix}/{blob_name}"

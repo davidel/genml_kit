@@ -187,7 +187,13 @@ class _FakeDownloadClient:
 def _use_boto3_client(fake, monkeypatch):
   """Point the ``import boto3`` inside storage_utils at *fake*."""
   fake.exceptions = SimpleNamespace(ClientError=_ClientError)
-  monkeypatch.setattr("boto3.client", lambda service, **kwargs: fake)
+  fake.client_kwargs = []
+
+  def _client(service, **kwargs):
+    fake.client_kwargs.append({"service": service, **kwargs})
+    return fake
+
+  monkeypatch.setattr("boto3.client", _client)
 
 
 def _write_bytes(path, data):
@@ -283,3 +289,20 @@ class TestStorageDownloadDispatch:
         ("head", "my-bucket", "runs/model_latest.pt"),
         ("get", "my-bucket", "runs/model_latest.pt"),
     ]
+
+  def test_r2_dispatch_derives_endpoint_from_account_id(self, tmp_path, monkeypatch):
+    fake = _FakeDownloadClient(objects=("runs/model_latest.pt",))
+    _use_boto3_client(fake, monkeypatch)
+    monkeypatch.delenv("R2_ENDPOINT_URL", raising=False)
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acc123")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
+    local = tmp_path / "model_latest.pt"
+    assert storage_download("r2://my-bucket/runs", str(local)) is True
+    assert fake.client_kwargs[-1] == {
+        "service": "s3",
+        "endpoint_url": "https://acc123.r2.cloudflarestorage.com",
+        "region_name": "auto",
+        "aws_access_key_id": "key",
+        "aws_secret_access_key": "secret",
+    }
