@@ -1,6 +1,6 @@
 # scdiag — skin-lesion classification workflow
 
-[![CI](https://github.com/davidel/scdiag/actions/workflows/ci.yml/badge.svg)](https://github.com/davidel/scdiag/actions/workflows/ci.yml)
+[![CI](https://github.com/davidel/genml_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/davidel/genml_kit/actions/workflows/ci.yml)
 
 > **Where did the toolkit go?** The Python package formerly named `scdiag` is
 > now **[genml_kit](../README.md)** — a general-purpose, domain-agnostic

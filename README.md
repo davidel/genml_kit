@@ -1,6 +1,6 @@
 # genml_kit
 
-[![CI](https://github.com/davidel/scdiag/actions/workflows/ci.yml/badge.svg)](https://github.com/davidel/scdiag/actions/workflows/ci.yml)
+[![CI](https://github.com/davidel/genml_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/davidel/genml_kit/actions/workflows/ci.yml)
 
 A general-purpose toolkit for image classification. Supports self-supervised
 pre-training, supervised fine-tuning, and XGBoost ensemble inference — all
@@ -1123,8 +1123,8 @@ training on backbone features.
 ## Development
 
 ```bash
-git clone https://github.com/davidel/scdiag
-cd scdiag
+git clone https://github.com/davidel/genml_kit
+cd genml_kit
 pip install -e ".[dev,all]"
 pytest
 ```
