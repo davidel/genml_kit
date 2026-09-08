@@ -9,3 +9,6 @@ build/
 
 # HuggingFace / timm cache
 .cache/
+
+# TensorBoard run artifacts
+logs/
