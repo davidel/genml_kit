@@ -1175,7 +1175,7 @@ divided by $`\sqrt{N}`$, where $`N`$ is the number of elements (`numel`):
 
 $$
 \large
-\operatorname{RMS}(v) = \frac{\lVert v \rVert_2}{\sqrt{N}} = \sqrt{\frac{1}{N} \sum_{n=1}^{N} v_n^2}
+\mathrm{RMS}(v) = \frac{\lVert v \rVert_2}{\sqrt{N}} = \sqrt{\frac{1}{N} \sum_{n=1}^{N} v_n^2}
 $$
 
 Here $`v`$ is the tensor (a parameter or its gradient) flattened to $`N`$
@@ -1193,8 +1193,8 @@ tensor shape and directly comparable across parameters of different sizes.
 
 | Column | Symbol | What to look for |
 |---|---|---|
-| **g_rms** | $`\operatorname{RMS}(\nabla_W \mathcal{L})`$ | Compare across params. One param with g_rms 100× higher is a problem. |
-| **p_rms** | $`\operatorname{RMS}(W)`$ | Per-element scale context. With `std=0.02` init, expect ~0.02. |
+| **g_rms** | $`\mathrm{RMS}(\nabla_W \mathcal{L})`$ | Compare across params. One param with g_rms 100× higher is a problem. |
+| **p_rms** | $`\mathrm{RMS}(W)`$ | Per-element scale context. With `std=0.02` init, expect ~0.02. |
 | **g/p** | $`\lVert \nabla_W \mathcal{L} \rVert_2 / (\lVert W \rVert_2 + \varepsilon)`$ | **Most useful column.** Healthy: < 0.1. Concerning: > 1.0 (update overshoots). Dangerous: > 5.0. |
 | **g_max** | $`\max_n \lvert \partial \mathcal{L} / \partial W_n \rvert`$ | Highlights individual neurons with extreme gradients. |
 | **sparse** | `% zero` | High sparsity (> 50%) = most neurons not receiving signal. |
