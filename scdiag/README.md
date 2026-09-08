@@ -1,15 +1,5 @@
 # scdiag — skin-lesion classification workflow
 
-[![CI](https://github.com/davidel/genml_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/davidel/genml_kit/actions/workflows/ci.yml)
-
-> **Where did the toolkit go?** The Python package formerly named `scdiag` is
-> now **[genml_kit](../README.md)** — a general-purpose, domain-agnostic
-> toolkit. This folder is no longer a Python package; it keeps only the
-> skin-lesion-specific assets: the dataset preparation scripts and the
-> dermoscopy recipes below. Everything generic (training, pre-training,
-> inference, checkpoints, storage, custom models) is documented in the
-> [root README](../README.md).
-
 ## Contents
 
 - [Datasets](#datasets)
