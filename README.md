@@ -27,7 +27,6 @@ preparation, tuned recipes) is documented separately in
 - [References and Further Reading](#references-and-further-reading)
 - [Development](#development)
 - [License](#license)
-- [Migrating from scdiag 0.1.0](#migrating-from-scdiag-010)
 
 ## Why genml_kit?
 
@@ -215,9 +214,9 @@ For an image split into patches x_1, ..., x_N, let M be the set of masked
 patch indices and x_hat_i the decoder prediction. SimMIM minimizes mean
 squared error over masked patches:
 
-```text
-L_MIM = (1 / |M|) sum_{i in M} ||x_hat_i - x_i||_2^2
-```
+$$
+L_{\text{MIM}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| \hat{x}_i - x_i \right\|_2^2
+$$
 
 Here x_i is the original patch, x_hat_i is the predicted patch, and |M| is
 the number of masked patches. Only masked patches contribute to the loss;
@@ -236,18 +235,17 @@ q_theta receives visible context and predicts a target representation
 z_j = f_xi(x_j) for a masked region. The objective is representation-space
 regression:
 
-```text
-L_IJEPA = (1 / |M|) sum_{i in M} ||q_theta(f_theta(context))_i
-          - stopgrad(f_xi(x_i))||_2^2
-```
+$$
+L_{\text{IJEPA}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| q_\theta(f_\theta(\text{context}))_i - \mathrm{stopgrad}(f_\xi(x_i)) \right\|_2^2
+$$
 
 `stopgrad` means that the teacher target is treated as fixed while updating
 the student. The teacher is not optimized by backpropagation; it follows the
 student with an exponential moving average:
 
-```text
-xi <- m * xi + (1 - m) * theta
-```
+$$
+\xi \leftarrow m \, \xi + (1 - m) \, \theta
+$$
 
 Here m is `--teacher_momentum`. A high m changes the teacher slowly and gives
 more stable targets. The asymmetric teacher update and masking are important:
@@ -264,19 +262,21 @@ batch sampling to ensure each batch has enough same-class pairs.
 For normalized projections z_i = f_theta(x_i) / ||f_theta(x_i)||_2, the
 similarity of examples i and j is their dot product divided by temperature tau:
 
-```text
-s_ij = z_i^T z_j / tau
-```
+$$
+s_{ij} = \frac{z_i^\top z_j}{\tau}
+$$
 
 The positive set for anchor i is P(i) = {j: j != i and y_j = y_i}, where y_i
 is the class label. SupCon averages the log-softmax probability assigned to
 those positives:
 
-```text
-L_i = -(1 / |P(i)|) sum_{p in P(i)}
-      log( exp(s_ip) / sum_{a != i} exp(s_ia) )
-L = (1 / B) sum_i L_i
-```
+$$
+\mathcal{L}_i = -\frac{1}{|\mathcal{P}(i)|} \sum_{p \in \mathcal{P}(i)} \log \left( \frac{\exp(s_{ip})}{\sum_{a \neq i} \exp(s_{ia})} \right)
+$$
+
+$$
+\mathcal{L} = \frac{1}{B} \sum_{i=1}^{B} \mathcal{L}_i
+$$
 
 B is the batch size. Lower temperature makes the distribution sharper: this
 can help separate hard negatives but can also make optimization less stable.
@@ -478,9 +478,9 @@ classifier on your labeled dataset.
 Suppose the encoder produces h = f_theta(x). A linear classification head
 computes logits a = W h + b, and softmax turns them into probabilities:
 
-```text
-p(y=c | x) = exp(a_c) / sum_k exp(a_k)
-```
+$$
+p(y=c \mid x) = \frac{\exp(a_c)}{\sum_k \exp(a_k)}
+$$
 
 Training minimizes cross-entropy, -log p(y | x), over labeled examples. The
 new classifier head is normally initialized from scratch because its output
@@ -608,9 +608,9 @@ LLRD is a compromise between freezing the backbone and updating every layer at
 the same speed. If layers are indexed from shallow 0 to deep L, a common
 schedule is:
 
-```text
-lr(layer) = lr_base * d^(L - layer)
-```
+$$
+\text{lr}(\text{layer}) = \text{lr}_{\text{base}} \cdot d^{\,L - \text{layer}}
+$$
 
 where d is `--llrd_decay`, usually between 0.8 and 1.0. The deepest layer
 receives the base rate while earlier layers receive smaller updates. Early
@@ -622,10 +622,13 @@ dataset. A very small decay factor can effectively freeze the shallow network.
 
 Mixup forms a virtual example from two training examples:
 
-```text
-x_tilde = lambda * x_i + (1 - lambda) * x_j
-y_tilde = lambda * y_i + (1 - lambda) * y_j
-```
+$$
+\tilde{x} = \lambda x_i + (1 - \lambda) x_j
+$$
+
+$$
+\tilde{y} = \lambda y_i + (1 - \lambda) y_j
+$$
 
 where lambda ~ Beta(alpha, alpha). The labels are probability vectors, not
 class indices. Mixup smooths the decision boundary and can help on small
@@ -909,9 +912,9 @@ ensemble weight.
 Test-time augmentation (TTA) runs the same image through several plausible
 views and averages the probability vectors:
 
-```text
-p_bar(y | x) = (1 / K) sum_k p(y | T_k(x))
-```
+$$
+\bar{p}(y \mid x) = \frac{1}{K} \sum_{k=1}^{K} p(y \mid T_k(x))
+$$
 
 The transformations T_k should preserve the label semantics. Horizontal flips
 are usually safer than orientation-specific crops; verify that an augmentation
@@ -1154,21 +1157,3 @@ instead of scrolling past.  Code is formatted with
 ## License
 
 Apache-2.0
-
-## Migrating from scdiag 0.1.0
-
-`genml_kit` is the renamed, generalized core of the former `scdiag` package.
-There are no compatibility shims; update imports and commands as follows:
-
-| scdiag 0.1.0 | genml_kit 0.1.0 |
-|---|---|
-| `scdiag-train`, `scdiag-pretrain`, `scdiag-infer` | `genml-kit-train`, `genml-kit-pretrain`, `genml-kit-infer` |
-| `from scdiag.train import ...` | `from genml_kit.training.train import ...` |
-| `from scdiag.pretrain import ...` | `from genml_kit.pretrain.cli import ...` |
-| `from scdiag.pretrain_methods.X import ...` | `from genml_kit.pretrain.methods.X import ...` |
-| `from scdiag.losses.X import ...` | `from genml_kit.pretrain.losses.X import ...` |
-| `from scdiag.classifiers import ...` | `from genml_kit.training.classifiers import ...` |
-| `from scdiag.checkpointing import ...` | `from genml_kit.io.checkpointing import ...` |
-| `from scdiag.storage_utils import ...` | `from genml_kit.io.storage_utils import ...` |
-| `from scdiag.X_utils import ...` | `from genml_kit.utils.X import ...` (e.g. `logging_utils` → `utils.logging`) |
-| `--dataset` default `marmal88/skin_cancer` | no default: pass `--dataset` explicitly |
