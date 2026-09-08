@@ -1,9 +1,9 @@
-"""Tests for scdiag.attr_utils — safe dotted-attribute access utilities."""
+"""Tests for genml_kit.attr_utils — safe dotted-attribute access utilities."""
 
 import torch
 import torch.nn as nn
 
-from scdiag.attr_utils import MISSING, get_attribute, maybe_call, maybe_setattr
+from genml_kit.utils.attr import MISSING, get_attribute, maybe_call, maybe_setattr
 
 
 class TestGetAttribute:
@@ -106,8 +106,8 @@ class TestMaybeSetattr:
 class TestEnableGradCheckpointing:
 
   def test_custom_model_unwrapped(self):
-    from scdiag.model_utils import enable_grad_checkpointing
-    from scdiag.models.convvit.model import CustomPatchTransformer
+    from genml_kit.models.convvit.model import CustomPatchTransformer
+    from genml_kit.training.model_utils import enable_grad_checkpointing
 
     model = CustomPatchTransformer(num_classes=2, img_size=32)
     assert model.use_grad_checkpoint is False
@@ -115,9 +115,9 @@ class TestEnableGradCheckpointing:
     assert model.use_grad_checkpoint is True
 
   def test_custom_model_wrapped(self):
-    from scdiag.model_utils import enable_grad_checkpointing
-    from scdiag.models.convvit.loader import ConvViTAdapter
-    from scdiag.models.convvit.model import CustomPatchTransformer
+    from genml_kit.models.convvit.loader import ConvViTAdapter
+    from genml_kit.models.convvit.model import CustomPatchTransformer
+    from genml_kit.training.model_utils import enable_grad_checkpointing
 
     inner = CustomPatchTransformer(num_classes=2, img_size=32)
 
@@ -133,7 +133,7 @@ class TestEnableGradCheckpointing:
   def test_timm_model(self):
     from unittest.mock import MagicMock
 
-    from scdiag.model_utils import enable_grad_checkpointing
+    from genml_kit.training.model_utils import enable_grad_checkpointing
 
     model = MagicMock()
     model.set_grad_checkpointing = MagicMock()
@@ -150,7 +150,7 @@ class TestEnableGradCheckpointing:
     import logging
     from unittest.mock import MagicMock
 
-    from scdiag.model_utils import enable_grad_checkpointing
+    from genml_kit.training.model_utils import enable_grad_checkpointing
 
     model = MagicMock(spec=[])  # empty spec = no real attributes
 

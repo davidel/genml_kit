@@ -4,10 +4,10 @@ import argparse
 
 import torch
 
-from scdiag.augmentations.multicrop import MultiCropTransform
-from scdiag.losses.dino import DINOLoss
-from scdiag.models.dino import DINO
-from scdiag.pretrain_methods import get_method
+from genml_kit.models.dino import DINO
+from genml_kit.pretrain.augmentations.multicrop import MultiCropTransform
+from genml_kit.pretrain.losses.dino import DINOLoss
+from genml_kit.pretrain.methods import get_method
 
 
 class _FakeBackbone(torch.nn.Module):

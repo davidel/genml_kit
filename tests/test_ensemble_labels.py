@@ -8,9 +8,9 @@ import pytest
 from datasets import Dataset as HFDataset
 from PIL import Image
 
-from scdiag.datasets.ensemble import DatasetEnsemble, _HFDataset
-from scdiag.datasets.field_dataset import FieldSectorDataset
-from scdiag.datasets.image_folder import ImageFolderDataset
+from genml_kit.datasets.ensemble import DatasetEnsemble, _HFDataset
+from genml_kit.datasets.field_dataset import FieldSectorDataset
+from genml_kit.datasets.image_folder import ImageFolderDataset
 
 
 def _make_fake_hf_dataset(n=20, num_classes=4):
@@ -321,7 +321,7 @@ class TestLoadImagefolder:
   def test_split_layout_returns_dict(self):
     with tempfile.TemporaryDirectory() as root:
       self._make_split_layout(root)
-      from scdiag.datasets.image_folder import load_imagefolder
+      from genml_kit.datasets.image_folder import load_imagefolder
       splits = load_imagefolder(root)
       assert sorted(splits.keys()) == ["train", "val"]
       assert len(splits["train"]) == 4
@@ -332,7 +332,7 @@ class TestLoadImagefolder:
   def test_split_layout_filter(self):
     with tempfile.TemporaryDirectory() as root:
       self._make_split_layout(root)
-      from scdiag.datasets.image_folder import load_imagefolder
+      from genml_kit.datasets.image_folder import load_imagefolder
       splits = load_imagefolder(root, split="train")
       assert list(splits.keys()) == ["train"]
       assert len(splits["train"]) == 4
@@ -340,7 +340,7 @@ class TestLoadImagefolder:
   def test_split_layout_bad_split(self):
     with tempfile.TemporaryDirectory() as root:
       self._make_split_layout(root)
-      from scdiag.datasets.image_folder import load_imagefolder
+      from genml_kit.datasets.image_folder import load_imagefolder
       with pytest.raises(ValueError, match="split .* not found"):
         load_imagefolder(root, split="test")
 
@@ -348,7 +348,7 @@ class TestLoadImagefolder:
     """Depth-2 class layout → {"train": dataset}."""
     with tempfile.TemporaryDirectory() as root:
       self._make_class_layout(root)
-      from scdiag.datasets.image_folder import load_imagefolder
+      from genml_kit.datasets.image_folder import load_imagefolder
       splits = load_imagefolder(root)
       assert list(splits.keys()) == ["train"]
       assert splits["train"].has_labels is True
@@ -357,20 +357,20 @@ class TestLoadImagefolder:
   def test_flat_layout_returns_train_key(self):
     with tempfile.TemporaryDirectory() as root:
       self._make_flat_layout(root)
-      from scdiag.datasets.image_folder import load_imagefolder
+      from genml_kit.datasets.image_folder import load_imagefolder
       splits = load_imagefolder(root)
       assert list(splits.keys()) == ["train"]
       assert splits["train"].has_labels is False
       assert len(splits["train"]) == 3
 
   def test_nonexistent_root(self):
-    from scdiag.datasets.image_folder import load_imagefolder
+    from genml_kit.datasets.image_folder import load_imagefolder
     with pytest.raises(FileNotFoundError, match="does not exist"):
       load_imagefolder("/nonexistent/path")
 
   def test_empty_root(self):
     with tempfile.TemporaryDirectory() as root:
-      from scdiag.datasets.image_folder import load_imagefolder
+      from genml_kit.datasets.image_folder import load_imagefolder
       with pytest.raises(FileNotFoundError, match="No images found"):
         load_imagefolder(root)
 
@@ -385,7 +385,7 @@ class TestLoadImagefolder:
       # Create .splits marker
       os.path.join(root, ".splits")
       open(os.path.join(root, ".splits"), "w").close()
-      from scdiag.datasets.image_folder import load_imagefolder
+      from genml_kit.datasets.image_folder import load_imagefolder
       splits = load_imagefolder(root)
       assert sorted(splits.keys()) == ["training", "validation"]
 

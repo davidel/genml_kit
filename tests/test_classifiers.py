@@ -4,7 +4,11 @@ import pytest
 import torch
 import torch.nn as nn
 
-from scdiag.classifiers import _CLASSIFIERS, build_classifier, register_classifier
+from genml_kit.training.classifiers import (
+    _CLASSIFIERS,
+    build_classifier,
+    register_classifier,
+)
 
 
 class TestBuildClassifier:

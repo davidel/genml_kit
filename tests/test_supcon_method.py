@@ -4,7 +4,7 @@ import argparse
 
 import torch
 
-from scdiag.pretrain_methods.supcon import SupConMethod
+from genml_kit.pretrain.methods.supcon import SupConMethod
 
 
 class _FakeBackbone(torch.nn.Module):
@@ -23,7 +23,7 @@ class _FakeBackbone(torch.nn.Module):
 class TestSupConMethod:
 
   def test_registered(self):
-    from scdiag.pretrain_methods import get_method, list_methods
+    from genml_kit.pretrain.methods import get_method, list_methods
     assert "supcon" in list_methods()
     cls = get_method("supcon")
     assert cls is SupConMethod

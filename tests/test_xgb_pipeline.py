@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import torch
 
-from scdiag.xgb_pipeline import train_xgboost_on_backbone
+from genml_kit.training.xgb_pipeline import train_xgboost_on_backbone
 
 
 class TestExplicitApi:
@@ -51,12 +51,12 @@ class TestEndToEnd:
     fake_model = MagicMock()
     fake_processor = object()
     return (
-        patch("scdiag.checkpointing.select_best_checkpoint",
+        patch("genml_kit.io.checkpointing.select_best_checkpoint",
               return_value=str(tmp_path / "ckpt_best.pt")),
-        patch("scdiag.model_utils.load_model_for_inference",
+        patch("genml_kit.training.model_utils.load_model_for_inference",
               return_value=(fake_model, fake_processor)),
-        patch("scdiag.model_utils.build_val_transform", return_value=None),
-        patch("scdiag.model_utils.collect_features",
+        patch("genml_kit.training.model_utils.build_val_transform", return_value=None),
+        patch("genml_kit.training.model_utils.collect_features",
               side_effect=_fake_collect_features),
     )
 
@@ -74,7 +74,8 @@ class TestEndToEnd:
       for cm in self._pipeline_patches(tmp_path):
         stack.enter_context(cm)
       stack.enter_context(
-          patch("scdiag.xgb_pipeline.HFDatasetProxy", side_effect=self._fake_proxy))
+          patch("genml_kit.training.xgb_pipeline.HFDatasetProxy",
+                side_effect=self._fake_proxy))
       train_xgboost_on_backbone(
           fake_ds,
           fake_ds,
@@ -104,7 +105,7 @@ class TestEndToEnd:
       for cm in self._pipeline_patches(tmp_path):
         stack.enter_context(cm)
       stack.enter_context(
-          patch("scdiag.xgb_pipeline.HFDatasetProxy", side_effect=_proxy))
+          patch("genml_kit.training.xgb_pipeline.HFDatasetProxy", side_effect=_proxy))
       train_xgboost_on_backbone(
           fake_ds,
           fake_ds,
@@ -124,9 +125,10 @@ class TestEndToEnd:
     out_path = str(tmp_path / "xgb_model.json")
     fake_ds = object()
 
-    with (patch("scdiag.checkpointing.select_best_checkpoint",
-                return_value=None), patch("scdiag.model_utils.load_model_for_inference")
-          as load_mock):
+    with (patch(
+        "genml_kit.io.checkpointing.select_best_checkpoint",
+        return_value=None,
+    ), patch("genml_kit.training.model_utils.load_model_for_inference") as load_mock):
       result = train_xgboost_on_backbone(
           fake_ds,
           fake_ds,

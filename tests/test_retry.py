@@ -2,7 +2,7 @@
 
 import pytest
 
-from scdiag.datasets.retry import getitem_retry
+from genml_kit.datasets.retry import getitem_retry
 
 
 class TestGetitemRetry:
@@ -29,7 +29,7 @@ class TestGetitemRetry:
       return f"ok_{i}"
 
     # Pin the random fallback to index 42 so the assertion is deterministic.
-    monkeypatch.setattr("scdiag.datasets.retry.random.randrange", lambda size: 42)
+    monkeypatch.setattr("genml_kit.datasets.retry.random.randrange", lambda size: 42)
 
     item, idx = getitem_retry(0, fn, size=100, max_retry=5)
     assert item.startswith("ok_")

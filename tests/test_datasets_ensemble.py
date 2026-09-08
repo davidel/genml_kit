@@ -3,8 +3,8 @@
 import pytest
 from PIL import Image
 
-from scdiag.datasets.ensemble import DatasetEnsemble
-from scdiag.datasets.image_folder import ImageFolderDataset
+from genml_kit.datasets.ensemble import DatasetEnsemble
+from genml_kit.datasets.image_folder import ImageFolderDataset
 
 
 class TestImageFolderDataset:

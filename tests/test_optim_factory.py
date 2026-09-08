@@ -1,10 +1,10 @@
-"""Tests for scdiag.optim_factory — optimizer and scheduler factories."""
+"""Tests for genml_kit.optim_factory — optimizer and scheduler factories."""
 
 import pytest
 import torch.nn as nn
 import torch.optim as optim
 
-from scdiag.optim_factory import (
+from genml_kit.training.optim_factory import (
     build_param_groups,
     build_param_groups_llrd,
     compute_params_depths,

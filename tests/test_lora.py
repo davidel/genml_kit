@@ -7,14 +7,14 @@ import torch
 import torch.nn as nn
 from peft import LoraConfig, PeftModel, get_peft_model
 
-from scdiag.checkpointing import (
+from genml_kit.io.checkpointing import (
     checkpoint_dict,
     deserialize_lora_state,
     restore_training_state,
     resume_checkpoint,
     serialize_lora_state,
 )
-from scdiag.model_utils import apply_lora, extract_lora_params, freeze_model
+from genml_kit.training.model_utils import apply_lora, extract_lora_params, freeze_model
 
 
 class _TinyModel(nn.Module):
@@ -242,7 +242,7 @@ class TestResumeCheckpointWithLoRA:
 
   def test_resume_restores_non_lora_weights(self, tmp_path):
     """Classifier weights must survive checkpoint-resume with LoRA."""
-    from scdiag.checkpointing import resume_checkpoint
+    from genml_kit.io.checkpointing import resume_checkpoint
 
     model = _make_classifier_model()
     # Unfreeze classifier head (simulates --freeze matching the head).

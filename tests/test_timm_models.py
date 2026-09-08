@@ -3,21 +3,21 @@
 import torch
 from PIL import Image
 
-from scdiag.model_utils import extract_backbone_features
-from scdiag.models import (
+from genml_kit.models import (
     ModelOutput,
     is_custom_model,
     load_model,
     load_processor,
 )
-from scdiag.models.timm.model import TimmForClassification
-from scdiag.models.timm.processor import TimmProcessor
+from genml_kit.models.timm.model import TimmForClassification
+from genml_kit.models.timm.processor import TimmProcessor
+from genml_kit.training.model_utils import extract_backbone_features
 
 _TINY_MODEL = "resnet18"
 
 
 def _make_timm_model(num_classes=5):
-  """Build a tiny timm model wrapped for the scdiag protocol."""
+  """Build a tiny timm model wrapped for the genml_kit protocol."""
   from types import SimpleNamespace
 
   import timm
@@ -121,7 +121,7 @@ class TestTimmForClassification:
 
 
 class TestExtractBackboneFeatures:
-  """Verify the scdiag extract_backbone_features hook works."""
+  """Verify the genml_kit extract_backbone_features hook works."""
 
   def test_hook_based_extraction(self):
     """extract_backbone_features should find the .fc head and use it."""

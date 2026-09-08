@@ -9,9 +9,9 @@ classification head must be created (previously a degenerate
 import pytest
 import torch
 
-from scdiag.models import load_model
-from scdiag.models.convvit.masked_encoder import ConvViTMaskedImageEncoder
-from scdiag.models.registry import ModelOutput, is_custom_model
+from genml_kit.models import load_model
+from genml_kit.models.convvit.masked_encoder import ConvViTMaskedImageEncoder
+from genml_kit.models.registry import ModelOutput, is_custom_model
 
 
 def _assert_no_zero_element_params(model):
@@ -108,7 +108,7 @@ class TestConvViTHeadless:
 
   def test_ijepa_patchembedder_compatible(self):
     """I-JEPA's _PatchEmbedder probes `model`/patch attributes."""
-    from scdiag.pretrain_methods.ijepa import _PatchEmbedder
+    from genml_kit.pretrain.methods.ijepa import _PatchEmbedder
 
     model = load_model("convvit", num_labels=0, image_size=64)
     wrapped = _PatchEmbedder(model)

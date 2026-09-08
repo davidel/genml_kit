@@ -15,7 +15,7 @@ import torch
 from datasets import Dataset
 from PIL import Image
 
-from scdiag.logging_utils import GlogFormatter
+from genml_kit.utils.logging import GlogFormatter
 
 LogitsOutput = namedtuple("LogitsOutput", ["logits"])
 
@@ -111,17 +111,17 @@ def _run_train_smoke(tmp_path):
 
   with (
       patch("sys.argv", test_args),
-      patch("scdiag.train.load_dataset", return_value=ds),
+      patch("genml_kit.training.train.load_dataset", return_value=ds),
       patch(
-          "scdiag.train.load_processor",
+          "genml_kit.training.train.load_processor",
           return_value=TinyProcessor(),
       ),
       patch(
-          "scdiag.train.load_model",
+          "genml_kit.training.train.load_model",
           return_value=TinyModel(num_labels=3),
       ),
   ):
-    from scdiag.train import main
+    from genml_kit.training.train import main
 
     main()
 
@@ -145,9 +145,9 @@ def _run_train_smoke(tmp_path):
 
 
 def test_sampler_skips_freq_in_loss_weights(tmp_path):
-  """With --sampler weighted, loss weights should be clinical_m only.
+  """With --sampler weighted, loss weights should be class_multipliers only.
 
-  Regression test for a bug where w_freq * clinical_m was used as loss
+  Regression test for a bug where w_freq * class_multipliers was used as loss
   weights even when the sampler already balanced class representation,
   causing the model to collapse to the majority class.
   """
@@ -192,11 +192,12 @@ def test_sampler_skips_freq_in_loss_weights(tmp_path):
 
   with (
       patch("sys.argv", test_args),
-      patch("scdiag.train.load_dataset", return_value=ds),
-      patch("scdiag.train.load_processor", return_value=TinyProcessor()),
-      patch("scdiag.train.load_model", return_value=TinyModel(num_labels=2)),
+      patch("genml_kit.training.train.load_dataset", return_value=ds),
+      patch("genml_kit.training.train.load_processor", return_value=TinyProcessor()),
+      patch("genml_kit.training.train.load_model",
+            return_value=TinyModel(num_labels=2)),
   ):
-    from scdiag.train import main
+    from genml_kit.training.train import main
     main()
 
   # Verify checkpoint was created (model trained successfully).

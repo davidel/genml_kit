@@ -1,10 +1,10 @@
-"""Tests for the UVito model and its scdiag integration."""
+"""Tests for the UVito model and its genml_kit integration."""
 
 import torch
 import torch.nn as nn
 
-from scdiag.model_utils import set_train_mode
-from scdiag.models.uvito.model import UVito
+from genml_kit.models.uvito.model import UVito
+from genml_kit.training.model_utils import set_train_mode
 
 
 def _make_uvito(num_classes=3, img_size=64):
@@ -52,7 +52,7 @@ class TestUVitoExtractFeatures:
     CLS-flattened tensor, same as backbone_features."""
     from types import SimpleNamespace
 
-    from scdiag.models.uvito.loader import UVitoAdapter
+    from genml_kit.models.uvito.loader import UVitoAdapter
 
     raw = _make_uvito(num_classes=3, img_size=64)
     config = SimpleNamespace(num_labels=3, id2label={}, label2id={}, image_size=64)

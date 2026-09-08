@@ -1,8 +1,8 @@
-"""Tests for scdiag.metrics.confusion_row_strings."""
+"""Tests for genml_kit.metrics.confusion_row_strings."""
 
 import numpy as np
 
-from scdiag.metrics import confusion_row_strings
+from genml_kit.training.metrics import confusion_row_strings
 
 
 def _cm(rows):

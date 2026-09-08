@@ -1,4 +1,4 @@
-"""Tests for scdiag.seed_utils reproducibility helpers."""
+"""Tests for genml_kit.seed_utils reproducibility helpers."""
 
 import argparse
 import concurrent.futures
@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import torch
 
-from scdiag.seed_utils import seed_everything, seed_worker
+from genml_kit.utils.seed import seed_everything, seed_worker
 
 
 class TestSeedEverything:
@@ -39,7 +39,7 @@ class TestSeedEverything:
 
   def test_mixup_lambda_reproducible(self):
     """np.random.beta (used by mixup_data) is covered by the numpy seed."""
-    from scdiag.train import mixup_data
+    from genml_kit.training.train import mixup_data
 
     seed_everything(7)
     x = torch.rand(2, 3, 8, 8)
@@ -96,14 +96,14 @@ class TestSeedWorker:
 class TestTrainFlags:
 
   def test_train_defaults_seed_42(self):
-    from scdiag.train import parse_args
+    from genml_kit.training.train import parse_args
 
-    args = parse_args([])
+    args = parse_args(["--dataset", "my-org/my-images"])
     assert args.seed == 42
     assert args.deterministic is False
 
   def test_pretrain_defaults_seed_42(self):
-    from scdiag.pretrain import parse_args
+    from genml_kit.pretrain.cli import parse_args
 
     args = parse_args(["--method", "simmim", "--datasets", "dummy"])
     assert args.seed == 42
@@ -112,7 +112,7 @@ class TestTrainFlags:
     assert args.save_every == 500
 
   def test_pretrain_save_every_override(self):
-    from scdiag.pretrain import parse_args
+    from genml_kit.pretrain.cli import parse_args
 
     args = parse_args(
         ["--method", "simmim", "--datasets", "dummy", "--save_every", "100"])
@@ -125,7 +125,7 @@ class TestTrainFlags:
     ``add_optimization_args``) makes parse_args raise
     ``ArgumentError: conflicting option string``.
     """
-    from scdiag.pretrain import parse_args
+    from genml_kit.pretrain.cli import parse_args
 
     parser_actions = []
     orig_add = argparse.ArgumentParser.add_argument
@@ -142,25 +142,25 @@ class TestTrainFlags:
 class TestDeviceFlag:
 
   def test_train_device_default_is_none(self):
-    from scdiag.train import parse_args
+    from genml_kit.training.train import parse_args
 
-    args = parse_args([])
+    args = parse_args(["--dataset", "my-org/my-images"])
     assert args.device is None
 
   def test_pretrain_device_default_is_none(self):
-    from scdiag.pretrain import parse_args
+    from genml_kit.pretrain.cli import parse_args
 
     args = parse_args(["--method", "simmim", "--datasets", "dummy"])
     assert args.device is None
 
   def test_train_device_cpu(self):
-    from scdiag.train import parse_args
+    from genml_kit.training.train import parse_args
 
-    args = parse_args(["--device", "cpu"])
+    args = parse_args(["--dataset", "my-org/my-images", "--device", "cpu"])
     assert args.device == "cpu"
 
   def test_pretrain_device_cuda_index(self):
-    from scdiag.pretrain import parse_args
+    from genml_kit.pretrain.cli import parse_args
 
     args = parse_args(
         ["--method", "simmim", "--datasets", "dummy", "--device", "cuda:1"])
@@ -170,7 +170,7 @@ class TestDeviceFlag:
 class TestBalancedSamplerSeed:
 
   def test_same_seed_same_batches(self):
-    from scdiag.datasets.balanced_sampler import BalancedBatchSampler
+    from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
 
     labels = [i % 3 for i in range(30)]
     s1 = BalancedBatchSampler(labels, batch_size=6, samples_per_class=2, seed=11)
@@ -180,7 +180,7 @@ class TestBalancedSamplerSeed:
     assert b1 == b2
 
   def test_none_seed_varies(self):
-    from scdiag.datasets.balanced_sampler import BalancedBatchSampler
+    from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
 
     labels = [i % 3 for i in range(30)]
     s = BalancedBatchSampler(labels, batch_size=6, samples_per_class=2)
@@ -189,7 +189,7 @@ class TestBalancedSamplerSeed:
     assert first != second
 
   def test_seed_none_default_backward_compatible(self):
-    from scdiag.datasets.balanced_sampler import BalancedBatchSampler
+    from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
 
     labels = [i % 2 for i in range(20)]
     sampler = BalancedBatchSampler(labels, batch_size=4, samples_per_class=2)
@@ -201,7 +201,7 @@ class TestBalancedSamplerSeed:
 @pytest.mark.filterwarnings("ignore:.*GradScaler.*")
 def test_checkpoint_save_atomic_on_failure(tmp_path, monkeypatch):
   """A torch.save failure leaves no temp file and no corrupted output."""
-  from scdiag.storage_utils import save_checkpoint
+  from genml_kit.io.storage_utils import save_checkpoint
 
   dest = tmp_path / "model_latest.pt"
   dest.write_text("PREVIOUS_GOOD_CHECKPOINT")
@@ -218,7 +218,7 @@ def test_checkpoint_save_atomic_on_failure(tmp_path, monkeypatch):
 
 
 def test_checkpoint_save_success(tmp_path):
-  from scdiag.storage_utils import save_checkpoint
+  from genml_kit.io.storage_utils import save_checkpoint
 
   dest = tmp_path / "nested" / "model_latest.pt"
   save_checkpoint({"epoch": 3}, str(dest))
@@ -228,7 +228,7 @@ def test_checkpoint_save_success(tmp_path):
 
 def test_checkpoint_save_tmp_name_is_unique(tmp_path, monkeypatch):
   """The temp file must not be the static ``path + '.tmp'`` name."""
-  from scdiag import storage_utils
+  from genml_kit.io import storage_utils
 
   # What torch.save was handed, and what the save dir looked like at
   # that moment (the temp file must exist there while torch.save runs).
@@ -256,7 +256,7 @@ def test_checkpoint_save_tmp_name_is_unique(tmp_path, monkeypatch):
 
 def test_checkpoint_save_concurrent_writers(tmp_path):
   """Concurrent saves to the same path never publish a partial file."""
-  from scdiag.storage_utils import save_checkpoint
+  from genml_kit.io.storage_utils import save_checkpoint
 
   num_writers = 8
   dest = tmp_path / "model_latest.pt"

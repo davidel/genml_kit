@@ -1,4 +1,4 @@
-"""Tests for scdiag.pretrain.log_validation_images.
+"""Tests for genml_kit.pretrain.cli.log_validation_images.
 
 Regression tests for the loader contract: pretrain loaders yield
 dicts (``{image_column: tensor, ...}``), so the visualization helper
@@ -8,7 +8,7 @@ must unpack the batch by column name rather than slicing it directly.
 import torch
 import torch.nn as nn
 
-from scdiag.pretrain import log_validation_images
+from genml_kit.pretrain.cli import log_validation_images
 
 
 class _Writer:

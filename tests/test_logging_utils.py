@@ -1,11 +1,11 @@
-"""Tests for scdiag.logging_utils."""
+"""Tests for genml_kit.logging_utils."""
 
 import logging
 import re
 
 import pytest
 
-from scdiag.logging_utils import (
+from genml_kit.utils.logging import (
     GlogFormatter,
     parse_log_targets,
     setup_logging,

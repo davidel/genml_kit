@@ -14,9 +14,9 @@ import torch
 import torchvision.transforms.functional as TF
 from PIL import Image
 
-from scdiag.logging_utils import GlogFormatter
-from scdiag.pretrain_methods.base import PretrainMethod
-from scdiag.pretrain_methods.registry import register_method
+from genml_kit.pretrain.methods.base import PretrainMethod
+from genml_kit.pretrain.methods.registry import register_method
+from genml_kit.utils.logging import GlogFormatter
 
 TINY_MARKER = "tiny-smoke-state"
 
@@ -130,9 +130,9 @@ def _run_pretrain_smoke(tmp_path):
 
   with (
       patch("sys.argv", test_args),
-      patch("scdiag.pretrain.load_model", return_value=TinyBackbone()),
+      patch("genml_kit.pretrain.cli.load_model", return_value=TinyBackbone()),
   ):
-    from scdiag.pretrain import main
+    from genml_kit.pretrain.cli import main
 
     main()
 
@@ -207,10 +207,10 @@ def _run_pretrain_smoke(tmp_path, resume=False):
 
   with (
       patch("sys.argv", test_args),
-      patch("scdiag.pretrain.load_model", return_value=TinyBackbone()),
-      patch("scdiag.pretrain.create_model_report", side_effect=_report_spy),
+      patch("genml_kit.pretrain.cli.load_model", return_value=TinyBackbone()),
+      patch("genml_kit.pretrain.cli.create_model_report", side_effect=_report_spy),
   ):
-    from scdiag.pretrain import main
+    from genml_kit.pretrain.cli import main
 
     main()
 

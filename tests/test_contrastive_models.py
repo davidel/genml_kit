@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-from scdiag.models.contrastive import ContrastiveEncoder, ProjectionHead
+from genml_kit.models.contrastive import ContrastiveEncoder, ProjectionHead
 
 
 class _FakeBackbone(nn.Module):

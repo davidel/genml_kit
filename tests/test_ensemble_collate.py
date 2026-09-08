@@ -16,8 +16,8 @@ import torch
 from PIL import Image
 from torchvision.transforms import v2
 
-from scdiag.datasets.ensemble import DatasetEnsemble
-from scdiag.pretrain import build_pretrain_dataset, log_validation_images
+from genml_kit.datasets.ensemble import DatasetEnsemble
+from genml_kit.pretrain.cli import build_pretrain_dataset, log_validation_images
 
 
 def _make_labeled_dir(root, per_class=3):

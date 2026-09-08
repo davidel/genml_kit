@@ -4,7 +4,7 @@ import warnings
 
 import torch
 
-from scdiag.transformer_utils import build_transformer_encoder
+from genml_kit.utils.transformer import build_transformer_encoder
 
 
 def _make_layer(d_model, nhead, **kwargs):
@@ -40,7 +40,7 @@ def test_layers_have_distinct_initialization():
 
 
 def test_pre_norm_construction_emits_no_warnings():
-  from scdiag.pretrain_methods.ijepa import _Predictor
+  from genml_kit.pretrain.methods.ijepa import _Predictor
 
   with warnings.catch_warnings():
     warnings.simplefilter("error")
@@ -55,7 +55,7 @@ def test_pre_norm_construction_emits_no_warnings():
 
 
 def test_cls_attention_encoder_layers_differ():
-  from scdiag.classifiers.cls_attention import Classifier
+  from genml_kit.training.classifiers.cls_attention import Classifier
 
   net = Classifier(
       num_labels=7,

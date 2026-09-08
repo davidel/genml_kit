@@ -1,14 +1,20 @@
-# scdiag
+# genml_kit
 
 [![CI](https://github.com/davidel/scdiag/actions/workflows/ci.yml/badge.svg)](https://github.com/davidel/scdiag/actions/workflows/ci.yml)
 
-A training and inference toolkit for skin-lesion image classification. Supports
-self-supervised pre-training, supervised fine-tuning, and XGBoost ensemble
-inference — all from the command line.
+A general-purpose toolkit for image classification. Supports self-supervised
+pre-training, supervised fine-tuning, and XGBoost ensemble inference — all
+from the command line.
+
+`genml_kit` is domain-agnostic: point it at any HuggingFace dataset, local
+`ImageFolder` tree, or timm/HuggingFace backbone. It grew out of a
+skin-lesion classification project; the dermoscopy-specific workflow (dataset
+preparation, tuned recipes) is documented separately in
+[`scdiag/README.md`](scdiag/README.md).
 
 ## Contents
 
-- [Why scdiag?](#why-scdiag)
+- [Why genml_kit?](#why-genml_kit)
 - [How it works](#how-it-works)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -21,18 +27,20 @@ inference — all from the command line.
 - [References and Further Reading](#references-and-further-reading)
 - [Development](#development)
 - [License](#license)
+- [Migrating from scdiag 0.1.0](#migrating-from-scdiag-010)
 
-## Why scdiag?
+## Why genml_kit?
 
-Medical imaging models face two practical problems: **labeled data is scarce**
-and **off-the-shelf models are not domain-specific**. A ViT pre-trained on
-ImageNet can classify cats and dogs, but dermatoscopic images look nothing
-like natural photos — the feature distributions are fundamentally different.
+Practitioners face two recurring problems: **labeled data is scarce** and
+**off-the-shelf models are not domain-specific**. A ViT pre-trained on
+ImageNet can classify cats and dogs, but specialized imagery — medical,
+satellite, industrial, scientific — looks nothing like natural photos, and
+the feature distributions are fundamentally different.
 
-scdiag solves this with a two-stage pipeline:
+genml_kit solves this with a two-stage pipeline:
 
-1. **Pre-train** on large, often unlabeled dermoscopy datasets (HAM10000,
-   Derm1M, ISIC challenges) to learn skin-lesion-specific visual features.
+1. **Pre-train** on large, often unlabeled image collections (or a labeled
+   superset) to learn domain-appropriate visual features.
 2. **Fine-tune** on your smaller labeled dataset, starting from those
    pre-trained features instead of random initialization.
 
@@ -41,12 +49,17 @@ labeled dataset has fewer than ~5 000 images. The tool also supports ensemble
 inference with XGBoost on top of the learned features, which can squeeze out
 additional performance for deployment.
 
+> **Concrete example:** the dermoscopy workflow this toolkit was extracted
+> from — preparing HAM10000 / ISIC / Derm1M corpora, per-method
+> hyperparameters, and a worked pre-train → fine-tune run — is documented in
+> [`scdiag/README.md`](scdiag/README.md).
+
 ## How it works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Pre-Training                             │
-│  Unlabeled/labeled dermoscopy images                            │
+│  Unlabeled/labeled images                                       │
 │  ──────────────────────────────────►  Encoder with learned      │
 │  SimMIM / I-JEPA / SupCon              visual features          │
 └────────────────────────────┬────────────────────────────────────┘
@@ -66,12 +79,12 @@ additional performance for deployment.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Pre-training** teaches the model to understand skin-lesion images — textures,
+**Pre-training** teaches the model to understand the target imagery — textures,
 boundaries, colour patterns, and spatial relationships. **Fine-tuning** adapts
-that understanding to your specific classification task (e.g. melanoma vs.
-benign nevus). **Ensemble inference** (optional) trains a tree-based model on
-the same features, which sometimes generalises better than a linear head for
-small datasets.
+that understanding to your specific classification task (e.g. disease vs.
+healthy, defective vs. passing). **Ensemble inference** (optional) trains a
+tree-based model on the same features, which sometimes generalises better
+than a linear head for small datasets.
 
 ### A useful mental model
 
@@ -102,28 +115,39 @@ The [timm documentation](https://huggingface.co/docs/timm/index) and the
 [Hugging Face image classification guide](https://huggingface.co/docs/transformers/tasks/image_classification)
 are useful references when selecting a backbone or processor.
 
+## Package layout
+
+| Module | Contents |
+|---|---|
+| `genml_kit.training` | `train.py` and `infer.py` CLI harnesses, `optim_factory.py` (optimizers, LLRD, schedulers), `model_utils.py` (loading, freezing, feature extraction), `param_align.py`, `eval.py` + `metrics.py`, `grad_monitor.py`, `train_reporting.py`, `tta.py`, `xgb_utils.py` + `xgb_pipeline.py`, `classifiers/` (pluggable heads) |
+| `genml_kit.pretrain` | `cli.py` harness; `methods/` (SimMIM, I-JEPA, DINO, BYOL, SupCon via one registry); `losses/`; `augmentations/` (multi-crop, dual-view) |
+| `genml_kit.models` | model/processor registry; `timm/`, `convvit/`, `uvito/`, `cls_model_wrapper/` backends; `processors/base.py` |
+| `genml_kit.datasets` | `hf_proxy.py` (HuggingFace → PyTorch bridge), `image_folder.py`, `ensemble.py`, `field_dataset.py`, `balanced_sampler.py`, `weighted_sampler.py`, `retry.py` |
+| `genml_kit.io` | `checkpointing.py` (atomic saves, LoRA state, remote fetch), `storage_utils.py` (S3 / GCS / R2) |
+| `genml_kit.utils` | glog-style logging, CLI arg groups, seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers |
+
 ## Installation
 
 ```bash
-pip install -e .
+pip install genml_kit
 
 # With timm model support:
-pip install -e ".[timm]"
+pip install "genml_kit[timm]"
 
 # With GCS checkpoint sync:
-pip install -e ".[gcs]"
+pip install "genml_kit[gcs]"
 
 # With AWS S3 / Cloudflare R2 checkpoint sync (both use boto3):
-pip install -e ".[s3]"
+pip install "genml_kit[s3]"
 
 # With LoRA fine-tuning:
-pip install -e ".[lora]"
+pip install "genml_kit[lora]"
 
 # With UVito model support:
-pip install -e ".[uvito]"
+pip install "genml_kit[uvito]"
 
 # Everything above in one shot (gcs, s3, lora, timm, uvito):
-pip install -e ".[all]"
+pip install "genml_kit[all]"
 ```
 
 **Requirements:** Python ≥ 3.9, PyTorch, torchvision, transformers, datasets,
@@ -134,13 +158,14 @@ NumPy, scikit-learn ≥ 1.3, XGBoost ≥ 2.0, Pillow, tensorboard.
 The fastest way to get started:
 
 ```bash
-# Fine-tune a ViT on a skin cancer dataset (5 epochs, ~2 minutes on GPU)
-scdiag-train --model google/vit-base-patch16-224 \
-             --dataset marmal88/skin_cancer \
-             --epochs 5 \
-             --batch_size 32 \
-             --lr 3e-5 \
-             --image_size 224
+# Fine-tune a ViT on an image-classification dataset (5 epochs, ~2 minutes on GPU)
+genml-kit-train --model google/vit-base-patch16-224 \
+                --dataset cifar10 \
+                --label_column label \
+                --epochs 5 \
+                --batch_size 32 \
+                --lr 3e-5 \
+                --image_size 224
 ```
 
 HuggingFace ViT backbones use fixed 224x224 position embeddings and do not
@@ -149,7 +174,7 @@ interpolate them, so they require `--image_size 224`.  The toolkit default of
 which pool or interpolate the token sequence to the input size.
 
 This downloads the model and dataset from HuggingFace, trains for 5 epochs,
-and saves `scdiag_latest.pt` and `scdiag_best.pt`. See
+and saves `genml_kit_latest.pt` and `genml_kit_best.pt`. See
 [Pre-Training Guide](#pre-training-guide) below for the full pipeline
 (starting with pre-training before fine-tuning).
 
@@ -158,11 +183,11 @@ and saves `scdiag_latest.pt` and `scdiag_best.pt`. See
 ## Pre-Training Guide
 
 Pre-training learns general visual features from large datasets *before* you
-fine-tune on your specific task. This is especially valuable in medical
-imaging, where labeled data is expensive to obtain but raw images are often
-available in bulk.
+fine-tune on your specific task. This is especially valuable wherever labeled
+data is expensive to obtain but raw images are available in bulk — medical
+imaging, remote sensing, industrial inspection, scientific imaging.
 
-scdiag supports three pre-training methods, each with different strengths:
+genml_kit supports three pre-training methods, each with different strengths:
 
 ### Choosing Your Method
 
@@ -232,7 +257,7 @@ vector.
 **SupCon** (Supervised Contrastive Learning): Uses labels to define "positive"
 pairs (same class) and "negative" pairs (different classes). The loss pulls
 features of same-class images together and pushes different-class features
-apart. Produces a feature space where similar lesions naturally cluster.
+apart. Produces a feature space where similar images naturally cluster.
 Requires a `ContrastiveEncoder` (backbone + projection head) and balanced
 batch sampling to ensure each batch has enough same-class pairs.
 
@@ -259,7 +284,7 @@ can help separate hard negatives but can also make optimization less stable.
 class to have a positive. A class represented once contributes no useful
 SupCon term for that anchor.
 
-### Typical Hyperparameters for Dermoscopy
+### Typical Hyperparameters
 
 These are reasonable starting points. Tune from here based on your dataset
 size and GPU memory:
@@ -282,7 +307,7 @@ size and GPU memory:
 - `--temperature 0.07` is the standard from the original SupCon paper.
   Lower = sharper contrastive distribution; try 0.05–0.1.
 - `--samples_per_class 16` with `--batch_size 64` gives 4 classes per batch
-  on HAM10000 (7 classes). Adjust so batch_size is divisible by
+  on a 7-class dataset. Adjust so batch_size is divisible by
   samples_per_class × num_classes.
 - Use `--amp_dtype bfloat16` if your GPU supports it (Ampere+). Otherwise
   `float16` with GradScaler works too.
@@ -290,48 +315,46 @@ size and GPU memory:
 ### Example: Full Pre-Training Pipeline
 
 ```bash
-# Step 1: Pre-train with SimMIM on two large datasets
-scdiag-pretrain --method simmim \
-                --model convvit \
-                --datasets HAM10000 "redlessone/Derm1M" \
-                --cache_dir /tmp/pretrain_cache \
-                --hf_token hf_XXXX \
-                --image_size 448 \
-                --batch_size 32 \
-                --epochs 200 \
-                --lr 1e-4 \
-                --scheduler CosineAnnealingLR \
-                --sched_arg T_max=200 --sched_arg eta_min=1e-6 \
-                --amp_dtype bfloat16 \
-                --checkpoint ./checkpoints/convvit_simmim
+# Step 1: Pre-train with SimMIM on two large image collections
+genml-kit-pretrain --method simmim \
+                   --model convvit \
+                   --datasets "imagefolder/raw-photos" "imagefolder/more-photos" \
+                   --image_size 448 \
+                   --batch_size 32 \
+                   --epochs 200 \
+                   --lr 1e-4 \
+                   --scheduler CosineAnnealingLR \
+                   --sched_arg T_max=200 --sched_arg eta_min=1e-6 \
+                   --amp_dtype bfloat16 \
+                   --checkpoint ./checkpoints/convvit_simmim
 
 # Step 2: Fine-tune on your labeled dataset
-scdiag-train --model convvit \
-             --dataset marmal88/skin_cancer \
-             --source_checkpoint ./checkpoints/convvit_simmim_latest.pt \
-             --epochs 100 \
-             --lr 3e-5 \
-             --batch_size 32 \
-             --amp_dtype bfloat16
+genml-kit-train --model convvit \
+                --dataset my-org/labeled-photos \
+                --label_column category \
+                --source_checkpoint ./checkpoints/convvit_simmim_latest.pt \
+                --epochs 100 \
+                --lr 3e-5 \
+                --batch_size 32 \
+                --amp_dtype bfloat16
 ```
 
 ### Example: Supervised Contrastive Pre-Training
 
 ```bash
-scdiag-pretrain --method supcon \
-                --model convvit \
-                --datasets HAM10000 \
-                --cache_dir /tmp/pretrain_cache \
-                --hf_token hf_XXXX \
-                --image_size 448 \
-                --batch_size 64 \
-                --samples_per_class 16 \
-                --proj_dim 128 \
-                --temperature 0.07 \
-                --epochs 100 \
-                --lr 1e-4 \
-                --amp_dtype bfloat16 \
-                --checkpoint ./checkpoints/convvit_supcon
+genml-kit-pretrain --method supcon \
+                   --model convvit \
+                   --datasets my-org/labeled-photos \
+                   --label_column category \
+                   --image_size 448 \
+                   --batch_size 64 \
+                   --samples_per_class 16 \
+                   --proj_dim 128 \
+                   --temperature 0.07 \
+                   --epochs 100 \
+                   --lr 1e-4 \
+                   --amp_dtype bfloat16 \
+                   --checkpoint ./checkpoints/convvit_supcon
 
 # Then fine-tune as above with --source_checkpoint ./checkpoints/convvit_supcon_latest.pt
 ```
@@ -341,7 +364,7 @@ scdiag-pretrain --method supcon \
 | Argument | Default | Description |
 |---|---|---|
 | `--method` | `simmim` | Pre-training method. Choices: `simmim`, `ijepa`, `supcon`. |
-| `--model` | `convvit` | Model name registered in scdiag or HuggingFace model ID. |
+| `--model` | `convvit` | Model name registered in genml_kit or HuggingFace model ID. |
 | `--datasets` | (required) | Space-separated dataset names or local paths. |
 | `--cache_dir` | `None` | HuggingFace cache directory for downloads. |
 | `--remote_checkpoint` | `None` | Remote URI for checkpoint sync (`gs://BUCKET/PREFIX`, `r2://BUCKET/PREFIX`, or `s3://BUCKET/PREFIX`). |
@@ -393,13 +416,14 @@ scdiag-pretrain --method supcon \
 
 ### Dataset Ensemble
 
-`scdiag-pretrain` stitches multiple datasets into a single pre-training
-corpus. This is useful because no single dermoscopy dataset is large enough
-for effective pre-training on its own.
+`genml-kit-pretrain` stitches multiple datasets into a single pre-training
+corpus. This is useful because no single dataset is large enough for
+effective pre-training on its own.
 
 Supported dataset types:
 - **HuggingFace datasets** — any HF dataset ID that returns decoded image
-  data (e.g. `HAM10000`). Gated datasets require `--hf_token` or `HF_TOKEN`.
+  data (e.g. `cifar10`, `food101`). Gated datasets require `--hf_token` or
+  `HF_TOKEN`.
 - **Local image directories** — pass a path to a folder of images
   (ImageFolder format).
 
@@ -418,27 +442,29 @@ cause a clear error *before* training begins, not a cryptic runtime failure
 mid-epoch.
 
 Labels are automatically remapped to a shared global label space across all
-datasets, so mixing HAM10000 (with its label column) and a different dataset
-with overlapping but differently-named classes works transparently.
+datasets, so mixing datasets with overlapping but differently-named classes
+works transparently.
 
 ### Preparing Datasets
 
-Some datasets (like Derm1M) store images inside zip archives and require a
-preparation step:
+Some datasets store images inside zip archives or need custom preprocessing
+before they can be used for pre-training. The toolkit consumes any local
+ImageFolder directory, so a small preparation script is all it takes:
 
 ```bash
-python scripts/prepare_derm1m.py --output_dir ./derm1m_images --token hf_XXX
+python my_prepare_script.py --output_dir ./prepared_images
 ```
 
 Then use the extracted directory as a local dataset:
 
 ```bash
-scdiag-pretrain --datasets ./derm1m_images /content/ham10000_grouped \
-                --image_size 448 --batch_size 32 ...
+genml-kit-pretrain --datasets ./prepared_images ./other-images \
+                   --image_size 448 --batch_size 32 ...
 ```
 
-See `scripts/prepare_ham10000.py` for another example that prepares the
-HAM10000 dataset with lesion-id-grouped splits.
+For a concrete worked example of such a preparation script, see
+`scdiag/scripts/prepare_derm1m.py` and `scdiag/scripts/prepare_ham10000.py`
+in the repository (dermoscopy corpora).
 
 ---
 
@@ -469,15 +495,15 @@ The practical choice is how much of theta to update:
 - **Frozen-backbone training** updates only the head. It is a useful baseline
   for small datasets and shows how much information the representation holds.
 - **LLRD** updates all layers but gives early layers smaller learning rates.
-  This is often a good compromise for a domain shift such as ImageNet to
-  dermoscopy.
+  This is often a good compromise when the pre-training domain differs from
+  the fine-tuning domain (e.g. ImageNet to specialized imagery).
 - **LoRA** freezes the original matrices and learns small low-rank updates.
   It is useful when GPU memory or labeled data is limited.
 
 Compare these strategies on the same validation split. The lowest training
-loss is not necessarily the best medical model: monitor macro-F1, balanced
-accuracy, weighted F1, and per-class precision and recall, especially for
-minority classes.
+loss is not necessarily the best model: monitor macro-F1, balanced accuracy,
+weighted F1, and per-class precision and recall, especially for minority
+classes.
 
 ### Evaluation Metrics
 
@@ -519,12 +545,13 @@ the same sampling and preprocessing scheme.
 ### Basic Fine-Tuning
 
 ```bash
-scdiag-train --model google/vit-base-patch16-224 \
-             --dataset marmal88/skin_cancer \
-             --epochs 5 \
-             --batch_size 32 \
-             --lr 3e-5 \
-             --image_size 448
+genml-kit-train --model google/vit-base-patch16-224 \
+                --dataset my-org/my-labeled-images \
+                --label_column category \
+                --epochs 5 \
+                --batch_size 32 \
+                --lr 3e-5 \
+                --image_size 448
 ```
 
 ### With a Custom Classifier Head
@@ -534,11 +561,12 @@ classifier:
 
 ```bash
 # Freeze backbone, train only the custom head
-scdiag-train --model cls_model_wrapper:google/vit-base-patch16-224 \
-             --dataset marmal88/skin_cancer \
-             --classifier mlp \
-             --classifier_args hidden=512 dropout=0.3 \
-             --freeze ".*\.(head|pool)"
+genml-kit-train --model cls_model_wrapper:google/vit-base-patch16-224 \
+                --dataset my-org/my-labeled-images \
+                --label_column category \
+                --classifier mlp \
+                --classifier_args hidden=512 dropout=0.3 \
+                --freeze ".*\.(head|pool)"
 ```
 
 ### With LoRA (Parameter-Efficient Fine-Tuning)
@@ -547,13 +575,14 @@ Freeze the entire backbone and train only small low-rank adapter matrices.
 Reduces trainable parameters by ~97% while often matching full fine-tuning:
 
 ```bash
-scdiag-train \
+genml-kit-train \
     --model cls_model_wrapper:facebook/dinov2-with-registers-large \
     --lora --lora_r 16 --lora_alpha 32 \
     --lora_target_modules "query,key,value" \
     --freeze "classifier\.(head|pool|encoder)" \
     --lr 3e-5 \
-    --dataset marmal88/skin_cancer \
+    --dataset my-org/my-labeled-images \
+    --label_column category \
     --epochs 20
 ```
 
@@ -562,10 +591,11 @@ scdiag-train \
 Load encoder weights from a pre-training run (SimMIM, I-JEPA, or SupCon):
 
 ```bash
-scdiag-train --model convvit \
-             --dataset marmal88/skin_cancer \
-             --source_checkpoint ./checkpoints/convvit_simmim_latest.pt \
-             --epochs 100
+genml-kit-train --model convvit \
+                --dataset my-org/my-labeled-images \
+                --label_column category \
+                --source_checkpoint ./checkpoints/convvit_simmim_latest.pt \
+                --epochs 100
 ```
 
 The backbone weights are loaded automatically; the classifier head is
@@ -599,7 +629,7 @@ y_tilde = lambda * y_i + (1 - lambda) * y_j
 
 where lambda ~ Beta(alpha, alpha). The labels are probability vectors, not
 class indices. Mixup smooths the decision boundary and can help on small
-datasets, but strong Mixup can obscure fine-grained lesion details. Label
+datasets, but strong Mixup can obscure fine-grained image details. Label
 smoothing similarly replaces a one-hot label with a mostly-correct
 distribution. Focal loss instead changes the emphasis: with predicted
 probability p_t for the correct class, its basic form is
@@ -621,8 +651,8 @@ better.
 - Use `--mixup_alpha 0.2` for small datasets — it helps prevent overfitting.
 - `--focal_gamma 2.0` down-weights easy examples, useful when classes are
   imbalanced.
-- `--class_multipliers "melanoma=3.0"` increases the loss weight for
-  clinically critical classes.
+- `--class_multipliers "rare_class=3.0"` increases the loss weight for
+  safety-critical or otherwise priority classes.
 
 ### Reproducibility
 
@@ -637,13 +667,13 @@ run), add `--deterministic`.  This enables cuDNN deterministic mode and
 PyTorch's deterministic-algorithms mode:
 
 ```bash
-scdiag-train --model convvit --deterministic ...
+genml-kit-train --model convvit --deterministic ...
 ```
 
 Two caveats:
 
 - Some CUDA ops have no deterministic kernel.  Instead of aborting a
-  long-running job, scdiag logs a warning and proceeds (the op falls
+  long-running job, genml_kit logs a warning and proceeds (the op falls
   back to a non-deterministic kernel).
 - `float16` AMP with `GradScaler` involves non-associative reductions
   that can still differ run-to-run; use `bfloat16` (default on
@@ -658,7 +688,7 @@ resume point.
 | Argument | Default | Description |
 |---|---|---|
 | `--model` | `google/vit-base-patch16-224` | HuggingFace model name, local path, or custom model (e.g. `convvit`, `timm:<name>`). |
-| `--dataset` | `marmal88/skin_cancer` | HuggingFace dataset name or `imagefolder/PATH` for local data. |
+| `--dataset` | required | HuggingFace dataset name or `imagefolder/PATH` for local data. |
 | `--image_column` | auto-detected | Explicit HF image column name. |
 | `--label_column` | auto-detected | Explicit HF label column name. |
 | `--image_size` | `448` | Augmentation crop size (processor handles final resize). |
@@ -668,7 +698,7 @@ resume point.
 | `--weight_decay` | `0.01` | Weight decay. |
 | `--label_smoothing` | `0.0` | Label smoothing factor. |
 | `--focal_gamma` | `0.0` | Focal loss gamma (`0` = disabled). Down-weights easy examples. |
-| `--class_multipliers` | `""` | Per-class severity multipliers. Example: `"melanoma=3.0,nevus=1.0"`. |
+| `--class_multipliers` | `""` | Per-class priority multipliers. Example: `"cat=3.0,dog=1.0"`. |
 | `--sampler` | `none` | Training sampler: `none` (shuffle) or `weighted` (WeightedRandomSampler for class imbalance). |
 | `--sampler_weights` | `frequency` | Weight mode for `--sampler weighted`: `frequency` (inverse-freq), `multipliers` (--class_multipliers), or `combined` (freq × multipliers). |
 | `--mixup_alpha` | `0.0` | Mixup alpha (`0` = disabled; recommended: `0.2`). |
@@ -679,7 +709,7 @@ resume point.
 | `--device` | auto-detect | Device: `cpu`, `cuda`, or `cuda:INDEX`. |
 | `--lr_group` | `None` | Per-parameter-group learning rates (repeatable). Format: `"REGEX=LR"`. |
 | `--llrd_decay` | `None` | Layer-wise LR decay factor per depth level. Example: `--llrd_decay 0.85`. |
-| `--checkpoint` | `scdiag` | Checkpoint base path (`_latest.pt` / `_best.pt` appended). |
+| `--checkpoint` | `genml_kit` | Checkpoint base path (`_latest.pt` / `_best.pt` appended). |
 | `--log_every` | `20` | Log every N steps. |
 | `--grad_monitor` | `-1` | Log gradient statistics every N steps. See [Gradient Monitor](#gradient-monitor). |
 | `--norm_history` | `0` | Keep last N norm snapshots for trend analysis. |
@@ -697,7 +727,7 @@ resume point.
 | `--classifier` | `None` | Classifier head spec: registered name (e.g. `mlp`) or `.py` path. |
 | `--classifier_args` | `{}` | Extra classifier kwargs (repeatable). Example: `hidden=512 dropout=0.3`. |
 | `--freeze` | `None` | Regex patterns for parameters to keep trainable. All others frozen. |
-| `--lora` | `False` | Enable LoRA via PEFT. Requires `pip install scdiag[lora]`. |
+| `--lora` | `False` | Enable LoRA via PEFT. Requires `pip install "genml_kit[lora]"`. |
 | `--lora_r` | `8` | LoRA rank. |
 | `--lora_alpha` | `16` | LoRA alpha (scaling = `alpha / r`). |
 | `--lora_dropout` | `0.0` | Dropout on LoRA layers. |
@@ -722,9 +752,9 @@ checkpoint if one exists at the `--checkpoint` path.
 ### Remote Checkpoint Sync (GCS / R2 / S3)
 
 `--remote_checkpoint` uploads each saved checkpoint to cloud storage.
-Requires `pip install "scdiag[s3]"` for `s3://` and `r2://` URIs (both
-use boto3), or `scdiag[gcs]` for `gs://`. Both `scdiag-train` and
-`scdiag-pretrain` accept the flag.
+Requires `pip install "genml_kit[s3]"` for `s3://` and `r2://` URIs (both
+use boto3), or `genml_kit[gcs]` for `gs://`. Both `genml-kit-train` and
+`genml-kit-pretrain` accept the flag.
 
 The sync also works in reverse at startup: before auto-resume, any missing
 `_latest.pt` / `_best.pt` is downloaded from the remote prefix (latest is
@@ -740,7 +770,7 @@ credential failures degrade to a warning instead of aborting startup.
 %env AWS_SESSION_TOKEN=...        # only for temporary (STS/SSO) credentials
 %env AWS_DEFAULT_REGION=us-east-1
 
---remote_checkpoint s3://my-bucket/scdiag/convvit_ijepa
+--remote_checkpoint s3://my-bucket/genml_kit/convvit_ijepa
 ```
 
 Permanent IAM-user keys need only the access/secret pair; the session
@@ -755,7 +785,7 @@ are unset, boto3's default credential chain applies (IAM instance role,
 %env R2_ACCESS_KEY_ID=...
 %env R2_SECRET_ACCESS_KEY=...
 
---remote_checkpoint r2://my-bucket/scdiag/convvit_ijepa
+--remote_checkpoint r2://my-bucket/genml_kit/convvit_ijepa
 ```
 
 ### LoRA Details
@@ -774,7 +804,7 @@ trainable low-rank matrices into attention layers. The LoRA output is
 LoRA can be combined with a custom classifier:
 
 ```bash
-scdiag-train \
+genml-kit-train \
     --model cls_model_wrapper:facebook/dinov2-with-registers-large \
     --classifier cls_attention \
     --classifier_args 'num_encoder_layers=2' \
@@ -789,15 +819,16 @@ scdiag-train \
 Switch from one dataset to another while keeping backbone weights:
 
 ```bash
-scdiag-train --model facebook/convnextv2-base-22k-224 \
-             --dataset ahmed-ai/skin-lesions-classification-dataset \
-             --checkpoint scdiag \
-             --state_load none \
-             --epochs 10 \
-             --batch_size 16 \
-             --lr 3e-5 \
-             --mixup_alpha 0.2 \
-             --amp_dtype bfloat16
+genml-kit-train --model facebook/convnextv2-base-22k-224 \
+                --dataset my-org/other-labeled-images \
+                --label_column category \
+                --checkpoint genml_kit \
+                --state_load none \
+                --epochs 10 \
+                --batch_size 16 \
+                --lr 3e-5 \
+                --mixup_alpha 0.2 \
+                --amp_dtype bfloat16
 ```
 
 Backbone weights load via `strict=False`; the classifier head (different
@@ -813,7 +844,7 @@ trades compute for memory by discarding intermediate activations during the
 forward pass and recomputing them during the backward pass.
 
 ```bash
-scdiag-train \
+genml-kit-train \
     --model timm:eva02_base_patch14_448.mim_in22k_ft_in22k_in1k \
     --batch_size 32 \
     --grad_accum_steps 2 \
@@ -847,9 +878,9 @@ HuggingFace, ConvViT, and UVito — via native APIs or per-block
 Run inference on individual images:
 
 ```bash
-scdiag-infer --model facebook/convnextv2-base-22k-224 \
-             --checkpoint scdiag_best.pt \
-             path/to/image.jpg path/to/other_image.png
+genml-kit-infer --model facebook/convnextv2-base-22k-224 \
+                --checkpoint genml_kit_best.pt \
+                path/to/image.jpg path/to/other_image.png
 ```
 
 Output is JSON with per-class probabilities:
@@ -858,8 +889,8 @@ Output is JSON with per-class probabilities:
 {
   "source": "image.jpg",
   "predictions": [
-    {"label": "melanoma", "probability": 0.435},
-    {"label": "benign_keratosis", "probability": 0.281}
+    {"label": "golden_retriever", "probability": 0.435},
+    {"label": "labrador", "probability": 0.281}
   ]
 }
 ```
@@ -882,9 +913,9 @@ views and averages the probability vectors:
 p_bar(y | x) = (1 / K) sum_k p(y | T_k(x))
 ```
 
-The transformations T_k should preserve the diagnosis. Horizontal flips are
-usually safer than arbitrary crops for dermoscopy; verify that an augmentation
-does not remove the lesion or alter a clinically relevant cue.
+The transformations T_k should preserve the label semantics. Horizontal flips
+are usually safer than orientation-specific crops; verify that an augmentation
+does not erase the cue that distinguishes the classes.
 
 ### Inference CLI Reference
 
@@ -909,10 +940,10 @@ When `--xgboost_model` is provided, the output includes both predictions:
 {
   "source": "image.jpg",
   "predictions": [
-    {"label": "melanoma", "probability": 0.435}
+    {"label": "golden_retriever", "probability": 0.435}
   ],
   "xgboost_predictions": [
-    {"label": "melanoma", "probability": 0.612}
+    {"label": "golden_retriever", "probability": 0.612}
   ]
 }
 ```
@@ -929,7 +960,7 @@ the new optimizer is created. When moving a SupCon encoder into classification,
 use:
 
 ```bash
-scdiag-train \
+genml-kit-train \
     --checkpoint /content/eva02_finetune \
     --source_checkpoint /content/eva02_supcon_latest.pt \
     --param_rename 'encoder\\.model\\.(.*);model.$1' \
@@ -964,7 +995,7 @@ labels that are not being passed correctly.
    not just the final epoch number.
 4. Compare against a simple head-only or full-fine-tuning baseline before
    adding LLRD, LoRA, Mixup, focal loss, and class multipliers together.
-5. Select the checkpoint using a validation metric appropriate to the medical
+5. Select the checkpoint using a validation metric appropriate to the
    objective, rather than training loss alone.
 
 ---
@@ -1022,9 +1053,9 @@ direction (`UP`/`DOWN`/`---`), percentage change, and min/max values.
 
 ## Custom Models
 
-scdiag supports any HuggingFace `AutoModelForImageClassification` model, any
-timm model via `timm:<name>`, and custom architectures registered in
-`scdiag.models`.
+genml_kit supports any HuggingFace `AutoModelForImageClassification` model,
+any timm model via `timm:<name>`, and custom architectures registered in
+`genml_kit.models`.
 
 ### Built-in Custom Models
 
@@ -1038,9 +1069,9 @@ timm model via `timm:<name>`, and custom architectures registered in
 
 ### Adding a Custom Model
 
-1. Create `scdiag/models/{name}/` with `model.py`, `processor.py`, `loader.py`,
-   and `__init__.py`.
-2. Add the import to `scdiag/models/__init__.py`.
+1. Create `genml_kit/models/{name}/` with `model.py`, `processor.py`,
+   `loader.py`, and `__init__.py`.
+2. Add the import to `genml_kit/models/__init__.py`.
 3. The model must expose `.forward(pixel_values=images)` → object with `.logits`,
    and `config.id2label` / `config.label2id`.
 4. CLI overrides via `--model_arg KEY=VALUE` are forwarded to the loader.
@@ -1081,7 +1112,7 @@ training on backbone features.
 - Khosla et al., [Supervised Contrastive Learning](https://arxiv.org/abs/2004.11362).
   The SupCon objective and experiments.
 - Hu et al., [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685).
-  The low-rank adaptation idea used by scdiag.
+  The low-rank adaptation idea used by genml_kit.
 - Zhang et al., [mixup: Beyond Empirical Risk Minimization](https://arxiv.org/abs/1710.09412).
   The Mixup augmentation strategy.
 - The [PyTorch optimization documentation](https://pytorch.org/docs/stable/optim.html)
@@ -1092,8 +1123,9 @@ training on backbone features.
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-pip install -e ".[timm]"   # optional: timm model support
+git clone https://github.com/davidel/scdiag
+cd scdiag
+pip install -e ".[dev,all]"
 pytest
 ```
 
@@ -1122,3 +1154,21 @@ instead of scrolling past.  Code is formatted with
 ## License
 
 Apache-2.0
+
+## Migrating from scdiag 0.1.0
+
+`genml_kit` is the renamed, generalized core of the former `scdiag` package.
+There are no compatibility shims; update imports and commands as follows:
+
+| scdiag 0.1.0 | genml_kit 0.1.0 |
+|---|---|
+| `scdiag-train`, `scdiag-pretrain`, `scdiag-infer` | `genml-kit-train`, `genml-kit-pretrain`, `genml-kit-infer` |
+| `from scdiag.train import ...` | `from genml_kit.training.train import ...` |
+| `from scdiag.pretrain import ...` | `from genml_kit.pretrain.cli import ...` |
+| `from scdiag.pretrain_methods.X import ...` | `from genml_kit.pretrain.methods.X import ...` |
+| `from scdiag.losses.X import ...` | `from genml_kit.pretrain.losses.X import ...` |
+| `from scdiag.classifiers import ...` | `from genml_kit.training.classifiers import ...` |
+| `from scdiag.checkpointing import ...` | `from genml_kit.io.checkpointing import ...` |
+| `from scdiag.storage_utils import ...` | `from genml_kit.io.storage_utils import ...` |
+| `from scdiag.X_utils import ...` | `from genml_kit.utils.X import ...` (e.g. `logging_utils` → `utils.logging`) |
+| `--dataset` default `marmal88/skin_cancer` | no default: pass `--dataset` explicitly |

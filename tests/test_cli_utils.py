@@ -1,10 +1,10 @@
-"""Tests for scdiag.cli_utils — CLI parsing utilities."""
+"""Tests for genml_kit.cli_utils — CLI parsing utilities."""
 
 import argparse
 
 import pytest
 
-from scdiag.cli_utils import KVPairAction, parse_value
+from genml_kit.utils.cli import KVPairAction, parse_value
 
 
 class TestParseValue:

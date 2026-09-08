@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from scdiag.losses.contrastive import supcon_loss
+from genml_kit.pretrain.losses.contrastive import supcon_loss
 
 
 class TestSupConLoss:

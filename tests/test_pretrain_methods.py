@@ -4,8 +4,8 @@ import argparse
 import pytest
 import torch
 
-from scdiag.pretrain_methods import get_method, list_methods
-from scdiag.pretrain_methods.simmim import SimMIMMethod, make_mask
+from genml_kit.pretrain.methods import get_method, list_methods
+from genml_kit.pretrain.methods.simmim import SimMIMMethod, make_mask
 
 
 class TestRegistry:

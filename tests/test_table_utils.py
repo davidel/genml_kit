@@ -1,6 +1,6 @@
-"""Tests for scdiag.table_utils.format_table."""
+"""Tests for genml_kit.table_utils.format_table."""
 
-from scdiag.table_utils import format_table
+from genml_kit.utils.table import format_table
 
 
 def test_basic_alignment():

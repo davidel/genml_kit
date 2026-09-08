@@ -5,9 +5,9 @@ import argparse
 import pytest
 import torch
 
-from scdiag.losses.byol import byol_loss
-from scdiag.models.byol import BYOL, _PredictorMLP
-from scdiag.pretrain_methods import get_method
+from genml_kit.models.byol import BYOL, _PredictorMLP
+from genml_kit.pretrain.losses.byol import byol_loss
+from genml_kit.pretrain.methods import get_method
 
 
 class _FakeBackbone(torch.nn.Module):

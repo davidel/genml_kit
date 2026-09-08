@@ -2,7 +2,7 @@
 
 import pytest
 
-from scdiag.script_utils import extern_call, load_extern
+from genml_kit.utils.script import extern_call, load_extern
 
 
 class TestLoadExternLocal:

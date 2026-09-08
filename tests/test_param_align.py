@@ -1,8 +1,8 @@
-"""Tests for scdiag.param_align — automatic state-dict key alignment."""
+"""Tests for genml_kit.training.param_align — automatic state-dict key alignment."""
 
 import torch
 
-from scdiag.param_align import (
+from genml_kit.training.param_align import (
     AlignConfig,
     AlignReport,
     _build_shape_dict,

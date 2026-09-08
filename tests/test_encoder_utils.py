@@ -8,7 +8,7 @@ failures (in particular ``torch.cuda.OutOfMemoryError``).
 import pytest
 import torch
 
-from scdiag.models.encoder_utils import encode_with_backbone
+from genml_kit.models.encoder_utils import encode_with_backbone
 
 
 class _FailingHookEncoder(torch.nn.Module):
@@ -31,7 +31,7 @@ class TestEncodeWithBackboneFallback:
       raise exc
 
     monkeypatch.setattr(
-        "scdiag.model_utils.extract_backbone_features",
+        "genml_kit.training.model_utils.extract_backbone_features",
         _boom,
     )
     return encoder
@@ -67,6 +67,7 @@ class TestEncodeWithBackboneFallback:
     def _good(model, pixel_values):
       return torch.ones(1, 8)
 
-    monkeypatch.setattr("scdiag.model_utils.extract_backbone_features", _good)
+    monkeypatch.setattr("genml_kit.training.model_utils.extract_backbone_features",
+                        _good)
     out = encode_with_backbone(encoder, torch.ones(1, 3, 4, 4))
     assert out.shape == (1, 8)

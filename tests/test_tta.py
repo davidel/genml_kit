@@ -2,7 +2,7 @@
 
 import torch
 
-from scdiag.tta import TTATransform, create_default_tta_transform
+from genml_kit.training.tta import TTATransform, create_default_tta_transform
 
 
 class TestDefaultTTATransform:

@@ -1,11 +1,11 @@
-"""Tests for scdiag.image_dump.ImageDump."""
+"""Tests for genml_kit.image_dump.ImageDump."""
 
 import os
 
 import torch
 from PIL import Image
 
-from scdiag.image_dump import ImageDump
+from genml_kit.utils.image_dump import ImageDump
 
 
 class TestImageDump:

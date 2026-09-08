@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from scdiag.train import evaluate_performance
+from genml_kit.training.train import evaluate_performance
 
 
 class _FixedPredictionModel(torch.nn.Module):

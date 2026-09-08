@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "scdiag"
+name = "genml_kit"
 version = "0.1.0"
-description = "Train, pre-train, and evaluate image-classification models for skin-lesion diagnosis."
+description = "General-purpose ML toolkit: image-classification training, self-supervised pre-training, and XGBoost ensemble inference."
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.9"
@@ -16,7 +16,7 @@ dependencies = [
     "transformers",
     "datasets",
     "xgboost>=2.0",
-    "scikit-learn>=1.3",
+    "scikit-learn",
     "pillow",
     "tensorboard",
 ]
@@ -27,16 +27,16 @@ s3 = ["boto3>=1.28"]
 lora = ["peft>=0.7.0"]
 timm = ["timm>=1.0"]
 uvito = ["segmentation_models_pytorch>=0.3.0"]
-all = ["scdiag[gcs,s3,lora,timm,uvito]"]
+all = ["genml_kit[gcs,s3,lora,timm,uvito]"]
 dev = ["pytest", "ruff", "yapf"]
 
 [project.scripts]
-scdiag-train = "scdiag.train:main"
-scdiag-pretrain = "scdiag.pretrain:main"
-scdiag-infer = "scdiag.infer:main"
+genml-kit-train = "genml_kit.training.train:main"
+genml-kit-pretrain = "genml_kit.pretrain.cli:main"
+genml-kit-infer = "genml_kit.training.infer:main"
 
 [tool.setuptools.packages.find]
-include = ["scdiag*"]
+include = ["genml_kit*"]
 
 [tool.ruff]
 target-version = "py39"

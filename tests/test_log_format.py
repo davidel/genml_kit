@@ -10,13 +10,13 @@ from unittest.mock import MagicMock, patch
 
 
 def _import_train():
-  """Lazy-import scdiag.train so module-level fixtures resolve cleanly."""
+  """Lazy-import genml_kit.training.train so module-level fixtures resolve cleanly."""
   import importlib
 
-  import scdiag.train
+  import genml_kit.training.train
 
-  importlib.reload(scdiag.train)
-  return scdiag.train
+  importlib.reload(genml_kit.training.train)
+  return genml_kit.training.train
 
 
 def _make_fake_logger():
@@ -103,14 +103,14 @@ class TestGPUStatsFormat:
     _import_train()
     import torch
 
-    from scdiag.gpu_utils import gpu_stats_str
+    from genml_kit.utils.gpu import gpu_stats_str
 
     result = gpu_stats_str(torch.device("cpu"))
     assert result == ""
 
   def test_gpu_stats_str_format_on_cuda(self):
     """gpu_stats_str should return a string with MB and util info on CUDA."""
-    from scdiag.gpu_utils import gpu_stats_str
+    from genml_kit.utils.gpu import gpu_stats_str
 
     mock_device = MagicMock()
     mock_device.type = "cuda"
@@ -132,9 +132,9 @@ class TestParseArgs:
 
   def test_defaults(self):
     train_mod = _import_train()
-    args = train_mod.parse_args([])
+    args = train_mod.parse_args(["--dataset", "my-org/my-images"])
     assert args.model == "google/vit-base-patch16-224"
-    assert args.dataset == "marmal88/skin_cancer"
+    assert args.dataset == "my-org/my-images"
     assert args.epochs == 5
     assert args.image_size == 448
     assert args.lr == 3e-5
@@ -142,7 +142,7 @@ class TestParseArgs:
     assert args.log_every == 20
     assert args.save_every == 500
     assert args.amp_dtype is None
-    assert args.checkpoint == "scdiag"
+    assert args.checkpoint == "genml_kit"
 
   def test_overrides(self):
     train_mod = _import_train()
@@ -178,12 +178,14 @@ class TestParseArgs:
 
   def test_checkpoint_default(self):
     train_mod = _import_train()
-    args = train_mod.parse_args([])
-    assert args.checkpoint == "scdiag"
+    args = train_mod.parse_args(["--dataset", "my-org/my-images"])
+    assert args.checkpoint == "genml_kit"
 
   def test_remote_checkpoint(self):
     train_mod = _import_train()
     args = train_mod.parse_args([
+        "--dataset",
+        "my-org/my-images",
         "--remote_checkpoint",
         "gs://my-bucket/prefix",
     ])

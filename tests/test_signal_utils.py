@@ -1,4 +1,4 @@
-"""Tests for scdiag.signal_utils (sigexcept context manager)."""
+"""Tests for genml_kit.signal_utils (sigexcept context manager)."""
 
 import logging
 import os
@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from scdiag.signal_utils import InterruptedException, sigexcept
+from genml_kit.utils.signal import InterruptedException, sigexcept
 
 
 class TestSigexcept:
@@ -110,8 +110,8 @@ class TestSigexcept:
   def test_train_import_wiring(self):
     # Integration smoke: the training entry point must expose the shared
     # exception (wiring reviewed in detail via the train/pretrain patches).
-    import scdiag.pretrain
-    import scdiag.train
+    import genml_kit.pretrain.cli
+    import genml_kit.training.train
 
-    assert scdiag.train.InterruptedException is InterruptedException
-    assert scdiag.pretrain.InterruptedException is InterruptedException
+    assert genml_kit.training.train.InterruptedException is InterruptedException
+    assert genml_kit.pretrain.cli.InterruptedException is InterruptedException

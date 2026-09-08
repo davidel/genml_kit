@@ -7,7 +7,7 @@ import os
 import torch
 from torch import nn
 
-from scdiag.checkpointing import (
+from genml_kit.io.checkpointing import (
     CheckpointSaver,
     fetch_remote_checkpoint,
     filter_state_dict,
@@ -15,7 +15,7 @@ from scdiag.checkpointing import (
     load_checkpoint_weights,
     should_save_periodic,
 )
-from scdiag.storage_utils import save_checkpoint
+from genml_kit.io.storage_utils import save_checkpoint
 
 
 class TestFormatCount:
@@ -272,7 +272,7 @@ class TestFetchRemoteCheckpoint:
     latest.write_bytes(b"local")
     best = tmp_path / "run_best.pt"
     downloads = []
-    monkeypatch.setattr("scdiag.checkpointing.storage_download",
+    monkeypatch.setattr("genml_kit.io.checkpointing.storage_download",
                         lambda uri, path: downloads.append(path) or True)
     with caplog.at_level(logging.INFO):
       restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
@@ -283,7 +283,8 @@ class TestFetchRemoteCheckpoint:
   def test_downloads_missing_latest_and_best(self, tmp_path, monkeypatch):
     latest = tmp_path / "run_latest.pt"
     best = tmp_path / "run_best.pt"
-    monkeypatch.setattr("scdiag.checkpointing.storage_download", lambda uri, path: True)
+    monkeypatch.setattr("genml_kit.io.checkpointing.storage_download",
+                        lambda uri, path: True)
     restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
     assert restored == [str(latest), str(best)]
     assert latest.exists() is False  # stub does not write; path bookkeeping only
@@ -293,7 +294,7 @@ class TestFetchRemoteCheckpoint:
     latest = tmp_path / "run_latest.pt"
     best = tmp_path / "run_best.pt"
     order = []
-    monkeypatch.setattr("scdiag.checkpointing.storage_download",
+    monkeypatch.setattr("genml_kit.io.checkpointing.storage_download",
                         lambda uri, path: order.append(path) or True)
     fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
     assert order == [str(latest), str(best)]
@@ -301,7 +302,7 @@ class TestFetchRemoteCheckpoint:
   def test_both_missing_silent_noop(self, tmp_path, monkeypatch, caplog):
     latest = tmp_path / "run_latest.pt"
     best = tmp_path / "run_best.pt"
-    monkeypatch.setattr("scdiag.checkpointing.storage_download",
+    monkeypatch.setattr("genml_kit.io.checkpointing.storage_download",
                         lambda uri, path: False)
     with caplog.at_level(logging.WARNING):
       restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))

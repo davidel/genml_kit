@@ -4,7 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from scdiag.train import CombinedFocalLoss, parse_class_multipliers
+from genml_kit.training.train import CombinedFocalLoss, parse_class_multipliers
 
 LABEL2ID = {
     "actinic_keratoses": 0,

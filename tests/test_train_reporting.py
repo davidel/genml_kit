@@ -1,4 +1,4 @@
-"""Tests for scdiag.train_reporting.TrainReporting.
+"""Tests for genml_kit.train_reporting.TrainReporting.
 
 These are white-box tests: they deliberately assert on the private
 (underscore-prefixed) attributes of ``TrainReporting`` to verify its
@@ -13,7 +13,7 @@ import torch
 
 def _make_reporter(**kwargs):
   """Create a TrainReporting with sensible defaults for testing."""
-  from scdiag.train_reporting import TrainReporting
+  from genml_kit.training.train_reporting import TrainReporting
   opt = MagicMock()
   opt.param_groups = [{"lr": 1e-4}]
   defaults = {

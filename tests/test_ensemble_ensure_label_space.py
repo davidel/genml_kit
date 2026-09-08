@@ -1,6 +1,6 @@
 """Tests for ``DatasetEnsemble.ensure_label_space`` (#5)."""
 
-from scdiag.datasets.ensemble import DatasetEnsemble, _HFDataset
+from genml_kit.datasets.ensemble import DatasetEnsemble, _HFDataset
 
 
 def _make_hf_dataset(n=8, num_classes=3):

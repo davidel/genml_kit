@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from scdiag.datasets.balanced_sampler import BalancedBatchSampler
+from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
 
 
 class TestBalancedBatchSampler:

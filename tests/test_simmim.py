@@ -3,9 +3,9 @@
 import pytest
 import torch
 
-from scdiag.models.convvit.loader import load_convvit
-from scdiag.models.convvit.masked_encoder import ConvViTMaskedImageEncoder
-from scdiag.models.simmim import (
+from genml_kit.models.convvit.loader import load_convvit
+from genml_kit.models.convvit.masked_encoder import ConvViTMaskedImageEncoder
+from genml_kit.models.simmim import (
     SimMIM,
     patchify,
     random_mask,

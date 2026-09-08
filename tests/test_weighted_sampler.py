@@ -1,9 +1,9 @@
-"""Tests for scdiag.datasets.weighted_sampler."""
+"""Tests for genml_kit.datasets.weighted_sampler."""
 import pytest
 import torch
 from torch.utils.data import WeightedRandomSampler
 
-from scdiag.datasets.weighted_sampler import build_weighted_sampler
+from genml_kit.datasets.weighted_sampler import build_weighted_sampler
 
 
 class _FakeDataset:

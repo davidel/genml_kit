@@ -19,13 +19,13 @@ from PIL import Image
 
 
 def _import_train():
-  """Lazy-import scdiag.train so module-level fixtures resolve cleanly."""
+  """Lazy-import genml_kit.training.train so module-level fixtures resolve cleanly."""
   import importlib
 
-  import scdiag.train
+  import genml_kit.training.train
 
-  importlib.reload(scdiag.train)
-  return scdiag.train
+  importlib.reload(genml_kit.training.train)
+  return genml_kit.training.train
 
 
 def _make_synthetic_dataset(label_col="label", image_col="image", n=64, num_classes=3):
@@ -132,7 +132,7 @@ class TestDetectImageColumn:
               "label": datasets.ClassLabel(names=["a", "b"]),
           }),
       )
-      with patch("scdiag.train.load_dataset", return_value=ds):
+      with patch("genml_kit.training.train.load_dataset", return_value=ds):
         train_p, _val_p = train_mod.load_and_split_dataset("fake_ds")
 
       img = train_p.dataset[0]["image_file"]
@@ -149,15 +149,15 @@ class TestDetectLabelColumn:
     ds = _make_synthetic_dataset(label_col="label", image_col="image")
     assert train_mod.HFDatasetProxy.detect_label_column(ds) == "label"
 
-  def test_finds_dx_classlabel(self):
+  def test_finds_category_classlabel(self):
     train_mod = _import_train()
-    ds = _make_synthetic_dataset(label_col="dx", image_col="image")
-    assert train_mod.HFDatasetProxy.detect_label_column(ds) == "dx"
+    ds = _make_synthetic_dataset(label_col="category", image_col="image")
+    assert train_mod.HFDatasetProxy.detect_label_column(ds) == "category"
 
-  def test_finds_diagnosis_classlabel(self):
+  def test_finds_breed_classlabel(self):
     train_mod = _import_train()
-    ds = _make_synthetic_dataset(label_col="diagnosis", image_col="img")
-    assert train_mod.HFDatasetProxy.detect_label_column(ds) == "diagnosis"
+    ds = _make_synthetic_dataset(label_col="breed", image_col="img")
+    assert train_mod.HFDatasetProxy.detect_label_column(ds) == "breed"
 
   def test_finds_labels_plural(self):
     train_mod = _import_train()
@@ -242,9 +242,9 @@ class TestDetectLabelColumn:
 
   def test_known_label_name_does_not_warn(self, caplog):
     train_mod = _import_train()
-    ds = _make_synthetic_dataset(label_col="dx", image_col="image")
+    ds = _make_synthetic_dataset(label_col="category", image_col="image")
     with caplog.at_level("WARNING"):
-      assert train_mod.HFDatasetProxy.detect_label_column(ds) == "dx"
+      assert train_mod.HFDatasetProxy.detect_label_column(ds) == "category"
     assert not any("No known label" in r.message for r in caplog.records)
 
   def test_last_resort_fallback_warns(self, caplog):
@@ -293,7 +293,7 @@ class TestLoadAndSplit:
     train_mod = _import_train()
     raw = _make_synthetic_dataset(label_col="dx", image_col="image")
 
-    with patch("scdiag.train.load_dataset", return_value=raw):
+    with patch("genml_kit.training.train.load_dataset", return_value=raw):
       train_p, val_p = train_mod.load_and_split_dataset("fake_dataset")
 
     assert isinstance(train_p, train_mod.HFDatasetProxy)
@@ -307,7 +307,7 @@ class TestLoadAndSplit:
     train_mod = _import_train()
     raw = _make_synthetic_dataset(label_col="label", image_col="image")
 
-    with patch("scdiag.train.load_dataset", return_value=raw):
+    with patch("genml_kit.training.train.load_dataset", return_value=raw):
       train_p, _val_p = train_mod.load_and_split_dataset("fake_dataset")
 
     assert "label" in train_p.dataset.column_names
@@ -325,7 +325,7 @@ class TestLoadAndSplit:
         }),
     )
 
-    with patch("scdiag.train.load_dataset", return_value=ds), \
+    with patch("genml_kit.training.train.load_dataset", return_value=ds), \
          pytest.raises(ValueError, match="No image column"):
       train_mod.load_and_split_dataset("fake_dataset")
 
@@ -347,7 +347,7 @@ class TestLoadAndSplit:
         }),
     )
 
-    with patch("scdiag.train.load_dataset", return_value=raw):
+    with patch("genml_kit.training.train.load_dataset", return_value=raw):
       train_p, _val_p = train_mod.load_and_split_dataset("fake_dataset")
     assert "diagnosis" in train_p.dataset.column_names
     assert train_p.label_column == "diagnosis"
@@ -638,9 +638,9 @@ class TestArgParsing:
 
   def test_defaults(self):
     train_mod = _import_train()
-    args = train_mod.parse_args([])
+    args = train_mod.parse_args(["--dataset", "my-org/my-images"])
     assert args.model == "google/vit-base-patch16-224"
-    assert args.dataset == "marmal88/skin_cancer"
+    assert args.dataset == "my-org/my-images"
     assert args.epochs == 5
     assert args.image_size == 448
     assert args.lr == 3e-5
@@ -668,5 +668,6 @@ class TestArgParsing:
 
   def test_amp_dtype_choices(self):
     train_mod = _import_train()
-    args = train_mod.parse_args(["--amp_dtype", "bfloat16"])
+    args = train_mod.parse_args(
+        ["--dataset", "my-org/my-images", "--amp_dtype", "bfloat16"])
     assert args.amp_dtype == "bfloat16"

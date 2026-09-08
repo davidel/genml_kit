@@ -5,7 +5,7 @@ from collections import namedtuple
 import numpy as np
 import torch
 
-from scdiag.model_utils import collect_features, extract_features
+from genml_kit.training.model_utils import collect_features, extract_features
 
 
 class TestExtractFeatures:

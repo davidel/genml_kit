@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from scdiag.infer import check_xgb_label_alignment, rank_indices
+from genml_kit.training.infer import check_xgb_label_alignment, rank_indices
 
 
 class TestRankIndicesTorch:

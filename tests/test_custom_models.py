@@ -8,15 +8,15 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
-from scdiag.model_utils import extract_backbone_features
-from scdiag.models import (
+from genml_kit.models import (
     ModelOutput,
     is_custom_model,
     load_model,
     register_model,
 )
-from scdiag.models.convvit.model import CustomPatchTransformer
-from scdiag.models.convvit.processor import ConvViTProcessor
+from genml_kit.models.convvit.model import CustomPatchTransformer
+from genml_kit.models.convvit.processor import ConvViTProcessor
+from genml_kit.training.model_utils import extract_backbone_features
 
 
 class ConvViTConfig:
@@ -84,7 +84,7 @@ class TestRegistry:
 
     assert is_custom_model("_test_model_xyz") is True
     # cleanup
-    from scdiag.models.registry import _MODEL_REGISTRY
+    from genml_kit.models.registry import _MODEL_REGISTRY
     del _MODEL_REGISTRY["_test_model_xyz"]
 
 
@@ -266,7 +266,7 @@ class TestConvViTAdapter:
   def wrapped_model(self):
     from types import SimpleNamespace
 
-    from scdiag.models.convvit.loader import ConvViTAdapter
+    from genml_kit.models.convvit.loader import ConvViTAdapter
 
     model = CustomPatchTransformer(
         num_classes=5,
@@ -327,7 +327,7 @@ class TestClsModelWrapper:
 
     from transformers import ViTConfig, ViTModel
 
-    from scdiag.models.cls_model_wrapper.model import ClsModelWrapper
+    from genml_kit.models.cls_model_wrapper.model import ClsModelWrapper
 
     config = ViTConfig(
         image_size=224,
@@ -339,7 +339,7 @@ class TestClsModelWrapper:
     tiny_backbone = ViTModel(config)
 
     with patch(
-        "scdiag.models.cls_model_wrapper.model.AutoModel.from_pretrained",
+        "genml_kit.models.cls_model_wrapper.model.AutoModel.from_pretrained",
         return_value=tiny_backbone,
     ):
       return ClsModelWrapper(
@@ -410,7 +410,7 @@ class TestLoadCustomModel:
   def test_load_convvit(self):
     id2label = {0: "a", 1: "b", 2: "c"}
     label2id = {"a": 0, "b": 1, "c": 2}
-    from scdiag.models import load_processor
+    from genml_kit.models import load_processor
 
     model = load_model(
         "convvit",
@@ -458,7 +458,7 @@ class TestLoadCustomModel:
     label2id = {"a": 0, "b": 1}
 
     # Mock UVito.__init__ to avoid downloading ResNet weights.
-    from scdiag.models.uvito import model as uvito_mod
+    from genml_kit.models.uvito import model as uvito_mod
 
     captured_kwargs = {}
 

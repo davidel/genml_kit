@@ -1,4 +1,4 @@
-"""Tests for scdiag.grad_monitor.GradMonitor."""
+"""Tests for genml_kit.grad_monitor.GradMonitor."""
 
 import logging
 import warnings
@@ -6,7 +6,7 @@ import warnings
 import torch
 import torch.nn as nn
 
-from scdiag.grad_monitor import GradMonitor
+from genml_kit.training.grad_monitor import GradMonitor
 
 
 class TinyModel(nn.Module):

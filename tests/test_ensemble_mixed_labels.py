@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from scdiag.datasets.ensemble import DatasetEnsemble, _HFDataset
+from genml_kit.datasets.ensemble import DatasetEnsemble, _HFDataset
 
 
 class _FakeLabeled:

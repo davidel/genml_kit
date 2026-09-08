@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from scdiag.xgb_utils import eval_xgboost, train_xgboost
+from genml_kit.training.xgb_utils import eval_xgboost, train_xgboost
 
 
 class TestTrainXGBoost:

@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-from scdiag.model_utils import _find_frozen_modules, set_train_mode
+from genml_kit.training.model_utils import _find_frozen_modules, set_train_mode
 
 
 class _Backbone(nn.Module):

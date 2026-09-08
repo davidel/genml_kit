@@ -6,7 +6,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from scdiag.storage_utils import (
+from genml_kit.io.storage_utils import (
     _upload_s3,
     parse_storage_uri,
     save_checkpoint,
@@ -121,7 +121,7 @@ class TestStorageUploadDispatch:
       seen["args"] = (bucket, path, prefix)
       return f"s3://{bucket}/{prefix}/ckpt.pt"
 
-    monkeypatch.setattr("scdiag.storage_utils._upload_s3", fake_upload_s3)
+    monkeypatch.setattr("genml_kit.io.storage_utils._upload_s3", fake_upload_s3)
     result = storage_upload("b", str(local), "p", scheme="s3")
     assert seen["args"] == ("b", str(local), "p")
     assert result == "s3://b/p/ckpt.pt"
@@ -143,7 +143,7 @@ class TestSaveCheckpointS3:
       seen["args"] = (bucket, path, prefix)
       return f"s3://{bucket}/{prefix}/ckpt.pt"
 
-    monkeypatch.setattr("scdiag.storage_utils._upload_s3", fake_upload_s3)
+    monkeypatch.setattr("genml_kit.io.storage_utils._upload_s3", fake_upload_s3)
     result = save_checkpoint({"epoch": 1}, str(local), remote_uri="s3://my-bucket/runs")
     assert os.path.isfile(result)
     assert seen["args"] == ("my-bucket", str(local), "runs")
