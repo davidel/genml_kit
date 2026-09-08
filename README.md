@@ -599,33 +599,18 @@ Validation reports include:
   classes wrongly predicted as this class, and $`FN`$ (false negatives) counts
   images of this class wrongly predicted as something else.
 - **F1:** the harmonic mean of precision and recall:
-
-  $$
-  \large
-  F_1 = \frac{2 \cdot \text{precision} \cdot \text{recall}}{\text{precision} + \text{recall}}
-  $$
-
+  $`F_1 = \frac{2 \cdot \text{precision} \cdot \text{recall}}{\text{precision} + \text{recall}}`$.
   When the denominator is zero, scikit-learn's `zero_division=0` behavior
   reports zero.
 - **Macro F1:** the arithmetic mean of the per-class F1 scores:
-
-  $$
-  \large
-  F_{1}^{\text{macro}} = \frac{1}{C} \sum_{c=1}^{C} F_{1,c}
-  $$
-
+  $`F_{1}^{\text{macro}} = \frac{1}{C} \sum_{c=1}^{C} F_{1,c}`$.
   Every class contributes equally, regardless of its validation-set size
   ($`C`$ is the number of classes, $`F_{1,c}`$ the F1 of class $`c`$).
   This is the metric used for best-checkpoint selection.
 - **Weighted F1:** the mean of per-class F1 scores weighted by each class's
   validation support. It is therefore more influenced by common classes.
 - **Balanced accuracy:** the arithmetic mean of per-class recall:
-
-  $$
-  \large
-  \text{balanced accuracy} = \frac{1}{C} \sum_{c=1}^{C} \text{recall}_c
-  $$
-
+  $`\text{balanced accuracy} = \frac{1}{C} \sum_{c=1}^{C} \text{recall}_c`$.
   It gives each class equal weight and is useful for imbalanced datasets.
 - **Support:** the number of true validation examples for a class.
 
