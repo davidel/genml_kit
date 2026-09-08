@@ -89,16 +89,20 @@ than a linear head for small datasets.
 
 The encoder turns an image into a vector of features. During pre-training, we
 choose an artificial task whose answer can be obtained from the images
-(or, for SupCon, from their labels). The encoder learns parameters theta that
-make this task easy. During fine-tuning, a classifier is attached to the
-encoder and the whole model, or a selected part of it, is adapted to the real
-labels:
+(or, for SupCon, from their labels). The encoder learns parameters
+$`\theta`$ that make this task easy. During fine-tuning, a classifier is
+attached to the encoder and the whole model, or a selected part of it, is
+adapted to the real labels:
 
 ```text
 image x  ──► encoder f_theta(x)  ──► classifier g_phi  ──► class probabilities
                     │                         │
              reusable features          task-specific boundary
 ```
+
+Here $`x`$ is the input image, $`f_\theta(x)`$ the feature vector computed by
+the encoder with parameters $`\theta`$, and $`g_\phi`$ the classifier head with
+parameters $`\phi`$.
 
 Pre-training and fine-tuning are not two names for the same job. Pre-training
 shapes a useful representation; fine-tuning decides how that representation
@@ -107,10 +111,9 @@ related to the target data, this gives the classifier a much better starting
 point than random initialization. If the domains are very different, use a
 smaller learning rate for the backbone and validate carefully.
 
-For further reading, see the original [SimMIM paper](https://arxiv.org/abs/2111.09886),
-[I-JEPA paper](https://arxiv.org/abs/2301.08243), and
-[Supervised Contrastive Learning paper](https://arxiv.org/abs/2004.11362).
-The [timm documentation](https://huggingface.co/docs/timm/index) and the
+The three pre-training methods are introduced above with links to their
+papers (see the [Pre-Training Guide](#pre-training-guide)). The
+[timm documentation](https://huggingface.co/docs/timm/index) and the
 [Hugging Face image classification guide](https://huggingface.co/docs/transformers/tasks/image_classification)
 are useful references when selecting a backbone or processor.
 
@@ -209,18 +212,27 @@ trains a lightweight decoder to reconstruct the original pixels. The encoder
 must learn to understand textures, boundaries, and spatial context from just
 40% of the image. Think of it as a "fill in the blanks" exercise for vision
 models. Good default choice when you have lots of unlabeled images.
+Reference: Xie et al., [SimMIM: A Simple Framework for Masked Image Modeling](https://arxiv.org/abs/2111.09886), CVPR 2022.
 
-For an image split into patches x_1, ..., x_N, let M be the set of masked
-patch indices and x_hat_i the decoder prediction. SimMIM minimizes mean
-squared error over masked patches:
+For an image split into patches $`x_1, \dots, x_N`$, let $`\mathcal{M}`$ be
+the set of masked patch indices and $`\hat{x}_i`$ the decoder prediction.
+SimMIM minimizes the mean squared reconstruction error over masked patches:
 
 $$
-L_{\text{MIM}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| \hat{x}_i - x_i \right\|_2^2
+\mathcal{L}_{\text{MIM}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| \hat{x}_i - x_i \right\|_2^2
 $$
 
-Here x_i is the original patch, x_hat_i is the predicted patch, and |M| is
-the number of masked patches. Only masked patches contribute to the loss;
-otherwise copying visible pixels would make the task too easy. A higher
+where:
+
+- $`x_i`$ — the pixels of the $`i`$-th original patch;
+- $`\hat{x}_i`$ — the decoder's reconstruction of that patch;
+- $`\mathcal{M}`$ — the set of masked patch indices, and $`|\mathcal{M}|`$ its
+  size (how many patches are masked);
+- $`\lVert \cdot \rVert_2^2`$ — the squared Euclidean ($`L_2`$) norm, i.e. the
+  sum of squared pixel differences over the patch.
+
+Only masked patches contribute to the loss; otherwise copying visible pixels
+would make the task too easy. A higher
 `--mask_ratio` supplies less context and creates a harder task, but an
 excessively high ratio can make reconstruction ambiguous.
 
@@ -229,28 +241,43 @@ instead of reconstructing pixels, it predicts the *latent representation* of
 the masked region from the visible context. This avoids wasting capacity on
 pixel-level noise (e.g. exact JPEG compression artifacts) and learns more
 transferable features. Uses a teacher–student setup with EMA momentum ramping.
+Reference: Assran et al., [Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture](https://arxiv.org/abs/2301.08243), CVPR 2023.
 
-Let f_theta be the student encoder and f_xi the teacher encoder. The predictor
-q_theta receives visible context and predicts a target representation
-z_j = f_xi(x_j) for a masked region. The objective is representation-space
-regression:
+Let $`f_\theta`$ be the student encoder and $`f_\xi`$ the teacher encoder;
+$`\theta`$ and $`\xi`$ are their respective parameter vectors (the subscripts
+name the network a symbol belongs to). The predictor $`q_\theta`$ receives the
+visible context and predicts a target representation $`z_j = f_\xi(x_j)`$ for a
+masked region. The objective is regression in representation space:
 
 $$
-L_{\text{IJEPA}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| q_\theta(f_\theta(\text{context}))_i - \mathrm{stopgrad}(f_\xi(x_i)) \right\|_2^2
+\mathcal{L}_{\text{IJEPA}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| q_\theta(f_\theta(\text{context}))_i - \mathrm{stopgrad}\!\left(f_\xi(x_i)\right) \right\|_2^2
 $$
 
-`stopgrad` means that the teacher target is treated as fixed while updating
-the student. The teacher is not optimized by backpropagation; it follows the
-student with an exponential moving average:
+where:
+
+- $`x_i`$ — the $`i`$-th masked patch (the prediction target);
+- $`f_\theta(\text{context})`$ — the student's encoding of the *visible* patches;
+- $`q_\theta(\cdot)_i`$ — the predictor's output for the $`i`$-th masked location;
+- $`f_\xi(x_i)`$ — the teacher's representation of the masked patch;
+- $`\mathrm{stopgrad}(\cdot)`$ — treat the argument as a constant: gradients do
+  not flow through it during the student update;
+- $`\lVert \cdot \rVert_2^2`$ — squared Euclidean distance in representation space;
+- $`\mathcal{M}`$ — the set of masked patch indices.
+
+The teacher is not optimized by backpropagation; it follows the student with
+an exponential moving average:
 
 $$
 \xi \leftarrow m \, \xi + (1 - m) \, \theta
 $$
 
-Here m is `--teacher_momentum`. A high m changes the teacher slowly and gives
+where $`m`$ is the momentum (`--teacher_momentum`) and the arrow denotes
+assignment: the new teacher parameters are a convex blend of the old teacher
+and the current student. A high $`m`$ changes the teacher slowly and gives
 more stable targets. The asymmetric teacher update and masking are important:
 two networks simply trained to copy each other could collapse to a constant
-vector.
+vector (the teacher-follows-student trick and $`\mathrm{stopgrad}`$ come from
+Grill et al., [BYOL](https://arxiv.org/abs/2006.07733), NeurIPS 2020).
 
 **SupCon** (Supervised Contrastive Learning): Uses labels to define "positive"
 pairs (same class) and "negative" pairs (different classes). The loss pulls
@@ -258,17 +285,38 @@ features of same-class images together and pushes different-class features
 apart. Produces a feature space where similar images naturally cluster.
 Requires a `ContrastiveEncoder` (backbone + projection head) and balanced
 batch sampling to ensure each batch has enough same-class pairs.
+Reference: Khosla et al., [Supervised Contrastive Learning](https://arxiv.org/abs/2004.11362), NeurIPS 2020.
 
-For normalized projections z_i = f_theta(x_i) / ||f_theta(x_i)||_2, the
-similarity of examples i and j is their dot product divided by temperature tau:
+An image $`x_i`$ is mapped by the encoder-and-projection-head
+$`f_\theta`$ to a vector $`f_\theta(x_i)`$, which is rescaled to unit length
+(normalized) so that comparisons are scale-invariant:
+
+$$
+z_i = \frac{f_\theta(x_i)}{\lVert f_\theta(x_i) \rVert_2}
+$$
+
+where $`\lVert v \rVert_2 = \sqrt{\sum_d v_d^2}`$ is the Euclidean ($`L_2`$)
+length of a vector $`v`$, so every $`z_i`$ lies on the unit hypersphere.
+The similarity of two examples $`i`$ and $`j`$ is then the dot product of
+their normalized projections, divided by the temperature $`\tau`$
+(`--temperature`):
 
 $$
 s_{ij} = \frac{z_i^\top z_j}{\tau}
 $$
 
-The positive set for anchor i is P(i) = {j: j != i and y_j = y_i}, where y_i
-is the class label. SupCon averages the log-softmax probability assigned to
-those positives:
+where $`z_i^\top z_j`$ is the dot product (cosine of the angle between the two
+unit vectors) and $`\tau`$ rescales the similarities before the softmax.
+
+Fix one example $`i`$, called the *anchor*. Its *positive set* is
+
+$$
+\mathcal{P}(i) = \{\, j : j \neq i \text{ and } y_j = y_i \,\}
+$$
+
+i.e. all other examples in the batch that share the anchor's class label
+$`y_i`$; every remaining example is a *negative*. SupCon averages the
+log-softmax probability that the anchor assigns to each of its positives:
 
 $$
 \mathcal{L}_i = -\frac{1}{|\mathcal{P}(i)|} \sum_{p \in \mathcal{P}(i)} \log \left( \frac{\exp(s_{ip})}{\sum_{a \neq i} \exp(s_{ia})} \right)
@@ -278,7 +326,17 @@ $$
 \mathcal{L} = \frac{1}{B} \sum_{i=1}^{B} \mathcal{L}_i
 $$
 
-B is the batch size. Lower temperature makes the distribution sharper: this
+where:
+
+- $`s_{ip}`$ — similarity between the anchor and positive $`p`$ (above);
+- $`\sum_{a \neq i}`$ — sum over all other examples in the batch, positives
+  *and* negatives (the softmax denominator);
+- $`|\mathcal{P}(i)|`$ — the number of positives for the anchor;
+- $`B`$ — the batch size; the total loss averages the per-anchor terms.
+
+Minimizing $`\mathcal{L}`$ pushes $`s_{ip}`$ up for same-class pairs and down
+for different-class pairs. A lower temperature makes the distribution sharper:
+this
 can help separate hard negatives but can also make optimization less stable.
 `--samples_per_class` matters because an anchor needs another example of its
 class to have a positive. A class represented once contributes no useful
@@ -475,20 +533,31 @@ classifier on your labeled dataset.
 
 ### What fine-tuning is changing
 
-Suppose the encoder produces h = f_theta(x). A linear classification head
-computes logits a = W h + b, and softmax turns them into probabilities:
+Suppose the encoder produces the feature vector $`h = f_\theta(x)`$. A linear
+classification head computes logits $`a = W h + b`$, and softmax turns them
+into probabilities:
 
 $$
 p(y=c \mid x) = \frac{\exp(a_c)}{\sum_k \exp(a_k)}
 $$
 
-Training minimizes cross-entropy, -log p(y | x), over labeled examples. The
-new classifier head is normally initialized from scratch because its output
+where:
+
+- $`h \in \mathbb{R}^{D}`$ — the encoder's feature vector for image $`x`$;
+- $`W \in \mathbb{R}^{C \times D}`$, $`b \in \mathbb{R}^{C}`$ — the head's weight
+  matrix and bias ($`C`$ = number of classes, $`D`$ = feature dimension);
+- $`a_c`$ — the logit (raw score) for class $`c`$;
+- $`p(y=c \mid x)`$ — the model's probability that the class of $`x`$ is
+  $`c`$; the softmax exponentials make the scores positive and summing to one.
+
+Training minimizes cross-entropy, $`-\log p(y \mid x)`$, over labeled
+examples. The new classifier head is normally initialized from scratch because
+its output
 size depends on the target classes. When loading a pre-training checkpoint,
 the useful part to transfer is the encoder; an unused SupCon projection head
 should not be copied into the classifier.
 
-The practical choice is how much of theta to update:
+The practical choice is how much of $`\theta`$ to update:
 
 - **Full fine-tuning** updates encoder and head. It gives the model the most
   freedom, but needs enough data and a conservative learning rate.
@@ -512,19 +581,40 @@ Validation reports include:
 - **Top-1 accuracy:** the percentage of validation images assigned the correct
   class by the highest-probability prediction.
 - **Precision:** for a class, the fraction of images predicted as that class
-  that truly belong to it: `TP / (TP + FP)`.
+  that truly belong to it:
+  $`\text{precision} = TP / (TP + FP)`$.
 - **Recall:** for a class, the fraction of images belonging to that class that
-  are predicted correctly: `TP / (TP + FN)`.
+  are predicted correctly: $`\text{recall} = TP / (TP + FN)`$.
+  Here $`TP`$ (true positives) counts images of the class that were correctly
+  predicted as that class, $`FP`$ (false positives) counts images of *other*
+  classes wrongly predicted as this class, and $`FN`$ (false negatives) counts
+  images of this class wrongly predicted as something else.
 - **F1:** the harmonic mean of precision and recall:
-  `2 * precision * recall / (precision + recall)`. When the denominator is
-  zero, scikit-learn's `zero_division=0` behavior reports zero.
-- **Macro F1:** the arithmetic mean of the per-class F1 scores. Every class
-  contributes equally, regardless of its validation-set size. This is the
-  metric used for best-checkpoint selection.
+
+  $$
+  F_1 = \frac{2 \cdot \text{precision} \cdot \text{recall}}{\text{precision} + \text{recall}}
+  $$
+
+  When the denominator is zero, scikit-learn's `zero_division=0` behavior
+  reports zero.
+- **Macro F1:** the arithmetic mean of the per-class F1 scores:
+
+  $$
+  F_{1}^{\text{macro}} = \frac{1}{C} \sum_{c=1}^{C} F_{1,c}
+  $$
+
+  Every class contributes equally, regardless of its validation-set size
+  ($`C`$ is the number of classes, $`F_{1,c}`$ the F1 of class $`c`$).
+  This is the metric used for best-checkpoint selection.
 - **Weighted F1:** the mean of per-class F1 scores weighted by each class's
   validation support. It is therefore more influenced by common classes.
-- **Balanced accuracy:** the arithmetic mean of per-class recall. It gives
-  each class equal weight and is useful for imbalanced datasets.
+- **Balanced accuracy:** the arithmetic mean of per-class recall:
+
+  $$
+  \text{balanced accuracy} = \frac{1}{C} \sum_{c=1}^{C} \text{recall}_c
+  $$
+
+  It gives each class equal weight and is useful for imbalanced datasets.
 - **Support:** the number of true validation examples for a class.
 
 The confusion matrix uses rows for true classes and columns for predicted
@@ -605,14 +695,21 @@ carrying over old optimizer/scheduler states.
 ### Layer-wise Learning Rate Decay (LLRD)
 
 LLRD is a compromise between freezing the backbone and updating every layer at
-the same speed. If layers are indexed from shallow 0 to deep L, a common
-schedule is:
+the same speed. If layers are indexed from shallow 0 to deep $`L`$, a common
+schedule is (introduced by Howard & Ruder, [Universal Language Model Fine-tuning](https://arxiv.org/abs/1801.06146), ACL 2018):
 
 $$
 \text{lr}(\text{layer}) = \text{lr}_{\text{base}} \cdot d^{\,L - \text{layer}}
 $$
 
-where d is `--llrd_decay`, usually between 0.8 and 1.0. The deepest layer
+where:
+
+- $`\text{lr}_{\text{base}}`$ — the `--lr` you pass on the command line;
+- $`d`$ — the decay factor (`--llrd_decay`), usually between 0.8 and 1.0;
+- $`L`$ — the index of the deepest layer, $`\text{layer}`$ the current layer's
+  index, both counted from 0 at the input side.
+
+The deepest layer
 receives the base rate while earlier layers receive smaller updates. Early
 layers tend to represent general edges and textures; later layers are more
 task-specific. This is a useful heuristic, not a law, so validate it on your
@@ -620,7 +717,8 @@ dataset. A very small decay factor can effectively freeze the shallow network.
 
 ### Mixup, label smoothing, and imbalance
 
-Mixup forms a virtual example from two training examples:
+Mixup forms a virtual example from two training examples.
+Reference: Zhang et al., [mixup: Beyond Empirical Risk Minimization](https://arxiv.org/abs/1710.09412), ICLR 2018.
 
 $$
 \tilde{x} = \lambda x_i + (1 - \lambda) x_j
@@ -630,15 +728,27 @@ $$
 \tilde{y} = \lambda y_i + (1 - \lambda) y_j
 $$
 
-where lambda ~ Beta(alpha, alpha). The labels are probability vectors, not
+where $`(x_i, y_i)`$ and $`(x_j, y_j)`$ are two randomly paired training
+examples and the mixing coefficient $`\lambda`$ is drawn from the Beta
+distribution, $`\lambda \sim \mathrm{Beta}(\alpha, \alpha)`$, with $`\alpha`$
+set by `--mixup_alpha` (typical values 0.2–0.4). The parameter $`\alpha`$
+shapes the distribution: small $`\alpha`$ puts most weight near 0 or 1,
+large $`\alpha`$ near 1/2. The labels are probability vectors, not
 class indices. Mixup smooths the decision boundary and can help on small
 datasets, but strong Mixup can obscure fine-grained image details. Label
 smoothing similarly replaces a one-hot label with a mostly-correct
-distribution. Focal loss instead changes the emphasis: with predicted
-probability p_t for the correct class, its basic form is
-`L = -(1-p_t)^gamma log(p_t)`, so easy examples receive less weight. Use
-these tools deliberately; combining every regularizer is not automatically
-better.
+distribution. Focal loss instead changes the emphasis: with $`p_t`$ the
+predicted probability of the correct class, its basic form is
+
+$$
+\mathcal{L}_{\text{focal}} = -(1 - p_t)^{\gamma} \log(p_t)
+$$
+
+where $`\gamma`$ (`--focal_gamma`) down-weights easy examples: when
+$`p_t \to 1`$ the factor $`(1-p_t)^{\gamma} \to 0`$, so already-confident,
+easy examples receive almost no weight and training focuses on hard ones.
+Use these tools deliberately; combining every regularizer is not
+automatically better.
 
 ### Hyperparameter Guidance
 
@@ -794,8 +904,28 @@ are unset, boto3's default credential chain applies (IAM instance role,
 ### LoRA Details
 
 Low-Rank Adaptation freezes the pre-trained backbone and injects small
-trainable low-rank matrices into attention layers. The LoRA output is
-`ΔW = (alpha/r) × B @ A`, where A and B are the low-rank matrices.
+trainable low-rank matrices into attention layers.
+Reference: Hu et al., [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685), ICLR 2022.
+
+Instead of updating a weight matrix $`W`$ directly, LoRA keeps it frozen and
+adds a low-rank product to its output:
+
+$$
+W' = W + \Delta W, \qquad \Delta W = \frac{\alpha}{r} \, B A
+$$
+
+where:
+
+- $`W \in \mathbb{R}^{d \times k}`$ — the frozen pre-trained weight matrix;
+- $`A \in \mathbb{R}^{r \times k}`$, $`B \in \mathbb{R}^{d \times r}`$ — the two
+  small trainable matrices ($`BA`$ is a matrix product);
+- $`r`$ — the rank (`--lora_r`), much smaller than $`d`$ or $`k`$, which is
+  what makes $`\Delta W`$ cheap: instead of $`d \times k`$ weights it trains
+  only $`r(d + k)`$;
+- $`\alpha`$ — the scale factor (`--lora_alpha`); the effective step size of
+  the update is $`\alpha / r`$.
+
+Only $`A`$, $`B`$ (and the classifier head) receive gradients.
 
 | r | alpha | alpha/r | Use case |
 |---|---|---|---|
@@ -901,10 +1031,13 @@ Output is JSON with per-class probabilities:
 ### XGBoost and test-time augmentation
 
 The neural classifier makes decisions through its head. The XGBoost option
-takes the encoder representation h = f_theta(x) instead and fits an ensemble
-of decision trees to those vectors. A tree partitions feature space with rules
-such as h_37 < t; boosting adds trees sequentially so each new tree focuses on
-errors left by previous trees. This can work well when the dataset is small
+takes the encoder representation $`h = f_\theta(x)`$ instead and fits an
+ensemble of decision trees to those vectors.
+Reference: Chen & Guestrin, [XGBoost: A Scalable Tree Boosting System](https://arxiv.org/abs/1603.02754), KDD 2016.
+A tree partitions feature space with rules such as $`h_{37} < t`$ (comparing
+the 37th feature of $`h`$ against a learned threshold $`t`$); boosting adds
+trees sequentially so each new tree focuses on errors left by previous trees.
+This can work well when the dataset is small
 and the representation is already useful, but it is not guaranteed to beat the
 neural head. Use validation data to choose tree depth, number of rounds, and
 ensemble weight.
@@ -916,7 +1049,11 @@ $$
 \bar{p}(y \mid x) = \frac{1}{K} \sum_{k=1}^{K} p(y \mid T_k(x))
 $$
 
-The transformations T_k should preserve the label semantics. Horizontal flips
+where $`T_1, \dots, T_K`$ are the $`K`$ test-time transformations (e.g. the
+original image plus flipped copies) and $`\bar{p}`$ is their averaged
+probability vector: each transformed copy is classified independently, and the
+final prediction averages the per-view class probabilities. The
+transformations should preserve the label semantics. Horizontal flips
 are usually safer than orientation-specific crops; verify that an augmentation
 does not erase the cue that distinguishes the classes.
 
@@ -1015,9 +1152,17 @@ gradients, imbalanced parameter updates) before it shows up in the loss.
 [Step 29400] Gradient Report: 202 params | grad_rms: mean=5.68e-01 max=3.41e+00 min=1.66e-05 | grad/param: mean=2.94e-01
 ```
 
-All norms are **RMS** (root mean square): L2 norm divided by `sqrt(numel)`.
-This makes them independent of tensor shape and directly comparable across
-parameters of different sizes.
+All norms are **RMS** (root mean square): the $`L_2`$ norm of the tensor
+divided by $`\sqrt{N}`$, where $`N`$ is the number of elements (`numel`):
+
+$$
+\operatorname{RMS}(v) = \frac{\lVert v \rVert_2}{\sqrt{N}} = \sqrt{\frac{1}{N} \sum_{n=1}^{N} v_n^2}
+$$
+
+Here $`v`$ is the tensor (a parameter or its gradient) flattened to $`N`$
+values $`v_1, \dots, v_N`$, and $`\lVert v \rVert_2 = \sqrt{\sum_n v_n^2}`$ is
+its Euclidean norm. Dividing by $`\sqrt{N}`$ makes the measure independent of
+tensor shape and directly comparable across parameters of different sizes.
 
 | Field | Meaning |
 |---|---|
@@ -1029,12 +1174,17 @@ parameters of different sizes.
 
 | Column | Symbol | What to look for |
 |---|---|---|
-| **g_rms** | `‖∇L‖/√N` | Compare across params. One param with g_rms 100× higher is a problem. |
-| **p_rms** | `‖W‖/√N` | Per-element scale context. With `std=0.02` init, expect ~0.02. |
-| **g/p** | `‖∇L‖ / (‖W‖ + ε)` | **Most useful column.** Healthy: < 0.1. Concerning: > 1.0 (update overshoots). Dangerous: > 5.0. |
-| **g_max** | `max|∇L|` | Highlights individual neurons with extreme gradients. |
+| **g_rms** | $`\operatorname{RMS}(\nabla_W \mathcal{L})`$ | Compare across params. One param with g_rms 100× higher is a problem. |
+| **p_rms** | $`\operatorname{RMS}(W)`$ | Per-element scale context. With `std=0.02` init, expect ~0.02. |
+| **g/p** | $`\lVert \nabla_W \mathcal{L} \rVert_2 / (\lVert W \rVert_2 + \varepsilon)`$ | **Most useful column.** Healthy: < 0.1. Concerning: > 1.0 (update overshoots). Dangerous: > 5.0. |
+| **g_max** | $`\max_n \lvert \partial \mathcal{L} / \partial W_n \rvert`$ | Highlights individual neurons with extreme gradients. |
 | **sparse** | `% zero` | High sparsity (> 50%) = most neurons not receiving signal. |
 | **status** | | `OK` = healthy. `STL` = stalled. `OVF` = exploding. `IMB` = imbalanced. `GPR` = high g/p ratio. |
+
+In this table $`W`$ denotes one parameter tensor, $`\nabla_W \mathcal{L}`$ its
+gradient (the vector of partial derivatives of the loss with respect to each
+element of $`W`$), and $`\varepsilon`$ a tiny constant that only prevents
+division by zero for parameters that are exactly zero.
 
 ### Reading the Report
 
@@ -1104,20 +1254,20 @@ training on backbone features.
 
 ## References and Further Reading
 
-- He et al., [Masked Autoencoders Are Scalable Vision Learners](https://arxiv.org/abs/2111.06377).
-  A useful comparison for masked-image pre-training.
-- Peng et al., [Masked Image Modeling with Vision Transformers](https://arxiv.org/abs/2111.09886).
-  The SimMIM paper.
-- Assran et al., [Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture](https://arxiv.org/abs/2301.08243).
-  The I-JEPA paper.
-- Caron et al., [Emerging Properties in Self-Supervised Vision Transformers](https://arxiv.org/abs/2104.14294).
+- Xie et al., [SimMIM: A Simple Framework for Masked Image Modeling](https://arxiv.org/abs/2111.09886), CVPR 2022.
+- Assran et al., [Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture](https://arxiv.org/abs/2301.08243), CVPR 2023.
+- Grill et al., [Bootstrap Your Own Latent: A New Approach to Self-Supervised Learning](https://arxiv.org/abs/2006.07733), NeurIPS 2020.
+  The EMA teacher and stop-gradient design used by I-JEPA-style methods.
+- Caron et al., [Emerging Properties in Self-Supervised Vision Transformers](https://arxiv.org/abs/2104.14294), ICCV 2021.
   The DINO paper — self-distillation with an EMA teacher and multi-crop.
-- Khosla et al., [Supervised Contrastive Learning](https://arxiv.org/abs/2004.11362).
-  The SupCon objective and experiments.
-- Hu et al., [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685).
-  The low-rank adaptation idea used by genml_kit.
-- Zhang et al., [mixup: Beyond Empirical Risk Minimization](https://arxiv.org/abs/1710.09412).
-  The Mixup augmentation strategy.
+- Khosla et al., [Supervised Contrastive Learning](https://arxiv.org/abs/2004.11362), NeurIPS 2020.
+- He et al., [Masked Autoencoders Are Scalable Vision Learners](https://arxiv.org/abs/2111.06377), CVPR 2022.
+  A useful comparison for masked-image pre-training.
+- Hu et al., [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685), ICLR 2022.
+- Howard & Ruder, [Universal Language Model Fine-tuning for Text Classification](https://arxiv.org/abs/1801.06146), ACL 2018.
+  Introduced layer-wise learning rate decay.
+- Zhang et al., [mixup: Beyond Empirical Risk Minimization](https://arxiv.org/abs/1710.09412), ICLR 2018.
+- Chen & Guestrin, [XGBoost: A Scalable Tree Boosting System](https://arxiv.org/abs/1603.02754), KDD 2016.
 - The [PyTorch optimization documentation](https://pytorch.org/docs/stable/optim.html)
   explains AdamW, schedulers, and gradient clipping.
 - The [scikit-learn metrics documentation](https://scikit-learn.org/stable/modules/model_evaluation.html)
