@@ -219,6 +219,7 @@ the set of masked patch indices and $`\hat{x}_i`$ the decoder prediction.
 SimMIM minimizes the mean squared reconstruction error over masked patches:
 
 $$
+\large
 \mathcal{L}_{\text{MIM}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| \hat{x}_i - x_i \right\|_2^2
 $$
 
@@ -250,6 +251,7 @@ visible context and predicts a target representation $`z_j = f_\xi(x_j)`$ for a
 masked region. The objective is regression in representation space:
 
 $$
+\large
 \mathcal{L}_{\text{IJEPA}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| q_\theta(f_\theta(\text{context}))_i - \mathrm{stopgrad}\!\left(f_\xi(x_i)\right) \right\|_2^2
 $$
 
@@ -268,6 +270,7 @@ The teacher is not optimized by backpropagation; it follows the student with
 an exponential moving average:
 
 $$
+\large
 \xi \leftarrow m \, \xi + (1 - m) \, \theta
 $$
 
@@ -292,6 +295,7 @@ $`f_\theta`$ to a vector $`f_\theta(x_i)`$, which is rescaled to unit length
 (normalized) so that comparisons are scale-invariant:
 
 $$
+\large
 z_i = \frac{f_\theta(x_i)}{\lVert f_\theta(x_i) \rVert_2}
 $$
 
@@ -302,6 +306,7 @@ their normalized projections, divided by the temperature $`\tau`$
 (`--temperature`):
 
 $$
+\large
 s_{ij} = \frac{z_i^\top z_j}{\tau}
 $$
 
@@ -311,6 +316,7 @@ unit vectors) and $`\tau`$ rescales the similarities before the softmax.
 Fix one example $`i`$, called the *anchor*. Its *positive set* is
 
 $$
+\large
 \mathcal{P}(i) = \{\, j : j \neq i \text{ and } y_j = y_i \,\}
 $$
 
@@ -319,10 +325,12 @@ $`y_i`$; every remaining example is a *negative*. SupCon averages the
 log-softmax probability that the anchor assigns to each of its positives:
 
 $$
+\large
 \mathcal{L}_i = -\frac{1}{|\mathcal{P}(i)|} \sum_{p \in \mathcal{P}(i)} \log \left( \frac{\exp(s_{ip})}{\sum_{a \neq i} \exp(s_{ia})} \right)
 $$
 
 $$
+\large
 \mathcal{L} = \frac{1}{B} \sum_{i=1}^{B} \mathcal{L}_i
 $$
 
@@ -538,6 +546,7 @@ classification head computes logits $`a = W h + b`$, and softmax turns them
 into probabilities:
 
 $$
+\large
 p(y=c \mid x) = \frac{\exp(a_c)}{\sum_k \exp(a_k)}
 $$
 
@@ -592,6 +601,7 @@ Validation reports include:
 - **F1:** the harmonic mean of precision and recall:
 
   $$
+  \large
   F_1 = \frac{2 \cdot \text{precision} \cdot \text{recall}}{\text{precision} + \text{recall}}
   $$
 
@@ -600,6 +610,7 @@ Validation reports include:
 - **Macro F1:** the arithmetic mean of the per-class F1 scores:
 
   $$
+  \large
   F_{1}^{\text{macro}} = \frac{1}{C} \sum_{c=1}^{C} F_{1,c}
   $$
 
@@ -611,6 +622,7 @@ Validation reports include:
 - **Balanced accuracy:** the arithmetic mean of per-class recall:
 
   $$
+  \large
   \text{balanced accuracy} = \frac{1}{C} \sum_{c=1}^{C} \text{recall}_c
   $$
 
@@ -699,6 +711,7 @@ the same speed. If layers are indexed from shallow 0 to deep $`L`$, a common
 schedule is (introduced by Howard & Ruder, [Universal Language Model Fine-tuning](https://arxiv.org/abs/1801.06146), ACL 2018):
 
 $$
+\large
 \text{lr}(\text{layer}) = \text{lr}_{\text{base}} \cdot d^{\,L - \text{layer}}
 $$
 
@@ -721,10 +734,12 @@ Mixup forms a virtual example from two training examples.
 Reference: Zhang et al., [mixup: Beyond Empirical Risk Minimization](https://arxiv.org/abs/1710.09412), ICLR 2018.
 
 $$
+\large
 \tilde{x} = \lambda x_i + (1 - \lambda) x_j
 $$
 
 $$
+\large
 \tilde{y} = \lambda y_i + (1 - \lambda) y_j
 $$
 
@@ -741,6 +756,7 @@ distribution. Focal loss instead changes the emphasis: with $`p_t`$ the
 predicted probability of the correct class, its basic form is
 
 $$
+\large
 \mathcal{L}_{\text{focal}} = -(1 - p_t)^{\gamma} \log(p_t)
 $$
 
@@ -911,6 +927,7 @@ Instead of updating a weight matrix $`W`$ directly, LoRA keeps it frozen and
 adds a low-rank product to its output:
 
 $$
+\large
 W' = W + \Delta W, \qquad \Delta W = \frac{\alpha}{r} \, B A
 $$
 
@@ -1046,6 +1063,7 @@ Test-time augmentation (TTA) runs the same image through several plausible
 views and averages the probability vectors:
 
 $$
+\large
 \bar{p}(y \mid x) = \frac{1}{K} \sum_{k=1}^{K} p(y \mid T_k(x))
 $$
 
@@ -1156,6 +1174,7 @@ All norms are **RMS** (root mean square): the $`L_2`$ norm of the tensor
 divided by $`\sqrt{N}`$, where $`N`$ is the number of elements (`numel`):
 
 $$
+\large
 \operatorname{RMS}(v) = \frac{\lVert v \rVert_2}{\sqrt{N}} = \sqrt{\frac{1}{N} \sum_{n=1}^{N} v_n^2}
 $$
 
