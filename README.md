@@ -88,11 +88,11 @@ than a linear head for small datasets.
 ### A useful mental model
 
 The encoder turns an image into a vector of features. During pre-training, we
-choose an artificial task whose answer can be obtained from the images
-(or, for SupCon, from their labels). The encoder learns parameters
-$`\theta`$ that make this task easy. During fine-tuning, a classifier is
-attached to the encoder and the whole model, or a selected part of it, is
-adapted to the real labels:
+choose an artificial task whose answer can be obtained from the images (or,
+for SupCon, from their labels). The encoder learns parameters $`\theta`$ that
+make this task easy. During fine-tuning, a classifier is attached to the
+encoder and the whole model, or a selected part of it, is adapted to the real
+labels:
 
 ```text
 image x  ──► encoder f_theta(x)  ──► classifier g_phi  ──► class probabilities
@@ -111,8 +111,8 @@ related to the target data, this gives the classifier a much better starting
 point than random initialization. If the domains are very different, use a
 smaller learning rate for the backbone and validate carefully.
 
-The three pre-training methods are introduced above with links to their
-papers (see the [Pre-Training Guide](#pre-training-guide)). The
+The pre-training methods are introduced above with links to their papers (see
+the [Pre-Training Guide](#pre-training-guide)). The
 [timm documentation](https://huggingface.co/docs/timm/index) and the
 [Hugging Face image classification guide](https://huggingface.co/docs/transformers/tasks/image_classification)
 are useful references when selecting a backbone or processor.
@@ -189,7 +189,7 @@ fine-tune on your specific task. This is especially valuable wherever labeled
 data is expensive to obtain but raw images are available in bulk — medical
 imaging, remote sensing, industrial inspection, scientific imaging.
 
-genml_kit supports three pre-training methods, each with different strengths:
+genml_kit supports five pre-training methods, each with different strengths:
 
 ### Choosing Your Method
 
@@ -198,14 +198,17 @@ genml_kit supports three pre-training methods, each with different strengths:
 | **SimMIM** | No | You have large unlabeled datasets; want a simple, proven approach | Mask 60% of image patches, train the model to reconstruct the raw pixels |
 | **I-JEPA** | No | You want faster training and better downstream transfer than SimMIM | Predict *representations* of masked regions, not raw pixels — avoids learning noise |
 | **SupCon** | Yes | You have labels and want representations that cluster by class | Pull same-class images together, push different classes apart in feature space |
+| **DINO** | No | You want strong features from a modest amount of data; proven, robust default | Self-distillation: a student matches the output distribution of its own EMA copy (the teacher) |
+| **BYOL** | No | Similar goals to DINO with a simpler pipeline (two views, no multi-crop) | Online network predicts the output of its own EMA target network |
 
 ### How Each Method Works
 
-The three methods differ mainly in what they call a correct answer. SimMIM
-asks for pixels, I-JEPA asks for features, and SupCon asks for relative
-positions in feature space. That distinction matters: pixel reconstruction can
-spend effort reproducing colour and high-frequency detail, while contrastive
-learning spends effort making classes separable.
+The methods differ mainly in what they call a correct answer. SimMIM asks for
+pixels, I-JEPA asks for features, DINO and BYOL ask a network to predict the
+output of its own slowly-moving copy, and SupCon asks for relative positions in
+feature space. That distinction matters: pixel reconstruction can spend effort
+reproducing colour and high-frequency detail, while the other methods spend
+effort building invariant, separable representations.
 
 **SimMIM** (Masked Image Modelling): Randomly masks ~60% of image patches and
 trains a lightweight decoder to reconstruct the original pixels. The encoder
@@ -282,6 +285,22 @@ two networks simply trained to copy each other could collapse to a constant
 vector (the teacher-follows-student trick and $`\mathrm{stopgrad}`$ come from
 Grill et al., [BYOL](https://arxiv.org/abs/2006.07733), NeurIPS 2020).
 
+Three mechanism details complete the picture:
+
+- **Block masking.** Target regions are not scattered single patches: the mask
+  is composed of a few contiguous rectangular blocks (4 blocks of 6×6 patches
+  in the current implementation). Contiguous holes are much harder to fill in
+  from context than isolated ones, so the task rewards spatial understanding
+  rather than high-frequency texture interpolation.
+- **Two crop scales.** The *context* (source) view is a small random crop (50%
+  of the image side) and the *target* view is a larger one (85%). The predictor
+  must infer representations of a region it sees only through a narrow window,
+  which encourages semantic rather than layout-memorized features.
+- **Momentum ramp.** $`m`$ moves from `--teacher_momentum` (0.996) toward
+  `--teacher_final_momentum` (1.0) as training progresses: as the encoder
+  matures, the teacher freezes progressively, stabilizing the targets late in
+  training.
+
 **SupCon** (Supervised Contrastive Learning): Uses labels to define "positive"
 pairs (same class) and "negative" pairs (different classes). The loss pulls
 features of same-class images together and pushes different-class features
@@ -350,28 +369,113 @@ can help separate hard negatives but can also make optimization less stable.
 class to have a positive. A class represented once contributes no useful
 SupCon term for that anchor.
 
+#### Temperature
+
+The division by $`\tau`$ (`--temperature`, default 0.07) above, and the two
+temperatures used by DINO below, all do the same job. Softmax over logits
+$`s`$ becomes
+
+$$
+\large
+\mathrm{softmax}(s)_j = \frac{\exp(s_j / \tau)}{\sum_k \exp(s_k / \tau)}
+$$
+
+A small $`\tau`$ divides every logit by a tiny number, so exponentials grow
+very fast and the distribution concentrates on the maximum (sharp); a large
+$`\tau`$ flattens it toward uniform. Sharpening amplifies small differences in
+similarity, which speeds learning, but too-small $`\tau`$ makes gradients
+vanish for non-maximum classes and destabilizes training. SupCon uses one
+moderate value; DINO uses a small teacher temperature (sharper *targets*,
+they are meant to be confident) and a larger student temperature (softer
+*predictions*, easier to move).
+
+**DINO** (self-**di**stillation with **no** labels): Caron et al.,
+[Emerging Properties in Self-Supervised Vision Transformers](https://arxiv.org/abs/2104.14294), ICCV 2021.
+One backbone is instantiated twice. The **student** $`f_\theta`$ is trained by
+gradient descent; the **teacher** $`f_\xi`$ is the EMA copy of the student
+($`\xi \leftarrow m\,\xi + (1-m)\,\theta`$, as in I-JEPA above, ramped from
+`--dino_momentum` 0.996 to `--dino_final_momentum` 1.0). Each image is cut
+into 2 **global** crops plus `--dino_local_num` (8) small **local** crops:
+the teacher sees only global views, the student sees all of them, so the
+student must produce globally consistent features from partial views.
+
+Both towers end in an MLP projection head whose output is turned into a
+probability vector over the projection dimension. The teacher's distribution
+is *sharpened* by its small temperature and *centered* by a running mean
+$`c \in \mathbb{R}^{D}`$ updated once per step,
+
+$$
+\large
+c \leftarrow m_c \, c + (1 - m_c) \cdot \frac{1}{B}\sum_{i=1}^{B} f_\xi(x_i)
+$$
+
+(`--dino_center_momentum` 0.9), and the loss is the cross-entropy between the
+teacher's processed distribution $`p_\xi`$ and the student's $`p_\theta`$,
+averaged over all (teacher global, student crop) pairings:
+
+$$
+\large
+\mathcal{L} = - \sum_{j} p_{\xi,j} \, \log p_{\theta,j}
+$$
+
+Centering and sharpening are the two anti-collapse mechanisms: centering
+cancels any component the teacher produces for *every* input (a constant
+output carries no information and would otherwise still lower the loss), and
+sharpening makes the teacher confident, forcing the student to truly reproduce
+its argmax rather than drifting toward a flat, uninformative distribution.
+Because the targets come from the teacher and the teacher follows the student,
+this is self-distillation — there are no external labels anywhere.
+
+**BYOL** (**B**ootstrap **Y**our **O**wn **L**atent): Grill et al.,
+[Bootstrap Your Own Latent](https://arxiv.org/abs/2006.07733), NeurIPS 2020.
+The same two-tower idea as DINO but with two augmented views and no
+multi-crop. The **online** network (encoder + projector + predictor MLP) and
+the **target** network (encoder + projector, EMA copy) process the two views;
+only the online tower receives gradients. With $`z_1, z_2`$ the target
+projections of the two views and $`p_1, p_2`$ the online *predictions* of
+those projections, the loss is the symmetric cosine regression
+
+$$
+\large
+\mathcal{L} = 2 - \cos(p_1, z_2) - \cos(p_2, z_1)
+$$
+
+which is 0 when predictions perfectly match target projections and reaches 4
+when they point in opposite directions; $`\cos(u,v) = u^\top v / (\lVert u
+\rVert_2 \lVert v \rVert_2)`$ is the cosine of the angle between the two
+vectors. Two asymmetries keep this from collapsing to a constant: the
+predictor exists only on the online side (predicting a target is easier than
+being one), and the targets move slowly under the EMA — exactly the
+teacher-follows-student trick noted under I-JEPA.
+
 ### Typical Hyperparameters
 
 These are reasonable starting points. Tune from here based on your dataset
 size and GPU memory:
 
-| Parameter | SimMIM | I-JEPA | SupCon |
-|---|---|---|---|
-| `--image_size` | 448 | 448 | 448 |
-| `--batch_size` | 32 | 32 | 64 |
-| `--lr` | 1e-4 | 1e-4 | 1e-4 |
-| `--epochs` | 200 | 200 | 100 |
-| `--scheduler` | CosineAnnealingLR | CosineAnnealingLR | CosineAnnealingLR |
-| `--amp_dtype` | bfloat16 | bfloat16 | bfloat16 |
-| `--mask_ratio` | 0.6 | — | — |
-| `--teacher_momentum` | — | 0.996→1.0 | — |
-| `--temperature` | — | — | 0.07 |
-| `--samples_per_class` | — | — | 16 |
+| Parameter | SimMIM | I-JEPA | DINO | BYOL | SupCon |
+|---|---|---|---|---|---|
+| `--image_size` | 448 | 448 | 224 | 224 | 448 |
+| `--batch_size` | 32 | 32 | 64 | 64 | 64 |
+| `--lr` | 1e-4 | 1e-4 | 5e-4 | 5e-4 | 1e-4 |
+| `--epochs` | 200 | 200 | 100 | 100 | 100 |
+| `--scheduler` | CosineAnnealingLR | CosineAnnealingLR | CosineAnnealingLR | CosineAnnealingLR | CosineAnnealingLR |
+| `--amp_dtype` | bfloat16 | bfloat16 | bfloat16 | bfloat16 | bfloat16 |
+| `--mask_ratio` | 0.6 | — | — | — | — |
+| `--teacher_momentum` | — | 0.996→1.0 | — | — | — |
+| `--dino_momentum` | — | — | 0.996→1.0 | — | — |
+| `--byol_momentum` | — | — | — | 0.996→1.0 | — |
+| `--temperature` | — | — | — | — | 0.07 |
+| `--samples_per_class` | — | — | — | — | 16 |
 
 **Tips:**
-- Start with 200 epochs for SimMIM/I-JEPA. SupCon converges faster (~100).
+- Start with 200 epochs for SimMIM/I-JEPA. DINO, BYOL, and SupCon converge
+  faster (~100).
 - `--temperature 0.07` is the standard from the original SupCon paper.
   Lower = sharper contrastive distribution; try 0.05–0.1.
+- DINO and BYOL train on smaller crops (224) with a larger LR because their
+  loss acts on a small projection space rather than every pixel; the defaults
+  above match the method-specific `--dino_*` / `--byol_*` flags.
 - `--samples_per_class 16` with `--batch_size 64` gives 4 classes per batch
   on a 7-class dataset. Adjust so batch_size is divisible by
   samples_per_class × num_classes.
@@ -429,7 +533,7 @@ genml-kit-pretrain --method supcon \
 
 | Argument | Default | Description |
 |---|---|---|
-| `--method` | `simmim` | Pre-training method. Choices: `simmim`, `ijepa`, `supcon`. |
+| `--method` | `simmim` | Pre-training method. Choices: `simmim`, `ijepa`, `dino`, `byol`, `supcon`. |
 | `--model` | `convvit` | Model name registered in genml_kit or HuggingFace model ID. |
 | `--datasets` | (required) | Space-separated dataset names or local paths. |
 | `--cache_dir` | `None` | HuggingFace cache directory for downloads. |
@@ -502,10 +606,9 @@ single corrupted file from blocking an entire pre-training run.
 
 #### Label Validation
 
-When using `--method supcon` (or any future label-aware method), the ensemble
-validates that every dataset supports labels. Datasets without a label column
-cause a clear error *before* training begins, not a cryptic runtime failure
-mid-epoch.
+When using a label-aware method (`--method supcon`), the ensemble validates
+that every dataset supports labels. Datasets without a label column cause a
+clear error *before* training begins, not a cryptic runtime failure mid-epoch.
 
 Labels are automatically remapped to a shared global label space across all
 datasets, so mixing datasets with overlapping but differently-named classes
@@ -559,8 +662,30 @@ where:
 - $`p(y=c \mid x)`$ — the model's probability that the class of $`x`$ is
   $`c`$; the softmax exponentials make the scores positive and summing to one.
 
-Training minimizes cross-entropy, $`-\log p(y \mid x)`$, over labeled
-examples. The new classifier head is normally initialized from scratch because
+Training minimizes cross-entropy between the model's predicted distribution
+$`p`$ and the target distribution $`q`$ over the $`C`$ classes,
+
+$$
+\large
+\mathcal{L}_{\text{CE}}(p, q) = -\sum_{c=1}^{C} q_c \log p_c
+$$
+
+For a hard label the target $`q`$ is a one-hot vector, so only the term of the
+true class survives and the loss reduces to the familiar $`-\log p(y \mid x)`$.
+genml_kit generalizes this in three directions via `CombinedFocalLoss`:
+
+- **Soft targets.** With Mixup (below) $`q`$ is the blend
+  $`\lambda\, y_i + (1-\lambda)\, y_j`$, and the sum keeps both classes'
+  terms weighted by $`\lambda`$ and $`1-\lambda`$.
+- **Label smoothing** (`--label_smoothing`): the one-hot target is replaced by
+  $`q_c = 1 - \varepsilon + \varepsilon/C`$ for the true class and
+  $`\varepsilon/C`$ for the others. The model is no longer asked to drive
+  $`p_c \to 1`$ exactly, which reduces overconfidence and improves
+  calibration on validation data.
+- **Class weights** (`--class_multipliers`): each term of the sum is scaled by
+  a per-class factor $`w_c`$, so rare classes contribute larger gradients.
+
+The new classifier head is normally initialized from scratch because
 its output
 size depends on the target classes. When loading a pre-training checkpoint,
 the useful part to transfer is the encoder; an unused SupCon projection head
@@ -712,6 +837,25 @@ receives the base rate while earlier layers receive smaller updates. Early
 layers tend to represent general edges and textures; later layers are more
 task-specific. This is a useful heuristic, not a law, so validate it on your
 dataset. A very small decay factor can effectively freeze the shallow network.
+
+### Cosine Annealing
+
+`--scheduler CosineAnnealingLR` (the default in every example above) decays
+the learning rate from its initial value $`\eta_{\max}`$ toward $`\eta_{\min}`$
+(0 by default) following a half cosine wave over `--epochs` epochs $`T`$:
+
+$$
+\large
+\eta(t) = \eta_{\min} + \frac{1}{2}\left(\eta_{\max} - \eta_{\min}\right)
+\left(1 + \cos\left(\frac{t \pi}{T}\right)\right)
+$$
+
+where $`t`$ is the current epoch. The cosine shape spends more time at high
+learning rates than a linear decay — useful early, when large steps explore
+the loss surface — and slows down smoothly as it approaches zero, which lets
+the model settle into a minimum instead of bouncing around it. Late-training
+low learning rates are also what make the EMA teacher of DINO/BYOL
+effective: the teacher tracks a student that changes gently.
 
 ### Mixup, label smoothing, and imbalance
 
@@ -1264,6 +1408,7 @@ training on backbone features.
   The EMA teacher and stop-gradient design used by I-JEPA-style methods.
 - Caron et al., [Emerging Properties in Self-Supervised Vision Transformers](https://arxiv.org/abs/2104.14294), ICCV 2021.
   The DINO paper — self-distillation with an EMA teacher and multi-crop.
+  The centering + sharpening trick to avoid representation collapse.
 - Khosla et al., [Supervised Contrastive Learning](https://arxiv.org/abs/2004.11362), NeurIPS 2020.
 - He et al., [Masked Autoencoders Are Scalable Vision Learners](https://arxiv.org/abs/2111.06377), CVPR 2022.
   A useful comparison for masked-image pre-training.
