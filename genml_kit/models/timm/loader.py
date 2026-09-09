@@ -4,11 +4,10 @@ Registers the ``"timm"`` model and processor names.  Invoked via::
 
     --model timm:eva02_base_patch14_224.mim_in22k
     --model timm:hf_hub:timm/eva02_base_patch14_224.mim_in22k
-    --model timm:hf_hub:timm/eva02_base_patch14_224.mim_in22k \\
-        --classifier mlp --classifier_args "hidden=512"
 
 Everything after the ``timm:`` prefix is passed verbatim to
-``timm.create_model()``.
+``timm.create_model()``.  For a custom classification head on a timm
+backbone use ``--model cls_model_wrapper:timm:<name>``.
 """
 
 import logging
@@ -34,7 +33,6 @@ def load_timm_model(
     checkpoint_path=None,
     cache_dir=None,
     pretrained=True,
-    classifier_args=None,
     **kwargs,
 ):
   """Instantiate a timm model wrapped for the genml_kit protocol.

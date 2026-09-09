@@ -565,7 +565,7 @@ genml-kit-pretrain --method supcon \
 | `--llrd_decay` | `None` | Layer-wise learning rate decay factor. |
 | `--vis_every` | `0` | Log reconstruction visualisation every N steps (SimMIM only). |
 | `--save_every` | `500` | Save checkpoint every N optimizer steps. 0 disables. |
-| `--model_arg` | `{}` | Override model configuration (repeatable). |
+| `--model_arg` | `{}` | Override model configuration (repeatable). For `--model cls_model_wrapper:<hf_name>` the classifier head travels here too: `--model_arg classifier=mlp:hidden=512,dropout=0.3`. |
 | `--proc_arg` | `{}` | Override processor configuration (repeatable). |
 | `--optimizer` | `AdamW` | `torch.optim` optimizer class name or `.py` script path. |
 | `--opt_arg` | `{}` | Extra optimizer kwargs (repeatable). |
@@ -776,8 +776,7 @@ classifier:
 genml-kit-train --model cls_model_wrapper:google/vit-base-patch16-224 \
                 --dataset my-org/my-labeled-images \
                 --label_column category \
-                --classifier mlp \
-                --classifier_args hidden=512 dropout=0.3 \
+                --model_arg classifier=mlp:hidden=512,dropout=0.3 \
                 --freeze ".*\.(head|pool)"
 ```
 
@@ -1019,8 +1018,6 @@ resume point.
 | `--remote_checkpoint` | `None` | Remote URI for checkpoint sync (`gs://BUCKET/PREFIX`, `r2://BUCKET/PREFIX`, or `s3://BUCKET/PREFIX`). |
 | `--source_checkpoint` | `None` | Path to source checkpoint to absorb parameters from. |
 | `--param_rename` | `None` | Regex-based key rename patterns (`SEARCH;REPLACE`). |
-| `--classifier` | `None` | Classifier head spec: registered name (e.g. `mlp`) or `.py` path. |
-| `--classifier_args` | `{}` | Extra classifier kwargs (repeatable). Example: `hidden=512 dropout=0.3`. |
 | `--freeze` | `None` | Regex patterns for parameters to keep trainable. All others frozen. |
 | `--lora` | `False` | Enable LoRA via PEFT. Requires `pip install "genml_kit[lora]"`. |
 | `--lora_r` | `8` | LoRA rank. |
@@ -1122,8 +1119,7 @@ LoRA can be combined with a custom classifier:
 ```bash
 genml-kit-train \
     --model cls_model_wrapper:facebook/dinov2-with-registers-large \
-    --classifier cls_attention \
-    --classifier_args 'num_encoder_layers=2' \
+    --model_arg classifier=cls_attention:num_encoder_layers=2 \
     --lora --lora_r 16 --lora_alpha 32 \
     --freeze 'classifier\.(head|pool|encoder)' \
     --lr_group 'backbone.*=1e-5' 'classifier.*=3e-4' \
@@ -1434,6 +1430,23 @@ class Classifier(nn.Module):
 
 The `extract_features` method is used by `--xgboost_model` for XGBoost
 training on backbone features.
+
+The head is selected through `--model_arg`, not a dedicated flag:
+
+```bash
+--model cls_model_wrapper:<hf_name> --model_arg classifier=mlp:hidden=512,dropout=0.3
+```
+
+The `classifier` value is an inline spec: the head name (a registered
+built-in — `mlp`, `cls_attention` — or a path to a `.py` file defining a
+`Classifier` class), optionally followed by `:key=value,...` kwargs. Values
+are parsed as int/float/bool, and bracketed lists such as
+`cls_slice=(0, 1)` work. A head is required: `cls_model_wrapper` fails fast
+with a clear message when `classifier` is missing. Models that embed their
+own head (`convvit`, `uvito`, `timm:<name>`) do not accept this kwarg — for
+a custom head on a HuggingFace backbone use `cls_model_wrapper` instead.
+`genml-kit-infer` needs the same `--model_arg classifier=...` to rebuild the
+head before loading the checkpoint weights.
 
 ---
 

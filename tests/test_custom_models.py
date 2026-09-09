@@ -404,6 +404,99 @@ class TestClsModelWrapper:
     assert hasattr(model.config, "hidden_size")
 
 
+class TestClassifierSpec:
+  """Tests for the inline classifier spec (classifier=mlp:hidden=512,...)."""
+
+  def test_name_only(self):
+    from genml_kit.training.classifiers import parse_classifier_spec
+
+    assert parse_classifier_spec("mlp") == ("mlp", {})
+
+  def test_name_with_kwargs(self):
+    from genml_kit.training.classifiers import parse_classifier_spec
+
+    name, kwargs = parse_classifier_spec("mlp:hidden=512,dropout=0.3")
+    assert name == "mlp"
+    assert kwargs == {"hidden": 512, "dropout": 0.3}
+
+  def test_kwarg_values_are_typed(self):
+    from genml_kit.training.classifiers import parse_classifier_spec
+
+    _name, kwargs = parse_classifier_spec("m:a=3,b=2.5,c=true")
+    assert kwargs == {"a": 3, "b": 2.5, "c": True}
+
+  def test_bracketed_list_values(self):
+    from genml_kit.training.classifiers import parse_classifier_spec
+
+    _name, kwargs = parse_classifier_spec("m:cls_slice=(0, 1),n=[1, 2]")
+    assert kwargs == {"cls_slice": [0, 1], "n": [1, 2]}
+
+  def test_py_path_spec(self):
+    from genml_kit.training.classifiers import parse_classifier_spec
+
+    assert parse_classifier_spec("my_cls.py") == ("my_cls.py", {})
+
+  def test_malformed_spec_raises(self):
+    from genml_kit.training.classifiers import parse_classifier_spec
+
+    with pytest.raises(ValueError):
+      parse_classifier_spec("mlp:hidden512")
+
+  def test_load_model_consumes_spec(self):
+    """load_model(cls_model_wrapper:...) parses classifier=<spec>."""
+    from unittest.mock import patch
+
+    from transformers import ViTConfig, ViTModel
+
+    from genml_kit.models import load_model
+
+    config = ViTConfig(
+        image_size=224,
+        hidden_size=64,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        intermediate_size=128,
+    )
+    tiny_backbone = ViTModel(config)
+
+    with patch(
+        "genml_kit.models.cls_model_wrapper.model.AutoModel.from_pretrained",
+        return_value=tiny_backbone,
+    ):
+      model = load_model(
+          "cls_model_wrapper:fake-backbone",
+          num_labels=5,
+          id2label={
+              0: "a",
+              1: "b",
+              2: "c",
+              3: "d",
+              4: "e"
+          },
+          label2id={},
+          image_size=224,
+          device=torch.device("cpu"),
+          classifier="mlp:hidden=256",
+      )
+    assert model.classifier is not None
+    x = torch.randn(2, 3, 224, 224)
+    out = model(x)
+    assert out.logits.shape == (2, 5)
+
+  def test_load_model_requires_classifier(self):
+    from genml_kit.models import load_model
+
+    with pytest.raises(ValueError):
+      load_model(
+          "cls_model_wrapper:fake-backbone",
+          num_labels=5,
+          id2label={0: "a"},
+          label2id={},
+          image_size=224,
+          device=torch.device("cpu"),
+      )
+
+
 class TestLoadCustomModel:
   """Test the full load path through the registry."""
 

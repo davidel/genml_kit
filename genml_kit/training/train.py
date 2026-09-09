@@ -434,23 +434,6 @@ def parse_args(argv=None):
   add_optimization_args(parser)
 
   parser.add_argument(
-      "--classifier",
-      type=str,
-      help="Classifier head spec: a registered name (e.g. 'mlp') or a "
-      "path to a .py file defining a Classifier class. Only used with "
-      "--model cls_model_wrapper:<hf_name>.",
-  )
-  parser.add_argument(
-      "--classifier_args",
-      nargs="+",
-      action=KVPairAction,
-      default={},
-      metavar="KEY=VALUE",
-      help="Extra classifier kwargs (repeatable). "
-      "Example: --classifier_args hidden=512 dropout=0.3",
-  )
-
-  parser.add_argument(
       "--freeze",
       type=str,
       help="Comma-separated list of regex patterns (re.match) for "
@@ -658,7 +641,9 @@ def parse_args(argv=None):
       default={},
       metavar="KEY=VALUE",
       help="Override model configuration (repeatable). "
-      "Example: --model_arg depth=6 num_heads=8",
+      "Example: --model_arg depth=6 num_heads=8. For "
+      "--model cls_model_wrapper:<hf_name> the classifier head travels "
+      "here too: --model_arg classifier=mlp:hidden=512,dropout=0.3",
   )
   parser.add_argument(
       "--proc_arg",
@@ -1062,8 +1047,6 @@ def build_model(args, device, num_labels, id2label, label2id):
       device=device,
       checkpoint_path=args.checkpoint,
       cache_dir=args.cache_dir,
-      classifier=args.classifier,
-      classifier_args=args.classifier_args,
       **args.model_arg,
   )
 

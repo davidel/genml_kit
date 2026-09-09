@@ -2,17 +2,19 @@
 
 Registered as ``cls_model_wrapper`` in the model registry.  Invoked via::
 
-    --model cls_model_wrapper:google/vit-base-patch16-224
-    --classifier mlp
-    --classifier_args "hidden=512,dropout=0.3"
+    --model cls_model_wrapper:google/vit-base-patch16-224 \\
+    --model_arg classifier=mlp:hidden=512,dropout=0.3
 
-The text after the ``:`` is the HF model name/path (``backbone``).
+The text after the model ``:`` is the HF model name/path (``backbone``).
+The ``classifier`` kwarg is the inline head spec parsed by
+:func:`~genml_kit.training.classifiers.parse_classifier_spec`.
 """
 
 import logging
 
 from genml_kit.models.cls_model_wrapper.model import ClsModelWrapper
 from genml_kit.models.registry import register_model
+from genml_kit.training.classifiers import parse_classifier_spec
 from genml_kit.utils.logging import fatal
 
 
@@ -22,8 +24,6 @@ def load_cls_model_wrapper(*,
                            num_labels,
                            id2label=None,
                            label2id=None,
-                           classifier=None,
-                           classifier_args=None,
                            image_size=224,
                            device="cpu",
                            **kwargs):
@@ -33,6 +33,14 @@ def load_cls_model_wrapper(*,
         "cls_model_wrapper always requires a classification head "
         "(num_labels > 0). For headless encoders use the backbone model "
         "directly (e.g. --model timm:... or the HF name).", ValueError)
+
+  classifier_spec = kwargs.pop("classifier", None)
+  if not classifier_spec:
+    fatal(
+        "cls_model_wrapper requires a classifier head. Pass it via "
+        "--model_arg, e.g. --model_arg classifier=mlp:hidden=512. "
+        "Available built-ins: mlp, cls_attention. A .py path also works.", ValueError)
+  classifier, classifier_args = parse_classifier_spec(classifier_spec)
 
   model = ClsModelWrapper(
       backbone_name=backbone,

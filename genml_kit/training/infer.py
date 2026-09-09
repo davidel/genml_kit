@@ -70,7 +70,9 @@ def parse_args(argv=None):
       default={},
       metavar="KEY=VALUE",
       help="Override model configuration (repeatable). "
-      "Example: --model_arg depth=6 num_heads=8",
+      "Example: --model_arg depth=6 num_heads=8. For "
+      "--model cls_model_wrapper:<hf_name> the head travels here too: "
+      "--model_arg classifier=mlp:hidden=512,dropout=0.3",
   )
   parser.add_argument(
       "--proc_arg",
