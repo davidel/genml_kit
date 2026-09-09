@@ -881,8 +881,14 @@ large $`\alpha`$ near 1/2. The labels are probability vectors, not
 class indices. Mixup smooths the decision boundary and can help on small
 datasets, but strong Mixup can obscure fine-grained image details. Label
 smoothing similarly replaces a one-hot label with a mostly-correct
-distribution. Focal loss instead changes the emphasis: with $`p_t`$ the
-predicted probability of the correct class, its basic form is
+distribution.
+
+#### Focal loss
+
+Focal loss instead changes the emphasis of cross-entropy. Reference: Lin et
+al., [Focal Loss for Dense Object Detection](https://arxiv.org/abs/1708.02002), ICCV 2017.
+With a hard label and $`p_t`$ the predicted probability of the correct class,
+its basic form is
 
 $$
 \large
@@ -892,6 +898,37 @@ $$
 where $`\gamma`$ (`--focal_gamma`) down-weights easy examples: when
 $`p_t \to 1`$ the factor $`(1-p_t)^{\gamma} \to 0`$, so already-confident,
 easy examples receive almost no weight and training focuses on hard ones.
+With $`\gamma = 0`$ the factor is 1 for every example and the loss is plain
+cross-entropy; typical values are 1–3, and 2.0 is the usual default.
+
+genml_kit implements the general form (`CombinedFocalLoss` in
+`genml_kit/pretrain/losses/focal.py`), which composes cleanly with the other
+tools in this section. Let $`q`$ be the target distribution from the previous
+step (one-hot, Mixup-blended, or label-smoothed), $`w_c`$ the per-class
+multipliers (`--class_multipliers`), and $`p`$ the model's softmax output.
+The loss for one example is
+
+$$
+\large
+\mathcal{L} = \left(1 - p_t\right)^{\gamma} \sum_{c=1}^{C} w_c\, q_c
+\left(-\log p_c\right), \qquad p_t = \sum_{c=1}^{C} q_c\, p_c
+$$
+
+Two details matter for the reader combining these flags:
+
+- **Unified $`p_t`.** The modulating factor uses the *expected* probability
+  under the target distribution, $`p_t = \sum_c q_c p_c`$, rather than the
+  probability of a single class. For a one-hot target $`q`$ this reduces
+  exactly to the basic form above ($`p_t`$ becomes the correct-class
+  probability); with Mixup soft targets it blends the two classes'
+  probabilities, giving one smooth modulation per example instead of an
+  arbitrary single-class choice.
+- **One modulation per example.** The factor $`(1-p_t)^{\gamma}`$ scales the
+  whole weighted cross-entropy sum — weights and soft labels act *inside* the
+  sum, focal acts *outside* it. Each term is therefore attenuated
+  proportionally to how confident the model already is about that example, no
+  matter which class the probability mass sits on.
+
 Use these tools deliberately; combining every regularizer is not
 automatically better.
 
@@ -1416,6 +1453,8 @@ training on backbone features.
 - Howard & Ruder, [Universal Language Model Fine-tuning for Text Classification](https://arxiv.org/abs/1801.06146), ACL 2018.
   Introduced layer-wise learning rate decay.
 - Zhang et al., [mixup: Beyond Empirical Risk Minimization](https://arxiv.org/abs/1710.09412), ICLR 2018.
+- Lin et al., [Focal Loss for Dense Object Detection](https://arxiv.org/abs/1708.02002), ICCV 2017.
+  Introduced focal loss and the $`(1-p_t)^\gamma`$ easy-example down-weighting.
 - Chen & Guestrin, [XGBoost: A Scalable Tree Boosting System](https://arxiv.org/abs/1603.02754), KDD 2016.
 - The [PyTorch optimization documentation](https://pytorch.org/docs/stable/optim.html)
   explains AdamW, schedulers, and gradient clipping.
