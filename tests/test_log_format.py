@@ -109,7 +109,7 @@ class TestGPUStatsFormat:
     assert result == ""
 
   def test_gpu_stats_str_format_on_cuda(self):
-    """gpu_stats_str should return a string with MB and util info on CUDA."""
+    """gpu_stats_str should return a string with MiB, percent, and util."""
     from genml_kit.utils.gpu import gpu_stats_str
 
     mock_device = MagicMock()
@@ -123,9 +123,9 @@ class TestGPUStatsFormat:
       mock_props.return_value.total_memory = 1024 * 1024 * 1024 * 16
       with patch("torch.cuda.utilization", return_value=85):
         result = gpu_stats_str(mock_device)
-    assert result.startswith("GPU: mem=")
-    assert "res=" in result
-    assert "util=" in result
+    assert result.startswith("GPU: mem=100/16384MiB (1%)")
+    assert "res=200MiB" in result
+    assert "util=85%" in result
 
 
 class TestParseArgs:

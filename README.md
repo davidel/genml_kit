@@ -544,8 +544,7 @@ genml-kit-pretrain --method supcon \
 | `--strict_datasets` | `False` | Abort on first dataset-loading failure instead of skipping. |
 | `--image_size` | `448` | Input image size (square). |
 | `--batch_size` | `32` | Per-GPU batch size. |
-| `--seed` | `42` | RNG seed for data shuffling, batch sampling, and dropout. Pass the same value to reproduce a run. See [Reproducibility](#reproducibility). |
-| `--deterministic` | `False` | Enable deterministic algorithms (cuDNN deterministic mode, benchmark off). Costs throughput; ops without a deterministic CUDA kernel warn instead of failing. |
+| `--seed` | `None` | Explicit RNG seed: pins the shuffling and enables full determinism (cuDNN deterministic kernels, benchmark off). Omit (default) to keep runs fast — RNG streams are still seeded from `$GENML_KIT_SEED` (default 42). See [Reproducibility](#reproducibility). |
 | `--epochs` | `200` | Total pre-training epochs. |
 | `--lr` | `1e-4` | Peak learning rate for AdamW. |
 | `--amp_dtype` | `None` | Mixed precision: `float16` or `bfloat16`. Omit to disable. |
@@ -950,19 +949,30 @@ automatically better.
 
 ### Reproducibility
 
-Every run is seeded by default: `--seed 42` drives the train/val split,
-DataLoader shuffling, per-worker augmentation randomness, mixup, dropout,
-`BalancedBatchSampler` batch composition, and the XGBoost stage.  Two
-runs with identical arguments follow identical RNG streams.  To compare
-hyperparameters under a different random draw, pass a different seed.
+RNG streams are always seeded.  By default the seed comes from the
+`GENML_KIT_SEED` environment variable (default `42`), and it drives
+DataLoader shuffling, per-worker augmentation randomness, mixup, and
+dropout — the user not caring about determinism does not mean the
+toolkit runs on entropy.  To compare hyperparameters under a different
+random draw, change `GENML_KIT_SEED` or pass an explicit seed.
 
-For bit-exact reproducibility (e.g. debugging a numerically divergent
-run), add `--deterministic`.  This enables cuDNN deterministic mode and
-PyTorch's deterministic-algorithms mode:
+Two levels of determinism:
+
+| Invocation | Seeding | CUDA kernels | Reproducible? |
+|---|---|---|---|
+| default (no `--seed`) | `GENML_KIT_SEED` or 42 | `cudnn.benchmark=True` (fastest algorithms) | RNG streams identical; arithmetic not bit-exact |
+| `--seed 42` | 42 everywhere | cuDNN deterministic mode, benchmark off, deterministic algorithms | bit-exact |
+
+Passing an explicit `--seed` therefore buys full determinism at a
+throughput cost (typically 10–20%); omit it for maximum speed:
 
 ```bash
-genml-kit-train --model convvit --deterministic ...
+genml-kit-train --model convvit --seed 42 ...
 ```
+
+The train/val split and the XGBoost stage follow the user's seed: with
+`--seed` given they are pinned; without it they draw fresh entropy each
+run (HF `train_test_split(seed=None)`, XGBoost `random_state=None`).
 
 Two caveats:
 
@@ -996,8 +1006,7 @@ resume point.
 | `--sampler` | `none` | Training sampler: `none` (shuffle) or `weighted` (WeightedRandomSampler for class imbalance). |
 | `--sampler_weights` | `frequency` | Weight mode for `--sampler weighted`: `frequency` (inverse-freq), `multipliers` (--class_multipliers), or `combined` (freq × multipliers). |
 | `--mixup_alpha` | `0.0` | Mixup alpha (`0` = disabled; recommended: `0.2`). |
-| `--seed` | `42` | RNG seed for data shuffling, the train/val split, mixup, dropout, and the XGBoost stage. Pass the same value to reproduce a run. See [Reproducibility](#reproducibility). |
-| `--deterministic` | `False` | Enable deterministic algorithms (cuDNN deterministic mode, benchmark off). Costs throughput; ops without a deterministic CUDA kernel warn instead of failing. |
+| `--seed` | `None` | Explicit RNG seed: pins the train/val split and the XGBoost stage and enables full determinism (cuDNN deterministic kernels, benchmark off). Omit (default) to keep runs fast — shuffling/mixup/dropout are still seeded from `$GENML_KIT_SEED` (default 42). See [Reproducibility](#reproducibility). |
 | `--grad_accum_steps` | `1` | Gradient accumulation steps (effective batch = batch_size × steps). |
 | `--amp_dtype` | `None` | Mixed precision: `float16` or `bfloat16`. |
 | `--device` | auto-detect | Device: `cpu`, `cuda`, or `cuda:INDEX`. |
@@ -1317,6 +1326,40 @@ labels that are not being passed correctly.
    adding LLRD, LoRA, Mixup, focal loss, and class multipliers together.
 5. Select the checkpoint using a validation metric appropriate to the
    objective, rather than training loss alone.
+
+### Low GPU utilization (`util=0` in the training log)
+
+The periodic `GPU:` line reports memory in MiB and SM utilization as a
+percentage sampled at log time (`mem=allocated/totalMiB (pct) res=…MiB
+util=…%`). `mem` counts live tensors, `res` is the caching allocator's
+pool, and `util` is one instant — not an average — so an isolated 0 is
+normal. A *persistent* pattern of `util=0` at every log line, with
+`mem`/`res` byte-identical between samples, means the GPU finished the
+last batch and is idle waiting for the next one: the run is **input
+bound**, not compute bound. The throughput line (`img/s=`) is the ground
+truth for step time.
+
+Common causes and fixes, in order of likelihood:
+
+- **Too few DataLoader workers.** JPEG decode + augmentation is CPU work;
+  with `--num_workers 4` a 4090 can easily outrun the pipeline at
+  448². Check `nproc` on the machine and raise `--num_workers` toward
+  the core count — `img/s` should scale until the GPU saturates
+  (a `util` that now sits consistently above ~90% means you are done).
+- **Expensive decode.** Full-resolution JPEGs dominate decode cost.
+  Pre-resizing the dataset offline (e.g. ~512px long side) cuts decode
+  work several-fold and often doubles throughput on small VRAM budgets.
+- **Slow storage.** A network volume (S3/R2 mount, NFS) adds latency per
+  image; prefer local NVMe for the dataset.
+- **`--seed`.** It enables cuDNN deterministic mode and disables
+  benchmarking; expect slower steps by design.  Omit it when you do not
+  need bit-exact runs.
+
+Fine-tuning runs on frozen-backbone models need very little GPU memory
+(`mem` is typically a few hundred MiB), so a low `mem` number is normal
+there and not a sign of a problem. Loader prefetch (`prefetch_factor=4`
+per worker) and `cudnn.benchmark=True` (default; disabled by an explicit
+`--seed`) already help absorb jitter and speed up the GPU side.
 
 ---
 

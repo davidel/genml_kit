@@ -58,7 +58,7 @@ from genml_kit.utils.args import (
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import gpu_stats_str, resolve_device
 from genml_kit.utils.logging import fatal, open_writer, setup_logging
-from genml_kit.utils.seed import seed_everything, seed_worker
+from genml_kit.utils.seed import resolve_seed, seed_everything, seed_worker
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
 
@@ -579,16 +579,11 @@ def parse_args(argv=None):
   parser.add_argument(
       "--seed",
       type=int,
-      default=42,
-      help="RNG seed for data shuffling, batch sampling, and dropout. "
-      "42 by default; pass the same value to reproduce a run.",
-  )
-  parser.add_argument(
-      "--deterministic",
-      action="store_true",
-      help="Enable deterministic algorithms (cuDNN deterministic mode, "
-      "benchmark off). Costs throughput; ops without a deterministic "
-      "CUDA kernel log a warning instead of failing.",
+      default=None,
+      help="Explicit RNG seed and full determinism (cuDNN deterministic "
+      "kernels, benchmark off). Omit to keep runs fast: RNG streams are "
+      "still seeded internally from $GENML_KIT_SEED (default 42), just "
+      "not bit-exact.",
   )
   parser.add_argument(
       "--device",
@@ -630,8 +625,12 @@ def build_pretrain_loaders(args, dataset, ensemble, device, needs_labels):
   Returns:
       Tuple ``(loader, data_generator)``.
   """
-  # Seeded generator for DataLoader shuffling.
-  data_generator = torch.Generator().manual_seed(args.seed)
+  # Generator for DataLoader shuffling.  With an explicit --seed it is
+  # seeded so shuffling is reproducible; otherwise it draws fresh entropy
+  # per run (global RNG seeding still applies to workers via seed_worker).
+  data_generator = torch.Generator()
+  if args.seed is not None:
+    data_generator.manual_seed(args.seed)
 
   if needs_labels:
     sampler = BalancedBatchSampler(
@@ -810,7 +809,10 @@ def run_pretraining(args, model, loader, ensemble, method, optimization, device,
 def main(argv=None):
   args = normalize_args(parse_args(argv))
   setup_logging(args.log_level, args.log_targets)
-  seed_everything(args.seed, args.deterministic)
+  # An explicit --seed asks for deterministic kernels; the internally
+  # resolved default seed only seeds the RNG streams (benchmark stays on).
+  seed_everything(resolve_seed(args.seed),
+                  deterministic=(args.seed is not None))
 
   method_cls = get_method(args.method)
   method = method_cls()

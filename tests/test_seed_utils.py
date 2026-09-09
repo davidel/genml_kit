@@ -48,11 +48,23 @@ class TestSeedEverything:
     _, _, _, lam_b = mixup_data(x, torch.tensor([0, 1]), alpha=0.2)
     assert lam_a == lam_b
 
-  def test_returns_settings_dict(self):
-    settings = seed_everything(5)
+  def test_returns_settings_dict_non_deterministic(self):
+    """Explicit deterministic=False keeps benchmark on."""
+    settings = seed_everything(5, deterministic=False)
     assert settings["seed"] == 5
     assert settings["deterministic"] is False
     assert settings["cudnn_deterministic"] is False
+    assert torch.backends.cudnn.benchmark is True
+
+  def test_returns_settings_dict_seed_implies_deterministic(self):
+    """With no explicit override, an explicit seed asks for deterministic
+    kernels (benchmark off)."""
+    settings = seed_everything(5)
+    assert settings["seed"] == 5
+    assert settings["deterministic"] is True
+    assert settings["cudnn_deterministic"] is True
+    assert torch.backends.cudnn.deterministic is True
+    assert torch.backends.cudnn.benchmark is False
 
   def test_deterministic_flags(self):
     try:
@@ -93,21 +105,47 @@ class TestSeedWorker:
     np.testing.assert_array_equal(a, b)
 
 
+class TestResolveSeed:
+
+  def test_explicit_seed_wins(self):
+    from genml_kit.utils.seed import resolve_seed
+
+    assert resolve_seed(7) == 7
+
+  def test_default_from_constant(self, monkeypatch):
+    from genml_kit.utils.seed import resolve_seed
+
+    monkeypatch.delenv("GENML_KIT_SEED", raising=False)
+    assert resolve_seed(None) == 42
+
+  def test_env_override(self, monkeypatch):
+    from genml_kit.utils.seed import resolve_seed
+
+    monkeypatch.setenv("GENML_KIT_SEED", "7")
+    assert resolve_seed(None) == 7
+
+
 class TestTrainFlags:
 
-  def test_train_defaults_seed_42(self):
+  def test_train_defaults_seed_none(self):
     from genml_kit.training.train import parse_args
 
     args = parse_args(["--dataset", "my-org/my-images"])
-    assert args.seed == 42
-    assert args.deterministic is False
+    assert args.seed is None
+    assert not hasattr(args, "deterministic")
 
-  def test_pretrain_defaults_seed_42(self):
+  def test_train_explicit_seed(self):
+    from genml_kit.training.train import parse_args
+
+    args = parse_args(["--dataset", "my-org/my-images", "--seed", "42"])
+    assert args.seed == 42
+
+  def test_pretrain_defaults_seed_none(self):
     from genml_kit.pretrain.cli import parse_args
 
     args = parse_args(["--method", "simmim", "--datasets", "dummy"])
-    assert args.seed == 42
-    assert args.deterministic is False
+    assert args.seed is None
+    assert not hasattr(args, "deterministic")
     assert args.grad_accum_steps == 1
     assert args.save_every == 500
 

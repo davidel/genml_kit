@@ -52,7 +52,7 @@ from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import resolve_device
 from genml_kit.utils.logging import fatal, open_writer, setup_logging
 from genml_kit.utils.script import load_extern
-from genml_kit.utils.seed import seed_everything, seed_worker
+from genml_kit.utils.seed import resolve_seed, seed_everything, seed_worker
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
 __all__ = [
@@ -174,7 +174,7 @@ def load_and_split_dataset(
     dataset_name,
     cache_dir=None,
     test_size=0.2,
-    seed=42,
+    seed=None,
     train_transform=None,
     val_transform=None,
     image_column=None,
@@ -450,17 +450,11 @@ def parse_args(argv=None):
   parser.add_argument(
       "--seed",
       type=int,
-      default=42,
-      help="RNG seed for data shuffling, split, mixup, dropout, and "
-      "the XGBoost stage. 42 by default; pass the same value to "
-      "reproduce a run.",
-  )
-  parser.add_argument(
-      "--deterministic",
-      action="store_true",
-      help="Enable deterministic algorithms (cuDNN deterministic mode, "
-      "benchmark off). Costs throughput; ops without a deterministic "
-      "CUDA kernel log a warning instead of failing.",
+      default=None,
+      help="Explicit RNG seed for the train/val split, the XGBoost stage, "
+      "and full determinism (cuDNN deterministic kernels, benchmark off). "
+      "Omit to keep runs fast: RNG streams are still seeded internally "
+      "from $GENML_KIT_SEED (default 42), just not bit-exact.",
   )
   parser.add_argument(
       "--device",
@@ -763,7 +757,8 @@ def train_one_epoch(
   )
 
   for batch_idx, (images, targets) in enumerate(dataloader):
-    images, targets = images.to(device), targets.to(device)
+    images = images.to(device, non_blocking=True)
+    targets = targets.to(device, non_blocking=True)
 
     use_mixup = args.mixup_alpha > 0 and images.size(0) >= 2
     if use_mixup:
@@ -946,9 +941,12 @@ def build_data(args, device):
     class_weights = (w_freq * class_multipliers).to(device)
     logging.info(f"Final class weights (W_freq x M_c): {fmt_weights(class_weights)}")
 
-  # Seeded generator for DataLoader shuffling; shared with the val loader
-  # (which never shuffles) so worker ordering is reproducible too.
-  data_generator = torch.Generator().manual_seed(args.seed)
+  # Generator for DataLoader shuffling; shared with the val loader (which
+  # never shuffles).  With an explicit --seed it is seeded so shuffling
+  # is reproducible; otherwise the generator draws fresh entropy per run.
+  data_generator = torch.Generator()
+  if args.seed is not None:
+    data_generator.manual_seed(args.seed)
 
   if len(train_proxy) < args.batch_size:
     fatal(
@@ -956,6 +954,7 @@ def build_data(args, device):
         f"batch_size ({args.batch_size}). Reduce --batch_size.",
         ValueError,
     )
+  sampler = None
   if args.sampler == "weighted":
     sampler = build_weighted_sampler(
         train_proxy.dataset,
@@ -964,35 +963,34 @@ def build_data(args, device):
         args.sampler_weights,
         multipliers=class_multipliers,
     )
+  loader_kwargs = {
+      "num_workers": args.num_workers,
+      "worker_init_fn": seed_worker,
+      "generator": data_generator,
+      "pin_memory": (device.type == "cuda"),
+      "prefetch_factor": (4 if args.num_workers > 0 else None),
+  }
+  if sampler is not None:
     train_loader = DataLoader(
         train_proxy,
         batch_size=args.batch_size,
         sampler=sampler,
-        num_workers=args.num_workers,
-        worker_init_fn=seed_worker,
-        generator=data_generator,
-        pin_memory=(device.type == "cuda"),
         drop_last=True,
+        **loader_kwargs,
     )
   else:
     train_loader = DataLoader(
         train_proxy,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=args.num_workers,
-        worker_init_fn=seed_worker,
-        generator=data_generator,
-        pin_memory=(device.type == "cuda"),
         drop_last=True,
+        **loader_kwargs,
     )
   val_loader = DataLoader(
       val_proxy,
       batch_size=args.batch_size,
       shuffle=False,
-      num_workers=args.num_workers,
-      worker_init_fn=seed_worker,
-      generator=data_generator,
-      pin_memory=(device.type == "cuda"),
+      **loader_kwargs,
   )
 
   if args.focal_gamma > 0 and args.label_smoothing > 0:
@@ -1306,7 +1304,10 @@ def maybe_train_xgboost(args, data, device):
 def main():
   args = normalize_args(parse_args())
   setup_logging(args.log_level, args.log_targets)
-  seed_everything(args.seed, args.deterministic)
+  # An explicit --seed asks for deterministic kernels; the internally
+  # resolved default seed only seeds the RNG streams (benchmark stays on).
+  seed_everything(resolve_seed(args.seed),
+                  deterministic=(args.seed is not None))
 
   states_to_load = parse_state_flags(args.state_load)
   device = resolve_device(args.device)
