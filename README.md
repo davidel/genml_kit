@@ -913,7 +913,7 @@ adds a low-rank product to its output:
 
 $$
 \large
-W' = W + \Delta W, \qquad \Delta W = \frac{\alpha}{r} \, B A
+W' = W + \Delta W, \qquad \Delta W = \frac{\alpha}{r} \cdot B A
 $$
 
 where:
