@@ -7,7 +7,7 @@ from genml_kit.models.uvito.model import UVito
 from genml_kit.training.model_utils import set_train_mode
 
 
-def _make_uvito(num_classes=3, img_size=64):
+def _make_uvito(num_classes=3, img_size=64, **kwargs):
   """Build a tiny UVito (small image, no pretrained weights) for tests."""
   return UVito(
       num_classes=num_classes,
@@ -17,6 +17,7 @@ def _make_uvito(num_classes=3, img_size=64):
       transformer_dim=32,
       nhead=4,
       dim_feedforward=64,
+      **kwargs,
   )
 
 
@@ -28,12 +29,36 @@ class TestUVitoForward:
     out = model(x)
     assert out.shape == (2, 5)
 
+  def test_output_shape_multi_cls(self):
+    """Forward works with num_cls_tokens > 1 (crashed before the
+    per-token LayerNorm fix: LayerNorm(32) got a (B, 128) input)."""
+    model = _make_uvito(num_classes=5, img_size=64, num_cls_tokens=4)
+    x = torch.randn(2, 3, 64, 64)
+    out = model(x)
+    assert out.shape == (2, 5)
+
+  def test_headless_shape_multi_cls(self):
+    """Headless mode (num_classes=0) passes the flat CLS features through
+    regardless of num_cls_tokens."""
+    model = _make_uvito(num_classes=0, img_size=64, num_cls_tokens=4)
+    x = torch.randn(2, 3, 64, 64)
+    out = model(x)
+    # num_cls_tokens=4, transformer_dim=32 → (2, 128)
+    assert out.shape == (2, 128)
+
   def test_backbone_features_shape(self):
     model = _make_uvito(num_classes=5, img_size=64)
     x = torch.randn(2, 3, 64, 64)
     feat = model.backbone_features(x)
     # num_cls_tokens=1, transformer_dim=32 → (2, 32)
     assert feat.shape == (2, 32)
+
+  def test_backbone_features_shape_multi_cls(self):
+    model = _make_uvito(num_classes=5, img_size=64, num_cls_tokens=4)
+    x = torch.randn(2, 3, 64, 64)
+    feat = model.backbone_features(x)
+    # num_cls_tokens=4, transformer_dim=32 → (2, 128)
+    assert feat.shape == (2, 128)
 
   def test_backbone_features_differ_from_logits(self):
     """Backbone features are before head_norm/mlp_head."""

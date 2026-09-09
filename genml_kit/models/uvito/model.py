@@ -3,7 +3,7 @@
 Architecture::
 
     backbone (frozen SMP encoder) → patch projection → [CLS tokens + pos]
-    → TransformerEncoder → CLS flatten → head_norm → MLP head → logits
+    → TransformerEncoder → per-token head_norm → CLS flatten → MLP head → logits
 """
 
 import segmentation_models_pytorch as smp
@@ -134,9 +134,21 @@ class UVito(nn.Module):
     return final_cls_states.reshape(batch_size, -1)
 
   def _head(self, cls_features):
-    """Classification head: LayerNorm → Linear (passthrough if headless)."""
-    return (cls_features if self.mlp_head is None else self.mlp_head(
-        self.head_norm(cls_features)))
+    """Classification head: per-token LayerNorm → Linear (passthrough if headless).
+
+    *cls_features* is the flattened CLS representation ``(B,
+    num_cls_tokens * transformer_dim)``. The LayerNorm normalizes each
+    CLS token's ``transformer_dim`` features, so the tensor is un-flattened
+    to ``(B, num_cls_tokens, transformer_dim)`` first and re-flattened
+    after; with ``num_cls_tokens > 1`` normalizing the flat vector would
+    fail (wrong ``normalized_shape``) and, even if shapes had matched,
+    would mix statistics across independent tokens.
+    """
+    if self.mlp_head is None:
+      return cls_features
+    batch_size = cls_features.shape[0]
+    tokens = cls_features.reshape(batch_size, self.num_cls_tokens, -1)
+    return self.mlp_head(self.head_norm(tokens).reshape(batch_size, -1))
 
   def forward(self, x):
     return self._head(self.backbone_features(x))
