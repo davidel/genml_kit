@@ -14,10 +14,12 @@ def drop_path(x, drop_prob=0.0, training=False):
   if drop_prob == 0.0 or not training:
     return x
   keep_prob = 1 - drop_prob
-  shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+  # (B, 1, ..., 1): one keep/drop decision per sample, broadcast across all
+  # remaining (token/channel) dims.
+  shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # (B, 1, ..., 1)
   random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
   random_tensor.floor_()
-  output = x.div(keep_prob) * random_tensor
+  output = x.div(keep_prob) * random_tensor  # (B, T, D), same shape as x
   return output
 
 
@@ -42,8 +44,10 @@ class SwiGLUFFN(nn.Module):
     self.dropout = nn.Dropout(dropout)
 
   def forward(self, x):
-    x12 = self.w12(x)
-    x1, x2 = x12.chunk(2, dim=-1)
+    # x: (B, T, D)
+    x12 = self.w12(x)  # (B, T, 2 * H)
+    x1, x2 = x12.chunk(2, dim=-1)  # (B, T, H) each
+    # Gate then project back to the model dim: (B, T, H) -> (B, T, D)
     return self.dropout(self.w3(F.silu(x1) * x2))
 
 
@@ -80,7 +84,8 @@ class TransformerBlock(nn.Module):
     self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
   def forward(self, x):
-    attn_out, _ = self.self_attn(self.ln1(x), self.ln1(x), self.ln1(x))
+    # x: (B, T, D); attention and FFN both preserve (B, T, D).
+    attn_out, _ = self.self_attn(self.ln1(x), self.ln1(x), self.ln1(x))  # (B, T, D)
     x = x + self.drop_path(attn_out)
     x = x + self.drop_path(self.ffn(self.ln2(x)))
-    return x
+    return x  # (B, T, D)

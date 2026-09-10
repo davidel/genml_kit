@@ -22,11 +22,12 @@ class ConvPatchEmbeddingBlock(nn.Module):
     self.skip_bn = nn.BatchNorm2d(out_channels)
 
   def forward(self, x):
+    # x: (B, Cin, H, W)
     identity = x
-    x = F.gelu(self.bn1(self.conv1(x)))
-    x = self.bn2(self.conv2(x))
-    skip = self.skip_bn(self.skip_proj(self.skip_pool(identity)))
-    return F.gelu(x + skip)
+    x = F.gelu(self.bn1(self.conv1(x)))  # stride-1: (B, Cmid, H, W)
+    x = self.bn2(self.conv2(x))  # stride-2: (B, Cout, H/2, W/2)
+    skip = self.skip_bn(self.skip_proj(self.skip_pool(identity)))  # (B, Cout, H/2, W/2)
+    return F.gelu(x + skip)  # (B, Cout, H/2, W/2)
 
 
 class ConvPatchEmbedding(nn.Module):
@@ -161,7 +162,7 @@ class CustomPatchTransformer(nn.Module):
     x = x + self.pos_embedding[:, :x.shape[1], :]
     x = self.pos_drop(x)
 
-    # Transformer encoder (all layers, all tokens)
+    # Transformer encoder (all layers, all tokens); shape stays (B, 1+N, D).
     for layer in self.transformer_layers:
       if self.use_grad_checkpoint and self.training:
         x = torch.utils.checkpoint.checkpoint(
@@ -171,19 +172,22 @@ class CustomPatchTransformer(nn.Module):
         )
       else:
         x = layer(x)
-    x = self.ln_norm(x)
+    x = self.ln_norm(x)  # (B, 1+N, D)
 
+    # Split: CLS slots (B, num_cls, D) and spatial slots (B, N, D)
     return (x[:, :self.num_cls_tokens, :], x[:,
                                              self.num_cls_tokens:, :])  # CLS, spatial
 
   def forward(self, x):
     embeddings = self.patch_embed(x)  # [B, N, D]
-    cls_out, spatial_out = self._run_transformer(embeddings)
+    # _run_transformer splits the (B, 1+N, D) sequence into CLS + spatial
+    cls_out, spatial_out = self._run_transformer(embeddings)  # (B, nc, D), (B, N, D)
     if self.head is None:
       # Headless mode: extract CLS tokens and flatten (uvito convention).
+      # (B, num_cls, D) -> (B, num_cls * D)
       return cls_out.reshape(embeddings.shape[0], -1)
     pooled = self.cls_guided_pool(cls_out[:, :1, :], spatial_out)  # [B, D]
-    return self.head(pooled)
+    return self.head(pooled)  # (B, num_classes)
 
   def encoder_forward(self, patch_embeddings):
     """Run the transformer encoder on pre-computed patch embeddings.

@@ -48,10 +48,19 @@ class UVito(nn.Module):
       param.requires_grad = False
     self.frozen_encoder.eval()
 
-    # Step 3: Determine bottleneck channels from the encoder
-    dummy_input = torch.randn(1, 3, img_size, img_size)
+    # Step 3: Determine bottleneck channels from the encoder.
+    # SMP encoders expose the feature pyramid as a 5-element sequence:
+    #   features[0]  = the input image itself            (B, 3,   H,     W)
+    #   features[1..3] = intermediate stage outputs      (B, C_i, H/s_i, W/s_i)
+    #   features[-1] = the final (deepest) stage output, i.e. the bottleneck
+    # UVito only consumes the bottleneck, hence the [-1] index. For
+    # ResNet-50 @ 384px that is (1, 2048, 12, 12).
+    # The dummy forward pass is needed because encoder_name is a runtime
+    # string, so (c, h, w) cannot be known statically; (h, w) also become
+    # the number of spatial transformer tokens below.
+    dummy_input = torch.randn(1, 3, img_size, img_size)  # (1, 3, H, W)
     with torch.no_grad():
-      bottleneck = self.frozen_encoder(dummy_input)[-1]
+      bottleneck = self.frozen_encoder(dummy_input)[-1]  # (1, C, H/s, W/s)
     c, h, w = bottleneck.shape[1], bottleneck.shape[2], bottleneck.shape[3]
 
     # Step 4: Patch Projection — map CNN channels → transformer dimensions
@@ -60,6 +69,10 @@ class UVito(nn.Module):
     # Step 5: Learnable CLS tokens + positional embeddings
     # Initialized to zero (standard in DINOv2, MAE, DeiT) so the
     # transformer starts from actual image content, not random noise.
+    # cls_tokens:   (1, num_cls_tokens, D) — broadcast over the batch
+    # pos_embedding: (1, num_cls_tokens + T, D) with T = h * w spatial
+    # tokens; leading slots position-encode the CLS tokens, the rest
+    # position-encode the h * w spatial tokens.
     self.cls_tokens = nn.Parameter(torch.zeros(1, num_cls_tokens, transformer_dim))
     self.pos_embedding = nn.Parameter(
         torch.zeros(1, num_cls_tokens + h * w, transformer_dim))
@@ -85,6 +98,7 @@ class UVito(nn.Module):
       self.mlp_head = None
     else:
       # Xavier-init classification head (DINOv2 convention: trunc_normal 0.02)
+      # Maps the flattened CLS states (B, D * num_cls_tokens) -> (B, num_classes).
       self.mlp_head = nn.Linear(transformer_dim * num_cls_tokens, num_classes)
       nn.init.trunc_normal_(self.mlp_head.weight, std=0.02)
       nn.init.zeros_(self.mlp_head.bias)
@@ -100,24 +114,30 @@ class UVito(nn.Module):
     """
     batch_size = x.shape[0]
 
-    # Encode via frozen CNN backbone
-    features = self.frozen_encoder(x)
-    bottleneck = features[-1]
+    # Encode via frozen CNN backbone: (B, 3, H, W) -> (B, C, H/s, W/s).
+    # features[-1] = deepest pyramid stage (the bottleneck), same indexing
+    # rationale as in __init__ Step 3.
+    features = self.frozen_encoder(x)  # list of (B, C_i, H/s_i, W/s_i)
+    bottleneck = features[-1]  # (B, C, h, w)
     b, c, h, w = bottleneck.shape
 
-    # Reshape spatial dims → tokens
-    spatial_tokens = bottleneck.view(b, c, h * w).permute(0, 2, 1)
-    spatial_tokens = self.patch_projection(spatial_tokens)
+    # Reshape spatial dims → tokens: flatten h * w positions into a
+    # sequence so each spatial cell becomes one transformer token.
+    spatial_tokens = bottleneck.view(b, c, h * w).permute(0, 2, 1)  # (B, T, C)
+    # Per-token channel projection C -> D (the analog of ViT patch embedding).
+    spatial_tokens = self.patch_projection(spatial_tokens)  # (B, T, D)
 
-    # Prepend CLS tokens
-    cls_tokens_expanded = self.cls_tokens.expand(batch_size, -1, -1)
-    tokens = torch.cat((cls_tokens_expanded, spatial_tokens), dim=1)
+    # Prepend CLS tokens: (B, num_cls, D) + (B, T, D) -> (B, num_cls + T, D)
+    cls_tokens_expanded = self.cls_tokens.expand(batch_size, -1, -1)  # (B, num_cls, D)
+    tokens = torch.cat((cls_tokens_expanded, spatial_tokens),
+                       dim=1)  # (B, num_cls + T, D)
 
-    # Add positional embeddings & dropout
-    tokens = tokens + self.pos_embedding
-    tokens = self.pos_drop(tokens)
+    # Add positional embeddings & dropout (broadcast over the batch dim).
+    tokens = tokens + self.pos_embedding  # (B, num_cls + T, D)
+    tokens = self.pos_drop(tokens)  # (B, num_cls + T, D)
 
-    # Transformer blocks
+    # Transformer blocks: sequence length is preserved, so the shape stays
+    # (B, num_cls + T, D) throughout.
     for layer in self.transformer_layers:
       if self.use_grad_checkpoint and self.training:
         tokens = torch.utils.checkpoint.checkpoint(
@@ -127,11 +147,13 @@ class UVito(nn.Module):
         )
       else:
         tokens = layer(tokens)
-    transformer_output = self.transformer_norm(tokens)
+    transformer_output = self.transformer_norm(tokens)  # (B, num_cls + T, D)
 
-    # Extract CLS tokens and flatten
-    final_cls_states = transformer_output[:, :self.num_cls_tokens, :]
-    return final_cls_states.reshape(batch_size, -1)
+    # Extract CLS tokens and flatten: keep the leading num_cls slots,
+    # then collapse them into one vector per sample. The downstream _head
+    # un-flattens them again so head_norm normalizes per token.
+    final_cls_states = transformer_output[:, :self.num_cls_tokens, :]  # (B, num_cls, D)
+    return final_cls_states.reshape(batch_size, -1)  # (B, num_cls * D)
 
   def _head(self, cls_features):
     """Classification head: per-token LayerNorm → Linear (passthrough if headless).
@@ -147,7 +169,11 @@ class UVito(nn.Module):
     if self.mlp_head is None:
       return cls_features
     batch_size = cls_features.shape[0]
+    # Un-flatten so head_norm normalizes each CLS token independently:
+    # (B, num_cls * D) -> (B, num_cls, D)
     tokens = cls_features.reshape(batch_size, self.num_cls_tokens, -1)
+    # head_norm: (B, num_cls, D) -> (B, num_cls, D); re-flatten for the head.
+    # mlp_head: (B, num_cls * D) -> (B, num_classes) logits.
     return self.mlp_head(self.head_norm(tokens).reshape(batch_size, -1))
 
   def forward(self, x):
