@@ -1,5 +1,6 @@
 """Tests for the UVito model and its genml_kit integration."""
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -19,6 +20,43 @@ def _make_uvito(num_classes=3, img_size=64, **kwargs):
       dim_feedforward=64,
       **kwargs,
   )
+
+
+class TestFeatureTap:
+
+  def test_default_tap_matches_stride32(self):
+    model = _make_uvito(img_size=64)
+    assert model.feature_tap == -1
+    # 64px input / stride 32 -> 2x2 = 4 spatial tokens.
+    assert model.pos_embedding.shape == (1, 1 + 4, 32)
+
+  def test_stride16_tap_quadruples_tokens(self):
+    model = _make_uvito(img_size=64, feature_tap=-2)
+    # 64px / stride 16 -> 4x4 = 16 spatial tokens.
+    assert model.pos_embedding.shape == (1, 1 + 16, 32)
+    x = torch.randn(2, 3, 64, 64)
+    out = model(x)
+    assert out.shape == (2, 3)
+
+  def test_positive_index_equals_negative(self):
+    neg = _make_uvito(img_size=64, feature_tap=-3)
+    pos = _make_uvito(img_size=64, feature_tap=3)
+    # features[3] and features[-3] are the same stage (6-entry pyramid).
+    assert neg.pos_embedding.shape == pos.pos_embedding.shape
+    assert neg.patch_projection.in_features == \
+        pos.patch_projection.in_features
+
+  def test_tap_zero_raises(self):
+    with pytest.raises(ValueError, match="raw input image"):
+      _make_uvito(feature_tap=0)
+
+  def test_tap_out_of_range_raises(self):
+    with pytest.raises(ValueError, match="out of range"):
+      _make_uvito(feature_tap=7)
+
+  def test_tap_unavailable_stage_raises(self):
+    with pytest.raises(ValueError, match="does not expose"):
+      _make_uvito(feature_tap=1, encoder_name="tu-convnext_base")
 
 
 class TestUVitoForward:

@@ -6,6 +6,8 @@ Architecture::
     → TransformerEncoder → per-token head_norm → CLS flatten → MLP head → logits
 """
 
+import logging
+
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
@@ -21,6 +23,7 @@ class UVito(nn.Module):
       encoder_name="resnet50",
       encoder_weights="imagenet",
       img_size=384,
+      feature_tap=-1,
       num_cls_tokens=1,
       transformer_dim=512,
       num_transformer_layers=6,
@@ -32,6 +35,7 @@ class UVito(nn.Module):
   ):
     super().__init__()
     self.use_grad_checkpoint = use_grad_checkpoint
+    self.feature_tap = feature_tap
     self.num_cls_tokens = num_cls_tokens
 
     # Step 1: Load the pretrained SMP segmentation encoder
@@ -49,19 +53,40 @@ class UVito(nn.Module):
     self.frozen_encoder.eval()
 
     # Step 3: Determine bottleneck channels from the encoder.
-    # SMP encoders expose the feature pyramid as a 5-element sequence:
+    # SMP encoders expose the feature pyramid as a standard 6-element
+    # sequence (index i = stage with stride 2^i):
     #   features[0]  = the input image itself            (B, 3,   H,     W)
-    #   features[1..3] = intermediate stage outputs      (B, C_i, H/s_i, W/s_i)
+    #   features[1..4] = intermediate stage outputs      (B, C_i, H/s_i, W/s_i)
     #   features[-1] = the final (deepest) stage output, i.e. the bottleneck
-    # UVito only consumes the bottleneck, hence the [-1] index. For
-    # ResNet-50 @ 384px that is (1, 2048, 12, 12).
+    # ``feature_tap`` selects which stage feeds the transformer: -1 keeps
+    # the historical stride-32 bottleneck (e.g. (1, 2048, 12, 12) for
+    # ResNet-50 @ 384px), -2 taps the stride-16 stage for 4x more spatial
+    # tokens, positive indices work like Python list indexing.
     # The dummy forward pass is needed because encoder_name is a runtime
     # string, so (c, h, w) cannot be known statically; (h, w) also become
     # the number of spatial transformer tokens below.
+    if feature_tap == 0:
+      raise ValueError("feature_tap=0 selects the raw input image (SMP exposes the "
+                       "unmodified input as features[0]); use a non-zero index, "
+                       "e.g. -1 for the deepest stage.")
     dummy_input = torch.randn(1, 3, img_size, img_size)  # (1, 3, H, W)
     with torch.no_grad():
-      bottleneck = self.frozen_encoder(dummy_input)[-1]  # (1, C, H/s, W/s)
+      features = self.frozen_encoder(dummy_input)
+      if abs(feature_tap) >= len(features):
+        raise ValueError(f"feature_tap={feature_tap} is out of range: this encoder "
+                         f"exposes {len(features)} pyramid entries, so the valid "
+                         f"range is [{-(len(features) - 1)}, {len(features) - 1}].")
+      if self.frozen_encoder.out_channels[feature_tap] == 0:
+        raise ValueError(f"feature_tap={feature_tap} selects a stage this encoder does "
+                         f"not expose (out_channels[feature_tap] == 0, as with early "
+                         f"stages of some tu-* timm encoders). out_channels: "
+                         f"{self.frozen_encoder.out_channels}.")
+      bottleneck = features[feature_tap]  # (1, C, H/s, W/s)
     c, h, w = bottleneck.shape[1], bottleneck.shape[2], bottleneck.shape[3]
+    stride = img_size // h
+    logging.info(
+        "UVito: feature_tap=%d -> stride %d stage, C=%d, %d spatial "
+        "tokens @ %dpx", feature_tap, stride, c, h * w, img_size)
 
     # Step 4: Patch Projection — map CNN channels → transformer dimensions
     self.patch_projection = nn.Linear(c, transformer_dim)
@@ -114,11 +139,12 @@ class UVito(nn.Module):
     """
     batch_size = x.shape[0]
 
-    # Encode via frozen CNN backbone: (B, 3, H, W) -> (B, C, H/s, W/s).
-    # features[-1] = deepest pyramid stage (the bottleneck), same indexing
-    # rationale as in __init__ Step 3.
+    # Encode via frozen CNN backbone: (B, 3, H, W) -> (B, C, H/s, W/s),
+    # where s = 2^|feature_tap| is the stride of the selected pyramid stage.
+    # features[feature_tap] = selected stage, same indexing rationale as
+    # in __init__ Step 3.
     features = self.frozen_encoder(x)  # list of (B, C_i, H/s_i, W/s_i)
-    bottleneck = features[-1]  # (B, C, h, w)
+    bottleneck = features[self.feature_tap]  # (B, C, h, w)
     b, c, h, w = bottleneck.shape
 
     # Reshape spatial dims → tokens: flatten h * w positions into a
