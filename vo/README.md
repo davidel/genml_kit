@@ -53,8 +53,9 @@ where:
 In homogeneous coordinates the same transform is a 3×3 matrix
 
 $$
-\large
+{\large
 M = \begin{bmatrix} s\cos\theta & -s\sin\theta & t_x \\ s\sin\theta & s\cos\theta & t_y \\ 0 & 0 & 1 \end{bmatrix}
+}
 $$
 
 where:
