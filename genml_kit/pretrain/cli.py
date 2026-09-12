@@ -19,7 +19,6 @@ model via ``--source_checkpoint`` in ``genml_kit-train``.
 """
 
 import argparse
-import collections
 import logging
 import os
 import time
@@ -31,35 +30,35 @@ from torchvision.transforms.functional import InterpolationMode
 
 from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
 from genml_kit.datasets.ensemble import DatasetEnsemble
+from genml_kit.datasets.factory import parse_dataset_specs
 from genml_kit.datasets.field_dataset import FieldSectorDataset
-from genml_kit.io.checkpointing import (
-    CheckpointSaver,
-    create_model_report,
-    open_resume_context,
-    parse_state_flags,
-)
+from genml_kit.datasets.transforms import DictFieldTransform
+from genml_kit.io.checkpointing import open_resume_context, parse_state_flags
 from genml_kit.models.registry import load_model
 from genml_kit.pretrain.methods import get_method, list_methods
-from genml_kit.training.grad_monitor import create_grad_monitor
+from genml_kit.training.loop import (  # noqa: F401  (re-exports)
+  InterruptedException,
+  TrainingResult,
+  run_training_loop,
+)
 from genml_kit.training.model_utils import (
-    enable_grad_checkpointing,
-    model_mode,
-    set_train_mode,
+  enable_grad_checkpointing,
+  model_mode,
+  set_train_mode,
 )
 from genml_kit.training.optim_factory import build_optimization, report_lr
 from genml_kit.utils.args import (
-    add_checkpoint_args,
-    add_logging_args,
-    add_optimization_args,
-    add_source_checkpoint_args,
-    add_training_state_args,
-    normalize_args,
+  add_checkpoint_args,
+  add_logging_args,
+  add_optimization_args,
+  add_source_checkpoint_args,
+  add_training_state_args,
+  normalize_args,
 )
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import gpu_stats_str, resolve_device
 from genml_kit.utils.logging import fatal, open_writer, setup_logging
 from genml_kit.utils.seed import resolve_seed, seed_everything, seed_worker
-from genml_kit.utils.signal import InterruptedException, sigexcept
 
 
 def build_pretrain_transform(image_size=448):
@@ -79,51 +78,19 @@ def build_pretrain_transform(image_size=448):
   ])
 
 
-class _TransformWrapper:
-  """Apply a transform to the image field of a dict-returning dataset."""
-
-  def __init__(self, dataset, transform, image_field="image"):
-    self._dataset = dataset
-    self._transform = transform
-    self._image_field = image_field
-
-  def __len__(self):
-    return len(self._dataset)
-
-  def __getitem__(self, idx):
-    item = self._dataset[idx]
-    return {**item, self._image_field: self._transform(item[self._image_field])}
-
-
 def build_pretrain_dataset(args, needs_labels=False, transform=None):
   """Build the DatasetEnsemble + transform pipeline.
 
       If *transform* is ``None``, the default pretrain transform is used.
   """
-  configs = []
-  label_column = getattr(args, "label_column", None)
-  for name in args.datasets:
-    name = name.strip()
-    if not name:
-      continue
-    if name.startswith("imagefolder/"):
-      data_dir = name.split("/", 1)[1]
-      configs.append({"name": data_dir, "source": "imagefolder"})
-    elif os.path.isdir(name):
-      configs.append({"name": name, "source": "imagefolder"})
-    else:
-      cfg = {
-          "name": name,
-          "source": "hf",
-          "split": "train",
-          "image_column": args.image_column,
-      }
-      if label_column:
-        cfg["label_column"] = label_column
-      configs.append(cfg)
-
-  if not configs:
-    fatal("No datasets specified. Use --datasets <name1> <name2> ...", ValueError)
+  # Name parsing lives in datasets/factory.py (plan 12.6 item 2), shared
+  # with the VO data CLI.  image_column is read lazily (getattr) to keep
+  # the imagefolder-only call sites working without the attribute.
+  configs = parse_dataset_specs(
+      args.datasets,
+      image_column=getattr(args, "image_column", "image"),
+      label_column=getattr(args, "label_column", None),
+  )
 
   ensemble = DatasetEnsemble(
       configs,
@@ -141,7 +108,10 @@ def build_pretrain_dataset(args, needs_labels=False, transform=None):
           f"to a label-free method (e.g. --method simmim).", ValueError)
   if transform is None:
     transform = build_pretrain_transform(args.image_size)
-  dataset = _TransformWrapper(ensemble, transform, image_field=ensemble.image_column)
+  # The former local _TransformWrapper was promoted to
+  # genml_kit.datasets.transforms.DictFieldTransform (plan 12.6 item 1) so
+  # multi-field (pair) datasets reuse the same wrapper.
+  dataset = DictFieldTransform(ensemble, transform, fields=(ensemble.image_column,))
   if not needs_labels:
     # Methods that ignore labels get image-only items: a mixed ensemble
     # (some sources labeled, some not) would otherwise produce batches
@@ -602,14 +572,6 @@ def parse_args(argv=None):
   return args
 
 
-# Bookkeeping handed back after the pre-training loop finishes.
-# ``best_macro_f1`` is not tracked during pre-training and is always 0.0.
-# ``interrupt_signals`` mirrors train.py's TrainingResult for shape
-# symmetry; there is no post-loop stage, so it is not consumed here.
-TrainingResult = collections.namedtuple(
-    "TrainingResult", "completed_epoch, best_macro_f1, global_step, interrupt_signals")
-
-
 def build_pretrain_loaders(args, dataset, ensemble, device, needs_labels):
   """Build the training DataLoader for a pre-training run.
 
@@ -731,79 +693,50 @@ def run_pretraining(args, model, loader, ensemble, method, optimization, device,
   Returns:
       A ``TrainingResult`` namedtuple.
   """
-  states_to_save = parse_state_flags(args.state_save)
 
-  completed_epoch = start_epoch - 1  # last fully completed (-1 = none yet)
-  # Loss of the last *completed* epoch (0.0 before the first epoch
-  # finishes).  The finally-block below checkpoints it as-is, so on an
-  # interrupt mid-epoch this value is intentionally the previous epoch's.
-  avg_loss = 0.0
-  grad_monitor = create_grad_monitor(args, model)
+  def epoch_fn(epoch, saver, step, monitor):
+    """One pre-training epoch: the former loop body, unchanged."""
+    avg_loss, step = train_one_epoch(
+        method,
+        model,
+        loader,
+        ensemble,
+        optimization.optimizer,
+        device,
+        args.amp_dtype,
+        epoch,
+        step,
+        writer,
+        log_every=args.log_every,
+        vis_every=args.vis_every,
+        monitor=monitor,
+        grad_accum_steps=args.grad_accum_steps,
+        scaler=optimization.scaler,
+        saver=saver,
+    )
+    writer.add_scalar("Train/loss_epoch", avg_loss, epoch)
+    if optimization.scheduler is not None:
+      optimization.scheduler.step()
+    return avg_loss, step
 
-  # Report the final model state after checkpoint restoration and all training
-  # initialization, immediately before pre-training begins.
-  logging.info(create_model_report(model))
+  def saver_extra_fn():
+    return {"method_state": method.get_checkpoint_state(model, args)}
 
-  # All checkpoint writes go through one saver: state sources bound once,
-  # per-save data (epoch, global_step, method state) passed per call.
-  # extra_fn computes the method-specific state at save time.
-  saver = CheckpointSaver(
+  return run_training_loop(
+      args,
       model,
-      optimization.optimizer,
-      optimization.scheduler,
-      root=args.checkpoint,
-      states_to_save=states_to_save,
-      scaler=optimization.scaler,
-      remote_uri=args.remote_checkpoint,
-      save_every=args.save_every,
-      extra_fn=lambda: {"method_state": method.get_checkpoint_state(model, args)},
+      optimization,
+      device,
+      train_epoch_fn=epoch_fn,
+      validate_fn=None,  # no validation during pre-training
+      best_metric_key="best_macro_f1",  # shape-compat historical name
+      epoch_end_fn=method.on_epoch_end,
+      saver_extra_fn=saver_extra_fn,
+      writer=writer,
+      start_epoch=start_epoch,
+      best_metric=0.0,  # not tracked during pre-training
+      global_step=global_step,
   )
-
-  # Signals arriving inside the loop become InterruptedException, so the
-  # finally-block below still runs and a consistent checkpoint lands on
-  # disk before a clean exit.  __exit__ restores the handlers only after
-  # that save completed (the with-block encloses the try/finally).
-  with sigexcept() as interrupts:
-    try:
-      for epoch in range(start_epoch, args.epochs):
-        logging.info(f"=== Epoch {epoch + 1}/{args.epochs} ===")
-        avg_loss, global_step = train_one_epoch(
-            method,
-            model,
-            loader,
-            ensemble,
-            optimization.optimizer,
-            device,
-            args.amp_dtype,
-            epoch,
-            global_step,
-            writer,
-            log_every=args.log_every,
-            vis_every=args.vis_every,
-            monitor=grad_monitor,
-            grad_accum_steps=args.grad_accum_steps,
-            scaler=optimization.scaler,
-            saver=saver,
-        )
-        writer.add_scalar("Train/loss_epoch", avg_loss, epoch)
-        if optimization.scheduler is not None:
-          optimization.scheduler.step()
-        completed_epoch = epoch
-        method.on_epoch_end(model, epoch, writer)
-
-        saver.save_latest(completed_epoch, global_step=global_step, loss=avg_loss)
-
-    except InterruptedException:
-      logging.warning(f"Interrupted by {interrupts.received}; saving checkpoint.")
-    finally:
-      saver.save_latest(completed_epoch, global_step=global_step, loss=avg_loss)
-      logging.info("Checkpoint saved on exit.")
-      writer.close()
-
-  return TrainingResult(completed_epoch,
-                        best_macro_f1=0.0,
-                        global_step=global_step,
-                        interrupt_signals=interrupts.received)
 
 
 def main(argv=None):
@@ -811,8 +744,7 @@ def main(argv=None):
   setup_logging(args.log_level, args.log_targets)
   # An explicit --seed asks for deterministic kernels; the internally
   # resolved default seed only seeds the RNG streams (benchmark stays on).
-  seed_everything(resolve_seed(args.seed),
-                  deterministic=(args.seed is not None))
+  seed_everything(resolve_seed(args.seed), deterministic=(args.seed is not None))
 
   method_cls = get_method(args.method)
   method = method_cls()

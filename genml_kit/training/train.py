@@ -18,8 +18,6 @@ from torchvision.transforms.v2 import InterpolationMode
 from genml_kit.datasets.hf_proxy import HFDatasetProxy
 from genml_kit.datasets.weighted_sampler import build_weighted_sampler
 from genml_kit.io.checkpointing import (
-    CheckpointSaver,
-    create_model_report,
     open_resume_context,
     parse_state_flags,
     serialize_lora_state,
@@ -27,7 +25,11 @@ from genml_kit.io.checkpointing import (
 from genml_kit.models import load_model, load_processor
 from genml_kit.pretrain.losses.focal import CombinedFocalLoss
 from genml_kit.training.eval import evaluate_performance
-from genml_kit.training.grad_monitor import create_grad_monitor
+from genml_kit.training.loop import (  # noqa: F401  (re-exports)
+    InterruptedException,
+    TrainingResult,
+    run_training_loop,
+)
 from genml_kit.training.metrics import confusion_row_strings
 from genml_kit.training.model_utils import (
     apply_lora,
@@ -53,7 +55,6 @@ from genml_kit.utils.gpu import resolve_device
 from genml_kit.utils.logging import fatal, open_writer, setup_logging
 from genml_kit.utils.script import load_extern
 from genml_kit.utils.seed import resolve_seed, seed_everything, seed_worker
-from genml_kit.utils.signal import InterruptedException, sigexcept
 
 __all__ = [
     "CombinedFocalLoss",
@@ -846,12 +847,6 @@ DataBundle = collections.namedtuple(
     "class_weights, class_multipliers, criterion, data_generator, "
     "tta_transform")
 
-# Bookkeeping handed back after the training loop finishes.
-# ``interrupt_signals`` lists the signals that fired inside the loop (empty
-# on clean completion); ``main()`` uses it to gate the post-training stage.
-TrainingResult = collections.namedtuple(
-    "TrainingResult", "completed_epoch, best_macro_f1, global_step, interrupt_signals")
-
 
 def resolve_augmentations(args, processor):
   """Resolve the train/val transforms and the optional TTA transform.
@@ -1145,9 +1140,10 @@ def run_training(args, model, data, optimization, device, writer, start_epoch,
                  best_macro_f1, global_step):
   """Run the supervised fine-tuning loop.
 
-  Owns the model report, the gradient monitor, the ``CheckpointSaver``
-  (including the save-on-exit in the ``finally`` block) and the
-  per-epoch train/validate cycle with best-checkpoint selection.
+  Thin adapter over :func:`genml_kit.training.loop.run_training_loop`,
+  which owns the report, grad monitor, checkpointing, signal handling
+  and the best-checkpoint cycle; this closure supplies only the
+  classification epoch body and validation.
 
   Args:
       args: Parsed CLI args (epochs, batch/accum, checkpoint, monitor
@@ -1165,100 +1161,77 @@ def run_training(args, model, data, optimization, device, writer, start_epoch,
   Returns:
       A ``TrainingResult`` namedtuple.
   """
-  states_to_save = parse_state_flags(args.state_save)
+  def validate_and_log(epoch):
+    val_metrics = evaluate_performance(
+        model,
+        data.val_loader,
+        data.criterion,
+        device,
+        args.amp_dtype,
+        id2label=data.train_proxy.id2label,
+        tta_transform=data.tta_transform,
+    )
+    log_epoch_validation(writer, epoch, data, val_metrics)
+    return val_metrics
 
-  completed_epoch = start_epoch - 1  # last fully completed (-1 = none yet)
-  grad_monitor = create_grad_monitor(args, model)
+  # The loop's validate_fn() is zero-arg; the epoch function records the
+  # epoch it just ran so validation logging lands on the right epoch.
+  current_epoch = [start_epoch - 1]
 
-  # Report the final model state after LoRA, freezing, optimizer setup, and
-  # checkpoint restoration, immediately before training begins.
-  logging.info(create_model_report(model))
+  def epoch_fn(epoch, saver, step, monitor):
+    """One supervised epoch, logging train + validation as before."""
+    current_epoch[0] = epoch
+    effective_batch = args.batch_size * args.grad_accum_steps
+    logging.info(f"=== Epoch {epoch + 1}/{args.epochs} "
+                 f"(eff_batch={effective_batch}) ===")
 
-  # All checkpoint writes go through one saver: state sources bound once,
-  # per-save data (epoch, global_step, metrics) passed per call.
-  saver = CheckpointSaver(
+    train_loss, train_t1, step = train_one_epoch(
+        model,
+        data.train_loader,
+        data.criterion,
+        optimization.optimizer,
+        optimization.scaler,
+        optimization.scheduler,
+        device,
+        args.amp_dtype,
+        epoch,
+        args,
+        writer=writer,
+        monitor=monitor,
+        global_step=step,
+        saver=saver,
+    )
+
+    if optimization.scheduler is not None:
+      optimization.scheduler.step()
+    writer.add_scalar("Epoch/Loss_Train", train_loss, epoch)
+    writer.add_scalar("Epoch/Accuracy_Train_Top1", train_t1, epoch)
+
+    validate_and_log(epoch)
+    return train_loss, step
+
+  def validate_fn():
+    return validate_and_log(current_epoch[0])
+
+  def ckpt_extra_fn(_best_metric, _step):
+    return {"lora_state_blob": serialize_lora_state(model) if args.lora else None}
+
+  return run_training_loop(
+      args,
       model,
-      optimization.optimizer,
-      optimization.scheduler,
-      root=args.checkpoint,
-      states_to_save=states_to_save,
-      scaler=optimization.scaler,
+      optimization,
+      device,
+      train_epoch_fn=epoch_fn,
+      validate_fn=validate_fn,
+      best_index=3,  # macro F1 inside evaluate_performance's tuple
+      best_metric_key="best_macro_f1",  # checkpoint key contract (tested)
+      ckpt_extra_fn=ckpt_extra_fn,
       save_frozen=args.save_frozen,
-      remote_uri=args.remote_checkpoint,
-      save_every=args.save_every,
+      writer=writer,
+      start_epoch=start_epoch,
+      best_metric=best_macro_f1,
+      global_step=global_step,
   )
-
-  # Signals arriving inside the loop become InterruptedException, so the
-  # finally-block below still runs and a consistent checkpoint lands on
-  # disk before a clean exit.  __exit__ restores the handlers only after
-  # that save completed (the with-block encloses the try/finally).
-  with sigexcept() as interrupts:
-    try:
-      for epoch in range(start_epoch, args.epochs):
-        effective_batch = args.batch_size * args.grad_accum_steps
-        logging.info(f"=== Epoch {epoch + 1}/{args.epochs} "
-                     f"(eff_batch={effective_batch}) ===")
-
-        train_loss, train_t1, global_step = train_one_epoch(
-            model,
-            data.train_loader,
-            data.criterion,
-            optimization.optimizer,
-            optimization.scaler,
-            optimization.scheduler,
-            device,
-            args.amp_dtype,
-            epoch,
-            args,
-            writer=writer,
-            monitor=grad_monitor,
-            global_step=global_step,
-            saver=saver,
-            best_macro_f1=best_macro_f1,
-        )
-
-        if optimization.scheduler is not None:
-          optimization.scheduler.step()
-        writer.add_scalar("Epoch/Loss_Train", train_loss, epoch)
-        writer.add_scalar("Epoch/Accuracy_Train_Top1", train_t1, epoch)
-
-        val_metrics = evaluate_performance(
-            model,
-            data.val_loader,
-            data.criterion,
-            device,
-            args.amp_dtype,
-            id2label=data.train_proxy.id2label,
-            tta_transform=data.tta_transform,
-        )
-        log_epoch_validation(writer, epoch, data, val_metrics)
-        v_macro_f1 = val_metrics[3]
-
-        if v_macro_f1 > best_macro_f1:
-          best_macro_f1 = v_macro_f1
-          saver.save_best(
-              epoch,
-              best_macro_f1=best_macro_f1,
-              global_step=global_step,
-              lora_state_blob=serialize_lora_state(model) if args.lora else None,
-          )
-          logging.info(f"New best macro F1, checkpoint saved: {best_macro_f1:.2f}%")
-
-        completed_epoch = epoch
-    except InterruptedException:
-      logging.warning(f"Interrupted by {interrupts.received}; saving checkpoint.")
-    finally:
-      saver.save_latest(
-          completed_epoch,
-          best_macro_f1=best_macro_f1,
-          global_step=global_step,
-          lora_state_blob=serialize_lora_state(model) if args.lora else None,
-      )
-      logging.info("Checkpoint saved on exit.")
-      writer.close()
-
-  return TrainingResult(completed_epoch, best_macro_f1, global_step,
-                        interrupts.received)
 
 
 def maybe_train_xgboost(args, data, device):
@@ -1306,8 +1279,7 @@ def main():
   setup_logging(args.log_level, args.log_targets)
   # An explicit --seed asks for deterministic kernels; the internally
   # resolved default seed only seeds the RNG streams (benchmark stays on).
-  seed_everything(resolve_seed(args.seed),
-                  deterministic=(args.seed is not None))
+  seed_everything(resolve_seed(args.seed), deterministic=(args.seed is not None))
 
   states_to_load = parse_state_flags(args.state_load)
   device = resolve_device(args.device)
