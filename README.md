@@ -10,7 +10,9 @@ from the command line.
 `ImageFolder` tree, or timm/HuggingFace backbone. It grew out of a
 skin-lesion classification project; the dermoscopy-specific workflow (dataset
 preparation, tuned recipes) is documented separately in
-[`scdiag/README.md`](scdiag/README.md).
+[`scdiag/README.md`](scdiag/README.md). The drone visual-odometry front-end
+(similarity estimation between oblique aerial frames) is documented separately
+in [`vo/README.md`](vo/README.md).
 
 ## Contents
 
@@ -124,7 +126,8 @@ are useful references when selecting a backbone or processor.
 | `genml_kit.training` | `train.py` and `infer.py` CLI harnesses, `optim_factory.py` (optimizers, LLRD, schedulers), `model_utils.py` (loading, freezing, feature extraction), `param_align.py`, `eval.py` + `metrics.py`, `grad_monitor.py`, `train_reporting.py`, `tta.py`, `xgb_utils.py` + `xgb_pipeline.py`, `classifiers/` (pluggable heads) |
 | `genml_kit.pretrain` | `cli.py` harness; `methods/` (SimMIM, I-JEPA, DINO, BYOL, SupCon via one registry); `losses/`; `augmentations/` (multi-crop, dual-view) |
 | `genml_kit.models` | model/processor registry; `timm/`, `convvit/`, `uvito/`, `cls_model_wrapper/` backends; `processors/base.py` |
-| `genml_kit.datasets` | `hf_proxy.py` (HuggingFace → PyTorch bridge), `image_folder.py`, `ensemble.py`, `field_dataset.py`, `balanced_sampler.py`, `weighted_sampler.py`, `retry.py` |
+| `genml_kit.datasets` | `hf_proxy.py` (HuggingFace → PyTorch bridge), `image_folder.py`, `ensemble.py`, `field_dataset.py`, `balanced_sampler.py`, `weighted_sampler.py`, `retry.py`, `vo_pairs.py` (synthetic VO pairs) |
+| `genml_kit.geometry` | `similarity.py` (2-D similarity algebra, batched differentiable Umeyama, backward-map warp) — the math behind the visual-odometry front-end lives in [`vo/README.md`](vo/README.md) |
 | `genml_kit.io` | `checkpointing.py` (atomic saves, LoRA state, remote fetch), `storage_utils.py` (S3 / GCS / R2) |
 | `genml_kit.utils` | glog-style logging, CLI arg groups, seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers |
 
