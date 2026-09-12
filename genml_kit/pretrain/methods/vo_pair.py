@@ -6,8 +6,6 @@ encoder so that predicted similarities stay consistent with composed GT
 transforms.  Registered as a standard ``PretrainMethod``.
 """
 
-
-
 from genml_kit.pretrain.methods.base import PretrainMethod
 from genml_kit.pretrain.methods.registry import register_method
 from genml_kit.training.vo.train_vo import photometric_residual

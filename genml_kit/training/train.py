@@ -18,20 +18,20 @@ from torchvision.transforms.v2 import InterpolationMode
 from genml_kit.datasets.hf_proxy import HFDatasetProxy
 from genml_kit.datasets.weighted_sampler import build_weighted_sampler
 from genml_kit.io.checkpointing import (
-  open_resume_context,
-  parse_state_flags,
-  serialize_lora_state,
+    open_resume_context,
+    parse_state_flags,
+    serialize_lora_state,
 )
 from genml_kit.models import load_model, load_processor
 from genml_kit.pretrain.losses.focal import CombinedFocalLoss
 from genml_kit.training.eval import evaluate_performance
 from genml_kit.training.metrics import confusion_row_strings
 from genml_kit.training.model_utils import (
-  apply_lora,
-  enable_grad_checkpointing,
-  extract_lora_params,
-  freeze_model,
-  set_train_mode,
+    apply_lora,
+    enable_grad_checkpointing,
+    extract_lora_params,
+    freeze_model,
+    set_train_mode,
 )
 from genml_kit.training.optim_factory import build_optimization
 from genml_kit.training.train_reporting import TrainReporting
@@ -39,12 +39,12 @@ from genml_kit.training.trainer import BaseTrainer, TrainingResult  # noqa: F401
 from genml_kit.training.tta import create_default_tta_transform, load_tta_transform
 from genml_kit.training.xgb_pipeline import train_xgboost_on_backbone
 from genml_kit.utils.args import (
-  add_checkpoint_args,
-  add_logging_args,
-  add_optimization_args,
-  add_source_checkpoint_args,
-  add_training_state_args,
-  normalize_args,
+    add_checkpoint_args,
+    add_logging_args,
+    add_optimization_args,
+    add_source_checkpoint_args,
+    add_training_state_args,
+    normalize_args,
 )
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import resolve_device
@@ -1159,8 +1159,8 @@ class ClassificationTrainer(BaseTrainer):
   BEST_METRIC = "macro_f1"
   BEST_METRIC_KEY = "best_macro_f1"  # checkpoint key contract (tested)
 
-  def __init__(self, args, model, data, optimization, device, writer,
-               start_epoch, best_metric, global_step):
+  def __init__(self, args, model, data, optimization, device, writer, start_epoch,
+               best_metric, global_step):
     super().__init__(args, model, optimization, device, writer, start_epoch,
                      best_metric, global_step)
     self.data = data

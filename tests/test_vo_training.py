@@ -1,6 +1,5 @@
 """Unit tests for the VO training/evaluation pieces."""
 
-
 import pytest
 import torch
 

@@ -1,6 +1,5 @@
 """Unit tests for the VO similarity model pieces."""
 
-
 import torch
 
 from genml_kit.geometry.similarity import params_to_matrix

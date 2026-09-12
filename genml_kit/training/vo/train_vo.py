@@ -159,8 +159,16 @@ class VOTrainer(BaseTrainer):
   BEST_METRIC = "mce"
   BEST_METRIC_KEY = "best_mce"
 
-  def __init__(self, args, model, loaders, optimization, device, writer,
-               start_epoch=0, best_metric=float("inf"), global_step=0):
+  def __init__(self,
+               args,
+               model,
+               loaders,
+               optimization,
+               device,
+               writer,
+               start_epoch=0,
+               best_metric=float("inf"),
+               global_step=0):
     super().__init__(args, model, optimization, device, writer, start_epoch,
                      best_metric, global_step)
     self.loaders = loaders

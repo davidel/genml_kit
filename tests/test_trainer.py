@@ -89,9 +89,14 @@ def _make(tmp_path, trainer_cls=FakeTrainer, **kwargs):
   args = _Args()
   args.checkpoint = str(tmp_path / "ckpt")
   model = _Model()
-  trainer = trainer_cls(args, model, _Optim(model.parameters()),
-                        torch.device("cpu"), _Writer(),
-                        start_epoch=0, best_metric=0.0, global_step=0,
+  trainer = trainer_cls(args,
+                        model,
+                        _Optim(model.parameters()),
+                        torch.device("cpu"),
+                        _Writer(),
+                        start_epoch=0,
+                        best_metric=0.0,
+                        global_step=0,
                         **kwargs)
   return trainer, args
 
@@ -177,9 +182,13 @@ def test_minimizing_metric_improves_downward(tmp_path):
   args.epochs = 3
   args.checkpoint = str(tmp_path / "ckpt")
   model = _Model()
-  trainer = MinimizingTrainer(args, model, _Optim(model.parameters()),
-                              torch.device("cpu"), _Writer(),
-                              start_epoch=0, best_metric=float("inf"),
+  trainer = MinimizingTrainer(args,
+                              model,
+                              _Optim(model.parameters()),
+                              torch.device("cpu"),
+                              _Writer(),
+                              start_epoch=0,
+                              best_metric=float("inf"),
                               global_step=0)
   result = trainer.run()
   assert result.best_metric == 1.5  # 9.9 never displaces the best

@@ -1,6 +1,5 @@
 """Tests for the synthetic VO pair dataset and its GT math."""
 
-
 import numpy as np
 import torch
 
