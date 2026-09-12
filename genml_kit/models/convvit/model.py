@@ -120,7 +120,10 @@ class CustomPatchTransformer(nn.Module):
           num_heads=min(num_heads, 8),
           dropout=dropout,
       )
-      self.head = nn.Linear(embed_dim, num_classes)
+      # All num_cls_tokens are pooled independently (multi-query
+      # cross-attention) and flattened into the classifier head, mirroring
+      # the headless/uvito convention of consuming every CLS token.
+      self.head = nn.Linear(embed_dim * num_cls_tokens, num_classes)
     else:
       # timm convention: 0 = no head and no classifier-specific pooling
       # (self-supervised mode). uvito-style CLS-token features instead.
@@ -150,15 +153,16 @@ class CustomPatchTransformer(nn.Module):
             (or modified version with mask tokens injected).
 
         Returns:
-            ``(cls_out, spatial_out)`` where *cls_out* is ``(B, 1, D)``
-            and *spatial_out* is ``(B, N, D)``.
+            ``(cls_out, spatial_out)`` where *cls_out* is
+            ``(B, num_cls_tokens, D)`` and *spatial_out* is ``(B, N, D)``.
         """
     B = patch_embeddings.shape[0]
     x = patch_embeddings
 
-    # Prepend learnable CLS token (pos_embedding covers it at index 0)
-    cls = self.cls_token.expand(B, -1, -1)  # [B, 1, D]
-    x = torch.cat([cls, x], dim=1)  # [B, 1+N, D]
+    # Prepend learnable CLS tokens; pos_embedding covers the full
+    # (num_cls_tokens + N) sequence.
+    cls = self.cls_token.expand(B, -1, -1)  # [B, num_cls, D]
+    x = torch.cat([cls, x], dim=1)  # [B, num_cls+N, D]
     x = x + self.pos_embedding[:, :x.shape[1], :]
     x = self.pos_drop(x)
 
@@ -186,8 +190,10 @@ class CustomPatchTransformer(nn.Module):
       # Headless mode: extract CLS tokens and flatten (uvito convention).
       # (B, num_cls, D) -> (B, num_cls * D)
       return cls_out.reshape(embeddings.shape[0], -1)
-    pooled = self.cls_guided_pool(cls_out[:, :1, :], spatial_out)  # [B, D]
-    return self.head(pooled)  # (B, num_classes)
+    # Pool every CLS token over the spatial tokens (multi-query
+    # cross-attention), then flatten into the classifier head.
+    pooled = self.cls_guided_pool(cls_out, spatial_out)  # [B, num_cls, D]
+    return self.head(pooled.reshape(embeddings.shape[0], -1))  # (B, num_classes)
 
   def encoder_forward(self, patch_embeddings):
     """Run the transformer encoder on pre-computed patch embeddings.

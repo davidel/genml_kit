@@ -766,7 +766,13 @@ def main(argv=None):
   start_epoch = 0
   ckpt_extra = {}
   if args.resume:
-    model, start_epoch, _, ckpt_extra = open_resume_context(args, model, device)
+    model, start_epoch, _, ckpt_extra = open_resume_context(
+        args,
+        model,
+        device,
+        metric_key=PretrainTrainer.BEST_METRIC_KEY,
+        default_metric=0.0,
+    )
     # Restore method-specific state from checkpoint.
     method_state = ckpt_extra.get("method_state", {})
     method.load_checkpoint_state(model, method_state, args)

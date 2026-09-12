@@ -13,6 +13,8 @@ from genml_kit.io.checkpointing import (
     filter_state_dict,
     format_count,
     load_checkpoint_weights,
+    open_resume_context,
+    resume_checkpoint,
     should_save_periodic,
 )
 from genml_kit.io.storage_utils import save_checkpoint
@@ -310,3 +312,73 @@ class TestFetchRemoteCheckpoint:
     assert caplog.records == []  # no warnings: a miss is normal
     assert not latest.exists()
     assert not best.exists()
+
+
+class _Args:
+  """Minimal args stub satisfying open_resume_context."""
+
+  def __init__(self, checkpoint, remote_checkpoint=None):
+    self.checkpoint = checkpoint
+    self.remote_checkpoint = remote_checkpoint
+
+
+class TestResumeCheckpointMetricKey:
+  """The best-metric key is trainer-declared, not hardcoded (A2)."""
+
+  def _write_ckpt(self, path, metric_key, metric_value):
+    ckpt = {
+        "model_state_dict": nn.Linear(2, 2).state_dict(),
+        "epoch": 3,
+        metric_key: metric_value,
+    }
+    torch.save(ckpt, path)
+
+  def test_resume_reads_declared_metric_key(self, tmp_path):
+    """VO-style checkpoints store best_mce; resume must read it."""
+    path = str(tmp_path / "vo_ckpt.pt")
+    self._write_ckpt(path, "best_mce", 1.5)
+    model = nn.Linear(2, 2)
+    _, epoch, metric, _ = resume_checkpoint(
+        path,
+        path,
+        model,
+        device=torch.device("cpu"),
+        metric_key="best_mce",
+        default_metric=float("inf"),
+    )
+    assert epoch == 4
+    assert metric == 1.5
+
+  def test_resume_default_when_key_absent(self, tmp_path):
+    """Missing key falls back to the trainer-provided default."""
+    path = str(tmp_path / "ckpt.pt")
+    self._write_ckpt(path, "best_other", 7.0)
+    model = nn.Linear(2, 2)
+    _, _, metric, _ = resume_checkpoint(
+        path,
+        path,
+        model,
+        device=torch.device("cpu"),
+        metric_key="best_mce",
+        default_metric=float("inf"),
+    )
+    assert metric == float("inf")
+
+  def test_open_resume_context_forwards_metric_key(self, tmp_path, monkeypatch):
+    """open_resume_context threads the key through to resume_checkpoint."""
+    path = tmp_path / "run"
+    latest = str(path) + "_latest.pt"
+    self._write_ckpt(latest, "best_mce", 0.75)
+    monkeypatch.setattr("genml_kit.io.checkpointing.fetch_remote_checkpoint",
+                        lambda *a, **k: [])
+    args = _Args(checkpoint=str(path))
+    model = nn.Linear(2, 2)
+    _, epoch, metric, _ = open_resume_context(
+        args,
+        model,
+        device=torch.device("cpu"),
+        metric_key="best_mce",
+        default_metric=float("inf"),
+    )
+    assert epoch == 4
+    assert metric == 0.75

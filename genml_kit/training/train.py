@@ -1215,7 +1215,9 @@ class ClassificationTrainer(BaseTrainer):
     self.writer.add_scalar("Epoch/Loss_Train", train_loss, epoch)
     self.writer.add_scalar("Epoch/Accuracy_Train_Top1", train_t1, epoch)
 
-    self.validate()
+    # Validation (logging + best-checkpoint metrics) is owned by the
+    # BaseTrainer loop: it calls self.validate() once per epoch after
+    # train_epoch returns, so we must NOT validate here.
     return train_loss, self.global_step
 
   def ckpt_extra(self, _best_metric, _step):
@@ -1292,7 +1294,12 @@ def main():
   apply_freeze_patterns(args, model)
 
   model, start_epoch, best_macro_f1, ckpt_extra = open_resume_context(
-      args, model, device)
+      args,
+      model,
+      device,
+      metric_key=ClassificationTrainer.BEST_METRIC_KEY,
+      default_metric=0.0,
+  )
 
   optimization = build_optimization(args, model, device, ckpt_extra, states_to_load)
   optimizer_global_step = ckpt_extra.get(

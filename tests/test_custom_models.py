@@ -241,6 +241,48 @@ class TestConvViTForward:
     assert model.cls_guided_pool is None
     assert model.head is None
 
+  def test_classifier_multi_cls_tokens(self):
+    """num_cls_tokens > 1: every CLS token is pooled and fed to the head.
+
+    Each token independently attends over the spatial tokens (multi-query),
+    then all are flattened into the classifier head -- mirroring the
+    headless/uvito convention of consuming every CLS token instead of
+    silently dropping all but the first.
+    """
+    model = CustomPatchTransformer(
+        num_classes=7,
+        img_size=224,
+        num_cls_tokens=2,
+        embed_dim=32,
+        num_heads=4,
+        depth=2,
+        dropout=0.0,
+        drop_path_rate=0.0,
+        num_conv_layers=2,
+    )
+    x = torch.randn(2, 3, 224, 224)
+    out = model(x)
+    assert out.shape == (2, 7)
+    # The head consumes all num_cls_tokens pooled vectors.
+    assert model.head.in_features == 2 * 32
+
+  def test_classifier_multi_cls_tokens_single_equiv(self):
+    """num_cls_tokens=1 keeps the historical head dimension and pooling path."""
+    model = CustomPatchTransformer(
+        num_classes=7,
+        img_size=224,
+        num_cls_tokens=1,
+        embed_dim=32,
+        num_heads=4,
+        depth=2,
+        dropout=0.0,
+        drop_path_rate=0.0,
+        num_conv_layers=2,
+    )
+    assert model.head.in_features == 32
+    x = torch.randn(2, 3, 224, 224)
+    assert model(x).shape == (2, 7)
+
   def test_conv_stem_features(self, model):
     """ConvViT's conv stem produces spatial feature maps."""
     x = torch.randn(1, 3, 224, 224)

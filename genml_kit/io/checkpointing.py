@@ -422,13 +422,26 @@ class CheckpointSaver:
     return self.save("_latest.pt", epoch, **extra)
 
 
-def resume_checkpoint(ckpt_latest, ckpt_best, model, device):
+def resume_checkpoint(ckpt_latest,
+                      ckpt_best,
+                      model,
+                      device,
+                      metric_key="best_macro_f1",
+                      default_metric=0.0):
   """Resume model state from an existing checkpoint.
 
     Looks for *ckpt_latest* first, then *ckpt_best*.  Restores model weights
     (filtering out shape-mismatched keys) and LoRA adapter state. Training
     states are restored separately by :func:`restore_training_state` after
     the final trainable parameter set has been established.
+
+    Args:
+        metric_key: Checkpoint dict key holding the best-metric value
+            (e.g. ``BestTrainer.BEST_METRIC_KEY``).  The trainer owns the
+            key name so resume never hard-codes a task-specific one.
+        default_metric: Value returned when the checkpoint has no entry
+            under *metric_key* (e.g. ``0.0`` when maximizing, ``inf`` when
+            minimizing).
 
     Returns ``(start_epoch, best_metric, extra)`` where *extra* contains
     auxiliary checkpoint state and other non-model metadata.
@@ -492,11 +505,11 @@ def resume_checkpoint(ckpt_latest, ckpt_best, model, device):
                     f"{result.unexpected_keys}")
 
   start_epoch = ckpt.get("epoch", -1) + 1
-  best_metric = ckpt.get("best_macro_f1", 0.0)
+  best_metric = ckpt.get(metric_key, default_metric)
   extra = {
       k: v
       for k, v in ckpt.items()
-      if k not in {"model_state_dict", "lora_state_blob", "epoch", "best_macro_f1"}
+      if k not in {"model_state_dict", "lora_state_blob", "epoch", metric_key}
   }
   extra["_model_state_skipped"] = bool(skipped)
 
@@ -536,7 +549,11 @@ def fetch_remote_checkpoint(remote_uri, ckpt_latest, ckpt_best):
   return restored
 
 
-def open_resume_context(args, model, device):
+def open_resume_context(args,
+                        model,
+                        device,
+                        metric_key="best_macro_f1",
+                        default_metric=0.0):
   """Fetch remote checkpoints and auto-resume into ``model``.
 
   Wraps the resume boilerplate shared by ``train.py`` and ``pretrain.py``:
@@ -547,20 +564,26 @@ def open_resume_context(args, model, device):
       args: Parsed CLI args (``checkpoint``, ``remote_checkpoint``).
       model: The freshly built model to load weights into.
       device: Device used for tensor remapping during the load.
+      metric_key: Checkpoint dict key holding the best-metric value; see
+          :func:`resume_checkpoint`.
+      default_metric: Value returned when the checkpoint has no entry under
+          *metric_key*; see :func:`resume_checkpoint`.
 
   Returns:
-      Tuple ``(model, start_epoch, best_macro_f1, ckpt_extra)``.
+      Tuple ``(model, start_epoch, best_metric, ckpt_extra)``.
   """
   ckpt_latest = args.checkpoint + "_latest.pt"
   ckpt_best = args.checkpoint + "_best.pt"
   fetch_remote_checkpoint(args.remote_checkpoint, ckpt_latest, ckpt_best)
-  model, start_epoch, best_macro_f1, ckpt_extra = resume_checkpoint(
+  model, start_epoch, best_metric, ckpt_extra = resume_checkpoint(
       ckpt_latest,
       ckpt_best,
       model,
       device,
+      metric_key=metric_key,
+      default_metric=default_metric,
   )
-  return model, start_epoch, best_macro_f1, ckpt_extra
+  return model, start_epoch, best_metric, ckpt_extra
 
 
 def restore_training_state(extra, optimizer, scheduler, scaler, states_to_load):

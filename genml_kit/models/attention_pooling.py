@@ -4,11 +4,13 @@ import torch.nn as nn
 
 
 class CLSGuidedAttentionPooling(nn.Module):
-  """Use the final CLS token as a query to attention-weight the spatial tokens.
+  """Use CLS token(s) as queries to attention-weight the spatial tokens.
 
-  Given a sequence of transformer outputs split into a CLS token and
-  spatial tokens, this module cross-attends from CLS to spatial to
-  produce a single pooled representation.
+  Given a sequence of transformer outputs split into CLS token(s) and
+  spatial tokens, this module cross-attends from each CLS token to the
+  spatial tokens, producing one pooled representation per query token.
+  The single-token case collapses back to a ``[B, D]`` vector, keeping
+  the historical behavior.
 
   Parameters
   ----------
@@ -31,13 +33,16 @@ class CLSGuidedAttentionPooling(nn.Module):
 
   def forward(self, cls_out, spatial_out):
     """
-    cls_out:     [B, 1, D]     — final CLS token from transformer
-    spatial_out: [B, N, D]     — final spatial tokens from transformer
-    Returns:     [B, D]        — attention-weighted pooling
+    cls_out:     [B, K, D]     — final CLS token(s) from the transformer
+    spatial_out: [B, N, D]     — final spatial tokens from the transformer
+    Returns:     [B, D]        — single query: attention-weighted pooling
+                 [B, K, D]     — K queries: one pooled vector per CLS token
     """
     attn_out, _ = self.cross_attn(
         query=self.norm_cls(cls_out),
         key=self.norm_spatial(spatial_out),
         value=spatial_out,
     )
-    return attn_out.squeeze(1)  # [B, D]
+    if attn_out.shape[1] == 1:
+      return attn_out.squeeze(1)  # [B, D] (single-CLS backward compat)
+    return attn_out  # [B, K, D]

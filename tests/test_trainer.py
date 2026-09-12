@@ -109,6 +109,38 @@ def test_trainer_runs_epochs_and_selects_best(tmp_path):
   assert best["best_score"] == 0.42
 
 
+def test_validations_run_once_per_epoch_from_loop(tmp_path):
+  """The base loop is the single validate() caller per epoch.
+
+  A concrete trainer whose train_epoch also calls validate() would double
+  the validation cost; the loop must be the only driver.
+  """
+  calls = {"train_epoch": 0, "validate": 0}
+
+  class CountingTrainer(BaseTrainer):
+
+    BEST_METRIC = "score"
+    BEST_METRIC_KEY = "best_score"
+
+    def __init__(self, *args, **kwargs):
+      super().__init__(*args, **kwargs)
+
+    def train_epoch(self, epoch, saver, step, monitor):
+      calls["train_epoch"] += 1
+      self.epoch = epoch
+      return 0.5, step + 1
+
+    def validate(self):
+      calls["validate"] += 1
+      return _FakeMetrics(0.42)
+
+  trainer, _ = _make(tmp_path, CountingTrainer)
+  trainer.run()
+  # Exactly one validation per completed epoch, driven by the loop.
+  assert calls["validate"] == 2
+  assert calls["train_epoch"] == 2
+
+
 def test_trainer_without_validate_skips_best_saving(tmp_path):
 
   class NoValidateTrainer(FakeTrainer):
