@@ -19,6 +19,7 @@ stay brief and point here.
 
 - [1. Problem, notation, parameterization](#1-problem-notation-parameterization)
 - [2. Data-generation math](#2-data-generation-math)
+  - [2.5 Warping mechanics: how B is rendered from A](#25-warping-mechanics-how-b-is-rendered-from-a)
 - [3. Estimator math](#3-estimator-math)
 - [4. Losses and metrics](#4-losses-and-metrics)
 - [5. Classical baselines](#5-classical-baselines)
@@ -62,6 +63,25 @@ where:
 - the last column is the translation;
 - the bottom row $`(0, 0, 1)`$ makes the map affine (points map to
   points, lines to lines).
+
+Homogeneous coordinates pay off immediately in two ways:
+
+- **Composition.** Chaining transforms collapses to a single matrix
+  product.  If $`M_1`$ is applied first and $`M_2`$ second, the combined
+  map is $`M = M_2 M_1`$: the *last-applied* factor appears *leftmost*.
+  Order matters — $`M_2 M_1 \ne M_1 M_2`$ in general (rotate-then-scale
+  is not scale-then-rotate unless the scale is isotropic *and* centered).
+  In the warp code this is the difference between $`M \circ M^{-1}`$
+  and $`M^{-1} \circ M`$, so the composition order is pinned and
+  unit-tested.
+- **Center of rotation.** The formula above rotates about the **origin**
+  $`(0, 0)`$ (the top-left corner of the image).  A center-based
+  rotation about $`c = (W/2, H/2)`$ is the conjugation
+  $`M_c = T_c\,M\,T_{-c}`$: translate the center to the origin, apply
+  the similarity, translate back.  The pixel-grid convention (whether the
+  center is $`W/2`$ or the exact half-pixel position `(W-1)/2`) is a
+  source of the half-pixel bias discussed in §2.5, so it is fixed
+  once per dataset and recorded in the metadata.
 
 ### 1.2 Worked example: the 90° rotation (pins every sign)
 
@@ -109,12 +129,12 @@ Given a matrix with linear part $`A = \begin{bmatrix} a & b \\ c & d \end{bmatri
 
 $$
 \large
-s = \sqrt{a^2 + c^2}, \qquad \theta = \operatorname{atan2}(c, a)
+s = \sqrt{a^2 + c^2}, \qquad \theta = \mathrm{atan2}(c, a)
 $$
 
 where:
 
-- $`\operatorname{atan2}`$ is **mandatory**: $`\arccos`$-based readout
+- $`\mathrm{atan2}`$ is **mandatory**: $`\arccos`$-based readout
   maps $`\theta`$ and $`-\theta`$ to the same value and silently folds
   negative rotations onto positive ones;
 - $`s = \sqrt{a^2 + c^2}`$ (equivalently $`\tfrac12\log(a^2+c^2)`$ in log
@@ -240,6 +260,62 @@ where:
 Degeneracy: at exactly $`\phi = 0`$ (horizontal camera) the ground plane
 passes through the optical axis, $`\det H = 0`$, and the residual is
 undefined — the generator never samples this regime.
+
+### 2.5 Warping mechanics: how B is rendered from A
+
+The data-generator renders $`B = \mathrm{warp}(A, M)`$ with a chosen
+interpolation kernel and padding policy.  These choices are
+**recorded in the dataset metadata** and fixed across train and deploy,
+because the generator defines both what the network sees and which
+shortcuts exist to exploit it.
+
+**Forward vs backward map.**  Forward mapping iterates source pixels
+and writes to $`M p`$: it leaves holes where no source lands and
+fights aliasing.  Backward mapping iterates *output* pixels and
+samples $`M^{-1} p`$: every output pixel gets exactly one value and
+the code never needs a rasterizer.  All warps in this project use the
+backward map (see the differentiable variant in §3.4).
+
+**Interpolation kernels.**  The choice quantizes the ground truth: a
+sub-pixel shift rendered with nearest-neighbor produces visible
+stair-stepping that a smooth regressor must then un-learn.
+
+| Kernel | Behavior | Notes |
+|---|---|---|
+| Nearest | value of the rounded source pixel | blocky; quantizes GT — bad for training a smooth regressor; fastest |
+| Bilinear | weighted average of the 4 surrounding pixels | the default; mild low-pass blur, which is also what a real resampled photo looks like |
+| Bicubic | 4×4 = 16 neighbors with cubic weights ($`a=-0.5`$) | sharper; can overshoot/ring at edges (values may exceed the local range) |
+| Lanczos | windowed sinc over a larger window | sharpest of the four; also rings; slower |
+
+**Padding policies.**  Pixels that sample outside the source domain
+must be filled, and the choice is a visible cue:
+
+- *Constant fill* (e.g. zero) — reveals rotation/scale by the
+  triangular "wedges" at the borders; a network can learn to read the
+  wedge geometry instead of the content (the wedge shortcut, Appendix B).
+- *Mirror / reflect* — the natural anti-aliasing choice for
+  rotation/scale; no wedge cue, but it fabricates content that is not
+  in the source image.
+
+**Library conventions and the half-pixel trap.**  Every library gets
+the math right and the signs/centers differently:
+
+- OpenCV `getRotationMatrix2D(center, angle, scale)`:
+  - `angle` is in **degrees**, and positive values rotate
+    **counter-clockwise** in its y-down layout — the *opposite sign*
+    of this project's convention, so callers pass `-deg(θ)`;
+  - the returned matrix is the **forward map**; `warpAffine` (without
+    `WARP_INVERSE_MAP`) internally inverts it and backward-samples.
+- The rotation center is the pixel-grid center, and the exact
+  half-pixel position (`(W-1)/2` vs `W/2`) is a 0.5 px bias source.
+  PyTorch `grid_sample` uses normalized coordinates with
+  `align_corners=True` mapping pixel centers to integer coordinates
+  ($`x_n = 2x/(W-1) - 1`$), while some tooling assumes
+  `align_corners=False` (pixel *edges*); mixing the two conventions is
+  a silent 0.5 px translation error.
+- Fix one convention per dataset, record it in the metadata, and
+  unit-test the GT round-trip (the 90° worked example of §1.2 is the
+  canonical test).
 
 ## 3. Estimator math
 
@@ -379,7 +455,7 @@ Source: ILOC §6.2; drone-specific staging from plan §6.
 
 $$
 \large
-\mathcal{L}_{\mathrm{sup}} = \mathcal{L}_{\mathrm{mce}} + \lambda_s \lVert \log \hat{s} - \log s \rVert_1 + \lambda_\theta \bigl\lvert \mathrm{wrap}(\hat{\theta} - \theta) \bigrigrvert + \lambda_c\, \mathrm{SmoothL1}(\hat{r}, \rho)
+\mathcal{L}_{\mathrm{sup}} = \mathcal{L}_{\mathrm{mce}} + \lambda_s \lVert \log \hat{s} - \log s \rVert_1 + \lambda_\theta \bigl\lvert \mathrm{wrap}(\hat{\theta} - \theta) \bigr\rvert + \lambda_c\, \mathrm{SmoothL1}(\hat{r}, \rho)
 $$
 
 where:
@@ -447,6 +523,24 @@ where:
 - rotation/scale must be removed first (see §5.2) — phase correlation
   alone handles only translation.
 
+Practical caveats:
+
+- **Cyclic (wrap-around) assumption.**  The DFT treats the image as
+  toroidal: content leaving the right edge re-enters from the left.  A
+  translation wraps the peak (a shift of $-5$ px appears at $`N-5`$;
+  read peaks in $`[-N/2, N/2)`$), and borders/padding create artifacts.
+  A **Hann window** (a smooth cosine edge taper) or edge-mirroring
+  before the FFT is the standard mitigation.
+- **Illumination.**  The normalized cross-power spectrum divides by the
+  magnitude at every frequency, so per-pixel gain/bias differences are
+  cancelled — the method is photometrically robust, which is why it
+  is used as the initialization stage before the ECC refinement of
+  §5.3.
+- **Peak sharpness vs FFT size.**  Zero-padding to a larger FFT size
+  sharpens the peak and improves sub-pixel interpolation, but enlarging
+  the cyclic domain also wraps real content across the border — the
+  Hann window belongs *before* the zero-pad.
+
 ### 5.2 Fourier–Mellin (rotation + scale)
 
 Log-polar resampling of the log-magnitude spectra turns rotation and
@@ -460,7 +554,21 @@ $$
 
 where:
 
-- the estimate is refined by ECC (§5.3) after the log-polar init;
+- the magnitude spectra $`|F_a|, |F_b|`$ are rotation-invariant (the
+  Fourier magnitude discards phase, and rotation of the image rotates
+  the magnitude spectrum by the same angle);
+- taking the **logarithm** $`\rho = \log r`$ turns the radial scale
+  factor into an additive shift, so *both* rotation and log-scale are
+  translations in $`(\rho, \phi)`$ space and are read off with a second
+  phase correlation;
+- because the magnitude spectrum is discarded, only the *modulus* of
+  translation is recoverable per-stage — the pipeline is:
+  log-polar magnitude → phase correlation → $`(\hat{\theta}, \hat{s})`$ →
+  de-rotate/de-scale B → phase correlation → $`\hat{t}`$;
+- log-polar resampling needs interpolation at high radii where the
+  sampling density drops, which is the source of the "coarse θ, s"
+  weakness — the estimate is refined by ECC (§5.3) after the log-polar
+  init;
 - this is the classic Fourier–Mellin oracle used as baseline 1.
 
 ### 5.3 Lucas–Kanade / ECC iteration
@@ -474,22 +582,82 @@ $$
 M \leftarrow M \circ M(\Delta p)^{-1}
 $$
 
+Derivation (Gauss–Newton):
+
+1. **Brightness constancy.**  The true warp satisfies
+   $`I_b(M(x; p^*)) \approx I_a(x)`$: the same physical surface radiates
+   the same intensity into both frames.
+2. **Linearize.**  For the current estimate $`p`$, a first-order Taylor
+   expansion of the residual $`r(p) = I_b(M(x; p)) - I_a(x)`$ gives
+   $`r(p + \Delta p) \approx r(p) + J\,\Delta p`$, with
+   $`J = \partial r / \partial p`$ the Jacobian of the warped image
+   w.r.t. the warp parameters (image gradient composed with the warp
+   Jacobian).
+3. **Normal equations.**  Minimizing $`\lVert r + J\,\Delta p \rVert^2`$
+   w.r.t. $`\Delta p`$ gives $`J^{\top} J\,\Delta p = -J^{\top} r`$,
+   whose solution is the update above; the warp is then composed with
+   the *inverse* update so it stays a forward map.
+4. **Iterate** to convergence; each step re-linearizes about the new
+   $`p`$.
+
 where:
 
 - $`J`$ — the Jacobian of the warped image w.r.t. the parameterization
-  $`p`$ of $`M`$;
-- ECC additionally normalizes both images (gradient preconditioning),
-  which makes it robust to exposure/contrast differences;
-- this is what `cv2.findTransformECC` minimizes and what the plan's ECC
-  oracle runs to convergence.
+  $`p`$ of $`M`$ (step 2);
+- $`M \leftarrow M \circ M(\Delta p)^{-1}`$ — compose with the inverse
+  update so the map remains forward (step 3);
+- ECC (Evangelidis & Psarakis 2008) *replaces the raw intensity
+  residual* with a normalized-correlation objective (gradient
+  preconditioning), which absorbs per-frame gain/bias and makes it
+  robust to exposure/contrast differences;
+- `cv2.findTransformECC` minimizes exactly this ECC objective and is the
+  classical accuracy gold standard for the 4-DOF refine.
+
+Practical properties (ILOC §5.3):
+
+- **Small convergence basin.**  LK converges only for small
+  $`\Delta p`$ (a few degrees, a few percent scale); outside it the
+  linearization is wrong and it diverges.  Pyramid LK (coarse-to-fine)
+  enlarges the basin, and seeding with the Fourier–Mellin estimate of
+  §5.2 gives the same benefit with one pyramid level.
+- **Aperture problem, quantified.**  Pixels with zero gradient
+  contribute nothing ($`\nabla I_b = 0 \Rightarrow`$ no equation);
+  texture-poor images make $`J^{\top}J`$ rank-deficient.  LK needs
+  corners/edges — the same geometry keypoints (§5.4) and the
+  learned confidence head rely on.
+- **Photometric robustness** is why the scheme is phase correlation
+  (photometrically robust, coarse) → ECC (photometrically robust,
+  precise): both tolerate exposure differences, and ECC finishes the
+  job the log-polar init starts.
 
 ### 5.4 Keypoint pipeline + RANSAC
 
 The strongest classical-modern oracle: SuperPoint keypoints and
 LightGlue matches, then ratio test, then RANSAC over similarity fits,
-then a final Umeyama on inliers.  The RANSAC iteration count for
-inlier ratio $`w`$, model $`m = 2`$ point pairs, target probability
-$`p_{\mathrm{succ}}`$:
+then a final Umeyama on inliers.
+
+The pipeline components (ILOC Ch. 4):
+
+- **Keypoint detector** — a saliency map $`\mathcal{S}(x)`$ over the
+  image; local maxima above a threshold are keypoints.  Classical: Harris
+  corners, SIFT.  Learned: SuperPoint's detector head (a CNN trained
+  with a self-supervised homography-consistency objective).
+- **Descriptor** — a fixed-length vector $`d \in \mathbb{R}^C`$
+  summarizing the patch around each keypoint, built so the *same*
+  physical point seen from slightly different poses gets nearly the
+  same vector.  Classical: SIFT (gradient histograms, 128-D), ORB
+  (binary strings).  Learned: SuperPoint's descriptor head.
+- **Matcher** — pairs keypoints whose descriptors are closest
+  (nearest-neighbor in cosine/L2), optionally with mutual-nearest
+  checks and a ratio test to reject ambiguous matches.  Output:
+  correspondences $`\{(p_i, q_i)\}`$.  LightGlue is a learned matcher
+  that additionally prunes with geometric context (a candidate match
+  inconsistent with its neighbors is suppressed) and stops attending
+  once enough confident matches exist — compared to SuperGlue it is
+  lighter, faster, and adaptive.
+
+The RANSAC iteration count for inlier ratio $`w`$, model $`m = 2`$
+point pairs, target probability $`p_{\mathrm{succ}}`$:
 
 $$
 \large
@@ -498,7 +666,9 @@ $$
 
 where:
 
-- $`m = 2`$ — two point pairs determine a 2-D similarity;
+- $`m = 2`$ — two point pairs determine a 2-D similarity; the count
+  grows logarithmically with $`1/(1-p_{\mathrm{succ}})`$ and
+  polynomially with $`1/w`$;
 - the final inlier refit is exactly the Umeyama of §3.2, which is why
   this baseline shares its algebra with the learned model.
 
@@ -589,9 +759,11 @@ where:
 | $`u_i, p_i, q_i`$ | image corners, source/target points | §1.5, §2.3 |
 | $`K, R_{cw}, c`$ | intrinsics, camera rotation, center | §2.1 |
 | $`H`$ | ground→image homography | §2.2 |
-| $`\rho`$ | GT residual (irreducible) | §2.4 |
+| $`\rho`$ | GT residual (irreducible); *also* log-polar radius in §5.2 | §2.4, §5.2 |
 | $`F_a, F_b`$ | encoder feature maps | §3.1 |
 | $`\Sigma, U, V, D`$ | scatter matrix, SVD factors, guard | §3.2 |
+| $`J, \Delta p`$ | warped-image Jacobian, parameter update | §5.3 |
+| $`w, p_{\mathrm{succ}}, K`$ | RANSAC inlier ratio, success prob., iteration count | §5.4 |
 | $`\hat{r}`$ | predicted fit residual (confidence) | §4.1, §6.2 |
 | $`x_k, P_k, Q_k, R_k`$ | filter state/covariances | §6.1 |
 
@@ -618,8 +790,27 @@ Source: ILOC Ch. 7 glossary rows relevant to this front-end.
 - Umeyama, [Least-Squares Estimation of Transformation Parameters
   Between Two Point Patterns](https://ieeexplore.ieee.org/document/88573),
   PAMI 1991 — the closed-form fit of §3.2.
+- Kabsch, [A Solution for the Best Rotation to Relate Two Sets of
+  Vectors](https://onlinelibrary.wiley.com/doi/abs/10.1107/S0567739476001873),
+  Acta Crystallographica A 1976 — the `s = 1` (rigid) special case of
+  the same solve.
+- DeTone et al., [SuperPoint: Self-Supervised Interest Point Detection
+  and Description](https://arxiv.org/abs/1712.07629), CVPRW 2018 — the
+  keypoint/descriptor head behind the §5.4 oracle.
+- Lindenberger et al., [LightGlue: Local Feature Matching at Light
+  Speed](https://arxiv.org/abs/2306.13643), ICCV 2023 — the matcher
+  behind the §5.4 oracle.
 - Evangelidis & Psarakis, [Parametric Image Alignment Using Enhanced
   Correlation Coefficient](https://ieeexplore.ieee.org/document/4359316),
   PAMI 2008 — the ECC objective behind the ECC oracle (§5.3).
-- Reddy & Anbarasu, the Fourier–Mellin log-polar registration line of
-  work (§5.2).
+- Lucas & Kanade, [An Iterative Image Registration Technique with an
+  Application to Stereo Vision](https://www.ijcai.org/Proceedings/81-2/Papers/017.pdf),
+  IJCAI 1981 — the brightness-constancy Gauss–Newton derivation of
+  §5.3.
+- Kuglin & Hines, "The Phase Correlation Image Alignment Method", Proc.
+  IEEE Int. Conf. on Cybernetics and Society, New York, 1975, pp.
+  163–165 — the original phase-correlation formulation of §5.1.
+- Reddy & Chatterji, [An FFT-Based Technique for Translation, Rotation,
+  and Scale-Invariant Image Registration](https://ieeexplore.ieee.org/document/506761),
+  IEEE Transactions on Image Processing 1996 — the Fourier–Mellin
+  log-polar registration behind §5.2.
