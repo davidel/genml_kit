@@ -36,24 +36,20 @@ from genml_kit.datasets.transforms import DictFieldTransform
 from genml_kit.io.checkpointing import open_resume_context, parse_state_flags
 from genml_kit.models.registry import load_model
 from genml_kit.pretrain.methods import get_method, list_methods
-from genml_kit.training.loop import (  # noqa: F401  (re-exports)
-  InterruptedException,
-  TrainingResult,
-  run_training_loop,
-)
 from genml_kit.training.model_utils import (
-  enable_grad_checkpointing,
-  model_mode,
-  set_train_mode,
+    enable_grad_checkpointing,
+    model_mode,
+    set_train_mode,
 )
 from genml_kit.training.optim_factory import build_optimization, report_lr
+from genml_kit.training.trainer import BaseTrainer, TrainingResult  # noqa: F401
 from genml_kit.utils.args import (
-  add_checkpoint_args,
-  add_logging_args,
-  add_optimization_args,
-  add_source_checkpoint_args,
-  add_training_state_args,
-  normalize_args,
+    add_checkpoint_args,
+    add_logging_args,
+    add_optimization_args,
+    add_source_checkpoint_args,
+    add_training_state_args,
+    normalize_args,
 )
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import gpu_stats_str, resolve_device
@@ -669,74 +665,60 @@ def build_pretrain_model(args, device, method):
   return model
 
 
-def run_pretraining(args, model, loader, ensemble, method, optimization, device, writer,
-                    start_epoch, global_step):
-  """Run the self-supervised pre-training loop.
+class PretrainTrainer(BaseTrainer):
+  """Self-supervised pre-training over the shared ``BaseTrainer`` loop.
 
-  Owns the model report, the gradient monitor, the ``CheckpointSaver``
-  (with the method-state ``extra_fn`` and the save-on-exit in the
-  ``finally`` block) and the per-epoch training cycle.
+  Supplies the pre-training epoch body and the method hooks; the base
+  owns the model report, gradient monitor, ``CheckpointSaver`` (with the
+  method-state extras and the save-on-exit ``finally``) and the epoch
+  cycle.  No validation: the base's no-op ``validate()`` stands, so the
+  best-checkpoint branch never fires.
 
-  Args:
-      args: Parsed CLI args (epochs, logging, monitor and save settings).
-      model: The prepared model; mutated in place by training.
-      loader: The training DataLoader from :func:`build_pretrain_loaders`.
-      ensemble: The ``DatasetEnsemble`` consumed by the method hooks.
-      method: The pre-training method instance.
-      optimization: The ``Optimization`` namedtuple from
-          :func:`build_optimization`.
-      device: The run's ``torch.device``.
-      writer: TensorBoard ``SummaryWriter`` (closed here on exit).
-      start_epoch: First epoch to run (0 on a fresh run).
-      global_step: Optimizer step counter restored from the checkpoint.
-
-  Returns:
-      A ``TrainingResult`` namedtuple.
+  ``BEST_METRIC_KEY`` keeps the historical ``best_macro_f1`` checkpoint
+  name for resume shape-compatibility with old pre-training checkpoints;
+  pre-training does not track a best metric.
   """
 
-  def epoch_fn(epoch, saver, step, monitor):
+  BEST_METRIC_KEY = "best_macro_f1"  # shape-compat historical name
+
+  def __init__(self, args, model, loader, ensemble, method, optimization, device,
+               writer, start_epoch, global_step):
+    super().__init__(args, model, optimization, device, writer, start_epoch, 0.0,
+                     global_step)
+    self.loader = loader
+    self.ensemble = ensemble
+    self.method = method
+
+  def train_epoch(self, epoch, saver, step, monitor):
     """One pre-training epoch: the former loop body, unchanged."""
     avg_loss, step = train_one_epoch(
-        method,
-        model,
-        loader,
-        ensemble,
-        optimization.optimizer,
-        device,
-        args.amp_dtype,
+        self.method,
+        self.model,
+        self.loader,
+        self.ensemble,
+        self.optimization.optimizer,
+        self.device,
+        self.args.amp_dtype,
         epoch,
         step,
-        writer,
-        log_every=args.log_every,
-        vis_every=args.vis_every,
+        self.writer,
+        log_every=self.args.log_every,
+        vis_every=self.args.vis_every,
         monitor=monitor,
-        grad_accum_steps=args.grad_accum_steps,
-        scaler=optimization.scaler,
+        grad_accum_steps=self.args.grad_accum_steps,
+        scaler=self.optimization.scaler,
         saver=saver,
     )
-    writer.add_scalar("Train/loss_epoch", avg_loss, epoch)
-    if optimization.scheduler is not None:
-      optimization.scheduler.step()
+    self.writer.add_scalar("Train/loss_epoch", avg_loss, epoch)
+    if self.optimization.scheduler is not None:
+      self.optimization.scheduler.step()
     return avg_loss, step
 
-  def saver_extra_fn():
-    return {"method_state": method.get_checkpoint_state(model, args)}
+  def epoch_end(self):
+    self.method.on_epoch_end(self.model, self.epoch, self.writer)
 
-  return run_training_loop(
-      args,
-      model,
-      optimization,
-      device,
-      train_epoch_fn=epoch_fn,
-      validate_fn=None,  # no validation during pre-training
-      best_metric_key="best_macro_f1",  # shape-compat historical name
-      epoch_end_fn=method.on_epoch_end,
-      saver_extra_fn=saver_extra_fn,
-      writer=writer,
-      start_epoch=start_epoch,
-      best_metric=0.0,  # not tracked during pre-training
-      global_step=global_step,
-  )
+  def saver_extra(self):
+    return {"method_state": self.method.get_checkpoint_state(self.model, self.args)}
 
 
 def main(argv=None):
@@ -800,7 +782,7 @@ def main(argv=None):
   )
   del ckpt_extra
 
-  run_pretraining(
+  PretrainTrainer(
       args,
       model,
       loader,
@@ -811,7 +793,7 @@ def main(argv=None):
       writer,
       start_epoch=start_epoch,
       global_step=global_step,
-  )
+  ).run()
 
 
 if __name__ == "__main__":

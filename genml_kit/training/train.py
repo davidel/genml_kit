@@ -18,37 +18,33 @@ from torchvision.transforms.v2 import InterpolationMode
 from genml_kit.datasets.hf_proxy import HFDatasetProxy
 from genml_kit.datasets.weighted_sampler import build_weighted_sampler
 from genml_kit.io.checkpointing import (
-    open_resume_context,
-    parse_state_flags,
-    serialize_lora_state,
+  open_resume_context,
+  parse_state_flags,
+  serialize_lora_state,
 )
 from genml_kit.models import load_model, load_processor
 from genml_kit.pretrain.losses.focal import CombinedFocalLoss
 from genml_kit.training.eval import evaluate_performance
-from genml_kit.training.loop import (  # noqa: F401  (re-exports)
-    InterruptedException,
-    TrainingResult,
-    run_training_loop,
-)
 from genml_kit.training.metrics import confusion_row_strings
 from genml_kit.training.model_utils import (
-    apply_lora,
-    enable_grad_checkpointing,
-    extract_lora_params,
-    freeze_model,
-    set_train_mode,
+  apply_lora,
+  enable_grad_checkpointing,
+  extract_lora_params,
+  freeze_model,
+  set_train_mode,
 )
 from genml_kit.training.optim_factory import build_optimization
 from genml_kit.training.train_reporting import TrainReporting
+from genml_kit.training.trainer import BaseTrainer, TrainingResult  # noqa: F401
 from genml_kit.training.tta import create_default_tta_transform, load_tta_transform
 from genml_kit.training.xgb_pipeline import train_xgboost_on_backbone
 from genml_kit.utils.args import (
-    add_checkpoint_args,
-    add_logging_args,
-    add_optimization_args,
-    add_source_checkpoint_args,
-    add_training_state_args,
-    normalize_args,
+  add_checkpoint_args,
+  add_logging_args,
+  add_optimization_args,
+  add_source_checkpoint_args,
+  add_training_state_args,
+  normalize_args,
 )
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import resolve_device
@@ -56,7 +52,19 @@ from genml_kit.utils.logging import fatal, open_writer, setup_logging
 from genml_kit.utils.script import load_extern
 from genml_kit.utils.seed import resolve_seed, seed_everything, seed_worker
 
+# Scalars only; evaluate_performance's non-scalar tail (per-class
+# metrics, confusion matrix, original metrics) stays internal to
+# ClassificationTrainer.validate's logging path.
+ClassificationMetrics = collections.namedtuple("ClassificationMetrics", [
+    "eval_loss",
+    "top1",
+    "balanced_accuracy",
+    "macro_f1",
+    "weighted_f1",
+])
+
 __all__ = [
+    "ClassificationTrainer",
     "CombinedFocalLoss",
     "evaluate_performance",
     "train_xgboost_on_backbone",
@@ -1136,102 +1144,84 @@ def log_epoch_validation(writer, epoch, data, val_metrics):
                    f"support={metrics['support']}")
 
 
-def run_training(args, model, data, optimization, device, writer, start_epoch,
-                 best_macro_f1, global_step):
-  """Run the supervised fine-tuning loop.
+class ClassificationTrainer(BaseTrainer):
+  """Supervised classification trainer over the shared ``BaseTrainer`` loop.
 
-  Thin adapter over :func:`genml_kit.training.loop.run_training_loop`,
-  which owns the report, grad monitor, checkpointing, signal handling
-  and the best-checkpoint cycle; this closure supplies only the
-  classification epoch body and validation.
+  Supplies the classification epoch body and validation; the base owns
+  the report, grad monitor, checkpointing, signal handling and the
+  best-checkpoint cycle.
 
-  Args:
-      args: Parsed CLI args (epochs, batch/accum, checkpoint, monitor
-          and save settings).
-      model: The prepared model; mutated in place by training.
-      data: The ``DataBundle`` from :func:`build_data`.
-      optimization: The ``Optimization`` namedtuple from
-          :func:`build_optimization`.
-      device: The run's ``torch.device``.
-      writer: TensorBoard ``SummaryWriter`` (closed here on exit).
-      start_epoch: First epoch to run (0 on a fresh run).
-      best_macro_f1: Best validation macro F1 so far (%).
-      global_step: Optimizer step counter restored from the checkpoint.
-
-  Returns:
-      A ``TrainingResult`` namedtuple.
+  ``BEST_METRIC`` picks macro F1 *by name* out of ``validate()``'s
+  named tuple -- no positional index into ``evaluate_performance``'s
+  return; ``BEST_METRIC_KEY`` keeps the historical checkpoint key.
   """
-  def validate_and_log(epoch):
+
+  BEST_METRIC = "macro_f1"
+  BEST_METRIC_KEY = "best_macro_f1"  # checkpoint key contract (tested)
+
+  def __init__(self, args, model, data, optimization, device, writer,
+               start_epoch, best_metric, global_step):
+    super().__init__(args, model, optimization, device, writer, start_epoch,
+                     best_metric, global_step)
+    self.data = data
+    # Loop policy bound from CLI state; base reads it per save.
+    self.SAVE_FROZEN = args.save_frozen
+
+  def validate(self):
+    """Validate and return scalar metrics as a named tuple.
+
+    Unwraps ``evaluate_performance``'s 8-tuple once; the non-scalar
+    trailing entries (per-class metrics, confusion matrix, original
+    metrics) stay here, consumed by the logging call.
+    """
     val_metrics = evaluate_performance(
-        model,
-        data.val_loader,
-        data.criterion,
-        device,
-        args.amp_dtype,
-        id2label=data.train_proxy.id2label,
-        tta_transform=data.tta_transform,
+        self.model,
+        self.data.val_loader,
+        self.data.criterion,
+        self.device,
+        self.args.amp_dtype,
+        id2label=self.data.train_proxy.id2label,
+        tta_transform=self.data.tta_transform,
     )
-    log_epoch_validation(writer, epoch, data, val_metrics)
-    return val_metrics
+    log_epoch_validation(self.writer, self.epoch, self.data, val_metrics)
+    return ClassificationMetrics(*val_metrics[:5])
 
-  # The loop's validate_fn() is zero-arg; the epoch function records the
-  # epoch it just ran so validation logging lands on the right epoch.
-  current_epoch = [start_epoch - 1]
-
-  def epoch_fn(epoch, saver, step, monitor):
+  def train_epoch(self, epoch, saver, step, monitor):
     """One supervised epoch, logging train + validation as before."""
-    current_epoch[0] = epoch
-    effective_batch = args.batch_size * args.grad_accum_steps
-    logging.info(f"=== Epoch {epoch + 1}/{args.epochs} "
+    self.epoch = epoch
+    effective_batch = self.args.batch_size * self.args.grad_accum_steps
+    logging.info(f"=== Epoch {epoch + 1}/{self.args.epochs} "
                  f"(eff_batch={effective_batch}) ===")
 
-    train_loss, train_t1, step = train_one_epoch(
-        model,
-        data.train_loader,
-        data.criterion,
-        optimization.optimizer,
-        optimization.scaler,
-        optimization.scheduler,
-        device,
-        args.amp_dtype,
+    train_loss, train_t1, self.global_step = train_one_epoch(
+        self.model,
+        self.data.train_loader,
+        self.data.criterion,
+        self.optimization.optimizer,
+        self.optimization.scaler,
+        self.optimization.scheduler,
+        self.device,
+        self.args.amp_dtype,
         epoch,
-        args,
-        writer=writer,
+        self.args,
+        writer=self.writer,
         monitor=monitor,
         global_step=step,
         saver=saver,
     )
 
-    if optimization.scheduler is not None:
-      optimization.scheduler.step()
-    writer.add_scalar("Epoch/Loss_Train", train_loss, epoch)
-    writer.add_scalar("Epoch/Accuracy_Train_Top1", train_t1, epoch)
+    if self.optimization.scheduler is not None:
+      self.optimization.scheduler.step()
+    self.writer.add_scalar("Epoch/Loss_Train", train_loss, epoch)
+    self.writer.add_scalar("Epoch/Accuracy_Train_Top1", train_t1, epoch)
 
-    validate_and_log(epoch)
-    return train_loss, step
+    self.validate()
+    return train_loss, self.global_step
 
-  def validate_fn():
-    return validate_and_log(current_epoch[0])
-
-  def ckpt_extra_fn(_best_metric, _step):
-    return {"lora_state_blob": serialize_lora_state(model) if args.lora else None}
-
-  return run_training_loop(
-      args,
-      model,
-      optimization,
-      device,
-      train_epoch_fn=epoch_fn,
-      validate_fn=validate_fn,
-      best_index=3,  # macro F1 inside evaluate_performance's tuple
-      best_metric_key="best_macro_f1",  # checkpoint key contract (tested)
-      ckpt_extra_fn=ckpt_extra_fn,
-      save_frozen=args.save_frozen,
-      writer=writer,
-      start_epoch=start_epoch,
-      best_metric=best_macro_f1,
-      global_step=global_step,
-  )
+  def ckpt_extra(self, _best_metric, _step):
+    return {
+        "lora_state_blob": serialize_lora_state(self.model) if self.args.lora else None
+    }
 
 
 def maybe_train_xgboost(args, data, device):
@@ -1311,7 +1301,7 @@ def main():
   )
   del ckpt_extra
 
-  result = run_training(
+  result = ClassificationTrainer(
       args,
       model,
       data,
@@ -1319,10 +1309,10 @@ def main():
       device,
       writer,
       start_epoch=start_epoch,
-      best_macro_f1=best_macro_f1,
+      best_metric=best_macro_f1,
       global_step=optimizer_global_step,
-  )
-  # The checkpoint was already saved by run_training's finally-block in
+  ).run()
+  # The checkpoint was already saved by the trainer's finally-block in
   # every case.  The remaining post-training stage (XGBoost) only runs on
   # a clean exit or on Ctrl-C; SIGTERM/SIGHUP (or a second Ctrl-C) exit
   # cleanly right here with code 0.

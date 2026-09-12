@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as f
 
 from genml_kit.geometry.similarity import corner_residual, wrap_angle
-from genml_kit.training.loop import run_training_loop
+from genml_kit.training.trainer import BaseTrainer
 
 VOMetrics = collections.namedtuple("VOMetrics", ["mce", "dlog_s", "dtheta", "conf_mae"],
                                    defaults=[float("nan")] * 4)
@@ -138,88 +138,70 @@ def evaluate_vo(model, loader, device):
   return VOMetrics(*sums.tolist())
 
 
-def run_vo_training(args,
-                    model,
-                    loaders,
-                    optimization,
-                    device,
-                    writer,
-                    start_epoch=0,
-                    best_mce=0.0,
-                    global_step=0):
-  """VO trainer -- a *consumer* of the shared loop (plan §12.5/§12.6.3).
+class VOTrainer(BaseTrainer):
+  """VO trainer -- extends the shared loop (plan §12.5/§12.6.3).
 
   All loop mechanics (model report, grad monitor, checkpoint saver,
   signal-safe exit, best-checkpoint selection, save-on-exit) come from
-  ``genml_kit.training.loop.run_training_loop``; this function only
-  supplies the VO-specific epoch body and validation.
+  ``genml_kit.training.trainer.BaseTrainer``; this class only supplies
+  the VO-specific epoch body and validation.
 
-  Args:
-      args: Parsed CLI args of the VO trainer (same flags the shared
-          loop reads: ``epochs``, ``state_save``, ``checkpoint``,
-          ``remote_checkpoint``, ``save_every``, grad monitor settings).
-      model: The VO network.
-      loaders: Object with ``train_loader`` and ``val_loader``.
-      optimization: Object with ``optimizer`` and optional ``scheduler``
-          and ``scaler`` (from ``optim_factory``).
-      device: The run's ``torch.device``.
-      writer: TensorBoard ``SummaryWriter``.
-      start_epoch: First epoch (nonzero on resume).
-      best_mce: Best mean corner error so far (lower is better, so the
-          loop's maximize flag is off via a negated metric).
-      global_step: Optimizer step counter restored from a checkpoint.
-
-  Returns:
-      The shared loop's ``TrainingResult``.
+  MCE (mean corner error, pixels) is a *minimized* metric, so
+  ``has_metric_improved`` is overridden to "lower wins" -- no sign
+  negation at the loop boundary.  ``BEST_METRIC`` picks the field by
+  name out of ``evaluate_vo``'s ``VOMetrics`` named tuple, and
+  ``best_metric`` starts at ``float("inf")``: an honest "no error
+  measured yet" that also guarantees the first validation wins the
+  lower-is-better comparison (a ``0.0`` init would never save a best
+  checkpoint, since no real error is below zero).
   """
-  cfg = getattr(args, "vo_loss_cfg", _LossCfg())
 
-  def epoch_fn(epoch, saver, step, monitor):
+  BEST_METRIC = "mce"
+  BEST_METRIC_KEY = "best_mce"
+
+  def __init__(self, args, model, loaders, optimization, device, writer,
+               start_epoch=0, best_metric=float("inf"), global_step=0):
+    super().__init__(args, model, optimization, device, writer, start_epoch,
+                     best_metric, global_step)
+    self.loaders = loaders
+    self.cfg = getattr(args, "vo_loss_cfg", _LossCfg())
+
+  def has_metric_improved(self, old, new):
+    """Return True when the corner error improved (lower is better)."""
+    return new < old
+
+  def train_epoch(self, epoch, saver, step, monitor):
     """One VO epoch: supervised loss, staged photometric per §4.1."""
-    model.train()
-    stage = getattr(args, "vo_stage", STAGES["supervised"])
+    self.model.train()
+    stage = getattr(self.args, "vo_stage", STAGES["supervised"])
     total, batches = 0.0, 0
-    for batch in loaders.train_loader:
-      image_a = batch["image_a"].to(device)
-      image_b = batch["image_b"].to(device)
-      out = model(image_a, image_b)
-      loss, _ = vo_losses(
-          {"params": out["params"], "conf": out["conf"]}, {
-              **batch, "corners": out["corners"],
-              "dc": out["dc"]
-          }, cfg, stage)
-      (loss / args.grad_accum_steps).backward()
+    for batch in self.loaders.train_loader:
+      image_a = batch["image_a"].to(self.device)
+      image_b = batch["image_b"].to(self.device)
+      out = self.model(image_a, image_b)
+      loss, _ = vo_losses({
+          "params": out["params"],
+          "conf": out["conf"]
+      }, {
+          **batch, "corners": out["corners"],
+          "dc": out["dc"]
+      }, self.cfg, stage)
+      (loss / self.args.grad_accum_steps).backward()
       monitor.step(step)
-      if (step + 1) % args.grad_accum_steps == 0:
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimization.optimizer.step()
-        optimization.optimizer.zero_grad(set_to_none=True)
+      if (step + 1) % self.args.grad_accum_steps == 0:
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+        self.optimization.optimizer.step()
+        self.optimization.optimizer.zero_grad(set_to_none=True)
         step += 1
       total += loss.item()
       batches += 1
-    writer.add_scalar("VO/loss_train", total / max(batches, 1), epoch)
+    self.writer.add_scalar("VO/loss_train", total / max(batches, 1), epoch)
     return total / max(batches, 1), step
 
-  def validate_fn():
-    metrics = evaluate_vo(model, loaders.val_loader, device)
-    writer.add_scalar("VO/mce_val", metrics.mce, -1)
-    # The shared loop maximizes; MCE is a *minimized* metric, so negate.
-    return (-metrics.mce, metrics)
-
-  return run_training_loop(
-      args,
-      model,
-      optimization,
-      device,
-      train_epoch_fn=epoch_fn,
-      validate_fn=validate_fn,
-      best_index=0,
-      best_metric_key="best_mce_negated",
-      writer=writer,
-      start_epoch=start_epoch,
-      best_metric=-best_mce,
-      global_step=global_step,
-  )
+  def validate(self):
+    metrics = evaluate_vo(self.model, self.loaders.val_loader, self.device)
+    self.writer.add_scalar("VO/mce_val", metrics.mce, self.epoch)
+    return metrics
 
 
 class _LossCfg:

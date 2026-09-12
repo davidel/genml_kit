@@ -8,6 +8,7 @@ import time
 
 import pytest
 
+from genml_kit.training.trainer import TrainingResult
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
 
@@ -108,10 +109,10 @@ class TestSigexcept:
     assert interrupts.received == ["SIGUSR1"]
 
   def test_train_import_wiring(self):
-    # Integration smoke: the training entry point must expose the shared
-    # exception (wiring reviewed in detail via the train/pretrain patches).
+    # Integration smoke: the training entries must expose the shared
+    # loop result type (wiring reviewed via the train/pretrain patches).
     import genml_kit.pretrain.cli
     import genml_kit.training.train
 
-    assert genml_kit.training.train.InterruptedException is InterruptedException
-    assert genml_kit.pretrain.cli.InterruptedException is InterruptedException
+    assert genml_kit.training.train.TrainingResult is TrainingResult
+    assert genml_kit.pretrain.cli.TrainingResult is TrainingResult

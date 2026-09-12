@@ -208,9 +208,9 @@ def _run_pretrain_smoke(tmp_path, resume=False):
   with (
       patch("sys.argv", test_args),
       patch("genml_kit.pretrain.cli.load_model", return_value=TinyBackbone()),
-      # The report moved into the shared loop (training/loop.py); patch it
-      # there, which is where run_pretraining now triggers it.
-      patch("genml_kit.training.loop.create_model_report", side_effect=_report_spy),
+      # The report is emitted by BaseTrainer.run() (training/trainer.py);
+      # patch it there, which is where the pre-training entry triggers it.
+      patch("genml_kit.training.trainer.create_model_report", side_effect=_report_spy),
   ):
     from genml_kit.pretrain.cli import main
 
