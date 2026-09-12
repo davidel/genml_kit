@@ -38,7 +38,7 @@ A 2-D **similarity** transforms a point $`x`$ into
 $$
 \large
 x' = s\,R_\theta\,x + t, \qquad
-R_\theta = \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix}
+R_\theta = \begin{bmatrix} \cos\theta & -\sin\theta \\\\ \sin\theta & \cos\theta \end{bmatrix}
 $$
 
 where:
@@ -198,7 +198,7 @@ coordinates $`(x, y)`$ to pixels is an exact **homography**:
 
 $$
 \large
-H = K \begin{bmatrix} r_x & d_x & t_x \\ r_y & d_y & t_y \\ f_x & f_y & t_z \end{bmatrix},
+H = K \begin{bmatrix} r_x & d_x & t_x \\\\ r_y & d_y & t_y \\\\ f_x & f_y & t_z \end{bmatrix},
 \qquad t = -R_{cw}\,c
 $$
 
