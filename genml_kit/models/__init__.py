@@ -14,6 +14,7 @@ import genml_kit.models.cls_model_wrapper
 import genml_kit.models.convvit
 import genml_kit.models.timm
 import genml_kit.models.uvito  # noqa: F401
+import genml_kit.models.vo  # noqa: F401
 from genml_kit.models.registry import (
     ModelOutput,
     ParsedModelName,
