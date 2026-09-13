@@ -190,7 +190,7 @@ $$
 
 $$
 \large
-y' = r \cdot \sin(\phi + \theta) = r (\sin\phi \cos\theta + \cos\phi \sin\theta)
+y' = r \cdot \sin(\phi + \theta) = r \cdot (\sin\phi \cos\theta + \cos\phi \sin\theta)
    = x \cdot \sin\theta + y \cdot \cos\theta
 $$
 
