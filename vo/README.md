@@ -721,7 +721,7 @@ to the depth.  Three consequences that drive everything later:
 
 $$
 \large
-\frac{W}{2} = f\\,\tan\alpha_{\max}\;\Longrightarrow\; \alpha_{\max} = \arctan\!\left(\frac{W}{2f}\right),\qquad \mathrm{FOV}_h = 2\\,\arctan\!\left(\frac{W}{2f}\right).
+\frac{W}{2} = f\\,\tan\alpha_{\max}\\,\Longrightarrow\\, \alpha_{\max} = \arctan\!\left(\frac{W}{2f}\right),\qquad \mathrm{FOV}_h = 2\\,\arctan\!\left(\frac{W}{2f}\right).
 $$
 
 For `f_x = 1000`, `W = 2000`: `FOV_h = 2 arctan(1) = 90°` — the worked
@@ -1277,7 +1277,7 @@ and setting it to zero gives exactly
 $$
 \large
 \sum_i q_i - s R \sum_i p_i - N t = 0
-\;\Longrightarrow\; t = \mu_q - s R\\, \mu_p,
+\\, \Longrightarrow\\, t = \mu_q - s R\\, \mu_p,
 $$
 
 which is Step 4's translation formula *before* the rotation is even known.
@@ -1356,7 +1356,7 @@ Differentiate and set to zero:
 $$
 \large
 0 = 2s \sum_i \lVert \hat{p}_i \rVert^2 - 2\, \mathrm{tr}(H R)
-\;\Longrightarrow\; s = \frac{\mathrm{tr}(H R)}{\sum_i \lVert \hat{p}_i \rVert^2}.
+\\, \Longrightarrow\\, s = \frac{\mathrm{tr}(H R)}{\sum_i \lVert \hat{p}_i \rVert^2}.
 $$
 
 With `R = U\,\mathrm{diag}(1, d)\,V^{\top}`, the trace is
@@ -1453,8 +1453,8 @@ the corner position as a function of the parameters is
 $$
 \large
 f(u) = e^{\log s} R_\theta u + t
-\;\approx\; (1 + \log s)(I + \theta G)\\,u + t
-\;\approx\; u + (\log s)\\, u + \theta G u + t ,
+\\, \approx\\, (1 + \log s)(I + \theta G)\\,u + t
+\\, \approx\\,  u + (\log s)\\, u + \theta G u + t ,
 $$
 
 where `G` is the `2×2` rotation-generator matrix.  The three parameter
@@ -1725,7 +1725,7 @@ their means):
 $$
 \large
 \mathrm{zNCC} = \frac{\sum_i (x_i - \bar{x})(y_i - \bar{y})}
-{\sqrt{\sum_i (x_i - \bar{x})^2 \; \sum_i (y_i - \bar{y})^2}}.
+{\sqrt{\sum_i (x_i - \bar{x})^2 \\, \sum_i (y_i - \bar{y})^2}}.
 $$
 
 This is the **cosine of the angle between the two zero-centered vectors** of
@@ -1866,7 +1866,7 @@ $$
 \large
 = \sum_{u} I_a(u)\\, e^{-2\pi i\\, \omega (u + \Delta) / N}
 = \Bigl( \sum_{u} I_a(u)\\, e^{-2\pi i\\, \omega u / N} \Bigr)
-\; \cdot \; e^{-2\pi i\\, \omega \Delta / N}.
+\\, \cdot \\, e^{-2\pi i\\, \omega \Delta / N}.
 $$
 
 The last equality uses that `e^{-2\pi i \omega (u+\Delta)/N} =
