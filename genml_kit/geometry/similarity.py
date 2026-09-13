@@ -99,7 +99,7 @@ def umeyama_similarity(src, dst, weights=None, eps=1e-8):
 
   Minimizes ``sum_i w_i * || s * R @ src_i + t - dst_i ||^2`` in closed
   form.  Gradients flow through the SVD, so the fit can sit inside a
-  training graph (this is the plan section 4 closed-form head).
+  training graph (vo/README.md section 13).
 
   The reflection guard flips the singular value associated with the
   smallest singular direction whenever ``U V^T`` has negative
@@ -173,7 +173,7 @@ def warp_similarity(img, params, size):
 
 
 def corner_residual(params, src, dst):
-  """Corner reprojection error -- the MCE metric itself (plan section 7).
+  """Corner reprojection error -- the MCE metric itself (vo/README.md section 3).
 
   Args:
       params: SimilarityParams.

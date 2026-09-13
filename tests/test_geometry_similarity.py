@@ -60,7 +60,7 @@ def test_params_matrix_round_trip():
 
 
 def test_quarter_turn_sign_convention():
-  """The worked 90-degree case from plan section 9.1 / vo README section 1.
+  """The worked 90-degree case from vo/README.md section 1.
 
   Counter-clockwise quarter turn about the origin must send +x onto +y
   with unit scale; scale/angle readout must not fold the sign.

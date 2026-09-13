@@ -50,7 +50,7 @@ class _Encoder(nn.Module):
 
 
 def correlate(fa, fb, radius):
-  """Plain correlation cost volume (plan section 4 / ILOC Ch. 3.3).
+  """Plain correlation cost volume (vo/README.md section 12).
 
   For every displacement (dy, dx) with |dy|, |dx| <= radius computes the
   channelwise dot product

@@ -50,8 +50,8 @@ def _load_vo(config, image_size, device="cpu"):
   the registry's uniform call signature and are irrelevant here (VO is
   not a classifier); they are consumed via ``kwargs`` upstream.
   """
-  del image_size
   model = VOSimilarityNet(config)
-  model(torch.zeros(1, config.in_ch, 64, 64), torch.zeros(1, config.in_ch, 64, 64))
+  model(torch.zeros(1, config.in_ch, image_size, image_size),
+        torch.zeros(1, config.in_ch, image_size, image_size))
   model.to(device)
   return VOModelBundle(model, VOProcessor())

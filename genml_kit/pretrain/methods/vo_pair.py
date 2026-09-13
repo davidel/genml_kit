@@ -1,4 +1,4 @@
-"""VO pair-consistency pre-training method (optional, plan section 12.3).
+"""VO pair-consistency pre-training method (optional).
 
 Self-supervised encoder pre-training for VO through the existing pretrain
 harness: the method re-uses the synthetic pair generator and trains the

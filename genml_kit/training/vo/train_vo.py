@@ -1,7 +1,7 @@
 """VO training: losses, staged photometric auxiliary, evaluation.
 
-The loss schedule and the metric definitions follow plan section 6 and
-``vo/README.md`` section 4; the closed-form components come from
+The loss schedule and the metric definitions follow ``vo/README.md``
+section 4; the closed-form components come from
 ``genml_kit.geometry.similarity``.
 """
 
@@ -139,7 +139,7 @@ def evaluate_vo(model, loader, device):
 
 
 class VOTrainer(BaseTrainer):
-  """VO trainer -- extends the shared loop (plan §12.5/§12.6.3).
+  """VO trainer -- extends the shared loop.
 
   All loop mechanics (model report, grad monitor, checkpoint saver,
   signal-safe exit, best-checkpoint selection, save-on-exit) come from

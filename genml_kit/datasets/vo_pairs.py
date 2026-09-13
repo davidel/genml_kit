@@ -18,7 +18,7 @@ VOPairMeta = collections.namedtuple("VOPairMeta",
                                     ["gt", "gt_residual", "terrain", "range_bin"])
 
 
-def look_at_ground_h(cam_pos, cam_rpy, cam, size):
+def look_at_ground_h(cam_pos, cam_rpy, cam, _size):
   """Ground-to-image homography of a pinhole camera over a z=0 plane.
 
   The camera axes are derived from pitch/yaw: the optical axis ``f``
@@ -32,12 +32,15 @@ def look_at_ground_h(cam_pos, cam_rpy, cam, size):
       cam_rpy: (roll, pitch, yaw) in radians; yaw rotates the optical
           axis around world z, pitch tips it down from horizontal.
       cam: dict with 'fx', 'fy', 'cx', 'cy' intrinsics.
-      size: (W, H) image size (unused beyond the principal point default).
+      _size: (W, H) image size, accepted for API symmetry with the
+          sibling homography helpers; unused by the pinhole math (the
+          intrinsics come from ``cam``).  The underscore prefix is an
+          exception to the codebase no-``_``-argument rule, purely so
+          Ruff's ARG001 does not flag the intentionally unused argument.
 
   Returns:
       (3, 3) numpy array mapping world-ground points (x, y, 1) to pixels.
   """
-  del size
   fx, fy, cx, cy = cam["fx"], cam["fy"], cam["cx"], cam["cy"]
   roll, pitch, yaw = cam_rpy
   cp, sp = np.cos(pitch), np.sin(pitch)
