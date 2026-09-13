@@ -224,7 +224,7 @@ Putting rotation, scale and translation together:
 
 $$
 \large
-x' = s\,R_\theta\,x + t,
+x' = s \cdot R_\theta \cdot x + t,
 \qquad
 s > 0,\quad \theta \in (-\pi, \pi],\quad t = (t_x, t_y).
 $$
@@ -387,7 +387,7 @@ is determined (by flying one hand-computed 90° turn and checking the sign), it
 is locked in by this test and never re-derived.
 
 **Worked with the second corner.**  Take the point `(1,1)` (bottom-right in
-image coords).  $`R_{\pi/2}(1,1) = (-1, \, 1)`$.  In image coords that is one left,
+image coords).  $`R_{\pi/2}(1,1) = (-1,  1)`$.  In image coords that is one left,
 one down — the bottom-right corner of the 2×2 image has moved to the
 bottom-*left*.  Draw the 2×2 square, rotate it 90° CCW about its center, and
 you will see exactly this: the corner that was rightmost becomes topmost, etc.
