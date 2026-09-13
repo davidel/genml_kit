@@ -184,14 +184,14 @@ from?  Write a point in polar form: `x = r cos φ`, `y = r sin φ`.  Rotating by
 
 $$
 \large
-x' = r \cos(\phi + \theta) = r (\cos\phi \cos\theta - \sin\phi \sin\theta)
-   = x \cos\theta - y \sin\theta
+x' = r \cdot \cos(\phi + \theta) = r \cdot (\cos\phi \cos\theta - \sin\phi \sin\theta)
+   = x \cdot \cos\theta - y \cdot \sin\theta
 $$
 
 $$
 \large
-y' = r \sin(\phi + \theta) = r (\sin\phi \cos\theta + \cos\phi \sin\theta)
-   = x \sin\theta + y \cos\theta
+y' = r \cdot \sin(\phi + \theta) = r (\sin\phi \cos\theta + \cos\phi \sin\theta)
+   = x \cdot \sin\theta + y \cdot \cos\theta
 $$
 
 which is exactly
