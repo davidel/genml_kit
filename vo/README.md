@@ -551,12 +551,64 @@ Why corners, why the mean, why pixels?
   are on average 1.3 pixels from where they should be" — you can see that on a
   screen.
 
-**Check your understanding.**  Why is MCE *not* just `|Δθ| + |Δlog s| +
-|Δt|`?  *Answer: units.  Radians, log-units and pixels are incomparable; a
-weighted sum would need magic weights and would not say anything about image
-consequences.  MCE speaks in the consumer's natural currency, pixels, and in
-doing so automatically weights the parameters proportionally to their image
-impact — which is provably what an image-based consumer should care about.*
+**Why corners are enough: the only proof you need.**  Why does grading on the four
+corners fully determine whether the *entire* transform is right?  The honest
+answer has two parts.
+
+*(a) Exactness: MCE = 0 if and only if the transforms agree everywhere.*  A
+similarity has four degrees of freedom `(log s, θ, t_x, t_y)`.  A corner point
+`u_i` mapped by the transform contributes two scalar equations (`u_i ↦ M u_i`
+has an x- and a y-coordinate).  Four corners therefore give eight equations in
+four unknowns — an overdetermined system, but one whose *minimal* content is
+exact: if `M` and `M&#770;` agree on four non-degenerate corners, they agree
+everywhere.  Proof: the difference `ΔM = M&#770; − M` satisfies `ΔM u_i = 0` for
+`i = 1..4`.  With the four corners of a rectangle (non-degenerate), the only
+similarity whose linear part kills all four vertices is the identity: `ΔM` maps two linearly independent vectors (a corner's horizontal and vertical
+edges) to zero, so its linear part is the zero matrix, and then the translation
+`Δt` must also vanish.  Hence MCE = 0 ⇒ `M = M&#770;` everywhere.  The metric is
+not a sample of quality — it is an exact test of equality, made continuous by
+the mean.
+
+*(b) Continuity: a small MCE means a small error everywhere.*  For any pixel `x`
+in the image, write the per-pixel displacement as `E(x) = M&#770;x − Mx = ΔA x + Δt`
+with `ΔA` the difference of the linear parts.  The triangle inequality and the
+definition of the operator norm give
+
+$$
+\large
+\lVert E(x) \rVert_2 = \lVert \Delta A\,x + \Delta t \rVert_2
+\;\le\; \lVert \Delta A \rVert_2 \, \lVert x \rVert_2 + \lVert \Delta t \rVert_2.
+$$
+
+The norm `x ↦ ‖x‖` is a convex function, and the image (a rectangle) is the convex
+hull of its four corners, so `‖x‖ ≤ max_i ‖u_i‖` for every pixel.  Hence the worst
+per-pixel error over the whole image satisfies
+
+$$
+\large
+\max_{x} \lVert E(x) \rVert \;\le\; \lVert \Delta A \rVert_2 \, \max_i \lVert u_i \rVert + \lVert \Delta t \rVert_2 .
+$$
+
+Both terms on the right are controlled by the MCE.  The set of similarities with
+`MCE ≤ m` is compact (the MCE is a continuous, coercive function of `(log s, θ, t)`
+and `m` bounds it), and on that compact set both `‖ΔA‖` and `‖Δt‖` attain maxima;
+therefore there is a constant `C` (depending only on image size, not on the
+particular transform) with
+
+$$
+\large
+\max_{x} \lVert E(x) \rVert \;\le\; C \cdot \mathrm{MCE}(\hat{M}, M) .
+$$
+
+In words: *a small mean corner error implies a small maximum error at every
+pixel.*  The two parts together are exactly what a grading metric must be:
+zero if and only if the answer is right everywhere, and continuous near zero.
+This is special to similarities — an affine or homography has interior
+degrees of freedom that can vanish at the four corners yet blow up in the
+middle, so this corner-based guarantee would fail for them.  That is one more
+reason the 4-DOF similarity family is the right model for a rigid oblique
+camera.
+
 
 *Implementation note.* `genml_kit/geometry/similarity.py::corner_residual` is
 exactly this definition; `test_corner_residual_matches_manual` recomputes it
