@@ -1967,6 +1967,74 @@ and solve for `Δp`.  Iterate (re-warp, re-differentiate) — that is the
 **Lucas–Kanade** iteration.  Because this is gradient-descent on aligned
 brightness, it refines a *good* initial guess to sub-pixel accuracy.
 
+**Derivation: from Taylor to the normal equations.**  The jump from one pixel's
+equation to the matrix equation "`JᵀJ Δp = Jᵀ(I_a − I_b)`" is the heart of LK,
+so let me lay out every step.
+
+Each pixel `(x, y)` gives one *linear* equation in the two unknown components
+of `Δp = (Δx, Δy)`:
+
+$$
+\large
+\begin{bmatrix} I_x & I_y \end{bmatrix} \begin{bmatrix} \Delta x \\\\ \Delta y \end{bmatrix}
+= \delta I(x, y),
+\qquad
+I_x = \frac{\partial I_b}{\partial x},\quad I_y = \frac{\partial I_b}{\partial y},
+$$
+
+where `δI = I_a − I_b` is the frame difference.  Stack all `N` pixels
+*vertically*: the left sides line up into a matrix `J` (the Jacobian, one row
+per pixel) times the unknown `Δp`, and the right sides stack into the vector
+`r = I_a − I_b`:
+
+$$
+\large
+\begin{bmatrix} \nabla I_b^\top(x_1) \\\\ \nabla I_b^\top(x_2) \\\\ \vdots \\\\ \nabla I_b^\top(x_N) \end{bmatrix}
+\, \Delta p
+=
+\begin{bmatrix} \delta I(x_1) \\\\ \delta I(x_2) \\\\ \vdots \\\\ \delta I(x_N) \end{bmatrix}.
+$$
+
+The left stack is the Jacobian `J`; the right stack is the
+frame-difference vector `r`.  So the display reads exactly `J · Δp = r`.
+
+This is an overdetermined `N×2` system (`N ≫ 2` pixels).  There is generally no
+exact solution, so we seek the least-squares fit: minimize
+`‖J Δp − r‖²` over `Δp`.  Expand:
+
+$$
+\large
+\lVert J\,\Delta p - r \rVert^2
+= \Delta p^\top J^\top J\, \Delta p - 2\, r^\top J\, \Delta p + r^\top r .
+$$
+
+Differentiate with respect to `Δp` and set to zero:
+
+$$
+\large
+0 = 2 J^\top J\, \Delta p - 2 J^\top r
+\;\Longrightarrow\; J^\top J\, \Delta p = J^\top r,
+$$
+
+which is exactly the normal equation of §21.1.  The matrix `JᵀJ` is `2×2`
+(small!) and `Jᵀr` is a 2-vector; solving it costs nothing once the gradients
+are computed.  That is all LK does per iteration: build `J` from the gradient
+of the warped frame, form `JᵀJ` and `Jᵀr`, solve `2×2`, and re-warp.
+
+**Worked 1-D example (why the aperture problem is a rank statement).**  Take a
+signal with a *constant* gradient: `I_b(x) = 2x`, and `δI(x) = -4` everywhere
+(a hypothesized shift of `+2` pixels).  The single-pixel equation is
+`2·Δx = −4`, so `Δx = −2` — recovered exactly: a ramp has enough gradient
+structure to determine motion uniquely.  Now take `I_b(x) = 5` (constant,
+zero gradient): every pixel equation is `0·Δx = δI`, contributing *no*
+information.  Stacked, `J` is the zero matrix, `JᵀJ = 0`, and the normal
+equation `0 = 0` is degenerate: `Δx` is completely unconstrained.  This is the
+aperture problem in 1-D: **`JᵀJ` is rank-deficient exactly when the image
+gradient does not span the directions of motion.**  In 2-D, the same thing
+happens on a straight edge (gradients all parallel → `JᵀJ` has rank 1): motion
+*along* the edge is invisible, exactly as §21.3 says — now with the rank
+failure derived rather than asserted.
+
 ### 21.2 Adding scale and rotation, photometrically robust: ECC
 
 LK's raw form assumes *pure translation* and *exact brightness equality*.
