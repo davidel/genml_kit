@@ -2389,6 +2389,64 @@ EKF *linearizes* `h` about the current estimate once per step (the `H_k`
 above) and runs the standard linear mechanics — the same philosophy as the
 LK linearization of §21, applied to the filter.
 
+**Derivation: where the update and the Kalman gain come from.**  The
+"weighted blend" in the paragraph above is not a heuristic — it is the
+algebra of *multivariate Gaussians*, and the single most instructive
+derivation in the whole filter.  If we ignore the time indices, the update
+step is this: we hold a prior belief `x ~ N(μ, P)` (the prediction from
+`F_k`, with `P = P_k⁻`) and receive a measurement `z = Hx + v` with
+`v ~ N(0, R)`.  What is the best posterior belief `x | z`?
+
+Bayes' rule says the posterior density is the prior times the likelihood.
+Both are Gaussian, so the product is again Gaussian, and the exponent of a
+Gaussian is a *quadratic*: add the prior quadratic and the measurement
+quadratic,
+
+$$
+\large
+(x - \mu)^\top P^{-1} (x - \mu)
+\;+\;
+(z - H x)^\top R^{-1} (z - H x) ,
+$$
+
+and complete the square in `x`.  Expanding the second term,
+
+$$
+\large
+(z - Hx)^\top R^{-1} (z - Hx)
+= z^\top R^{-1} z - 2 x^\top H^\top R^{-1} z + x^\top H^\top R^{-1} H x .
+$$
+
+The total exponent is `x^\top (P^{-1} + H^\top R^{-1} H)\, x - 2 x^\top (P^{-1} \mu + H^\top R^{-1} z) + (x\text{-independent terms})`.  Matching to a Gaussian with mean `μ⁺` and covariance `P⁺`:
+
+$$
+\large
+(P^{+})^{-1} = P^{-1} + H^\top R^{-1} H,
+\qquad
+(P^{+})^{-1} \mu^{+} = P^{-1}\mu + H^\top R^{-1} z .
+$$
+
+Now *define* the Kalman gain `K = P H^\top (H P H^\top + R)^{-1}` and apply
+the Woodbury matrix identity to the first line:
+
+$$
+\large
+P^{+} = P - K H P,\qquad
+\mu^{+} = \mu + K (z - H \mu) .
+$$
+
+The second line **is the update equation of §25.2**: `μ⁺ = μ + K·(innovation)`,
+with the gain `K` measuring exactly the relative trust between `P` (how
+uncertain the prediction is) and `R` (how noisy the measurement is).  If
+`R` is tiny (confident VO), then `K H ≈ I` and `μ⁺ ≈ z`: the measurement
+dominates; if `R` is huge (doubtful VO), `K ≈ 0` and `μ⁺ ≈ μ`: the filter
+ignores the measurement and dead-reckons — which is precisely the confidence
+ladder of §24.3, now *derived* from the Gaussian product rather than asserted.
+
+So the whole update step is "add two quadratics and complete the square."
+That is all the Kalman filter does, and why it is both optimal (for Gaussians)
+and simple (it is just posterior-Gaussian algebra).
+
 ## 24. Confidence as measurement noise
 
 ### 24.1 What "confidence" means here
