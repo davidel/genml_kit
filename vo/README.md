@@ -528,7 +528,7 @@ pixel distances between the two results.
 $$
 \large
 \mathrm{MCE}(\hat{M}, M) = \frac{1}{4} \sum_{i=1}^{4}
-\lVert \hat{M}\,u_i - M\,u_i \rVert_2,
+\lVert \hat{M} \cdot u_i - M \cdot u_i \rVert_2,
 $$
 
 where `u_i` are the four corners.
