@@ -1528,10 +1528,86 @@ ever.  A "10% too big" error has the same absolute value in log space as a
 "10% too small" error — L1 on `log s` treats them identically, which matches
 how the physical error is perceived.
 
+**Why L1 is robust, derived.**  The claim "L1 does not over-penalize outliers
+the way L2 does" is quantitative, and the quantity is the *influence* of one
+large error on the gradient.  Let the true residual be `e = log ŝ − log s`
+and consider the contribution of a *single* sample to the total loss (the
+`λ_s` factor is a constant and drops out):
+
+$$
+\large
+\ell_2(e) = e^2,
+\qquad
+\ell_1(e) = |e| .
+$$
+
+The gradient magnitudes with respect to `e` are
+
+$$
+\large
+\left| \frac{d}{de} \ell_2 \right| = 2 |e|,
+\qquad
+\left| \frac{d}{de} \ell_1 \right| = 1 .
+$$
+
+As `|e|` grows, the L2 gradient grows *linearly* — an outlier ten times larger
+than a typical error contributes ten times the gradient push, and a network
+will distort the whole estimate to shrink that one outlier.  The L1 gradient
+is *bounded* by 1 for every sample, large or small: an outlier can never
+dominate the update more than an ordinary sample.  That boundedness is the
+mathematical content of "robust".  (At `e = 0`, L1 is not differentiable in
+the classical sense, but its *subgradient* — any number in `[−1, 1]` — makes
+the update well-defined; this is what the code's `l1_loss` uses.)
+
+**Why SmoothL1 blends them.**  L1's constant gradient is bad near zero (it
+never decays, causing slow convergence on small residuals), so the practical
+compromise — SmoothL1 — is L2 for `|e| ≤ 1` and L1 for `|e| > 1`:
+
+$$
+\large
+\mathrm{SmoothL1}(e) =
+\begin{cases} \tfrac12 e^2 & |e| \le 1 \\\\ |e| - \tfrac12 & |e| > 1 \end{cases}.
+$$
+
+Its gradient is `e` for `|e| ≤ 1` and `±1` beyond — continuous at the
+crossover, bounded everywhere: smooth like L2 for small errors, robust like L1
+for outliers.  This is the derivation behind §16.4's choice of SmoothL1 for
+the confidence residual.
+
 ### 16.3 `λ_θ · |wrap(θ̂ − θ)|` — the wrapped angle loss
 
 The angle error is wrapped (§4.2) **before** taking the absolute value, so a
 prediction of `θ̂ = 370°` against a truth of `θ = 10°` contributes `|wrap(10° − 370°)|`?  Careful with the order: `wrap(θ̂ − θ)`, i.e. `wrap(370° − 10°) = wrap(360°) = 0`.  The two angles are the same physical rotation, so the loss is (correctly) zero — no `2π`-boundary spike, no gradient misdirection.  This single wrap makes the angle loss everywhere-continuous, which is exactly what a gradient-based trainer needs.
+
+**Why "wrapped" buys differentiability: the driving derivation.**  The claim
+that wrapping removes the `2π` discontinuity deserves proof.  Define the
+unwrapped loss `L_raw(d) = |d|` on the raw angular difference `d = θ̂ − θ`.
+As `d` crosses `π` (the two angles are now the same physical rotation, e.g.
+`185°` vs `−175°`), the *physical* error is tiny but the raw loss jumps from
+`π` down to near 0 — the loss function is discontinuous there, and its
+gradient is a delta: backpropagation would push the network *huge*, wrong
+updates at exactly the boundary.
+
+Wrapping replaces the input by `d' = wrap(d) = (d + π) mod 2π − π`, i.e.
+it folds the difference into `(−π, π]`, and the loss becomes
+`L_wrap(d) = |wrap(d)|`.  Away from the fold, `wrap` is a pure translation
+`d ↦ d` (or `d − 2π`), so the derivative is the same `±1` as before; the
+only special point is `d = ±π`, where the physical error is *maximal* `π` and
+the loss is genuinely maximal too — there is no jump to create a delta.  The
+wrapped loss is continuous everywhere and its subgradient is bounded by 1 at
+every point:
+
+$$
+\large
+\frac{d}{dd}\, \mathrm{wrap}(d) = 1 \ \text{(a.e. in the interior)},
+\qquad
+L_\mathrm{wrap}\ \text{is everywhere-continuous with} \ |\partial L_\mathrm{wrap}| \le 1 .
+$$
+
+So "wrap first, then absolute value" is not a heuristic: it is the operation
+that converts a *discontinuous* loss into one whose gradient never explodes
+and never points the wrong way across the boundary — exactly what a
+gradient-based trainer requires.
 
 ### 16.4 `λ_c · SmoothL1(ρ̂, ρ)` — the confidence term
 
