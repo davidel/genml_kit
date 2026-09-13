@@ -1253,6 +1253,124 @@ reflection guard.  The scale is the ratio of "how much the points spread in
 the target" to "how much they spread in the source", and the translation
 re-centers the rotated-scaled source cloud onto the target centroid.
 
+**Derivation: why these four steps solve the problem.**  The algorithm above is
+compact, which is good for code and opaque for learning.  Here is where every
+step comes from, starting from the objective and nothing else.
+
+**Step 1 (derived).**  Fix `(s, R)` and minimize over `t` alone.  The objective
+is
+
+$$
+\large
+E(s, R, t) = \sum_i \lVert q_i - s R\, p_i - t \rVert^2.
+$$
+
+The gradient with respect to `t` is
+
+$$
+\large
+\nabla_t E = -2 \sum_i (q_i - s R\, p_i - t),
+$$
+
+and setting it to zero gives exactly
+
+$$
+\large
+\sum_i q_i - s R \sum_i p_i - N t = 0
+\;\Longrightarrow\; t = \mu_q - s R\, \mu_p,
+$$
+
+which is Step 4's translation formula *before* the rotation is even known.
+Substituting `t` back cancels the linear terms: with `p̂_i, q̂_i` the centered
+points, the objective becomes
+
+$$
+\large
+E = \sum_i \lVert \hat{q}_i - s R\, \hat{p}_i \rVert^2.
+$$
+
+This is the real content of "centering decouples `t`": the translation has been
+*eliminated by substitution*, leaving only `(s, R)`.
+
+**Step 2/3 (derived).**  Expand the centered objective:
+
+$$
+\large
+E = \sum_i \lVert \hat{q}_i \rVert^2
++ s^2 \sum_i \lVert \hat{p}_i \rVert^2
+- 2s \sum_i \hat{q}_i^{\top} R\, \hat{p}_i .
+$$
+
+The first two sums are *constants* in `R`; only the cross term depends on the
+rotation.  Because `q̂_iᵀ R p̂_i` is a scalar, it equals its own trace, and the
+trace is cyclic:
+
+$$
+\large
+\sum_i \hat{q}_i^{\top} R\, \hat{p}_i
+= \mathrm{tr}\Bigl(\sum_i \hat{q}_i \hat{p}_i^{\top} R\Bigr)
+= \mathrm{tr}(H R),
+$$
+
+with `H = \sum_i \hat{q}_i \hat{p}_i^{\top}` the cross-covariance of Step 2.
+So minimizing `E` means *maximizing `tr(HR)` over orthogonal `R`*.  Now write
+`H = U \Sigma V^{\top}` (its SVD):
+
+$$
+\large
+\mathrm{tr}(H R) = \mathrm{tr}(U \Sigma V^{\top} R)
+= \mathrm{tr}(\Sigma \, V^{\top} R U)
+= \sigma_1 [V^{\top} R U]_{11} + \sigma_2 [V^{\top} R U]_{22}.
+$$
+
+The matrix `W = V^{\top} R U` is orthogonal (product of orthogonals), so its
+diagonal entries satisfy `|W_ii| \le 1`.  With `\sigma_1, \sigma_2 \ge 0`, the
+sum is maximized by picking `W = I` — the identity — which forces
+`V^{\top} R U = I`, i.e.
+
+$$
+\large
+R = U V^{\top}.
+$$
+
+That is the whole derivation of Step 3's rotation, and it is where the
+**reflection guard** enters: `U V^{\top}` is a rotation only if
+`det(UV^{\top}) = +1`.  If the determinant comes out `−1`, then `W = I` is not
+an orthogonal matrix with determinant +1 (it would be a reflection); the best
+*rotation* is `W = \mathrm{diag}(1, -1)`, giving
+`R = U \,\mathrm{diag}(1, d)\, V^{\top}` with `d = det(UV^{\top})` — exactly
+Step 3.  (Pedagogical bonus: the proof never used the *values* of the singular
+values except their non-negativity, which is why the same argument works in
+any dimension.)
+
+**Step 4 (derived).**  With `R` fixed, the objective is a quadratic in `s`:
+
+$$
+\large
+E(s) = \sum_i \lVert \hat{q}_i \rVert^2
++ s^2 \sum_i \lVert \hat{p}_i \rVert^2 - 2s \, \mathrm{tr}(H R).
+$$
+
+Differentiate and set to zero:
+
+$$
+\large
+0 = 2s \sum_i \lVert \hat{p}_i \rVert^2 - 2\, \mathrm{tr}(H R)
+\;\Longrightarrow\; s = \frac{\mathrm{tr}(H R)}{\sum_i \lVert \hat{p}_i \rVert^2}.
+$$
+
+With `R = U\,\mathrm{diag}(1, d)\,V^{\top}`, the trace is
+`tr(HR) = tr(U\Sigma V^{\top} U\,\mathrm{diag}(1,d)\,V^{\top}) = \sigma_1 + d\,\sigma_2`,
+so the numerator is exactly `\sigma_1 + d\,\sigma_2` — Step 4's scale, now
+derived rather than stated.  (The `w_i` weights appear in the actual
+implementation for the generalized weighted version; the unweighted derivation
+is the `w_i = 1` case.)
+
+Every formula in the four steps has now been *derived* from the least-squares
+objective: centering eliminates `t`, the trace trick reduces `R` to an
+orthogonal maximization solved by `W = I`, and one derivative of a quadratic
+gives `s`.  Nothing was pulled from a hat.
+
 **Why does this matter for a neural network?**  Two reasons:
 
 1. **It is exact and closed-form.**  No iterative loop in the middle of the
