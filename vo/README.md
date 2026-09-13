@@ -1876,7 +1876,7 @@ The final result is the clean statement
 
 $$
 \large
-\mathcal{F}\{I_b\}(\omega) = e^{-2\pi i \omega \Delta / N}\; \mathcal{F}\{I_a\}(\omega),
+\mathcal{F}\{I_b\}(\omega) = e^{-2\pi i \omega \Delta / N}\\, \mathcal{F}\{I_a\}(\omega),
 $$
 
 which is the 1-D shift theorem; the 2-D version in §19.1 follows by applying
@@ -2031,7 +2031,7 @@ polar form `(ρ, θ)` with `ρ = √(u² + v²)`.  A rotation by `α` sends
 
 $$
 \large
-\log \rho \;\xrightarrow{\;s\;}
+\log \rho \\,\xrightarrow{\\,s\\,}
  \log(\rho / s) = \log \rho - \log s,
 $$
 
@@ -2146,7 +2146,7 @@ Differentiate with respect to `Δp` and set to zero:
 $$
 \large
 0 = 2 J^\top J\\, \Delta p - 2 J^\top r
-\;\Longrightarrow\; J^\top J\\, \Delta p = J^\top r,
+\\,\Longrightarrow\\, J^\top J\\, \Delta p = J^\top r,
 $$
 
 which is exactly the normal equation of §21.1.  The matrix `JᵀJ` is `2×2`
@@ -2290,7 +2290,7 @@ Solve for the number of iterations to achieve a target success probability
 $$
 \large
 1 - p = (1 - w^k)^m
-\;\Longrightarrow\;
+\\,\Longrightarrow\\,
 m = \frac{\ln(1 - p)}{\ln(1 - w^k)} .
 $$
 
@@ -2405,7 +2405,7 @@ quadratic,
 $$
 \large
 (x - \mu)^\top P^{-1} (x - \mu)
-\;+\;
+\\,+\\,
 (z - H x)^\top R^{-1} (z - H x) ,
 $$
 
@@ -2470,7 +2470,7 @@ the mapping is direct:
 
 $$
 \large
-R_k = \mathrm{diag}\bigl(\sigma_\theta^2(\hat{\rho}),\; \sigma_s^2(\hat{\rho}),\; \sigma_t^2(\hat{\rho})\bigr),
+R_k = \mathrm{diag}\bigl(\sigma_\theta^2(\hat{\rho}),\\, \sigma_s^2(\hat{\rho}),\\, \sigma_t^2(\hat{\rho})\bigr),
 $$
 
 where each `σ²` is an *increasing* function of the predicted residual —
