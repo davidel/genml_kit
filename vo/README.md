@@ -577,7 +577,7 @@ definition of the operator norm give
 $$
 \large
 \lVert E(x) \rVert_2 = \lVert \Delta A\\,x + \Delta t \rVert_2
-\;\le\; \lVert \Delta A \rVert_2 \\, \lVert x \rVert_2 + \lVert \Delta t \rVert_2.
+\\, \le\\, \lVert \Delta A \rVert_2 \\, \lVert x \rVert_2 + \lVert \Delta t \rVert_2.
 $$
 
 The norm `x ↦ ‖x‖` is a convex function, and the image (a rectangle) is the convex
@@ -586,7 +586,7 @@ per-pixel error over the whole image satisfies
 
 $$
 \large
-\max_{x} \lVert E(x) \rVert \;\le\; \lVert \Delta A \rVert_2 \\, \max_i \lVert u_i \rVert + \lVert \Delta t \rVert_2 .
+\max_{x} \lVert E(x) \rVert \\, \le\\, \lVert \Delta A \rVert_2 \\, \max_i \lVert u_i \rVert + \lVert \Delta t \rVert_2 .
 $$
 
 Both terms on the right are controlled by the MCE.  The set of similarities with
@@ -597,7 +597,7 @@ particular transform) with
 
 $$
 \large
-\max_{x} \lVert E(x) \rVert \;\le\; C \cdot \mathrm{MCE}(\hat{M}, M) .
+\max_{x} \lVert E(x) \rVert \\, \le\\,  C \cdot \mathrm{MCE}(\hat{M}, M) .
 $$
 
 In words: *a small mean corner error implies a small maximum error at every
@@ -2547,7 +2547,7 @@ statistically plausible:
 
 $$
 \large
-y_k^{\top} S_k^{-1} y_k \;\le\; \chi^2_{\max},
+y_k^{\top} S_k^{-1} y_k \\, \le\\,  \chi^2_{\max},
 $$
 
 a **Mahalanobis-distance gate**.  If the (squared) normalized innovation
