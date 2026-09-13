@@ -805,6 +805,63 @@ camera's orientation columns that pick out how ground displacements along the
 two sideways directions turn into image motion.  Every ground point `(x, y)`
 maps to a pixel `u ∼ H (x, y, 1)ᵀ`.
 
+**Why a plane maps to a 3×3 matrix: the derivation.**  The claim "a pinhole
+camera viewing a plane produces a homography" deserves a proof, because it is
+the workhorse behind the whole generator.  Start from the pinhole projection of
+§7 in homogeneous form and substitute the camera–ground relation.
+
+A ground point `(x, y)` at height `z = 0` maps to camera coordinates by
+§7’s rigid motion: `p_cam = R_cw (p − c)`.  The point is 3-D, but because the
+world point always sits on the plane `z = 0`, the expression is *linear* in the
+2-D ground coordinates: the `x`- and `y`-ground components enter through
+columns 1 and 2 of `R_cw`, and the constant `−R_cw c` adds the offset.  So
+
+$$
+\large
+p_{cam}(x, y) = C \begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix},
+\qquad
+C = \begin{bmatrix} r_x & d_x & t_x \\\\ r_y & d_y & t_y \\\\ f_x & f_y & t_z \end{bmatrix},
+$$
+
+a 3×3 matrix `C` applied to the lifted ground point.  (The rows of `C` are the
+transposed right/down axes of §7.2 plus the offset `t = −R_cw c` — check the
+first row: `r_x x + d_x y + t_x = r · (x, y, 0) + t_x`, which is exactly the
+x-coordinate of `R_cw (p − c)`.)
+
+Now apply the intrinsic projection.  The pixel is homogeneous `u ∼ K p_cam`,
+and the `∼` means "divide by the third coordinate afterwards".  *Here is the
+key step:* the division by `p_cam_z` is already *absorbed* by the matrix
+product if we work projectively, because
+
+$$
+\large
+u = \frac{K\,C\, (x, y, 1)^\top}{\text{third coordinate of } KC(x,y,1)^\top}.
+$$
+
+The right-hand side is *exactly* the definition of the projective action of the
+product `K C`: compute `KC (x,y,1)ᵀ`, get a 3-vector, divide by its last
+entry, and read the first two as the pixel.  Letting `H = K C`, every ground
+point maps to a pixel by
+
+$$
+\large
+u \sim H \begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix},
+\qquad
+H = K C,
+$$
+
+which is the *definition* of a homography: a 3×3 matrix acting on homogeneous
+coordinates, modulo scale.
+
+**Why 8 degrees of freedom (not 9).**  A 3×3 matrix has 9 entries, but two
+matrices that differ by a global scale act identically (dividing by the third
+coordinate cancels any overall factor).  So the homography has `9 − 1 = 8`
+effective parameters — which is why four point correspondences (8 scalar
+equations) generically determine it, and why fitting it from points is a
+well-posed problem.  By contrast, a similarity has 4 DOF; the gap `8 − 4 = 4`
+is precisely the foreshortening/perspective content that a similarity cannot
+express — the seed of §10’s residual.
+
 **Why is this the right object for us?**  Two reasons:
 
 1. **It is exact, not approximate.**  As long as the world really is a plane,
