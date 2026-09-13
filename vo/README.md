@@ -576,8 +576,8 @@ definition of the operator norm give
 
 $$
 \large
-\lVert E(x) \rVert_2 = \lVert \Delta A\,x + \Delta t \rVert_2
-\;\le\; \lVert \Delta A \rVert_2 \, \lVert x \rVert_2 + \lVert \Delta t \rVert_2.
+\lVert E(x) \rVert_2 = \lVert \Delta A\\,x + \Delta t \rVert_2
+\;\le\; \lVert \Delta A \rVert_2 \\, \lVert x \rVert_2 + \lVert \Delta t \rVert_2.
 $$
 
 The norm `x ↦ ‖x‖` is a convex function, and the image (a rectangle) is the convex
@@ -586,7 +586,7 @@ per-pixel error over the whole image satisfies
 
 $$
 \large
-\max_{x} \lVert E(x) \rVert \;\le\; \lVert \Delta A \rVert_2 \, \max_i \lVert u_i \rVert + \lVert \Delta t \rVert_2 .
+\max_{x} \lVert E(x) \rVert \;\le\; \lVert \Delta A \rVert_2 \\, \max_i \lVert u_i \rVert + \lVert \Delta t \rVert_2 .
 $$
 
 Both terms on the right are controlled by the MCE.  The set of similarities with
@@ -662,14 +662,14 @@ A world point `p` is first expressed in camera coordinates,
 
 $$
 \large
-\tilde{p}_{cam} = R_{cw}\,(p - c),
+\tilde{p}_{cam} = R_{cw}\\,(p - c),
 $$
 
 and then projected to a pixel by the **intrinsic matrix** `K`:
 
 $$
 \large
-u \sim K\,\tilde{p}_{cam},
+u \sim K\\,\tilde{p}_{cam},
 \qquad
 K = \begin{bmatrix} f_x & 0 & c_x \\\\ 0 & f_y & c_y \\\\ 0 & 0 & 1 \end{bmatrix},
 $$
@@ -701,7 +701,7 @@ Parametrize that line: `(tX, tY, tZ)`.  It hits the sensor when `tZ = f`, i.e.
 
 $$
 \large
-x = tX = f\,\frac{X}{Z},\qquad y = tY = f\,\frac{Y}{Z}.
+x = tX = f\\,\frac{X}{Z},\qquad y = tY = f\\,\frac{Y}{Z}.
 $$
 
 This pair `(x, y) = (fX/Z, fY/Z)` *is* the pinhole projection.  It says: the
@@ -721,7 +721,7 @@ to the depth.  Three consequences that drive everything later:
 
 $$
 \large
-\frac{W}{2} = f\,\tan\alpha_{\max}\;\Longrightarrow\; \alpha_{\max} = \arctan\!\left(\frac{W}{2f}\right),\qquad \mathrm{FOV}_h = 2\,\arctan\!\left(\frac{W}{2f}\right).
+\frac{W}{2} = f\\,\tan\alpha_{\max}\;\Longrightarrow\; \alpha_{\max} = \arctan\!\left(\frac{W}{2f}\right),\qquad \mathrm{FOV}_h = 2\\,\arctan\!\left(\frac{W}{2f}\right).
 $$
 
 For `f_x = 1000`, `W = 2000`: `FOV_h = 2 arctan(1) = 90°` — the worked
@@ -778,9 +778,9 @@ Camera coordinates of a ground point `p = (x, y, 0)` are
 
 $$
 \large
-\tilde{p}_{cam} = R_{cw}\,p + t,
+\tilde{p}_{cam} = R_{cw}\\,p + t,
 \qquad
-t = -R_{cw}\,c,
+t = -R_{cw}\\,c,
 $$
 
 The rotation-into-camera is a linear function of `p`; since ground points have
@@ -797,7 +797,7 @@ $$
 \large
 H = K \begin{bmatrix} r_x & d_x & t_x \\\\ r_y & d_y & t_y \\\\ f_x & f_y & t_z \end{bmatrix},
 \qquad
-t = -R_{cw}\,c,
+t = -R_{cw}\\,c,
 $$
 
 where `r` and `d` are precisely the "right" and "down" axes of §7.2: the
@@ -835,7 +835,7 @@ product if we work projectively, because
 
 $$
 \large
-u = \frac{K\,C\, (x, y, 1)^\top}{\text{third coordinate of } KC(x,y,1)^\top}.
+u = \frac{K\\,C\\, (x, y, 1)^\top}{\text{third coordinate of } KC(x,y,1)^\top}.
 $$
 
 The right-hand side is *exactly* the definition of the projective action of the
@@ -1159,7 +1159,7 @@ with channel ordering "dy-major": displacement `(δy, δx)` sits at channel
 
 $$
 \large
-k = (\delta_y + r)\,(2r + 1) + (\delta_x + r).
+k = (\delta_y + r)\\,(2r + 1) + (\delta_x + r).
 $$
 
 ### 12.3 Why these design numbers?
@@ -1197,7 +1197,7 @@ minimizing
 
 $$
 \large
-\sum_{i=1}^{N} \lVert q_i - (s R\, p_i + t) \rVert^2.
+\sum_{i=1}^{N} \lVert q_i - (s R\\, p_i + t) \rVert^2.
 $$
 
 This is **Umeyama's problem**, and it has a closed-form solution — no
@@ -1213,7 +1213,7 @@ translation is whatever remains after the rotation-scaling is applied.
 
 $$
 \large
-H = \sum_i \hat{q}_i\, \hat{p}_i^{\top},
+H = \sum_i \hat{q}_i\\, \hat{p}_i^{\top},
 $$
 
 and take its singular value decomposition `H = U Σ Vᵀ`.  The SVD of a `2×2`
@@ -1243,9 +1243,9 @@ uniform scale and translation are
 
 $$
 \large
-s = \frac{\sigma_1 + d\,\sigma_2}{\sum_i w_i \lVert \hat{p}_i \rVert^2},
+s = \frac{\sigma_1 + d\\,\sigma_2}{\sum_i w_i \lVert \hat{p}_i \rVert^2},
 \qquad
-t = \mu_q - s\,R\, \mu_p,
+t = \mu_q - s\\,R\\, \mu_p,
 $$
 
 where `σ₁, σ₂` are the singular values of `H` and `d` is the same
@@ -1262,14 +1262,14 @@ is
 
 $$
 \large
-E(s, R, t) = \sum_i \lVert q_i - s R\, p_i - t \rVert^2.
+E(s, R, t) = \sum_i \lVert q_i - s R\\, p_i - t \rVert^2.
 $$
 
 The gradient with respect to `t` is
 
 $$
 \large
-\nabla_t E = -2 \sum_i (q_i - s R\, p_i - t),
+\nabla_t E = -2 \sum_i (q_i - s R\\, p_i - t),
 $$
 
 and setting it to zero gives exactly
@@ -1277,7 +1277,7 @@ and setting it to zero gives exactly
 $$
 \large
 \sum_i q_i - s R \sum_i p_i - N t = 0
-\;\Longrightarrow\; t = \mu_q - s R\, \mu_p,
+\;\Longrightarrow\; t = \mu_q - s R\\, \mu_p,
 $$
 
 which is Step 4's translation formula *before* the rotation is even known.
@@ -1286,7 +1286,7 @@ points, the objective becomes
 
 $$
 \large
-E = \sum_i \lVert \hat{q}_i - s R\, \hat{p}_i \rVert^2.
+E = \sum_i \lVert \hat{q}_i - s R\\, \hat{p}_i \rVert^2.
 $$
 
 This is the real content of "centering decouples `t`": the translation has been
@@ -1298,7 +1298,7 @@ $$
 \large
 E = \sum_i \lVert \hat{q}_i \rVert^2
 + s^2 \sum_i \lVert \hat{p}_i \rVert^2
-- 2s \sum_i \hat{q}_i^{\top} R\, \hat{p}_i .
+- 2s \sum_i \hat{q}_i^{\top} R\\, \hat{p}_i .
 $$
 
 The first two sums are *constants* in `R`; only the cross term depends on the
@@ -1307,7 +1307,7 @@ trace is cyclic:
 
 $$
 \large
-\sum_i \hat{q}_i^{\top} R\, \hat{p}_i
+\sum_i \hat{q}_i^{\top} R\\, \hat{p}_i
 = \mathrm{tr}\Bigl(\sum_i \hat{q}_i \hat{p}_i^{\top} R\Bigr)
 = \mathrm{tr}(H R),
 $$
@@ -1319,7 +1319,7 @@ So minimizing `E` means *maximizing `tr(HR)` over orthogonal `R`*.  Now write
 $$
 \large
 \mathrm{tr}(H R) = \mathrm{tr}(U \Sigma V^{\top} R)
-= \mathrm{tr}(\Sigma \, V^{\top} R U)
+= \mathrm{tr}(\Sigma \\, V^{\top} R U)
 = \sigma_1 [V^{\top} R U]_{11} + \sigma_2 [V^{\top} R U]_{22}.
 $$
 
@@ -1453,8 +1453,8 @@ the corner position as a function of the parameters is
 $$
 \large
 f(u) = e^{\log s} R_\theta u + t
-\;\approx\; (1 + \log s)(I + \theta G)\,u + t
-\;\approx\; u + (\log s)\, u + \theta G u + t ,
+\;\approx\; (1 + \log s)(I + \theta G)\\,u + t
+\;\approx\; u + (\log s)\\, u + \theta G u + t ,
 $$
 
 where `G` is the `2×2` rotation-generator matrix.  The three parameter
@@ -1560,7 +1560,7 @@ similarity* (the fitted one from §9):
 
 $$
 \large
-\mathcal{L}_{\mathrm{sup}} = \mathcal{L}_{\mathrm{mce}} + \lambda_s \lVert \log \hat{s} - \log s \rVert_1 + \lambda_\theta \bigl\lvert \mathrm{wrap}(\hat{\theta} - \theta) \bigr\rvert + \lambda_c\, \mathrm{SmoothL1}(\hat{r}, \rho)
+\mathcal{L}_{\mathrm{sup}} = \mathcal{L}_{\mathrm{mce}} + \lambda_s \lVert \log \hat{s} - \log s \rVert_1 + \lambda_\theta \bigl\lvert \mathrm{wrap}(\hat{\theta} - \theta) \bigr\rvert + \lambda_c\\, \mathrm{SmoothL1}(\hat{r}, \rho)
 $$
 
 where the hatted quantities are the network's predictions.  Each term:
@@ -1659,7 +1659,7 @@ every point:
 
 $$
 \large
-\frac{d}{dd}\, \mathrm{wrap}(d) = 1 \ \text{(a.e. in the interior)},
+\frac{d}{dd}\\, \mathrm{wrap}(d) = 1 \ \text{(a.e. in the interior)},
 \qquad
 L_\mathrm{wrap}\ \text{is everywhere-continuous with} \ |\partial L_\mathrm{wrap}| \le 1 .
 $$
@@ -1844,9 +1844,9 @@ and its inverse are
 
 $$
 \large
-F(\omega) = \sum_{x=0}^{N-1} I(x)\, e^{-2\pi i\, \omega x / N},
+F(\omega) = \sum_{x=0}^{N-1} I(x)\\, e^{-2\pi i\\, \omega x / N},
 \qquad
-I(x) = \frac{1}{N} \sum_{\omega=0}^{N-1} F(\omega)\, e^{+2\pi i\, \omega x / N}.
+I(x) = \frac{1}{N} \sum_{\omega=0}^{N-1} F(\omega)\\, e^{+2\pi i\\, \omega x / N}.
 $$
 
 Take a shifted signal `I_b(x) = I_a(x - \Delta)` (indices modulo `N`, from the
@@ -1856,7 +1856,7 @@ Its DFT is
 $$
 \large
 \mathcal{F}\{I_b\}(\omega)
-= \sum_x I_a(x - \Delta)\, e^{-2\pi i\, \omega x / N}.
+= \sum_x I_a(x - \Delta)\\, e^{-2\pi i\\, \omega x / N}.
 $$
 
 Now substitute `u = x - \Delta` (equivalently sum over `u = 0..N-1`, since the
@@ -1864,9 +1864,9 @@ index set is the same modulo `N`):
 
 $$
 \large
-= \sum_{u} I_a(u)\, e^{-2\pi i\, \omega (u + \Delta) / N}
-= \Bigl( \sum_{u} I_a(u)\, e^{-2\pi i\, \omega u / N} \Bigr)
-\; \cdot \; e^{-2\pi i\, \omega \Delta / N}.
+= \sum_{u} I_a(u)\\, e^{-2\pi i\\, \omega (u + \Delta) / N}
+= \Bigl( \sum_{u} I_a(u)\\, e^{-2\pi i\\, \omega u / N} \Bigr)
+\; \cdot \; e^{-2\pi i\\, \omega \Delta / N}.
 $$
 
 The last equality uses that `e^{-2\pi i \omega (u+\Delta)/N} =
@@ -1893,7 +1893,7 @@ the phase difference remains:
 
 $$
 \large
-R(\omega) = \frac{F_a(\omega)\, \overline{F_b(\omega)}}{|F_a(\omega)\, \overline{F_b(\omega)}|}
+R(\omega) = \frac{F_a(\omega)\\, \overline{F_b(\omega)}}{|F_a(\omega)\\, \overline{F_b(\omega)}|}
 = e^{2\pi i (\omega_x \Delta_x + \omega_y \Delta_y)},
 $$
 
@@ -1903,7 +1903,7 @@ Inverse-transforming `R` gives a single **impulse** (peak) located exactly at
 
 $$
 \large
-(\Delta_x, \Delta_y) = \arg\max\ \mathcal{F}^{-1}\left[ \frac{F_a\, \overline{F_b}}{|F_a\, \overline{F_b}|} \right].
+(\Delta_x, \Delta_y) = \arg\max\ \mathcal{F}^{-1}\left[ \frac{F_a\\, \overline{F_b}}{|F_a\\, \overline{F_b}|} \right].
 $$
 
 *Why is the normalization so important?*  Without dividing by the
@@ -1991,15 +1991,15 @@ variable with `s > 0`).  Its Fourier transform is
 $$
 \large
 \mathcal{F}\{g\}(\omega)
-= \int_{-\infty}^{\infty} I(x / s)\, e^{-2\pi i \omega x}\, dx .
+= \int_{-\infty}^{\infty} I(x / s)\\, e^{-2\pi i \omega x}\\, dx .
 $$
 
 Substitute `u = x / s`, so `x = s u` and `dx = s du`:
 
 $$
 \large
-= s \int_{-\infty}^{\infty} I(u)\, e^{-2\pi i \omega s u}\, du
-= s\, \mathcal{F}\{I\}(s \omega).
+= s \int_{-\infty}^{\infty} I(u)\\, e^{-2\pi i \omega s u}\\, du
+= s\\, \mathcal{F}\{I\}(s \omega).
 $$
 
 The transform of a signal scaled by `s` is a *reshaped* copy of the original
@@ -2094,7 +2094,7 @@ image gradient.  Stack all pixels into one least-squares problem (the
 
 $$
 \large
-J^{\top} J\, \Delta p = J^{\top} (I_a - I_b),
+J^{\top} J\\, \Delta p = J^{\top} (I_a - I_b),
 \qquad
 J = \nabla I_b,
 $$
@@ -2125,7 +2125,7 @@ per pixel) times the unknown `Δp`, and the right sides stack into the vector
 
 $$
 \large
-\begin{bmatrix} \nabla I_b^\top(x_1) \\\\ \nabla I_b^\top(x_2) \\\\ \vdots \\\\ \nabla I_b^\top(x_N) \end{bmatrix}\,\Delta p = \begin{bmatrix} \delta I(x_1) \\\\ \delta I(x_2) \\\\ \vdots \\\\ \delta I(x_N) \end{bmatrix}.
+\begin{bmatrix} \nabla I_b^\top(x_1) \\\\ \nabla I_b^\top(x_2) \\\\ \vdots \\\\ \nabla I_b^\top(x_N) \end{bmatrix}\\,\Delta p = \begin{bmatrix} \delta I(x_1) \\\\ \delta I(x_2) \\\\ \vdots \\\\ \delta I(x_N) \end{bmatrix}.
 $$
 
 The left stack is the Jacobian `J`; the right stack is the
@@ -2137,16 +2137,16 @@ exact solution, so we seek the least-squares fit: minimize
 
 $$
 \large
-\lVert J\,\Delta p - r \rVert^2
-= \Delta p^\top J^\top J\, \Delta p - 2\, r^\top J\, \Delta p + r^\top r .
+\lVert J\\,\Delta p - r \rVert^2
+= \Delta p^\top J^\top J\\, \Delta p - 2\\, r^\top J\\, \Delta p + r^\top r .
 $$
 
 Differentiate with respect to `Δp` and set to zero:
 
 $$
 \large
-0 = 2 J^\top J\, \Delta p - 2 J^\top r
-\;\Longrightarrow\; J^\top J\, \Delta p = J^\top r,
+0 = 2 J^\top J\\, \Delta p - 2 J^\top r
+\;\Longrightarrow\; J^\top J\\, \Delta p = J^\top r,
 $$
 
 which is exactly the normal equation of §21.1.  The matrix `JᵀJ` is `2×2`
@@ -2343,7 +2343,7 @@ linearized (EKF) version used here is:
 
 $$
 \large
-x_{k+1} = F_k\, x_k + w_k,
+x_{k+1} = F_k\\, x_k + w_k,
 \qquad
 w_k \sim \mathcal{N}(0, Q_k),
 $$
@@ -2352,7 +2352,7 @@ $$
 
 $$
 \large
-z_k = H_k\, x_k + v_k,
+z_k = H_k\\, x_k + v_k,
 \qquad
 v_k \sim \mathcal{N}(0, R_k),
 $$
@@ -2533,7 +2533,7 @@ $$
 \large
 K_k = P_k^- H_k^\top S_k^{-1},
 \qquad
-\hat{x}_k^+ = \hat{x}_k^- + K_k\, y_k,
+\hat{x}_k^+ = \hat{x}_k^- + K_k\\, y_k,
 $$
 
 The gain automatically approaches the "measurement" side when `R_k` is small
