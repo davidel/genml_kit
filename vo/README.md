@@ -194,9 +194,9 @@ $$
 which is exactly
 
 $$
-R_\theta = \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix},
+R_\theta = \begin{bmatrix} \cos\theta & -\sin\theta \\\\ \sin\theta & \cos\theta \end{bmatrix},
 \qquad
-\begin{bmatrix} x' \\ y' \end{bmatrix} = R_\theta \begin{bmatrix} x \\ y \end{bmatrix}.
+\begin{bmatrix} x' \\\\ y' \end{bmatrix} = R_\theta \begin{bmatrix} x \\\\ y \end{bmatrix}.
 $$
 
 Two properties worth internalizing because they will matter later:
@@ -237,12 +237,12 @@ plus translation" into a single matrix product.  Append a constant 1 to every
 point and write:
 
 $$
-\begin{bmatrix} x' \\ y' \\ 1 \end{bmatrix}
+\begin{bmatrix} x' \\\\ y' \\\\ 1 \end{bmatrix}
 =
 \underbrace{
-\begin{bmatrix} s\cos\theta & -s\sin\theta & t_x \\ s\sin\theta & s\cos\theta & t_y \\ 0 & 0 & 1 \end{bmatrix}
+\begin{bmatrix} s\cos\theta & -s\sin\theta & t_x \\\\ s\sin\theta & s\cos\theta & t_y \\\\ 0 & 0 & 1 \end{bmatrix}
 }_{M}
-\begin{bmatrix} x \\ y \\ 1 \end{bmatrix}.
+\begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix}.
 $$
 
 Why bother?  Three reasons, all of which we use later:
@@ -305,11 +305,11 @@ $$
 `R_{π/2} = [[0,-1],[1,0]]` do to each corner?
 
 $$
-\begin{bmatrix}0 & -1 \\ 1 & 0\end{bmatrix} \begin{bmatrix}1 \\ 0\end{bmatrix}
-= \begin{bmatrix}0 \\ 1\end{bmatrix},
+\begin{bmatrix}0 & -1 \\\\ 1 & 0\end{bmatrix} \begin{bmatrix}1 \\\\ 0\end{bmatrix}
+= \begin{bmatrix}0 \\\\ 1\end{bmatrix},
 \qquad
-\begin{bmatrix}0 & -1 \\ 1 & 0\end{bmatrix} \begin{bmatrix}0 \\ 1\end{bmatrix}
-= \begin{bmatrix}-1 \\ 0\end{bmatrix}
+\begin{bmatrix}0 & -1 \\\\ 1 & 0\end{bmatrix} \begin{bmatrix}0 \\\\ 1\end{bmatrix}
+= \begin{bmatrix}-1 \\\\ 0\end{bmatrix}
 $$
 
 and of course `(0,0) → (0,0)`, `(1,1) → (−1,1)`.  So the point that was one
@@ -432,14 +432,14 @@ and rescaling once, at the end — more on that in §14.
 Given a `3×3` similarity matrix with linear part
 
 $$
-A = \begin{bmatrix} a & b \\ c & d \end{bmatrix},
+A = \begin{bmatrix} a & b \\\\ c & d \end{bmatrix},
 $$
 
 we want to recover `(s, θ, t)`.  From §2.3,
 
 $$
-A = s \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix}
-  = \begin{bmatrix} s\cos\theta & -s\sin\theta \\ s\sin\theta & s\cos\theta \end{bmatrix},
+A = s \begin{bmatrix} \cos\theta & -\sin\theta \\\\ \sin\theta & \cos\theta \end{bmatrix}
+  = \begin{bmatrix} s\cos\theta & -s\sin\theta \\\\ s\sin\theta & s\cos\theta \end{bmatrix},
 $$
 
 so reading column by column:  the first column is `(a, c) = (s cos θ, s sin θ)`.
@@ -564,7 +564,7 @@ and then projected to a pixel by the **intrinsic matrix** `K`:
 $$
 u \sim K\,\tilde{p}_{cam},
 \qquad
-K = \begin{bmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \\ 0 & 0 & 1 \end{bmatrix},
+K = \begin{bmatrix} f_x & 0 & c_x \\\\ 0 & f_y & c_y \\\\ 0 & 0 & 1 \end{bmatrix},
 $$
 
 where `∼` means "up to a scale factor" (homogeneous coordinates): the actual
@@ -642,7 +642,7 @@ The rotation-into-camera is a linear function of `p`; since ground points have
 which is, in homogeneous form,
 
 $$
-H = K \begin{bmatrix} r_x & d_x & t_x \\ r_y & d_y & t_y \\ f_x & f_y & t_z \end{bmatrix},
+H = K \begin{bmatrix} r_x & d_x & t_x \\\\ r_y & d_y & t_y \\\\ f_x & f_y & t_z \end{bmatrix},
 \qquad
 t = -R_{cw}\,c,
 $$
@@ -1004,7 +1004,7 @@ whole solve.
 **Step 3 — rotation (with the reflection guard).**  The optimal rotation is
 
 $$
-R = U \begin{bmatrix} 1 & 0 \\ 0 & d \end{bmatrix} V^{\top},
+R = U \begin{bmatrix} 1 & 0 \\\\ 0 & d \end{bmatrix} V^{\top},
 \qquad
 d = \det(U V^{\top}),
 $$
@@ -2064,11 +2064,18 @@ with KaTeX options).  The conventions used, and why:
   *not* use the `\large` prefix that older versions of this document carried
   — GitHub's renderer treats `\large` as a control sequence and shows it
   verbatim (raw text), and it historically caused matrix rows to render all
-  on one line.  Matrices use the canonical `\\` row separator.
+  on one line.
+- **Matrix row separators in display math** must be written as four
+  backslashes in the raw Markdown file: `\\\\`.  GitHub's Markdown layer
+  consumes one level of backslash escaping, so the four-character sequence
+  in the file reaches KaTeX as the standard two-character LaTeX row
+  separator `\\`.  Writing only two backslashes in the file causes KaTeX to
+  see a single backslash — which is not a valid row separator — and the
+  matrix collapses onto one line.  Every `bmatrix`/`matrix`/vector in this
+  document follows this rule (§2, §7, §8, §13).
 - GitHub strips the delimiter markers before handing the content to the
   renderer, and KaTeX accepts the standard `\\` row separator for `bmatrix`
-  environments, so the matrix markup used in §2, §7, §8, and §12 renders as
-  intended.
+  environments, so the matrix markup renders as intended.
 
 The math rendering was verified by a simulation of GitHub's MathJax string
 parsing on the document's delimiters before publication.
