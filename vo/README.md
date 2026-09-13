@@ -129,7 +129,7 @@ So the natural mathematical object is the **2-D similarity**:
 
 $$
 \large
-x' = s \cdot R_\theta \cdot x + t
+x' = s \\, R_\theta \\, x + t
 $$
 
 which says: *to find where a pixel at position `x` in frame A ended up in
