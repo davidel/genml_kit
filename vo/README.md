@@ -297,8 +297,8 @@ $$
 (0,0) \quad (1,0) \quad (0,1) \quad (1,1)
 $$
 
-(small enough that every multiplication is an integer).  What does
-`R_{π/2} = [[0,-1],[1,0]]` do to each corner?
+(small enough that every multiplication is an integer).  What does the rotation by π/2, whose matrix is
+$`R_{\pi/2} = \begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}`$, do to each corner?
 
 $$
 \begin{bmatrix}0 & -1 \\\\ 1 & 0\end{bmatrix} \begin{bmatrix}1 \\\\ 0\end{bmatrix}
@@ -335,7 +335,7 @@ is determined (by flying one hand-computed 90° turn and checking the sign), it
 is locked in by this test and never re-derived.
 
 **Worked with the second corner.**  Take the point `(1,1)` (bottom-right in
-image coords).  `R_{π/2}(1,1) = (−1, 1)`.  In image coords that is one left,
+image coords).  $`R_{\pi/2}(1,1) = (-1, \, 1)`$.  In image coords that is one left,
 one down — the bottom-right corner of the 2×2 image has moved to the
 bottom-*left*.  Draw the 2×2 square, rotate it 90° CCW about its center, and
 you will see exactly this: the corner that was rightmost becomes topmost, etc.
@@ -355,11 +355,11 @@ makes the *learning problem* better behaved.
 
 ### 4.1 Scale in log space
 
-We store `log s` (natural logarithm) and recover `s = e^{log s}`.
+We store `log s` (natural logarithm) and recover $`s = e^{log s}`$.
 
 **Why?** Three independent reasons, all of which matter in a trained network:
 
-1. **Scale must never be negative.**  `s = e^{log s}` is positive for every
+1. **Scale must never be negative.**  $`s = e^{log s}`$ is positive for every
    real value of `log s`.  If a network regressed `s` directly, it could
    output `s ≤ 0` — a mirror image, a different transform family that is
    physically impossible for a rigid camera.  In log space, *any* real-number
@@ -471,7 +471,7 @@ pixel distances between the two results.
 
 $$
 \mathrm{MCE}(\hat{M}, M) = \frac{1}{4} \sum_{i=1}^{4}
-\left\| \hat{M}\,u_i - M\,u_i \right\|_2,
+\lVert \hat{M}\,u_i - M\,u_i \rVert_2,
 $$
 
 where `u_i` are the four corners.
@@ -774,11 +774,11 @@ metadata** and kept identical between training and deployment.
 ### 11.1 Forward vs backward mapping
 
 - **Forward mapping** iterates over *source* pixels and writes each to its
-  destination `M p`.  Problem: several source pixels can land on the same
+  destination $`M p`$.  Problem: several source pixels can land on the same
   destination, others on none — leaving **holes** — and sub-pixel destinations
   force messy decisions (which pixel wins?).  Aliasing and seams follow.
 - **Backward mapping** iterates over *output* pixels and samples the source at
-  `M^{-1} p`: *for each output pixel, where did its content come from?*
+  $`M^{-1} p`$: *for each output pixel, where did its content come from?*
   Every output pixel gets exactly one value, no holes, no rasterizer needed,
   and each output sample is an independent query — which also makes the
   operation embarrassingly parallel and, crucially for us, *differentiable*
@@ -789,7 +789,7 @@ warped frame for the photometric loss — use the **backward map**.
 
 ### 11.2 Interpolation kernels
 
-`M^{-1} p` lands on a *continuous* position between pixels; the kernel decides
+$`M^{-1} p`$ lands on a *continuous* position between pixels; the kernel decides
 which source pixel values contribute to the output sample:
 
 | Kernel | What it does | Where it belongs |
@@ -805,7 +805,7 @@ satisfies both; that is the default here.
 
 ### 11.3 Padding policy
 
-Sampling `M^{-1} p` near the image border asks for pixels outside the image.
+Sampling $`M^{-1} p`$ near the image border asks for pixels outside the image.
 The padding policy — `reflect`, `replicate`, `zeros`, `border` — decides what
 those samples return.  This is not a cosmetic detail:
 
@@ -846,7 +846,7 @@ of a convention mismatch, you find out in CI, not in flight.
 
 *Implementation note.* `test_warp_identity_round_trip` (identity transform →
 the image comes back exactly) and `test_warp_similarity_matches_point_map`
-(sampling the warped image at `M p` reproduces the source content at `p`, up
+(sampling the warped image at $`M p`$ reproduces the source content at `p`, up
 to the interpolation of two bilinear stages) pin down both the backward-map
 semantics and the convention choice.
 
@@ -975,7 +975,7 @@ landed in frame B), the least-squares similarity is the `(s, R, t)`
 minimizing
 
 $$
-\sum_{i=1}^{N} \left\| q_i - (s R\, p_i + t) \right\|^2.
+\sum_{i=1}^{N} \lVert q_i - (s R\, p_i + t) \rVert^2.
 $$
 
 This is **Umeyama's problem**, and it has a closed-form solution — no
@@ -1018,7 +1018,7 @@ detection.
 uniform scale and translation are
 
 $$
-s = \frac{\sigma_1 + d\,\sigma_2}{\sum_i w_i \left\| \hat{p}_i \right\|^2},
+s = \frac{\sigma_1 + d\,\sigma_2}{\sum_i w_i \lVert \hat{p}_i \rVert^2},
 \qquad
 t = \mu_q - s\,R\, \mu_p,
 $$
@@ -1123,7 +1123,7 @@ at `G` using bilinear interpolation:
   `M`'s parameters — the chain rule flows from the output pixels through the
   interpolation weights into the normalized coordinates and then into
   `(s, θ, t)`.
-- the invariant behind the tests: sampling the warped image at `M p`
+- the invariant behind the tests: sampling the warped image at $`M p`$
   reproduces the source content at `p`, up to the interpolation of two
   bilinear stages (`test_warp_similarity_matches_point_map`).
 
@@ -1155,10 +1155,7 @@ The primary loss supervises the network *directly against the ground-truth
 similarity* (the fitted one from §9):
 
 $$
-\mathcal{L}_{\mathrm{sup}} = \mathcal{L}_{\mathrm{mce}}
-+ \lambda_s \left\| \log \hat{s} - \log s \right\|_1
-+ \lambda_\theta \left| \mathrm{wrap}(\hat{\theta} - \theta) \right|
-+ \lambda_c\, \mathrm{SmoothL1}(\hat{r}, \rho)
+\mathcal{L}_{\mathrm{sup}} = \mathcal{L}_{\mathrm{mce}} + \lambda_s \lVert \log \hat{s} - \log s \rVert_1 + \lambda_\theta \bigl\lvert \mathrm{wrap}(\hat{\theta} - \theta) \bigr\rvert + \lambda_c\, \mathrm{SmoothL1}(\hat{r}, \rho)
 $$
 
 where the hatted quantities are the network's predictions.  Each term:
@@ -1385,12 +1382,12 @@ cancels in the normalized ratio.
 
 ### 19.3 Worked intuition with a 1-D sinusoid
 
-A 1-D signal `I_a(x) = cos(2π f x)` shifted by `Δ` becomes
-`cos(2π f (x−Δ)) = cos(2π f x − 2π f Δ)`: the *same* sinusoid with a phase
-offset `2π f Δ`.  The normalized cross-power of the two is
-`e^{2π i f Δ}`, whose inverse transform is a spike at `Δ`.  Now imagine every
+A 1-D signal $`I_a(x) = cos(2\pi f x)`$ shifted by $`\Delta`$ becomes
+$`\cos(2\pi f (x-\Delta)) = \cos(2\pi f x - 2\pi f \Delta)`$: the *same* sinusoid with a phase
+offset $`2\pi f \Delta`$.  The normalized cross-power of the two is
+$`e^{2\pi i f \Delta}`$, whose inverse transform is a spike at $`\Delta`$.  Now imagine every
 frequency of a *real* image doing this simultaneously — each contributing a
-spike at the *same* `Δ` — and you see why the sum piles up into one sharp
+spike at the *same* $`\Delta`$ — and you see why the sum piles up into one sharp
 peak.  The peak location is the shift.  That is phase correlation.
 
 ### 19.4 The cyclic (wrap-around) assumption
@@ -1441,8 +1438,9 @@ translations!  That is the whole idea:
 
 1. Take both frames' Fourier magnitudes;
 2. resample them in log-polar coordinates;
-3. phase-correlate the log-polar spectra → get `(Δlog_radius, Δangle)`;
-4. convert back: `s = e^{Δlog_radius}`, `θ = Δangle`;
+3. phase-correlate the log-polar spectra → get the pair
+   `(Δ log-radius, Δ angle)`;
+4. convert back: $`s = e^{\Delta \log r}`$, $`\theta = \Delta \phi`$;
 5. remove the estimated rotation/scale from frame B (via §11's warping) and
    phase-correlate *again* in the spatial domain to recover the residual
    translation.
@@ -1520,7 +1518,7 @@ i.e. it maximizes **zero-normalized cross-correlation** (§17) over the valid
 overlap between frame A and the frame-B-warped-by-the-current-`M`.  The
 benefits, compared to raw LK:
 
-- **4-DOF similarity.**  The warp `M^{-1}` carries `(s, θ, t)` — the whole
+- **4-DOF similarity.**  The warp $`M^{-1}`$ carries `(s, θ, t)` — the whole
   transform, not just translation.
 - **Photometric robustness.**  zNCC is invariant to per-frame gain/bias (§17.1),
   so exposure/contrast differences between frames do not corrupt the
@@ -1755,7 +1753,7 @@ $$
 y_k = z_k - h(\hat{x}_k^-),
 $$
 
-and its covariance `S_k = H_k P_k^- H_k^\top + R_k` is a measure of "how
+and its covariance $`S_k = H_k P_k^- H_k^\top + R_k`$ is a measure of "how
 surprising is any deviation, given both the prediction and the measurement
 noise?"  The innovation is *zero-mean* when the system is healthy; a
 persistently large innovation is a red flag.
@@ -1895,7 +1893,7 @@ is the defense already built into the system.
   differ in linear units; and nothing in a raw linear regression prevents a
   negative output.
 - **Why the design handles it.**  Scale is stored and regressed in *log*
-  space: `s = e^{log s} > 0` always, and log-space errors are symmetric
+  space: $`s = e^{log s} > 0`$ always, and log-space errors are symmetric
   relative errors (§4.1, §16.2).  The Umeyama solve additionally guarantees
   `s > 0` by construction (§13).
 
