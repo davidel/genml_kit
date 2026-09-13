@@ -259,6 +259,50 @@ Why bother?  Three reasons, all of which we use later:
 3. **The identity is obvious**: the identity matrix means "no motion", i.e.
    `s = 1, θ = 0, t = (0,0)`.
 
+**The inverse transform, derived.**  Because the whole pipeline inverts `M`
+(every warp uses $`M^{-1}`$, §11; the EKF consumes increments, §24), the
+inverse matrix is worth deriving once.  Write `M` in block form
+
+$$
+\large
+M = \begin{bmatrix} A & t \\\\ 0 & 1 \end{bmatrix},
+\qquad
+A = s R_\theta = \begin{bmatrix} s\cos\theta & -s\sin\theta \\\\ s\sin\theta & s\cos\theta \end{bmatrix}.
+$$
+
+We want $`M^{-1}`$, i.e. a matrix satisfying $`M^{-1} (x', \, 1)^\top = (x, \, 1)^\top`$.
+Solve $`x' = A x + t`$ for `x`:
+
+$$
+\large
+x' = A x + t
+\Longrightarrow
+A x = x' - t
+\Longrightarrow
+x = A^{-1}(x' - t) = A^{-1} x' - A^{-1} t.
+$$
+
+In homogeneous coordinates, $`x = A^{-1}x' - A^{-1}t`$ becomes
+
+$$
+\large
+M^{-1} = \begin{bmatrix} A^{-1} & -A^{-1} t \\\\ 0 & 1 \end{bmatrix}.
+$$
+
+Because $`A = s R_{one}theta`$ and rotations are orthogonal ($`R^{{-1}} = R^{{top}}`$), the inverse of the linear part is
+
+$$
+\large
+A^{-1} = (s R_\theta)^{-1} = \frac{1}{s} R_\theta^{top}
+= \frac{1}{s} \begin{bmatrix} \cos\theta & \sin\theta \\\\ -\sin\theta & \cos\theta \end{bmatrix},
+$$
+
+which says: *to undo scale-and-rotate, scale down by `1/s` and rotate the
+other way* — exactly what undo should do.  The `0`-row/`1`-corner structure
+of `M^{-1}` falls out of the algebra, not out of a guess.  This derivation
+is the reason every `warp(A, M)` amounts to `grid_sample(A, M^{-1})` with no
+special-casing of `t`.
+
 *Implementation note.* All the algebra of this section lives in
 `genml_kit/geometry/similarity.py`: `params_to_matrix` builds `M` from
 `(log_s, theta, t)`, `params_from_matrix` does the reverse (§5), and
