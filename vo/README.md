@@ -128,6 +128,7 @@ uniformly: a **uniform scale**.
 So the natural mathematical object is the **2-D similarity**:
 
 $$
+\large
 x' = s\,R_\theta\,x + t
 $$
 
@@ -182,11 +183,13 @@ from?  Write a point in polar form: `x = r cos φ`, `y = r sin φ`.  Rotating by
 `θ` adds `θ` to the angle:
 
 $$
+\large
 x' = r \cos(\phi + \theta) = r (\cos\phi \cos\theta - \sin\phi \sin\theta)
    = x \cos\theta - y \sin\theta
 $$
 
 $$
+\large
 y' = r \sin(\phi + \theta) = r (\sin\phi \cos\theta + \cos\phi \sin\theta)
    = x \sin\theta + y \cos\theta
 $$
@@ -194,6 +197,7 @@ $$
 which is exactly
 
 $$
+\large
 R_\theta = \begin{bmatrix} \cos\theta & -\sin\theta \\\\ \sin\theta & \cos\theta \end{bmatrix},
 \qquad
 \begin{bmatrix} x' \\\\ y' \end{bmatrix} = R_\theta \begin{bmatrix} x \\\\ y \end{bmatrix}.
@@ -219,6 +223,7 @@ Two properties worth internalizing because they will matter later:
 Putting rotation, scale and translation together:
 
 $$
+\large
 x' = s\,R_\theta\,x + t,
 \qquad
 s > 0,\quad \theta \in (-\pi, \pi],\quad t = (t_x, t_y).
@@ -237,6 +242,7 @@ plus translation" into a single matrix product.  Append a constant 1 to every
 point and write:
 
 $$
+\large
 \begin{bmatrix} x' \\\\ y' \\\\ 1 \end{bmatrix} = M \begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix}, \qquad M =
 \begin{bmatrix} s\cos\theta & -s\sin\theta & t_x \\\\ s\sin\theta & s\cos\theta & t_y \\\\ 0 & 0 & 1 \end{bmatrix}.
 $$
@@ -294,6 +300,7 @@ Take a tiny image and rotate it by 90° counter-clockwise.  Let the rotation
 origin be the image center, and use a 2×2 image with corners at
 
 $$
+\large
 (0,0) \quad (1,0) \quad (0,1) \quad (1,1)
 $$
 
@@ -301,6 +308,7 @@ $$
 $`R_{\pi/2} = \begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}`$, do to each corner?
 
 $$
+\large
 \begin{bmatrix}0 & -1 \\\\ 1 & 0\end{bmatrix} \begin{bmatrix}1 \\\\ 0\end{bmatrix}
 = \begin{bmatrix}0 \\\\ 1\end{bmatrix},
 \qquad
@@ -382,6 +390,7 @@ We store `θ` in **radians**, and we always keep it in `(−π, π]`: that is, w
 identify angles that differ by `2π`.  The wrap operation is
 
 $$
+\large
 \mathrm{wrap}(\delta) = (\delta + \pi) \bmod 2\pi - \pi,
 $$
 
@@ -428,12 +437,14 @@ and rescaling once, at the end — more on that in §14.
 Given a `3×3` similarity matrix with linear part
 
 $$
+\large
 A = \begin{bmatrix} a & b \\\\ c & d \end{bmatrix},
 $$
 
 we want to recover `(s, θ, t)`.  From §2.3,
 
 $$
+\large
 A = s \begin{bmatrix} \cos\theta & -\sin\theta \\\\ \sin\theta & \cos\theta \end{bmatrix}
   = \begin{bmatrix} s\cos\theta & -s\sin\theta \\\\ s\sin\theta & s\cos\theta \end{bmatrix},
 $$
@@ -442,6 +453,7 @@ so reading column by column:  the first column is `(a, c) = (s cos θ, s sin θ)
 Its length is `s`:
 
 $$
+\large
 s = \sqrt{a^2 + c^2},
 \qquad
 \theta = \mathrm{atan2}(c, a),
@@ -470,6 +482,7 @@ with the *estimate*, transform them with the *ground truth*, and average the
 pixel distances between the two results.
 
 $$
+\large
 \mathrm{MCE}(\hat{M}, M) = \frac{1}{4} \sum_{i=1}^{4}
 \lVert \hat{M}\,u_i - M\,u_i \rVert_2,
 $$
@@ -552,12 +565,14 @@ the camera:
 A world point `p` is first expressed in camera coordinates,
 
 $$
+\large
 \tilde{p}_{cam} = R_{cw}\,(p - c),
 $$
 
 and then projected to a pixel by the **intrinsic matrix** `K`:
 
 $$
+\large
 u \sim K\,\tilde{p}_{cam},
 \qquad
 K = \begin{bmatrix} f_x & 0 & c_x \\\\ 0 & f_y & c_y \\\\ 0 & 0 & 1 \end{bmatrix},
@@ -622,6 +637,7 @@ in general not affine, not similarity) transform.  Let us see why.
 Camera coordinates of a ground point `p = (x, y, 0)` are
 
 $$
+\large
 \tilde{p}_{cam} = R_{cw}\,p + t,
 \qquad
 t = -R_{cw}\,c,
@@ -638,6 +654,7 @@ The rotation-into-camera is a linear function of `p`; since ground points have
 which is, in homogeneous form,
 
 $$
+\large
 H = K \begin{bmatrix} r_x & d_x & t_x \\\\ r_y & d_y & t_y \\\\ f_x & f_y & t_z \end{bmatrix},
 \qquad
 t = -R_{cw}\,c,
@@ -823,6 +840,7 @@ Normalized sampling coordinates are not the same across tools.  PyTorch's
 coordinates:
 
 $$
+\large
 x_n = \frac{2x}{W - 1} - 1,
 $$
 
@@ -830,6 +848,7 @@ so pixel `0` sits at `x_n = −1` and pixel `W−1` at `x_n = +1`.  With
 `align_corners=False`, the mapping is
 
 $$
+\large
 x_n = \frac{2x}{W} - 1,
 $$
 
@@ -886,6 +905,7 @@ convolutional encoder** (the same network applied to both frames, *Siamese*
 style) maps each frame to a stack of feature maps:
 
 $$
+\large
 F_a, F_b \in \mathbb{R}^{C \times h \times w}
 $$
 
@@ -912,6 +932,7 @@ feature vector at a location in `F_a` and a feature vector at a *displaced*
 location in `F_b`:
 
 $$
+\large
 \mathrm{score}(y, x; \delta_y, \delta_x) = \sum_{c=1}^{C} F_a[c, y, x]\; F_b[c, y + \delta_y, x + \delta_x].
 $$
 
@@ -924,6 +945,7 @@ same way in feature space.
 The displacements run over a bounded window:
 
 $$
+\large
 |\delta_y|, |\delta_x| \le r,
 $$
 
@@ -932,12 +954,14 @@ for every location, at most `(2·6+1)² = 169` displacement questions.  The
 whole stack of scores is the **cost volume**:
 
 $$
+\large
 \mathrm{cost\_volume} \in \mathbb{R}^{(2r+1)^2 \times h \times w},
 $$
 
 with channel ordering "dy-major": displacement `(δy, δx)` sits at channel
 
 $$
+\large
 k = (\delta_y + r)\,(2r + 1) + (\delta_x + r).
 $$
 
@@ -975,6 +999,7 @@ landed in frame B), the least-squares similarity is the `(s, R, t)`
 minimizing
 
 $$
+\large
 \sum_{i=1}^{N} \lVert q_i - (s R\, p_i + t) \rVert^2.
 $$
 
@@ -990,6 +1015,7 @@ translation is whatever remains after the rotation-scaling is applied.
 **Step 2 — the covariance and its SVD.**  Form the `2×2` cross-covariance
 
 $$
+\large
 H = \sum_i \hat{q}_i\, \hat{p}_i^{\top},
 $$
 
@@ -1000,6 +1026,7 @@ whole solve.
 **Step 3 — rotation (with the reflection guard).**  The optimal rotation is
 
 $$
+\large
 R = U \begin{bmatrix} 1 & 0 \\\\ 0 & d \end{bmatrix} V^{\top},
 \qquad
 d = \det(U V^{\top}),
@@ -1018,6 +1045,7 @@ detection.
 uniform scale and translation are
 
 $$
+\large
 s = \frac{\sigma_1 + d\,\sigma_2}{\sum_i w_i \lVert \hat{p}_i \rVert^2},
 \qquad
 t = \mu_q - s\,R\, \mu_p,
@@ -1056,6 +1084,7 @@ capacity.*
 The network instead predicts a **delta for each of the four image corners**:
 
 $$
+\large
 \Delta_i = \text{(offset of corner } u_i \text{ from where it should land)},
 \qquad i = 1, 2, 3, 4,
 $$
@@ -1155,6 +1184,7 @@ The primary loss supervises the network *directly against the ground-truth
 similarity* (the fitted one from §9):
 
 $$
+\large
 \mathcal{L}_{\mathrm{sup}} = \mathcal{L}_{\mathrm{mce}} + \lambda_s \lVert \log \hat{s} - \log s \rVert_1 + \lambda_\theta \bigl\lvert \mathrm{wrap}(\hat{\theta} - \theta) \bigr\rvert + \lambda_c\, \mathrm{SmoothL1}(\hat{r}, \rho)
 $$
 
@@ -1227,6 +1257,7 @@ special parametrizations; translation needs nothing extra.*
 Once the supervised loss has converged, a *photometric* term is staged in:
 
 $$
+\large
 \mathcal{L}_{\mathrm{photo}} = 1 - \mathrm{zNCC}\bigl(I_a,\ I_b \circ M^{-1}\bigr),
 $$
 
@@ -1241,6 +1272,7 @@ frame B's values, both taken over the same pixel sites, after subtracting
 their means):
 
 $$
+\large
 \mathrm{zNCC} = \frac{\sum_i (x_i - \bar{x})(y_i - \bar{y})}
 {\sqrt{\sum_i (x_i - \bar{x})^2 \; \sum_i (y_i - \bar{y})^2}}.
 $$
@@ -1339,6 +1371,7 @@ Start with the simplest possible alignment problem: frame B is frame A
 shifted by `(Δx, Δy)`:
 
 $$
+\large
 I_b(x, y) = I_a(x - \Delta_x, y - \Delta_y).
 $$
 
@@ -1346,6 +1379,7 @@ The Fourier transform turns shifts into *phase*: a shift in the spatial
 domain is a multiplication by a complex exponential in the frequency domain:
 
 $$
+\large
 \mathcal{F}\{I_b\}(\omega) = \mathcal{F}\{I_a\}(\omega) \cdot e^{-2\pi i (\omega_x \Delta_x + \omega_y \Delta_y)}.
 $$
 
@@ -1359,6 +1393,7 @@ If we take the ratio of the two transforms, the magnitudes cancel and only
 the phase difference remains:
 
 $$
+\large
 R(\omega) = \frac{F_a(\omega)\, \overline{F_b(\omega)}}{|F_a(\omega)\, \overline{F_b(\omega)}|}
 = e^{2\pi i (\omega_x \Delta_x + \omega_y \Delta_y)},
 $$
@@ -1368,6 +1403,7 @@ Inverse-transforming `R` gives a single **impulse** (peak) located exactly at
 `(Δx, Δy)`:
 
 $$
+\large
 (\Delta_x, \Delta_y) = \arg\max\ \mathcal{F}^{-1}\left[ \frac{F_a\, \overline{F_b}}{|F_a\, \overline{F_b}|} \right].
 $$
 
@@ -1474,18 +1510,21 @@ appears with the same intensity in both frames — up to motion, the pixels are
 constant:
 
 $$
+\large
 I_b(x + \Delta x,\ y + \Delta y) \approx I_a(x, y).
 $$
 
 Taylor-expand `I_b` around `(x, y)` (small motion!):
 
 $$
+\large
 I_b(x, y) + \nabla I_b(x, y) \cdot (\Delta x,\ \Delta y) \approx I_a(x, y),
 $$
 
 so
 
 $$
+\large
 \nabla I_b(x, y) \cdot (\Delta x,\ \Delta y) \approx I_a(x, y) - I_b(x, y) =: \delta I(x, y)
 $$
 
@@ -1495,6 +1534,7 @@ image gradient.  Stack all pixels into one least-squares problem (the
 "normal equations"):
 
 $$
+\large
 J^{\top} J\, \Delta p = J^{\top} (I_a - I_b),
 \qquad
 J = \nabla I_b,
@@ -1511,6 +1551,7 @@ Both assumptions are too strong for us, and the **Enhanced Correlation
 Coefficient (ECC)** generalization fixes them in one stroke:
 
 $$
+\large
 \mathrm{ECC} = \mathrm{zNCC}\bigl(I_a,\ I_b \circ M^{-1}\bigr),
 $$
 
@@ -1638,6 +1679,7 @@ linearized (EKF) version used here is:
 **Prediction (transition):**
 
 $$
+\large
 x_{k+1} = F_k\, x_k + w_k,
 \qquad
 w_k \sim \mathcal{N}(0, Q_k),
@@ -1646,6 +1688,7 @@ $$
 **Measurement (observation):**
 
 $$
+\large
 z_k = H_k\, x_k + v_k,
 \qquad
 v_k \sim \mathcal{N}(0, R_k),
@@ -1705,6 +1748,7 @@ is good and large when it is not.  Since MCE and `ρ̂` are both in *pixels*,
 the mapping is direct:
 
 $$
+\large
 R_k = \mathrm{diag}\bigl(\sigma_\theta^2(\hat{\rho}),\; \sigma_s^2(\hat{\rho}),\; \sigma_t^2(\hat{\rho})\bigr),
 $$
 
@@ -1750,6 +1794,7 @@ The **innovation** `y_k` is the difference between what we measured and what
 the prediction expected:
 
 $$
+\large
 y_k = z_k - h(\hat{x}_k^-),
 $$
 
@@ -1764,6 +1809,7 @@ The update blends prediction and measurement according to their relative
 certainties:
 
 $$
+\large
 K_k = P_k^- H_k^\top S_k^{-1},
 \qquad
 \hat{x}_k^+ = \hat{x}_k^- + K_k\, y_k,
@@ -1779,6 +1825,7 @@ Before trusting a measurement, the filter checks whether the innovation is
 statistically plausible:
 
 $$
+\large
 y_k^{\top} S_k^{-1} y_k \;\le\; \chi^2_{\max},
 $$
 
