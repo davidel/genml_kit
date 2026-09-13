@@ -1435,6 +1435,63 @@ Why is this dramatically better than regressing parameters?
    well-conditioned as the measurement is*: the thing the network predicts is
    the thing the data actually tells it.
 
+**The conditioning argument, made precise.**  Claim 4 ("ill-conditioning is
+turned around") deserves the linear algebra that backs it, because it is the
+deepest of the four.  Let `f: (log s, θ, t) ↦ (corners)` be the map from
+parameters to the four image corners they produce.  The *condition number* of
+this map at a point is, roughly, how much the corners' output error
+amplifies back into parameter-error sensitivity: if the Jacobian
+`J = ∂f/∂(log s, θ, t)` has a small singular value, then a unit change in the
+corresponding parameter direction produces almost *no* change in the corners —
+so the corners simply do not *contain* the information to estimate that
+direction reliably.
+
+Compute the Jacobian's singular values near the identity
+(`log s = 0, θ = 0, t = 0`).  For a corner displaced by `u` from the center,
+the corner position as a function of the parameters is
+
+$$
+\large
+f(u) = e^{\log s} R_\theta u + t
+\;\approx\; (1 + \log s)(I + \theta G)\,u + t
+\;\approx\; u + (\log s)\, u + \theta G u + t ,
+$$
+
+where `G` is the `2×2` rotation-generator matrix.  The three parameter
+directions therefore act on the corners with:
+
+$$
+\large
+\frac{\partial f}{\partial \log s} = u,
+\qquad
+\frac{\partial f}{\partial \theta} = G u,
+\qquad
+\frac{\partial f}{\partial t} = I .
+$$
+
+The first two columns *grow linearly with the corner's distance from the
+center* `‖u‖`, while the translation column is `I` (unit).  For corners far
+from the center, `‖u‖` is of order the image half-size — so the scale/rotation
+columns are *large* compared with the translation column.  The singular
+values of `J_f` are therefore spread: some are `O(‖u‖)` and some are `O(1)`,
+and the **condition number** `κ = σ_max / σ_min` is `O(‖u‖)` — i.e. *the
+parameter-to-corner map is as ill-conditioned as the image is large*.
+
+Now the two design choices in sequence:
+
+1. **Regressing corners directly** means predicting `f`'s *output* — where the
+   network operates on the well-scaled, unit-level pixel deltas `Δ_i`
+   (§14's claim 2).  The data carries the information in native units.
+2. **The Umeyama solve** then inverts `f` exactly and *differentiably*.  The
+   potentially ill-conditioned inversion `f^{-1}` is done by the closed-form
+   SVD (whose condition number is exactly what it is — but now *geometry, not
+   learning*, is responsible for it).
+
+So the network never has to *learn* the ill-conditioned inverse map; it learns
+the well-scaled forward output, and the closed-form solve handles the rest.
+That is the precise content of "make the representation exactly as
+well-conditioned as the measurement is."
+
 The reference corners are *normalized* to a fixed canonical box (the four
 corners of the feature grid, scaled to a `[-1, 1]`-style range) and `Δ_i` are
 predicted in that same normalized space — so the same head works regardless
