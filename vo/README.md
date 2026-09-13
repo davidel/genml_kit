@@ -239,10 +239,11 @@ point and write:
 $$
 \begin{bmatrix} x' \\\\ y' \\\\ 1 \end{bmatrix}
 =
-\underbrace{
-\begin{bmatrix} s\cos\theta & -s\sin\theta & t_x \\\\ s\sin\theta & s\cos\theta & t_y \\\\ 0 & 0 & 1 \end{bmatrix}
-}_{M}
-\begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix}.
+M
+\begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix},
+\qquad
+M =
+\begin{bmatrix} s\cos\theta & -s\sin\theta & t_x \\\\ s\sin\theta & s\cos\theta & t_y \\\\ 0 & 0 & 1 \end{bmatrix}.
 $$
 
 Why bother?  Three reasons, all of which we use later:
@@ -448,7 +449,7 @@ Its length is `s`:
 $$
 s = \sqrt{a^2 + c^2},
 \qquad
-\theta = \operatorname{atan2}(c, a),
+\theta = \mathrm{atan2}(c, a),
 $$
 
 because `atan2(sin, cos)` recovers the angle whose sine and cosine are
