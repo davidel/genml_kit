@@ -237,12 +237,7 @@ plus translation" into a single matrix product.  Append a constant 1 to every
 point and write:
 
 $$
-\begin{bmatrix} x' \\\\ y' \\\\ 1 \end{bmatrix}
-=
-M
-\begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix},
-\qquad
-M =
+\begin{bmatrix} x' \\\\ y' \\\\ 1 \end{bmatrix} = M \begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix}, \qquad M =
 \begin{bmatrix} s\cos\theta & -s\sin\theta & t_x \\\\ s\sin\theta & s\cos\theta & t_y \\\\ 0 & 0 & 1 \end{bmatrix}.
 $$
 
