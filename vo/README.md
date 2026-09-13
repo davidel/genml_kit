@@ -1702,6 +1702,54 @@ The *magnitudes* of the two transforms are identical — only the **phase**
 carries the shift information.  This is the **shift theorem**, and it is the
 entire basis of phase correlation.
 
+**Derivation: proving the shift theorem from the DFT definition.**  A theorem
+stated is half a theorem; this one deserves its two-line proof.  The 1-D DFT
+and its inverse are
+
+$$
+\large
+F(\omega) = \sum_{x=0}^{N-1} I(x)\, e^{-2\pi i\, \omega x / N},
+\qquad
+I(x) = \frac{1}{N} \sum_{\omega=0}^{N-1} F(\omega)\, e^{+2\pi i\, \omega x / N}.
+$$
+
+Take a shifted signal `I_b(x) = I_a(x - \Delta)` (indices modulo `N`, from the
+cyclic convention of §19.4; the same computation works in 2-D as a product).
+Its DFT is
+
+$$
+\large
+\mathcal{F}\{I_b\}(\omega)
+= \sum_x I_a(x - \Delta)\, e^{-2\pi i\, \omega x / N}.
+$$
+
+Now substitute `u = x - \Delta` (equivalently sum over `u = 0..N-1`, since the
+index set is the same modulo `N`):
+
+$$
+\large
+= \sum_{u} I_a(u)\, e^{-2\pi i\, \omega (u + \Delta) / N}
+= \Bigl( \sum_{u} I_a(u)\, e^{-2\pi i\, \omega u / N} \Bigr)
+\; \cdot \; e^{-2\pi i\, \omega \Delta / N}.
+$$
+
+The last equality uses that `e^{-2\pi i \omega (u+\Delta)/N} =
+e^{-2\pi i \omega u/N} \cdot e^{-2\pi i \omega \Delta/N}` — the exponential
+*factors*, which is precisely why "shift in space = multiply in frequency".
+The final result is the clean statement
+
+$$
+\large
+\mathcal{F}\{I_b\}(\omega) = e^{-2\pi i \omega \Delta / N}\; \mathcal{F}\{I_a\}(\omega),
+$$
+
+which is the 1-D shift theorem; the 2-D version in §19.1 follows by applying
+the same argument to the two axes independently, giving the factor
+`e^{-2\pi i(\omega_x \Delta_x + \omega_y \Delta_y)}`.  Notice the proof used
+nothing beyond the definition of the DFT and the factorization of the
+exponential — there is no hidden assumption other than the cyclic (mod `N`)
+indexing, which is the same assumption the whole method inherits (§19.4).
+
 ### 19.2 The normalized cross-power spectrum
 
 If we take the ratio of the two transforms, the magnitudes cancel and only
