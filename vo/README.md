@@ -184,14 +184,14 @@ from?  Write a point in polar form: `x = r cos φ`, `y = r sin φ`.  Rotating by
 
 $$
 \large
-x' = r \cdot \cos(\phi + \theta) = r \cdot (\cos\phi \cos\theta - \sin\phi \sin\theta)
-   = x \cdot \cos\theta - y \cdot \sin\theta
+x' = r \\, \cos(\phi + \theta) = r \\, (\cos\phi \cos\theta - \sin\phi \sin\theta)
+   = x \\, \cos\theta - y \\, \sin\theta
 $$
 
 $$
 \large
-y' = r \cdot \sin(\phi + \theta) = r \cdot (\sin\phi \cos\theta + \cos\phi \sin\theta)
-   = x \cdot \sin\theta + y \cdot \cos\theta
+y' = r \\, \sin(\phi + \theta) = r \\, (\sin\phi \cos\theta + \cos\phi \sin\theta)
+   = x \\, \sin\theta + y \\, \cos\theta
 $$
 
 which is exactly
@@ -224,7 +224,7 @@ Putting rotation, scale and translation together:
 
 $$
 \large
-x' = s \cdot R_\theta \cdot x + t,
+x' = s \\, R_\theta \\, x + t,
 \qquad
 s > 0,\quad \theta \in (-\pi, \pi],\quad t = (t_x, t_y).
 $$
@@ -528,7 +528,7 @@ pixel distances between the two results.
 $$
 \large
 \mathrm{MCE}(\hat{M}, M) = \frac{1}{4} \sum_{i=1}^{4}
-\lVert \hat{M} \cdot u_i - M \cdot u_i \rVert_2,
+\lVert \hat{M} \\, u_i - M \\, u_i \rVert_2,
 $$
 
 where `u_i` are the four corners.
