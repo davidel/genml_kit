@@ -2119,9 +2119,9 @@ plausible destinations is not a reliable correspondence.
 (wrong correspondences).  RANSAC is the algorithm that fits a model robust
 to them:
 
-1. sample the minimum number of matches needed (2 for a similarity? no — a
-   similarity has 4 DOF, so sample 2 points?  careful: 2 point
-   correspondences give 4 constraints — exactly enough for a similarity);
+1. sample the **minimum number of matches needed**.  A similarity has 4 DOF
+   and each point correspondence gives 2 scalar constraints, so the minimal
+   all-inlier sample is `k = 2` matches (4 constraints — exactly enough);
 2. fit the similarity (Umeyama, §13) to the sample;
 3. count the **inliers** (matches whose reprojection error under that
    similarity is below a threshold);
@@ -2131,6 +2131,45 @@ to them:
 The "randomness" is the robustness engine: as long as *some* sample of
 `k` matches is all-inlier, RANSAC will find the true model.  The
 `threshold` is precisely the MCE-style tolerance of §6.
+
+**Derivation: how many iterations does RANSAC need?**  The robustness claim —
+"as long as *some* all-inlier sample is drawn, RANSAC finds the model" — can be
+made quantitative, and the resulting formula is what sets the iteration count
+in practice.
+
+Let `w` be the fraction of inliers among the candidate matches, so a randomly
+drawn match is an inlier with probability `w`.  A single sample of `k = 2`
+matches is all-inlier with probability `w^k` (drawing `k` inlier matches, by
+independence).  The probability that one sample is *not* all-inlier is
+therefore `1 − w^k`.  After `m` independent samples, the probability that
+*every* sample failed to be all-inlier is `(1 − w^k)^m`.  Hence the
+probability that at least one sample is all-inlier — i.e. that RANSAC finds a
+good fit — is
+
+$$
+\large
+p_{\mathrm{success}} = 1 - (1 - w^k)^m .
+$$
+
+Solve for the number of iterations to achieve a target success probability
+`p`:
+
+$$
+\large
+1 - p = (1 - w^k)^m
+\;\Longrightarrow\;
+m = \frac{\ln(1 - p)}{\ln(1 - w^k)} .
+$$
+
+Two worked numbers make the formula concrete.  With `w = 0.5` (half the
+matches are inliers) and `k = 2`, a single sample is all-inlier with
+probability `0.25`; to get `p = 0.99` one needs
+`m = ln(0.01)/ln(0.75) ≈ 16` iterations — cheap.  With `w = 0.2` (only a
+fifth of matches good), `w² = 0.04`, and `m = ln(0.01)/ln(0.96) ≈ 113`
+iterations — still cheap.  This is why RANSAC "works"; the formula quantifies
+exactly how the inlier fraction and the sample size trade against the run
+time, and it is the reason the pipeline's default iteration count is a small
+constant rather than a guess.
 
 **Why this is the strongest oracle.**  Sparse robust matching (SuperPoint +
 LightGlue + RANSAC) is routinely at (or beyond) the accuracy of dense
