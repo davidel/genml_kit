@@ -1844,6 +1844,66 @@ translations!  That is the whole idea:
    phase-correlate *again* in the spatial domain to recover the residual
    translation.
 
+**Derivation: why scale and rotation become shifts in log-polar frequency.**  The
+two bullets above are the entire engine of Fourier–Mellin, so they deserve
+proofs, not assertions.
+
+**Scale theorem.**  Work in 1-D for clarity (2-D is the same argument per
+axis).  Let `g(x) = I(x / s)` be the image scaled by `s` (a change of
+variable with `s > 0`).  Its Fourier transform is
+
+$$
+\large
+\mathcal{F}\{g\}(\omega)
+= \int_{-\infty}^{\infty} I(x / s)\, e^{-2\pi i \omega x}\, dx .
+$$
+
+Substitute `u = x / s`, so `x = s u` and `dx = s du`:
+
+$$
+\large
+= s \int_{-\infty}^{\infty} I(u)\, e^{-2\pi i \omega s u}\, du
+= s\, \mathcal{F}\{I\}(s \omega).
+$$
+
+The transform of a signal scaled by `s` is a *reshaped* copy of the original
+spectrum: `F_g(ω) = s·F_I(sω)` — compressed by a factor `s` in the frequency
+axis.  (With the continuous Fourier convention there is a `1/s` factor as
+well; what matters is the *axis rescaling*.)  So *scaling the image rescales
+the frequency axis*, which is exactly the second bullet.
+
+**Rotation property.**  A rotation of the image by `α` about the origin is a
+rotation of its Fourier transform by `α`.  Why?  The Fourier transform is a
+*linear* map that commutes with orthogonal coordinate changes: rotating the
+argument of `I` before integrating is the same as rotating the output
+coordinates, because `e^{-2πi ω·x}` is unchanged by a joint rotation of `ω`
+and `x` (the dot product is rotation-invariant).  Hence
+
+$$
+\large
+\mathcal{F}\{I(R_\alpha x)\}(\omega) = \mathcal{F}\{I\}(R_\alpha^{-1} \omega)
+= \mathcal{F}\{I\}(R_\alpha^{\top} \omega),
+$$
+
+and `R_α` inverts to `R_{−α} = R_αᵀ` — a rotation of the frequency plane by
+`α`, precisely the first bullet.
+
+**From these to log-polar shifts.**  Write the frequency-plane coordinates in
+polar form `(ρ, θ)` with `ρ = √(u² + v²)`.  A rotation by `α` sends
+`θ → θ + α`: a shift *along the angle axis*.  A scaling by `s` sends
+`ρ → ρ/s`, so after taking the logarithm,
+
+$$
+\large
+\log \rho \;\xrightarrow{\;s\;}
+ \log(\rho / s) = \log \rho - \log s,
+$$
+
+a pure shift *along the log-radius axis*.  Both operations are now
+translations in the `(log ρ, θ)` plane — the domain where phase correlation
+(§19) is the exact tool.  This is the whole content of the log-polar trick,
+derived from the two frequency-domain facts above.
+
 ### 20.2 Why it works despite the "sampling" cost
 
 The price of the trick is that log-polar resampling is an *interpolation*
