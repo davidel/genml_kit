@@ -184,13 +184,13 @@ from?  Write a point in polar form: `x = r cos φ`, `y = r sin φ`.  Rotating by
 
 $$
 \large
-x' = r \\, \cos(\phi + \theta) = r \\, (\cos\phi \cos\theta - \sin\phi \sin\theta)
+x' = r \\, \cos(\phi + \theta) = r \\, (\cos\phi \\, \cos\theta - \sin\phi \\, \sin\theta)
    = x \\, \cos\theta - y \\, \sin\theta
 $$
 
 $$
 \large
-y' = r \\, \sin(\phi + \theta) = r \\, (\sin\phi \cos\theta + \cos\phi \sin\theta)
+y' = r \\, \sin(\phi + \theta) = r \\, (\sin\phi \\, \cos\theta + \cos\phi \\, \sin\theta)
    = x \\, \sin\theta + y \\, \cos\theta
 $$
 
@@ -847,7 +847,7 @@ $$
 \large
 u \sim H \begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix},
 \qquad
-H = K C,
+H = K \\, C,
 $$
 
 which is the *definition* of a homography: a 3×3 matrix acting on homogeneous
@@ -1130,7 +1130,7 @@ location in `F_b`:
 
 $$
 \large
-\mathrm{score}(y, x; \delta_y, \delta_x) = \sum_{c=1}^{C} F_a[c, y, x]\; F_b[c, y + \delta_y, x + \delta_x].
+\mathrm{score}(y, x; \delta_y, \delta_x) = \sum_{c=1}^{C} F_a[c, y, x]\cdot F_b[c, y + \delta_y, x + \delta_x].
 $$
 
 Why an inner product?  For *unit*-length vectors, the inner product is the
@@ -1143,7 +1143,7 @@ The displacements run over a bounded window:
 
 $$
 \large
-|\delta_y|, |\delta_x| \le r,
+|\delta_y|\\, |\delta_x| \le r,
 $$
 
 with `r` the configured radius (default `6` at `1/8` resolution).  So we ask,
@@ -1197,7 +1197,7 @@ minimizing
 
 $$
 \large
-\sum_{i=1}^{N} \lVert q_i - (s R\\, p_i + t) \rVert^2.
+\sum_{i=1}^{N} \lVert q_i - (s \\, R\\, p_i + t) \rVert^2.
 $$
 
 This is **Umeyama's problem**, and it has a closed-form solution — no
@@ -1226,7 +1226,7 @@ $$
 \large
 R = U \begin{bmatrix} 1 & 0 \\\\ 0 & d \end{bmatrix} V^{\top},
 \qquad
-d = \det(U V^{\top}),
+d = \det(U \\, V^{\top}),
 $$
 
 where `d = ±1` corrects for the fact that a covariance matrix's SVD alone
