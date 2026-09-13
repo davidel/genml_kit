@@ -687,6 +687,50 @@ pixel is `u = (u_x/u_z, u_y/u_z)` with `u_z` the third component of
 - `c_x, c_y` — the **principal point**: the pixel where the optical axis
   lands (usually the image center for a well-built camera).
 
+
+**Where the projection and focal length come from: a derivation.**  The pinhole
+model is not an arbitrary formula — it is the geometry of *similar triangles*.
+Place the pinhole at the origin with the optical axis along `+z` and the sensor
+plane at `z = f` (a distance `f` behind the pinhole; for real lenses, `f` is
+the focal length).  A world point `P = (X, Y, Z)` with `Z > 0` in front of the
+camera emits a ray through the pinhole, which lands on the sensor at the point
+where `z = f` intersects the line from `P` through the origin.
+
+Parametrize that line: `(tX, tY, tZ)`.  It hits the sensor when `tZ = f`, i.e.
+`t = f/Z`, so the sensor coordinate is
+
+$$
+\large
+x = tX = f\,\frac{X}{Z},\qquad y = tY = f\,\frac{Y}{Z}.
+$$
+
+This pair `(x, y) = (fX/Z, fY/Z)` *is* the pinhole projection.  It says: the
+image coordinate is the focal length times the *ratio* of the world coordinate
+to the depth.  Three consequences that drive everything later:
+
+- **Inversion.**  The `1/Z` makes near objects appear large and far objects
+  small — the geometric origin of perspective and of the uniform-scale
+  behavior a drone sees when it climbs (§1).
+- **The focal length is the angle-to-pixels conversion factor.**  A world ray
+  at angle `α` to the optical axis satisfies `tan α = X/Z`, so
+  `x = f tan α`: pixels are the *tangent* of the viewing angle, scaled by
+  `f`.  That is why `f` carries the units "pixels per radian at small
+  angles".
+- **Field of view follows.**  A sensor of width `W` (in pixels) subtends the
+  angle `2α_max` where the edge `x = W/2` is hit:
+
+$$
+\large
+\frac{W}{2} = f\,\tan\alpha_{\max}\;\Longrightarrow\; \alpha_{\max} = \arctan\!\left(\frac{W}{2f}\right),\qquad \mathrm{FOV}_h = 2\,\arctan\!\left(\frac{W}{2f}\right).
+$$
+
+For `f_x = 1000`, `W = 2000`: `FOV_h = 2 arctan(1) = 90°` — the worked
+numbers in the bullet above, now derived rather than asserted.
+
+The **intrinsic matrix** `K` packages this projection for both axes at once
+(including the principal-point offset `c_x, c_y`), which is why the
+homogeneous form of §8 reads `u ∼ K p̃`.
+
 **Why does the ground plane matter here?**  A pinhole camera and a *plane*
 world (our ground: `z = 0`) combine into a particularly simple map — which is
 the subject of §8.  This simplification is the engine of the whole synthetic
