@@ -104,21 +104,38 @@ class VOSimilarityNet(nn.Module):
     self.ref_corners = nn.Buffer(torch.tensor([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0],
                                                [-1.0, 1.0]]),
                                  persistent=False)
-    self.corner_mlp = nn.Sequential(nn.LazyLinear(64), nn.ReLU(inplace=True),
-                                    nn.Linear(64, 12))
+    # The MLP reads the pooled feature vector and outputs a flat head
+    # vector of 10 values: 8 corner deltas (4 corners x 2) + 2 confidence
+    # channels.  The input width MUST equal the encoder's final stage
+    # width (`widths[-1]`, 128 for the default npu-small profile) -- it is
+    # the feature map pooled across space, not the per-pixel feature depth
+    # of an intermediate stage.
+    self.corner_mlp = nn.Sequential(nn.LazyLinear(widths[-1]), nn.ReLU(inplace=True),
+                                    nn.Linear(widths[-1], 10))
     self.head = nn.LazyConv2d(widths[-1], 1)
 
   def forward(self, a, b):
+    # Shape evolution (B = batch, H = W for square frames; C = final
+    # encoder width, e.g. 128 for the default npu-small profile):
+    #   a, b:                       (B, in_ch, H, W)
+    #   encoder:                    -> fa, fb (B, C, H/8, W/8)
+    #   correlate(fa, fb, r)        -> vol (B, (2r+1)^2, H/8, W/8)
+    #   cat([vol, fa], dim=1)       -> (B, C + (2r+1)^2, H/8, W/8)
+    #   head (1x1 conv)             -> feats (B, C, H/8, W/8)
+    #   mean over space             -> pooled (B, C)
+    # The corner MLP then maps pooled (B, C) -> (B, 10); the first 8
+    # values are corner deltas, the last 2 are the confidence pair.
     fa = self.encoder(a)
     fb = self.encoder(b)
     vol = correlate(fa, fb, self.cfg.cost_range)
     feats = self.head(torch.cat([vol, fa], dim=1))
     pooled = feats.mean(dim=(2, 3))
     corners = self.ref_corners.unsqueeze(0).expand(a.shape[0], -1, -1)
-    deltas = self.corner_mlp(pooled)[:, :8].view(-1, 4, 2)
+    head_out = self.corner_mlp(pooled)
+    deltas = head_out[:, :8].view(-1, 4, 2)
     size = torch.tensor(
         [fa.shape[-1], fa.shape[-2]], device=a.device, dtype=deltas.dtype) / 2.0
     src = corners * size.unsqueeze(0) * self.scale + size.unsqueeze(0)
     params = umeyama_similarity(src, src + deltas)
-    conf = self.corner_mlp(pooled)[:, 8:10]
+    conf = head_out[:, 8:10]
     return {"params": params, "corners": src, "dc": deltas, "conf": conf}

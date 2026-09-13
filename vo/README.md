@@ -1498,13 +1498,16 @@ predicted in that same normalized space — so the same head works regardless
 of image size; the final pixel-space similarity is recovered by rescaling
 once, at the end.
 
-*Implementation note.* In `genml_kit/models/vo/vo_similar.py`, the head
-produces `deltas = corner_mlp(pooled)[:, :8].view(-1, 4, 2)`, and
+*Implementation note.* In `genml_kit/models/vo/vo_similar.py`, the head is a
+two-layer MLP `corner_mlp` whose final linear layer maps the pooled feature
+vector (width = the encoder's final stage width, 128 for the default
+`npu-small` profile) to a flat vector of 10 values: the first 8 are corner
+deltas, the last 2 the confidence pair.  The head produces
+`deltas = corner_mlp(pooled)[:, :8].view(-1, 4, 2)`, and
 `params = umeyama_similarity(src, src + deltas)` — exactly the
-correspondence-then-solve of this section.  The same file also emits
-`conf = corner_mlp(pooled)[:, 8:10]`: the *confidence head*, which shares the
-MLP but reads off a different pair of outputs, trained against the residual
-(§16, §24).
+correspondence-then-solve of this section.  The confidence head
+`conf = corner_mlp(pooled)[:, 8:10]` shares the MLP but reads off the last two
+outputs, trained against the residual (§16, §24).
 
 ## 15. Differentiable warping with grid_sample
 

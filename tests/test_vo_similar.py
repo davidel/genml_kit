@@ -92,3 +92,33 @@ def test_profile_param_counts_ordered():
     net(torch.rand(1, in_ch, 128, 128), torch.rand(1, in_ch, 128, 128))
     counts.append(sum(p.numel() for p in net.parameters()))
   assert counts[0] < counts[1] < counts[2]
+
+
+def test_corner_head_shapes_and_slice():
+  """The corner MLP maps pooled features to 10 values: 8 deltas + 2 conf.
+
+  The input width must track the encoder's final stage width (128 for the
+  default npu-small profile), and the head must never exceed 10 outputs
+  (no dead/spare channels).  This guards against a silent regression if a
+  profile's stage widths change.
+  """
+  net = VOSimilarityNet(VOSimilarityConfig())
+  a = torch.rand(2, 1, 64, 64)
+  b = torch.rand(2, 1, 64, 64)
+  out = net(a, b)
+  assert out["params"].log_s.shape == (2,)
+  assert out["params"].theta.shape == (2,)
+  assert out["params"].t.shape == (2, 2)
+  assert out["corners"].shape == (2, 4, 2)
+  assert out["dc"].shape == (2, 4, 2)
+  assert out["conf"].shape == (2, 2)
+  # The MLP output width must equal the encoder's final stage width.
+  final_width = dict(net.encoder.named_parameters())[
+      "stages.7.0.weight"].shape[0]
+  assert net.corner_mlp[0].in_features == final_width
+  assert net.corner_mlp[0].out_features == final_width
+  assert net.corner_mlp[2].in_features == final_width
+  assert net.corner_mlp[2].out_features == 10
+  # First 8 channels = corner deltas (4 corners x 2); last 2 = confidence.
+  head_out = net.corner_mlp(net.corner_mlp[0](torch.rand(2, final_width)))
+  assert head_out.shape == (2, 10)
