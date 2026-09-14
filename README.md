@@ -17,7 +17,7 @@ in [`vo/README.md`](vo/README.md).
 ## Contents
 
 - [Why genml_kit?](#why-genml_kit)
-- [How it works](#how-it-works)
+- [How It Works](#how-it-works)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Pre-Training Guide](#pre-training-guide)
@@ -26,7 +26,7 @@ in [`vo/README.md`](vo/README.md).
 - [Tips & Pitfalls](#tips--pitfalls)
 - [Gradient Monitor](#gradient-monitor)
 - [Custom Models](#custom-models)
-- [References and Further Reading](#references-and-further-reading)
+- [References And Further Reading](#references-and-further-reading)
 - [Development](#development)
 - [License](#license)
 
@@ -55,7 +55,7 @@ additional performance for deployment.
 > hyperparameters, and a worked pre-train → fine-tune run — is documented in
 > [`scdiag/README.md`](scdiag/README.md).
 
-## How it works
+## How It Works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -87,7 +87,7 @@ healthy, defective vs. passing). **Ensemble inference** (optional) trains a
 tree-based model on the same features, which sometimes generalises better
 than a linear head for small datasets.
 
-### A useful mental model
+### A Useful Mental Model
 
 The encoder turns an image into a vector of features. During pre-training, we
 choose an artificial task whose answer can be obtained from the images (or,
@@ -119,7 +119,7 @@ the [Pre-Training Guide](#pre-training-guide)). The
 [Hugging Face image classification guide](https://huggingface.co/docs/transformers/tasks/image_classification)
 are useful references when selecting a backbone or processor.
 
-## Package layout
+## Package Layout
 
 | Module | Contents |
 |---|---|
@@ -644,7 +644,7 @@ in the repository (dermoscopy corpora).
 After pre-training (or directly, if you skip pre-training), fine-tune a
 classifier on your labeled dataset.
 
-### What fine-tuning is changing
+### What Fine-Tuning Is Changing
 
 Suppose the encoder produces the feature vector $`h = f_\theta(x)`$. A linear
 classification head computes logits $`a = W h + b`$, and softmax turns them
@@ -768,7 +768,7 @@ genml-kit-train --model google/vit-base-patch16-224 \
                 --image_size 448
 ```
 
-### With a Custom Classifier Head
+### With A Custom Classifier Head
 
 Replace the default linear head with a custom MLP or attention-based
 classifier:
@@ -799,7 +799,7 @@ genml-kit-train \
     --epochs 20
 ```
 
-### From a Pre-Trained Checkpoint
+### From A Pre-Trained Checkpoint
 
 Load encoder weights from a pre-training run (SimMIM, I-JEPA, or SupCon):
 
@@ -815,7 +815,7 @@ The backbone weights are loaded automatically; the classifier head is
 reinitialised (different `num_classes`). Use `--state_load none` to avoid
 carrying over old optimizer/scheduler states.
 
-### Layer-wise Learning Rate Decay (LLRD)
+### Layer-Wise Learning Rate Decay (LLRD)
 
 LLRD is a compromise between freezing the backbone and updating every layer at
 the same speed. If layers are indexed from shallow 0 to deep $`L`$, a common
@@ -858,7 +858,7 @@ the model settle into a minimum instead of bouncing around it. Late-training
 low learning rates are also what make the EMA teacher of DINO/BYOL
 effective: the teacher tracks a student that changes gently.
 
-### Mixup, label smoothing, and imbalance
+### Mixup, Label Smoothing, And Imbalance
 
 Mixup forms a virtual example from two training examples.
 Reference: Zhang et al., [mixup: Beyond Empirical Risk Minimization](https://arxiv.org/abs/1710.09412), ICLR 2018.
@@ -884,7 +884,7 @@ datasets, but strong Mixup can obscure fine-grained image details. Label
 smoothing similarly replaces a one-hot label with a mostly-correct
 distribution.
 
-#### Focal loss
+#### Focal Loss
 
 Focal loss instead changes the emphasis of cross-entropy. Reference: Lin et
 al., [Focal Loss for Dense Object Detection](https://arxiv.org/abs/1708.02002), ICCV 2017.
@@ -1219,7 +1219,7 @@ Output is JSON with per-class probabilities:
 }
 ```
 
-### XGBoost and test-time augmentation
+### XGBoost And Test-Time Augmentation
 
 The neural classifier makes decisions through its head. The XGBoost option
 takes the encoder representation $`h = f_\theta(x)`$ instead and fits an
@@ -1284,7 +1284,7 @@ When `--xgboost_model` is provided, the output includes both predictions:
 
 ## Tips & Pitfalls
 
-### `--checkpoint` and `--source_checkpoint` are different
+### `--checkpoint` And `--source_checkpoint` Are Different
 
 `--checkpoint` names the output prefix used for saving and resuming the current
 training run. `--source_checkpoint` imports weights from another run before
@@ -1306,7 +1306,7 @@ new classifier-head keys are expected to be missing from the source checkpoint.
 Those messages indicate a successful partial transfer if the backbone keys
 are matched.
 
-### Interpreting a SupCon plateau
+### Interpreting A SupCon Plateau
 
 SupCon loss is not expected to approach zero. If an anchor has k-1 positives and
 positives become much more similar than negatives, a useful reference value is
@@ -1317,7 +1317,7 @@ validation metrics. A plateau near this reference can mean convergence; a
 plateau well above it can mean too few positives, a learning-rate problem, or
 labels that are not being passed correctly.
 
-### A practical debugging order
+### A Practical Debugging Order
 
 1. Confirm that images and labels are valid and that each SupCon batch has
    repeated classes.
@@ -1330,7 +1330,7 @@ labels that are not being passed correctly.
 5. Select the checkpoint using a validation metric appropriate to the
    objective, rather than training loss alone.
 
-### Low GPU utilization (`util=0` in the training log)
+### Low GPU Utilization (`util=0` In The Training Log)
 
 The periodic `GPU:` line reports memory in MiB and SM utilization as a
 percentage sampled at log time (`mem=allocated/totalMiB (pct) res=…MiB
@@ -1413,7 +1413,7 @@ gradient (the vector of partial derivatives of the loss with respect to each
 element of $`W`$), and $`\varepsilon`$ a tiny constant that only prevents
 division by zero for parameters that are exactly zero.
 
-### Reading the Report
+### Reading The Report
 
 **Healthy training:** g/p < 0.1, `grad/param: mean` in 0.01–0.1 range, g_rms within ~10× across layers.
 
@@ -1437,7 +1437,7 @@ genml_kit supports any HuggingFace `AutoModelForImageClassification` model,
 any timm model via `timm:<name>`, and custom architectures registered in
 `genml_kit.models`.
 
-### Built-in Custom Models
+### Built-In Custom Models
 
 | Name | Description | `--model` value |
 |---|---|---|
@@ -1447,7 +1447,7 @@ any timm model via `timm:<name>`, and custom architectures registered in
 | ClsModelWrapper | HuggingFace backbone + custom classifier head | `cls_model_wrapper:<hf_name>` |
 | ContrastiveEncoder | Backbone + projection head for contrastive pre-training | `contrastive_encoder:<hf_name>` |
 
-### Adding a Custom Model
+### Adding A Custom Model
 
 1. Create `genml_kit/models/{name}/` with `model.py`, `processor.py`,
    `loader.py`, and `__init__.py`.
@@ -1496,7 +1496,7 @@ head before loading the checkpoint weights.
 
 ---
 
-## References and Further Reading
+## References And Further Reading
 
 - Xie et al., [SimMIM: A Simple Framework for Masked Image Modeling](https://arxiv.org/abs/2111.09886), CVPR 2022.
 - Assran et al., [Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture](https://arxiv.org/abs/2301.08243), CVPR 2023.
@@ -1536,7 +1536,7 @@ instead of scrolling past.  Code is formatted with
 (Google style, 2-space indent) and linted with
 [Ruff](https://docs.astral.sh/ruff/) (`ruff check .`).
 
-### Naming conventions for class members
+### Naming Conventions For Class Members
 
 - Anything that PyTorch registers — child `nn.Module`, `nn.Parameter`,
   registered buffer — is **never** underscore-prefixed, regardless of
@@ -1554,3 +1554,4 @@ instead of scrolling past.  Code is formatted with
 ## License
 
 Apache-2.0
+

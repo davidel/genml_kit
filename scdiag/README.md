@@ -1,11 +1,11 @@
-# scdiag — skin-lesion classification workflow
+# scdiag — Skin-Lesion Classification Workflow
 
 ## Contents
 
 - [Datasets](#datasets)
-- [Preparing the dermoscopy corpora](#preparing-the-dermoscopy-corpora)
-- [Canonical commands](#canonical-commands)
-- [Dermoscopy recipes](#dermoscopy-recipes)
+- [Preparing The Dermoscopy Corpora](#preparing-the-dermoscopy-corpora)
+- [Canonical Commands](#canonical-commands)
+- [Dermoscopy Recipes](#dermoscopy-recipes)
 
 ## Datasets
 
@@ -20,7 +20,7 @@
 and use `--label_column` when the label column is not auto-detected (it is
 `diagnosis` for `marmal88/skin_cancer`).
 
-## Preparing the dermoscopy corpora
+## Preparing The Dermoscopy Corpora
 
 The scripts in [`scripts/`](scripts/) turn the public corpora into
 `imagefolder/`-compatible directory trees that
@@ -41,7 +41,7 @@ python scdiag/scripts/prepare_derm1m.py --output_dir ./derm1m_images --token hf_
 python scdiag/scripts/prepare_ham10000.py --output_dir ./ham10000_grouped
 ```
 
-## Canonical commands
+## Canonical Commands
 
 ```bash
 # Fine-tune on the skin cancer dataset
@@ -90,7 +90,7 @@ genml-kit-infer --model facebook/convnextv2-base-22k-224 \
                 path/to/lesion.jpg
 ```
 
-## Dermoscopy recipes
+## Dermoscopy Recipes
 
 Task-specific advice that does not belong in the generic docs:
 
@@ -116,3 +116,4 @@ Task-specific advice that does not belong in the generic docs:
 For everything else — method internals (SimMIM / I-JEPA / DINO / BYOL /
 SupCon), LLRD, LoRA, mixup, gradient monitoring, remote checkpoints — read
 the [root README](../README.md).
+
