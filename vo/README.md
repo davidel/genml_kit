@@ -407,11 +407,11 @@ makes the *learning problem* better behaved.
 
 ### 4.1 Scale in log space
 
-We store $`\log s`$ (natural logarithm) and recover $`s = e^{log s}`$.
+We store $`\log s`$ (natural logarithm) and recover $`s = e^{\log s}`$.
 
 **Why?** Three independent reasons, all of which matter in a trained network:
 
-1. **Scale must never be negative.**  $`s = e^{log s}`$ is positive for every
+1. **Scale must never be negative.**  $`s = e^{\log s}`$ is positive for every
    real value of $`\log s`$.  If a network regressed $`s`$ directly, it could
    output $`s \le 0`$ — a mirror image, a different transform family that is
    physically impossible for a rigid camera.  In log space, *any* real-number
@@ -1296,9 +1296,7 @@ This is the real content of "centering decouples $`t`$": the translation has bee
 
 $$
 \large
-E = \sum_i \lVert \hat{q}_i \rVert^2
-+ s^2 \sum_i \lVert \hat{p}_i \rVert^2
-- 2s \sum_i \hat{q}_i^{\top} R\\, \hat{p}_i .
+E = \sum_i \lVert \hat{q}_i \rVert^2 + s^2 \sum_i \lVert \hat{p}_i \rVert^2 - 2s \sum_i \hat{q}_i^{\top} R\\, \hat{p}_i .
 $$
 
 The first two sums are *constants* in $`R`$; only the cross term depends on the
@@ -1347,8 +1345,7 @@ any dimension.)
 
 $$
 \large
-E(s) = \sum_i \lVert \hat{q}_i \rVert^2
-+ s^2 \sum_i \lVert \hat{p}_i \rVert^2 - 2s \\, \mathrm{tr}(H R).
+E(s) = \sum_i \lVert \hat{q}_i \rVert^2 + s^2 \sum_i \lVert \hat{p}_i \rVert^2 - 2s \\, \mathrm{tr}(H R).
 $$
 
 Differentiate and set to zero:
@@ -2661,7 +2658,7 @@ is the defense already built into the system.
   differ in linear units; and nothing in a raw linear regression prevents a
   negative output.
 - **Why the design handles it.**  Scale is stored and regressed in *log*
-  space: $`s = e^{log s} > 0`$ always, and log-space errors are symmetric
+  space: $`s = e^{\log s} > 0`$ always, and log-space errors are symmetric
   relative errors (§4.1, §16.2).  The Umeyama solve additionally guarantees
   $`s > 0`$ by construction (§13).
 
