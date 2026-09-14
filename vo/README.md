@@ -244,7 +244,7 @@ point and write:
 $$
 \large
 \begin{bmatrix} x' \\\\ y' \\\\ 1 \end{bmatrix} = M \begin{bmatrix} x \\\\ y \\\\ 1 \end{bmatrix}, \qquad M =
-\begin{bmatrix} s\cos\theta & -s\sin\theta & t_x \\\\ s\sin\theta & s\cos\theta & t_y \\\\ 0 & 0 & 1 \end{bmatrix}.
+\begin{bmatrix} s\\,cos\theta & -s\\,sin\theta & t_x \\\\ s\\,sin\theta & s\\,cos\theta & t_y \\\\ 0 & 0 & 1 \end{bmatrix}.
 $$
 
 Why bother?  Three reasons, all of which we use later:
@@ -267,7 +267,7 @@ $$
 \large
 M = \begin{bmatrix} A & t \\\\ 0 & 1 \end{bmatrix},
 \qquad
-A = s R_\theta = \begin{bmatrix} s\cos\theta & -s\sin\theta \\\\ s\sin\theta & s\cos\theta \end{bmatrix}.
+A = s R_\theta = \begin{bmatrix} s\\,cos\theta & -s\\,sin\theta \\\\ s\\,sin\theta & s\\,cos\theta \end{bmatrix}.
 $$
 
 We want $`M^{-1}`$, i.e. a matrix satisfying $`M^{-1} (x', \, 1)^\top = (x, \, 1)^\top`$.
@@ -490,7 +490,7 @@ we want to recover `(s, θ, t)`.  From §2.3,
 $$
 \large
 A = s \begin{bmatrix} \cos\theta & -\sin\theta \\\\ \sin\theta & \cos\theta \end{bmatrix}
-  = \begin{bmatrix} s\cos\theta & -s\sin\theta \\\\ s\sin\theta & s\cos\theta \end{bmatrix},
+  = \begin{bmatrix} s\\,cos\theta & -s\\,sin\theta \\\\ s\\,sin\theta & s\\,cos\theta \end{bmatrix},
 $$
 
 so reading column by column:  the first column is `(a, c) = (s cos θ, s sin θ)`.
@@ -1143,7 +1143,7 @@ The displacements run over a bounded window:
 
 $$
 \large
-|\delta_y|\\, |\delta_x| \le r,
+|\delta_y| |\delta_x| \le r,
 $$
 
 with `r` the configured radius (default `6` at `1/8` resolution).  So we ask,
