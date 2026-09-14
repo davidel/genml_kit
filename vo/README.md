@@ -2479,10 +2479,7 @@ $`K`$ recovers the same gain:
 
 $$
 \large
-\frac{\partial}{\partial K}\mathop{\mathrm{tr}}\bigl(P - KHP - P H^\top K^\top
-+ K (H P H^\top + R) K^\top\bigr) = 0
-\;\Longrightarrow\;
-K = P H^\top (H P H^\top + R)^{-1} .
+\frac{\partial}{\partial K}\mathop{\mathrm{tr}}\bigl(P - KHP - P H^\top K^\top + K (H P H^\top + R) K^\top\bigr) = 0 \;\Longrightarrow\; K = P H^\top (H P H^\top + R)^{-1} .
 $$
 
 So the whole update step is "add two quadratics and complete the square, then
