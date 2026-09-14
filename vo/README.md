@@ -2392,13 +2392,30 @@ EKF *linearizes* $`h`$ about the current estimate once per step (the $`H_{k}`$
 above) and runs the standard linear mechanics — the same philosophy as the
 LK linearization of §21, applied to the filter.
 
-**Derivation: where the update and the Kalman gain come from.**  The
+**The one lemma the whole filter rests on.**  An affine map of a Gaussian is a
+Gaussian: if $`x \sim \mathcal{N}(\mu, P)`$ and $`w \sim \mathcal{N}(0, Q)`$ are
+independent, then for any matrix $`F`$,
+
+$$
+\large
+F x + w \;\sim\; \mathcal{N}\bigl(F \mu,\; F P F^\top + Q\bigr) .
+$$
+
+This is the entire *predict* step: apply $`F`$ to the mean and propagate the
+covariance as $`P \mapsto F P F^\top + Q`$, with $`Q`$ adding the uncertainty of
+the process noise $`w`$.  The filter needs no other stochastic fact.
+
+**Derivation: where the update and the Kalman gain come from.**
 "weighted blend" in the paragraph above is not a heuristic — it is the
 algebra of *multivariate Gaussians*, and the single most instructive
 derivation in the whole filter.  If we ignore the time indices, the update
 step is this: we hold a prior belief $`x \sim \mathcal{N}(\mu, P)`$ (the prediction from
 $`F_{k}`$, with $`P = P_{k}^{-}`$) and receive a measurement $`z = Hx + v`$ with
-$`v \sim \mathcal{N}(0, R)`$.  What is the best posterior belief $`x | z`$?
+$`v \sim \mathcal{N}(0, R)`$.  Here, as everywhere in this document, the second
+Gaussian parameter is the **covariance (matrix)**: $`P`$ is a covariance, not a
+standard deviation — so writing $`P^{-1}`$ below is a matrix inverse, not
+"inverting a scalar".  (In the scalar case the counterpart would be
+$`\sigma^{2}`$, the variance, not $`\sigma`$.)  What is the best posterior belief $`x | z`$?
 
 Bayes' rule says the posterior density is the prior times the likelihood.
 Both are Gaussian, so the product is again Gaussian, and the exponent of a
@@ -2486,6 +2503,43 @@ So the whole update step is "add two quadratics and complete the square, then
 minimize the resulting covariance."  That is all the Kalman filter does, and
 why it is both optimal (for Gaussians) and simple (it is just
 posterior-Gaussian algebra).
+
+**The complete filter.**  Restoring the time indices, the two halves assemble
+into the loop the front-end's contract feeds.  The *predict* step is the lemma
+above applied with $`F = F_{k-1}`$; the *update* step is the derivation above
+(Prior $`=`$ the prediction).
+
+*Predict* (from the previous corrected estimate $`\hat{x}_{k-1}, \; P_{k-1}`$):
+
+$$
+\large
+\hat{x}_{k}^{-} = F_{k-1}\, \hat{x}_{k-1},
+\qquad
+P_{k}^{-} = F_{k-1}\, P_{k-1}\, F_{k-1}^{\top} + Q_{k-1} .
+$$
+
+*Update* (with measurement $`z_{k}`$ and Jacobian $`H_{k}`$):
+
+$$
+\large
+y_{k} = z_{k} - H_{k}\, \hat{x}_{k}^{-},
+\qquad
+S_{k} = H_{k}\, P_{k}^{-}\, H_{k}^{\top} + R_{k},
+$$
+
+$$
+\large
+K_{k} = P_{k}^{-}\, H_{k}^{\top}\, S_{k}^{-1},
+\qquad
+\hat{x}_{k} = \hat{x}_{k}^{-} + K_{k}\, y_{k},
+\qquad
+P_{k} = (I - K_{k} H_{k})\, P_{k}^{-} .
+$$
+
+The innovation $`y_{k}`$ and its covariance $`S_{k}`$ are exactly the quantities
+§25 gates on; the gain $`K_{k}`$ is the optimality-constrained blend of §23;
+the process-noise covariance $`Q_{k}`$ enters only through the predict step; the
+measurement-noise covariance $`R_{k}`$ enters only through the update step.
 
 ## 24. Confidence as measurement noise
 
