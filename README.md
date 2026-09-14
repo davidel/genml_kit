@@ -258,7 +258,7 @@ masked region. The objective is regression in representation space:
 
 $$
 \large
-\mathcal{L}_{\text{IJEPA}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| q_\theta(f_\theta(\text{context}))_i - \mathrm{stopgrad}\!\left(f_\xi(x_i)\right) \right\|_2^2
+\mathcal{L}_{\text{IJEPA}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| q_\theta(f_\theta(\text{context}))_i - \mathop{\mathrm{stopgrad}}\left(f_\xi(x_i)\right) \right\|_2^2
 $$
 
 where:

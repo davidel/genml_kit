@@ -721,7 +721,7 @@ to the depth.  Three consequences that drive everything later:
 
 $$
 \large
-\frac{W}{2} = f\\,\tan\alpha_{\max}\\,\Longrightarrow\\, \alpha_{\max} = \arctan\!\left(\frac{W}{2f}\right),\qquad \mathrm{FOV}_h = 2\\,\arctan\!\left(\frac{W}{2f}\right).
+\frac{W}{2} = f\\,\tan\alpha_{\max}\,\Longrightarrow\, \alpha_{\max} = \mathop{\mathrm{arctan}}\left(\frac{W}{2f}\right),\qquad \mathrm{FOV}_h = 2\,\mathop{\mathrm{arctan}}\left(\frac{W}{2f}\right).
 $$
 
 For $`f_{x} = 1000`$, $`W = 2000`$: $`FOV_{h} = 2 \mathop{\mathrm{arctan}}(1) = 90^{\circ}`$ — the worked
