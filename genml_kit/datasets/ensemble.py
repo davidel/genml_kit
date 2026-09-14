@@ -34,7 +34,9 @@ class _HFDataset:
     self._label_names = []
     self._label2id = {}
     self._column_map = {}
+
     from datasets import load_dataset
+
     logging.info(f"Loading HF dataset '{name}' (split={split}) ...")
     ds = load_dataset(name, split=split, cache_dir=cache_dir, token=hf_token)
     if len(ds) == 0:
@@ -54,7 +56,9 @@ class _HFDataset:
 
   def _detect_labels(self, label_column=None):
     """Detect and normalize the label column, if any."""
+
     import datasets as ds_lib
+
     self._label_names = []
     self._label2id = {}
     self._label_col = label_column

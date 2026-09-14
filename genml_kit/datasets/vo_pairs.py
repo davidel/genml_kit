@@ -14,6 +14,8 @@ import collections
 import numpy as np
 import torch
 
+from genml_kit.geometry.similarity import umeyama_similarity
+
 VOPairMeta = collections.namedtuple("VOPairMeta",
                                     ["gt", "gt_residual", "terrain", "range_bin"])
 
@@ -115,7 +117,6 @@ def homography_to_similarity(h, size):
   mapped = mapped[:, :2] / mapped[:, 2:3]
   src = torch.tensor(corners[:, :2], dtype=torch.float64).unsqueeze(0)
   dst = torch.tensor(mapped, dtype=torch.float64).unsqueeze(0)
-  from genml_kit.geometry.similarity import umeyama_similarity
   fit = umeyama_similarity(src, dst)
   mat = (params_to_matrix_np(fit.log_s[0].item(), fit.theta[0].item(),
                              fit.t[0].tolist()))
@@ -152,6 +153,9 @@ class VOPairDataset:
       motion_cfg: outer-envelope dict, see :func:`sample_motion`.
       terrain: terrain class label string.
       seed: integer seed for this dataset instance.
+      cam: intrinsic dict with 'fx', 'fy', 'cx', 'cy' keys.
+      pitch_deg: camera pitch below horizontal, in degrees.  The default
+          of 45.0 matches the oblique mounting described in ``vo/README.md``.
   """
 
   def __init__(self,
@@ -160,7 +164,8 @@ class VOPairDataset:
                motion_cfg=None,
                terrain="field",
                seed=0,
-               cam=None):
+               cam=None,
+               pitch_deg=45.0):
     self.length = length
     self.size = size
     self.motion_cfg = motion_cfg or {
@@ -177,11 +182,23 @@ class VOPairDataset:
         "cx": size[0] / 2.0,
         "cy": size[1] / 2.0
     }
+    self.pitch = math_radians(pitch_deg)
 
   def __len__(self):
     return self.length
 
+  # Tile texture is a deliberate, fixed design: low-frequency value noise
+  # (``NOISE_CELL_PX`` cells) plus a fine grid (``GRID_PERIOD_PX`` period,
+  # ``GRID_LINE_PX`` stroke).  These statistics define the visual structure
+  # of the synthetic terrain, not any camera behaviour, so they are hard-coded
+  # rather than exposed as constructor options.
   TILE_SCALE = 4  # base tile is this many image widths per side
+  NOISE_CELL_PX = 8  # value-noise cell size in tile pixels
+  GRID_PERIOD_PX = 32  # grid spacing, tile pixels
+  GRID_LINE_PX = 2  # grid stroke width, tile pixels
+  GRID_WEIGHT = 0.25  # grid contribution in [0, 1]
+  NOISE_WEIGHT = 0.75  # value-noise contribution in [0, 1]
+  TILE_CLIP = (0.0, 1.0)  # texture is normalized to this range
 
   def _base_tile(self, rng):
     """Procedural ground texture: value noise + grid, in [0, 1].
@@ -191,12 +208,16 @@ class VOPairDataset:
     translation, and the extra margin keeps it free of edge zeros.
     """
     side = self.TILE_SCALE * max(self.size)
-    low = rng.random((side // 8 + 1, side // 8 + 1))
-    image = np.kron(low, np.ones((8, 8)))[:side, :side]
+    low = rng.random((side // self.NOISE_CELL_PX + 1, side // self.NOISE_CELL_PX + 1))
+    image = np.kron(low, np.ones(
+        (self.NOISE_CELL_PX, self.NOISE_CELL_PX)))[:side, :side]
     xs = np.arange(side)[None, :]
     ys = np.arange(side)[:, None]
-    grid = ((xs % 32 < 2) | (ys % 32 < 2)).astype(np.float64) * 0.25
-    return np.clip(image * 0.75 + grid, 0.0, 1.0)
+    grid = ((xs % self.GRID_PERIOD_PX < self.GRID_LINE_PX) |
+            (ys % self.GRID_PERIOD_PX < self.GRID_LINE_PX)).astype(
+                np.float64) * self.GRID_WEIGHT
+    return np.clip(image * self.NOISE_WEIGHT + grid, self.TILE_CLIP[0],
+                   self.TILE_CLIP[1])
 
   def _render(self, base, h):
     """Sample ``base`` through homography ``h`` (backward map)."""
@@ -231,11 +252,11 @@ class VOPairDataset:
     height = float(rng.uniform(30.0, 80.0))
     motion = sample_motion(rng, self.motion_cfg)
     # Place camera A on the ray through the world origin: the optical
-    # axis (pitch 45 down, yaw 45) hits the ground at the origin, so the
-    # origin projects to the image center and every motion of B moves
-    # content across the frame.  Frame B is A moved by the sampled
-    # motion (translation in ground units, height change, yaw).
-    pitch = np.deg2rad(45.0)
+    # axis (pitch ``self.pitch`` down, yaw 45) hits the ground at the
+    # origin, so the origin projects to the image center and every motion
+    # of B moves content across the frame.  Frame B is A moved by the
+    # sampled motion (translation in ground units, height change, yaw).
+    pitch = self.pitch
     yaw0 = np.deg2rad(45.0)
     dist = np.array([
         np.cos(yaw0) * np.cos(pitch),
