@@ -452,11 +452,11 @@ discontinuity the network has to learn to jump across.  Wrapping removes the
 discontinuity by construction.
 
 **Check your understanding.**  What is $`\mathop{\mathrm{wrap}}(\pi + 0.1)`$ and why does it matter
-for a network predicting angles near the boundary?  *Answer: `wrap(π+0.1) ≈
-−(π−0.1)$`. The angle`$π` (a half turn) and `−π` (also a half turn, the other
-way around) are the same physical rotation; wrapping puts the prediction on
-the same side of the cut as the target, so the loss is small where the physical
-error is small.*
+for a network predicting angles near the boundary?  *Answer:
+$\mathop{\mathrm{wrap}}(\pi + 0.1)\approx -(\pi - 0.1)$.  The angle $\pi$ (a half
+turn) and $-\pi$ (also a half turn, the other way around) are the same physical
+rotation; wrapping puts the prediction on the same side of the cut as the
+target, so the loss is small where the physical error is small.*
 
 *Implementation note.* `genml_kit/geometry/similarity.py::wrap_angle` is the
 wrapped subtraction used everywhere; `test_wrap_angle_branch_cut` checks the
@@ -897,8 +897,8 @@ The procedure (`homography_to_similarity` in `vo_pairs.py`):
    similarity has 4 DOF and we have 8 constraints (4 corners × 2
    coordinates), the fit is *over-determined* — there is a closed-form
    least-squares answer, the **Umeyama** solve of §13;
-4. report the residual `ρ = MCE between the fitted similarity's corners and
-   the true homography's corners`.
+4. report the residual $\rho$ = MCE between the fitted similarity's corners and
+   the true homography's corners.
 
 Two facts about step 3 make it the *right* definition of ground truth:
 
@@ -1866,9 +1866,15 @@ $$
 \\, \cdot \\, e^{-2\pi i\\, \omega \Delta / N}.
 $$
 
-The last equality uses that `e^{-2\pi i \omega (u+\Delta)/N} =
-e^{-2\pi i \omega u/N} \cdot e^{-2\pi i \omega \Delta/N}` — the exponential
-*factors*, which is precisely why "shift in space = multiply in frequency".
+The last equality uses that the exponential *factors*,
+
+$$
+\large
+e^{-2\pi i\\, \omega (u + \Delta)/N}
+= e^{-2\pi i\\, \omega u / N}\\, e^{-2\pi i\\, \omega \Delta / N} ,
+$$
+
+which is precisely why "shift in space = multiply in frequency".
 The final result is the clean statement
 
 $$
@@ -2414,7 +2420,7 @@ $$
 = z^\top R^{-1} z - 2 x^\top H^\top R^{-1} z + x^\top H^\top R^{-1} H x .
 $$
 
-The total exponent is $`x^\top (P^{-1} + H^\top R^{-1} H)\\, x - 2 x^\top (P^{-1} \mu + H^\top R^{-1} z) + (x\text{-independent terms})`$.  Matching to a Gaussian with mean $`\mu^{+}`$ and covariance $`P^{+}`$:
+The total exponent is $`x^\top (P^{-1} + H^\top R^{-1} H)\\, x - 2 x^\top (P^{-1} \mu + H^\top R^{-1} z) + C`$, where $`C`$ collects everything independent of $`x`$.  Matching to a Gaussian with mean $`\mu^{+}`$ and covariance $`P^{+}`$:
 
 $$
 \large
@@ -2423,26 +2429,66 @@ $$
 (P^{+})^{-1} \mu^{+} = P^{-1}\mu + H^\top R^{-1} z .
 $$
 
-Now *define* the Kalman gain $`K = P H^\top (H P H^\top + R)^{-1}`$ and apply
-the Woodbury matrix identity to the first line:
+**From precision to the gain.**  Eliminate $`P^{-1} + H^\top R^{-1} H`$ using the
+Woodbury matrix identity,
 
 $$
 \large
-P^{+} = P - K H P,\qquad
-\mu^{+} = \mu + K (z - H \mu) .
+(A + U C V)^{-1} = A^{-1} - A^{-1} U (C^{-1} + V A^{-1} U)^{-1} V A^{-1} ,
 $$
 
-The second line **is the update equation of §25.2**: $`\mu^{+} = \mu + K \cdot (innovation)`$,
-with the gain $`K`$ measuring exactly the relative trust between $`P`$ (how
-uncertain the prediction is) and $`R`$ (how noisy the measurement is).  If
-$`R`$ is tiny (confident VO), then $`K H \approx I`$ and $`\mu^{+} \approx z`$: the measurement
-dominates; if $`R`$ is huge (doubtful VO), $`K \approx 0`$ and $`\mu^{+} \approx \mu`$: the filter
-ignores the measurement and dead-reckons — which is precisely the confidence
-ladder of §24.3, now *derived* from the Gaussian product rather than asserted.
+with $`A = P, \; U = H^\top, \; C = R, \; V = H`$, and define the Kalman gain
 
-So the whole update step is "add two quadratics and complete the square."
-That is all the Kalman filter does, and why it is both optimal (for Gaussians)
-and simple (it is just posterior-Gaussian algebra).
+$$
+\large
+K = P H^\top (H P H^\top + R)^{-1} .
+$$
+
+Then the first line of (23.2) becomes
+
+$$
+\large
+P^{+} = (P^{-1} + H^\top R^{-1} H)^{-1}
+= P - P H^\top (H P H^\top + R)^{-1} H P
+= P - K H P ,
+$$
+
+and the second line is
+
+$$
+\large
+\mu^{+} = P^{+} (P^{-1} \mu + H^\top R^{-1} z)
+= \mu + K (z - H \mu) ,
+$$
+
+which is exactly the update equation of §25.2, $`\mu^{+} = \mu + K\,(\text{innovation})`$.
+Here $`P = P_{k}^{-}`$ is the **predicted (prior) covariance** and $`P^{+} = P_{k}^{+}`$
+the **corrected (posterior) covariance**; the superscripts denote "before" and
+"after" the measurement update.
+
+The gain $`K`$ measures exactly the relative trust between $`P`$ (how uncertain
+the prediction is) and $`R`$ (how noisy the measurement is).  If $`R`$ is tiny
+(confident VO), then $`K H \approx I`$ and $`\mu^{+} \approx z`$: the measurement
+dominates; if $`R`$ is huge (doubtful VO), $`K \approx 0`$ and $`\mu^{+} \approx \mu`$: the
+filter ignores the measurement and dead-reckons — which is precisely the
+confidence ladder of §24.3, now *derived* from the Gaussian product rather
+than asserted.
+
+**Optimality.**  Minimizing the posterior covariance $`P^{+}`$ with respect to
+$`K`$ recovers the same gain:
+
+$$
+\large
+\frac{\partial}{\partial K}\mathop{\mathrm{tr}}\bigl(P - KHP - P H^\top K^\top
++ K (H P H^\top + R) K^\top\bigr) = 0
+\;\Longrightarrow\;
+K = P H^\top (H P H^\top + R)^{-1} .
+$$
+
+So the whole update step is "add two quadratics and complete the square, then
+minimize the resulting covariance."  That is all the Kalman filter does, and
+why it is both optimal (for Gaussians) and simple (it is just
+posterior-Gaussian algebra).
 
 ## 24. Confidence as measurement noise
 
@@ -2461,8 +2507,9 @@ Therefore:
 
 ### 24.2 The mapping to $`R_{k}`$
 
-The filter's measurement-noise covariance must be small when the measurement
-is good and large when it is not.  Since MCE and $`\hat{\rho}`$ are both in *pixels*,
+The measurement-noise covariance $`R_{k}`$ (defined in §23) must be small when
+the measurement is good and large when it is not.  Since MCE and $`\hat{\rho}`$
+are both in *pixels*,
 the mapping is direct:
 
 $$
@@ -2509,7 +2556,8 @@ pose estimate.
 ### 25.1 The innovation
 
 The **innovation** $`y_{k}`$ is the difference between what we measured and what
-the prediction expected:
+the prediction expected.  The covariance $`S_k`$ and the predicted covariance
+$`P_k^-`$ are as defined in §23:
 
 $$
 \large
