@@ -1311,7 +1311,7 @@ $$
 $$
 
 with $`H = \sum_{i} \hat{q}_{i} \hat{p}_{i}^{\top}`$ the cross-covariance of Step 2.
-So minimizing $`E`$ means *maximizing $`\mathop{\mathrm{tr}}(HR)`$ over orthogonal $`R`$*.  Now write
+So minimizing $`E`$ means maximizing $`\mathop{\mathrm{tr}}(HR)`$ over orthogonal $`R`$ .  Now write
 $`H = U \Sigma V^{\top}`$ (its SVD):
 
 $$
