@@ -108,7 +108,7 @@ class TestConvViTHeadless:
 
   def test_ijepa_patchembedder_compatible(self):
     """I-JEPA's _PatchEmbedder probes `model`/patch attributes."""
-    from genml_kit.pretrain.methods.ijepa import _PatchEmbedder
+    from genml_kit.methods.ijepa import _PatchEmbedder
 
     model = load_model("convvit", num_labels=0, image_size=64)
     wrapped = _PatchEmbedder(model)

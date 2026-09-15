@@ -4,8 +4,8 @@ import argparse
 import pytest
 import torch
 
-from genml_kit.pretrain.methods import get_method, list_methods
-from genml_kit.pretrain.methods.simmim import SimMIMMethod, make_mask
+from genml_kit.methods import get_method, list_methods
+from genml_kit.methods.simmim import SimMIMMethod, make_mask
 
 
 class TestRegistry:
@@ -23,7 +23,7 @@ class TestRegistry:
     assert cls.NAME == "simmim"
 
   def test_unknown_method(self):
-    with pytest.raises(ValueError, match="Unknown pre-training method"):
+    with pytest.raises(ValueError, match="Unknown method"):
       get_method("nonexistent")
 
 

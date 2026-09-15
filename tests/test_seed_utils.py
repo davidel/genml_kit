@@ -141,29 +141,32 @@ class TestTrainFlags:
     assert args.seed == 42
 
   def test_pretrain_defaults_seed_none(self):
-    from genml_kit.pretrain.cli import parse_args
+    from genml_kit.training.train import parse_args
 
-    args = parse_args(["--method", "simmim", "--datasets", "dummy"])
+    args = parse_args(
+        ["--pipeline", "images", "--method", "simmim", "--datasets", "dummy"])
     assert args.seed is None
     assert not hasattr(args, "deterministic")
     assert args.grad_accum_steps == 1
     assert args.save_every == 500
 
   def test_pretrain_save_every_override(self):
-    from genml_kit.pretrain.cli import parse_args
+    from genml_kit.training.train import parse_args
 
-    args = parse_args(
-        ["--method", "simmim", "--datasets", "dummy", "--save_every", "100"])
+    args = parse_args([
+        "--pipeline", "images", "--method", "simmim", "--datasets", "dummy",
+        "--save_every", "100"
+    ])
     assert args.save_every == 100
 
   def test_pretrain_grad_accum_registered_once(self):
-    """Regression guard: pretrain.py must not re-register shared flags.
+    """Regression guard: the unified CLI must not re-register shared flags.
 
     A duplicate ``--grad_accum_steps`` (local copy + shared
     ``add_optimization_args``) makes parse_args raise
     ``ArgumentError: conflicting option string``.
     """
-    from genml_kit.pretrain.cli import parse_args
+    from genml_kit.training.train import parse_args
 
     parser_actions = []
     orig_add = argparse.ArgumentParser.add_argument
@@ -173,7 +176,7 @@ class TestTrainFlags:
       return orig_add(self, *names, **kwargs)
 
     with mock.patch.object(argparse.ArgumentParser, "add_argument", recording_add):
-      parse_args(["--method", "simmim", "--datasets", "dummy"])
+      parse_args(["--pipeline", "images", "--method", "simmim", "--datasets", "dummy"])
     assert parser_actions.count("--grad_accum_steps") == 1
 
 
@@ -186,9 +189,10 @@ class TestDeviceFlag:
     assert args.device is None
 
   def test_pretrain_device_default_is_none(self):
-    from genml_kit.pretrain.cli import parse_args
+    from genml_kit.training.train import parse_args
 
-    args = parse_args(["--method", "simmim", "--datasets", "dummy"])
+    args = parse_args(
+        ["--pipeline", "images", "--method", "simmim", "--datasets", "dummy"])
     assert args.device is None
 
   def test_train_device_cpu(self):
@@ -198,10 +202,12 @@ class TestDeviceFlag:
     assert args.device == "cpu"
 
   def test_pretrain_device_cuda_index(self):
-    from genml_kit.pretrain.cli import parse_args
+    from genml_kit.training.train import parse_args
 
-    args = parse_args(
-        ["--method", "simmim", "--datasets", "dummy", "--device", "cuda:1"])
+    args = parse_args([
+        "--pipeline", "images", "--method", "simmim", "--datasets", "dummy", "--device",
+        "cuda:1"
+    ])
     assert args.device == "cuda:1"
 
 

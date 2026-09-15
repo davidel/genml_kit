@@ -1,10 +1,13 @@
 """SimMIM masked-image modeling pre-training method."""
+
 import torch
 
+from genml_kit.methods.base import Method
+from genml_kit.methods.registry import register_method
+from genml_kit.models import load_model
 from genml_kit.models.convvit.masked_encoder import ConvViTMaskedImageEncoder
 from genml_kit.models.simmim import SimMIM, simmim_loss, unpatchify
-from genml_kit.pretrain.methods.base import PretrainMethod
-from genml_kit.pretrain.methods.registry import register_method
+from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.training.model_utils import model_mode
 
 
@@ -57,10 +60,12 @@ def make_mask(images, patch_size, mask_ratio, patch_size_multiplier=1):
 
 
 @register_method
-class SimMIMMethod(PretrainMethod):
+class SimMIMMethod(Method):
   """SimMIM: simple masked image modeling."""
 
   NAME = "simmim"
+
+  metric_key = "loss"
 
   def add_args(self, parser):
     p = parser.add_argument_group("SimMIM")
@@ -83,8 +88,18 @@ class SimMIMMethod(PretrainMethod):
         help="Number of Linear->GELU layers in the decoder (default: 2).",
     )
 
-  def build(self, args, encoder, device):
-    enc = ConvViTMaskedImageEncoder(encoder)
+  def build_model(self, args, device):
+    base_model = load_model(
+        args.model,
+        num_labels=0,
+        id2label={},
+        label2id={},
+        image_size=args.image_size,
+        cache_dir=getattr(args, "cache_dir", None),
+        device=device,
+        **getattr(args, "model_arg", {}),
+    )
+    enc = ConvViTMaskedImageEncoder(base_model)
     model = SimMIM(
         enc,
         decoder_dim=args.decoder_dim,
@@ -93,14 +108,16 @@ class SimMIMMethod(PretrainMethod):
     model.mask_ratio = args.mask_ratio
     return model
 
-  def train_step(self, model, images, global_step, *, labels=None):
+  def train_step(self, model, blob, global_step, *, labels=None):
+    images = blob.data
     mask = make_mask(images, model.patch_size, model.mask_ratio)
     output, target = model(images, mask)
     loss = simmim_loss(output, target, mask)
-    return loss, {
-        "loss": loss.item(),
-        "mask_ratio": model.mask_ratio,
-    }
+    return LossOutput(loss=loss,
+                      metrics={
+                          "loss": loss.detach(),
+                          "mask_ratio": model.mask_ratio,
+                      })
 
   def get_checkpoint_state(self, model, args):
     return {

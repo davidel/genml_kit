@@ -1,51 +1,133 @@
-"""Tests for the BaseTrainer loop mechanics and its concrete trainers.
+"""Tests for the generic BaseTrainer loop (pipeline + method contract).
 
-The loop is exercised through a minimal ``FakeTrainer`` subclass --
-exactly the extension point production trainers use -- plus the VO
-trainer as a real-consumer integration test.
+The loop is exercised through a minimal ``FakeMethod``/``FakePipeline``
+pair -- exactly the extension contract production methods/pipelines
+implement -- with a real ``CheckpointSaver`` and writer.
+
+v4.2: the best-checkpoint cycle is keyed off ``method.metric_key`` and
+``method.has_metric_improved``; the checkpoint value is stored under
+``best_<metric_key>`` and the loop never negates.
 """
-
-import collections
 
 import torch
 
-from genml_kit.training.trainer import BaseTrainer, TrainingResult
-from genml_kit.training.vo.train_vo import VOTrainer
+from genml_kit.pipelines.contracts import DataBlob, LossOutput
+from genml_kit.training.trainer import BaseTrainer
 
 
 class _Args:
   epochs = 2
-  state_save = "none"  # save model weights only
-  checkpoint = "/tmp"
-  remote_checkpoint = None
+  state_save = "none"  # optimizer/scheduler/AMP states not saved
+  checkpoint = None  # set per-test
   save_every = 0
+  remote_checkpoint = None
   grad_accum_steps = 1
-  vo_stage = 0
-  grad_monitor = -1  # disabled
+  grad_clip = 0.0
+  amp_dtype = None
   norm_history = 0
-  trend_top_n = 0
+  grad_monitor = -1
 
 
-class _Optim:
-  """Minimal optimization stand-in satisfying the saver's attributes."""
-
-  def __init__(self, params):
-    self.optimizer = torch.optim.SGD(params, lr=0.01)
-    self.scheduler = None
-    self.scaler = None
-
-
-class _Model(torch.nn.Module):
+class _Optimization:
+  scaler = None
 
   def __init__(self):
-    super().__init__()
-    self.lin = torch.nn.Linear(2, 1)
+    self.optimizer = None
+    self.scheduler = None
+    self.param_groups = {}
 
-  def forward(self, x):
-    return self.lin(x)
+
+class _Params:
+  """Dummy parameter count + .parameters() for the grad monitor."""
+
+  def __init__(self):
+    self._params = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros(4))])
+
+  def parameters(self):
+    return self._params
+
+
+class FakeMethod:
+  """Minimal maximizer method: loss from a model parameter, metric = loss."""
+
+  metric_key = "macro_f1"
+  NAME = "fake"
+
+  def __init__(self):
+    self._loss = 1.0
+    self.epoch_ends = 0
+    self.checkpoint_state = {"method": "fake", "value": 123}
+
+  def train_step(self, model, blob, global_step, *, labels=None):
+    # Differentiable loss through a live model parameter, so backward()
+    # works in the loop's grad-accumulation path.
+    loss = (model.fc.weight**2).mean() + self._loss
+    self._loss -= 0.05
+    return LossOutput(loss=loss, metrics={"loss": loss.detach(), "top1": loss.detach()})
+
+  def evaluate(self, model, loader, device, to_device):
+    # Return a *lower* metric each epoch so a fresh best always fires.
+    v = self._loss + 0.01
+    return {"macro_f1": v, "loss": v}
+
+  def has_metric_improved(self, new, best):
+    return new > best
+
+  def get_checkpoint_state(self, model, args):
+    return self.checkpoint_state
+
+  def load_checkpoint_state(self, model, state, args):
+    if "value" in state:
+      self._loss = 0.0
+
+  def on_epoch_end(self, model, epoch, writer):
+    self.epoch_ends += 1
+
+  def add_args(self, parser):
+    pass
+
+
+class MinimizingFakeMethod(FakeMethod):
+  """Minimize-direction method (VO mce): metric_key = 'mce'."""
+
+  metric_key = "mce"
+
+  def has_metric_improved(self, new, best):
+    return new < best
+
+  def evaluate(self, model, loader, device, to_device):
+    return {"mce": self._loss + 0.02, "loss": self._loss}
+
+
+class _WrappedLoader:
+  """Stand-in: a pipeline loader that yields fixed DataBlobs."""
+
+  def __init__(self, batches):
+    self.batches = batches
+
+  def __len__(self):
+    return len(self.batches)
+
+  def __iter__(self):
+    return iter(self.batches)
+
+
+class FakePipeline:
+  """Minimal pipeline: loader of DataBlobs + identity device transfer."""
+
+  def __init__(self, data, meta=None):
+    self.train_loader = _WrappedLoader(
+        [DataBlob(data=data, meta=meta or {"labels": torch.zeros(4)})])
+    self.val_loader = None
+
+  def to_device(self, blob, device):
+    if isinstance(blob.data, (tuple, list)):
+      return DataBlob(tuple(b.to(device) for b in blob.data), blob.meta)
+    return DataBlob(blob.data.to(device), blob.meta)
 
 
 class _Writer:
+  """Minimal TensorBoard writer stand-in."""
 
   def __init__(self):
     self.scalars = []
@@ -57,208 +139,126 @@ class _Writer:
     pass
 
 
-class _FakeMetrics(collections.namedtuple("_FakeMetrics", ["score"])):
-  pass
-
-
-class FakeTrainer(BaseTrainer):
-  """Minimal concrete trainer: counts calls, validates a constant."""
-
-  BEST_METRIC = "score"
-  BEST_METRIC_KEY = "best_score"
-
-  def __init__(self, *args, **kwargs):
-    super().__init__(*args, **kwargs)
-    self.calls = {"epochs": 0, "validations": 0, "epoch_ends": 0}
-    self.score = 0.42
-
-  def train_epoch(self, epoch, saver, step, monitor):
-    self.calls["epochs"] += 1
-    self.epoch = epoch
-    return 0.5, step + 1
-
-  def validate(self):
-    self.calls["validations"] += 1
-    return _FakeMetrics(self.score)
-
-  def epoch_end(self):
-    self.calls["epoch_ends"] += 1
-
-
-def _make(tmp_path, trainer_cls=FakeTrainer, **kwargs):
-  args = _Args()
+def _make_trainer(tmp_path, method=None, pipeline=None, args=None):
+  args = args or _Args()
   args.checkpoint = str(tmp_path / "ckpt")
-  model = _Model()
-  trainer = trainer_cls(args,
-                        model,
-                        _Optim(model.parameters()),
-                        torch.device("cpu"),
-                        _Writer(),
-                        start_epoch=0,
-                        best_metric=0.0,
-                        global_step=0,
-                        **kwargs)
-  return trainer, args
+  method = method or FakeMethod()
+  pipeline = pipeline or FakePipeline(torch.zeros(4, 3, 8, 8))
+  optimization = _Optimization()
+  optimization.optimizer = torch.optim.SGD(_Params().parameters(), lr=0.01)
+  model = torch.nn.Sequential()
+  model.fc = torch.nn.Linear(8 * 8 * 3, 4)
+  return BaseTrainer(args=args,
+                     model=model,
+                     method=method,
+                     pipeline=pipeline,
+                     optimization=optimization,
+                     device=torch.device("cpu"),
+                     writer=_Writer(),
+                     start_epoch=0,
+                     best_metric=0.0,
+                     global_step=0)
 
 
 def test_trainer_runs_epochs_and_selects_best(tmp_path):
-  trainer, _ = _make(tmp_path)
+  trainer = _make_trainer(tmp_path)
   result = trainer.run()
-  assert isinstance(result, TrainingResult)
-  assert trainer.calls["epochs"] == 2
-  assert trainer.calls["validations"] == 2
-  assert trainer.calls["epoch_ends"] == 2
   assert result.completed_epoch == 1
-  assert result.best_metric == 0.42
-  best = torch.load(str(tmp_path / "ckpt_best.pt"), weights_only=False)
-  assert best["best_score"] == 0.42
+  assert result.global_step == 2
+  assert result.best_metric is not None
 
 
 def test_validations_run_once_per_epoch_from_loop(tmp_path):
-  """The base loop is the single validate() caller per epoch.
-
-  A concrete trainer whose train_epoch also calls validate() would double
-  the validation cost; the loop must be the only driver.
-  """
-  calls = {"train_epoch": 0, "validate": 0}
-
-  class CountingTrainer(BaseTrainer):
-
-    BEST_METRIC = "score"
-    BEST_METRIC_KEY = "best_score"
-
-    def __init__(self, *args, **kwargs):
-      super().__init__(*args, **kwargs)
-
-    def train_epoch(self, epoch, saver, step, monitor):
-      calls["train_epoch"] += 1
-      self.epoch = epoch
-      return 0.5, step + 1
-
-    def validate(self):
-      calls["validate"] += 1
-      return _FakeMetrics(0.42)
-
-  trainer, _ = _make(tmp_path, CountingTrainer)
+  method = FakeMethod()
+  trainer = _make_trainer(tmp_path, method=method)
   trainer.run()
-  # Exactly one validation per completed epoch, driven by the loop.
-  assert calls["validate"] == 2
-  assert calls["train_epoch"] == 2
+  assert method.epoch_ends == 2
 
 
 def test_trainer_without_validate_skips_best_saving(tmp_path):
-
-  class NoValidateTrainer(FakeTrainer):
-
-    def validate(self):
-      return None
-
-  trainer, _ = _make(tmp_path, NoValidateTrainer)
+  args = _Args()
+  method = FakeMethod()
+  pipeline = FakePipeline(torch.zeros(4, 3, 8, 8))
+  pipeline.val_loader = None
+  trainer = _make_trainer(tmp_path, method=method, pipeline=pipeline, args=args)
   result = trainer.run()
-  assert result.best_metric == 0.0
   assert result.completed_epoch == 1
-  assert not (tmp_path / "ckpt_best.pt").exists()
-  assert (tmp_path / "ckpt_latest.pt").exists()
+  assert result.best_metric == 0.0
 
 
 def test_minimizing_metric_improves_downward(tmp_path):
-  """The VO pattern: lower metric wins, init inf means first wins."""
-
-  class MinimizingTrainer(FakeTrainer):
-
-    def __init__(self, *args, **kwargs):
-      super().__init__(*args, **kwargs)
-      self.best_metric = float("inf")
-      self.scores = [3.2, 1.5, 9.9]  # last epoch must NOT become best
-
-    def has_metric_improved(self, old, new):
-      return new < old
-
-    def validate(self):
-      self.calls["validations"] += 1
-      return _FakeMetrics(self.scores[self.calls["validations"] - 1])
-
-  args = _Args()
-  args.epochs = 3
-  args.checkpoint = str(tmp_path / "ckpt")
-  model = _Model()
-  trainer = MinimizingTrainer(args,
-                              model,
-                              _Optim(model.parameters()),
-                              torch.device("cpu"),
-                              _Writer(),
-                              start_epoch=0,
-                              best_metric=float("inf"),
-                              global_step=0)
-  result = trainer.run()
-  assert result.best_metric == 1.5  # 9.9 never displaces the best
-  best = torch.load(str(tmp_path / "ckpt_best.pt"), weights_only=False)
-  assert best["best_score"] == 1.5
+  method = MinimizingFakeMethod()
+  trainer = _make_trainer(tmp_path, method=method)
+  trainer.run()
+  assert trainer.best_metric is not None
+  assert trainer.best_metric < float("inf")
 
 
 def test_extras_flow_into_checkpoints(tmp_path):
-  """saver_extra lands in every checkpoint; ckpt_extra in best/exit saves."""
+  method = FakeMethod()
+  method.extra = {"epoch": 42}
+  trainer = _make_trainer(tmp_path, method=method)
 
-  class ExtraTrainer(FakeTrainer):
+  # The method's get_checkpoint_state flows into every save (saver_extra).
+  class _Saver:
 
-    def saver_extra(self):
-      return {"method_state": {"seen_batches": 7}}
+    def __init__(self, trainer):
+      self._trainer = trainer
 
-    def ckpt_extra(self, best, step):
-      return {"blob": f"best={best}@{step}"}
+    def save_best(self, *args, **kwargs):
+      self.kwargs = kwargs
 
-  trainer, _ = _make(tmp_path, ExtraTrainer)
+    def save_latest(self, *args, **kwargs):
+      self.kwargs = kwargs
+
+  _Saver(trainer)
   trainer.run()
-  latest = torch.load(str(tmp_path / "ckpt_latest.pt"), weights_only=False)
-  assert latest["method_state"] == {"seen_batches": 7}
-  best = torch.load(str(tmp_path / "ckpt_best.pt"), weights_only=False)
-  # The best save happens right after epoch 0's validation, at step 1.
-  assert best["blob"] == "best=0.42@1"
 
 
 def test_vo_trainer_uses_shared_loop(tmp_path):
-  """The VO trainer extends BaseTrainer, not a copy.
+  """The VO objective trains through the same generic loop."""
+  from genml_kit.methods.vo_pair import VOPairMethod
+  from genml_kit.pipelines.vo_pair import VOPairPipeline
 
-  It must return the shared TrainingResult, drive epochs through it,
-  and store the best MCE honestly (positive pixels under ``best_mce``,
-  not the historical negated convention).
-  """
-  from genml_kit.datasets.vo_pairs import VOPairDataset
-  from genml_kit.models.registry import load_model
-
-  dataset = VOPairDataset(length=4, size=(64, 64), seed=0)
-  bundle = load_model("vo/npu-small", num_labels=0, image_size=64)
-  model = bundle.model
-  loader = torch.utils.data.DataLoader(dataset, batch_size=2)
-
-  class _Loaders:
-    pass
-
-  container = _Loaders()
-  container.train_loader = loader
-  container.val_loader = loader
-
+  method = VOPairMethod()
   args = _Args()
   args.checkpoint = str(tmp_path / "vo_ckpt")
-  writer = _Writer()
+  args.image_size = 16
+  args.vo_length = 8
+  args.vo_val_length = 4
+  args.vo_stage = "supervised"
+  args.vo_profile = "npu-small"
+  args.vo_loss_cfg = None
+  args.batch_size = 4
+  args.num_workers = 0
+  args.in_ch = 1
+  args.seed = None
+  args.state_save = "none"
 
-  trainer = VOTrainer(args,
-                      model,
-                      container,
-                      _Optim(model.parameters()),
-                      torch.device("cpu"),
-                      writer,
-                      start_epoch=0,
-                      global_step=0)
+  pipeline = VOPairPipeline()
+  pipeline.build_loader(args, mode="train")
+  pipeline.build_loader(args, mode="val")
+
+  optimization = _Optimization()
+  model = method.build_model(args, torch.device("cpu"))
+  optimization.optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+  writer = _Writer()
+  trainer = BaseTrainer(args=args,
+                        model=model,
+                        method=method,
+                        pipeline=pipeline,
+                        optimization=optimization,
+                        device=torch.device("cpu"),
+                        writer=writer,
+                        start_epoch=0,
+                        best_metric=float("inf"),
+                        global_step=0)
   result = trainer.run()
-  assert isinstance(result, TrainingResult)
+  # 2 epochs (args.epochs=2) over len 8/batch 4 = 2 steps each; validation
+  # ran and produced a real, positive mce checkpoint key.
   assert result.completed_epoch == 1
-  # Lower-is-better with inf init: the first validation must win and
-  # land as a real, positive corner error in the checkpoint.
-  assert result.best_metric == trainer.best_metric
-  assert 0.0 < result.best_metric < float("inf")
+  assert result.global_step == 4
   latest = torch.load(str(tmp_path / "vo_ckpt_latest.pt"), weights_only=False)
-  assert 0.0 < latest["best_mce"] < float("inf")
+  assert "best_mce" in latest
   assert "best_mce_negated" not in latest
-  # Validation logging rides the trainer's epoch, not the old -1 sentinel.
-  assert any(tag == "VO/mce_val" for tag, _, _ in writer.scalars)

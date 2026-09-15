@@ -40,7 +40,7 @@ def test_layers_have_distinct_initialization():
 
 
 def test_pre_norm_construction_emits_no_warnings():
-  from genml_kit.pretrain.methods.ijepa import _Predictor
+  from genml_kit.methods.ijepa import _Predictor
 
   with warnings.catch_warnings():
     warnings.simplefilter("error")

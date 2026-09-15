@@ -10,8 +10,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from genml_kit.pretrain.methods.base import PretrainMethod
-from genml_kit.pretrain.methods.registry import register_method
+from genml_kit.methods.base import Method
+from genml_kit.methods.registry import register_method
+from genml_kit.models import load_model
+from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.training.model_utils import set_train_mode
 from genml_kit.utils.transformer import build_transformer_encoder
 
@@ -121,10 +123,12 @@ def _make_block_mask(num_h, num_w, block_size_h, block_size_w, n_blocks, device)
 
 
 @register_method
-class IJEPAMethod(PretrainMethod):
+class IJEPAMethod(Method):
   """I-JEPA: Image-based Joint-Embedding Predictive Architecture."""
 
   NAME = "ijepa"
+  needs_labels = False
+  metric_key = "loss"
 
   def add_args(self, parser):
     p = parser.add_argument_group("I-JEPA")
@@ -165,7 +169,17 @@ class IJEPAMethod(PretrainMethod):
         help="Scalar weight for the I-JEPA loss (default: 1.0).",
     )
 
-  def build(self, args, encoder, device):
+  def build_model(self, args, device):
+    encoder = load_model(
+        args.model,
+        num_labels=0,
+        id2label={},
+        label2id={},
+        image_size=args.image_size,
+        cache_dir=getattr(args, "cache_dir", None),
+        device=device,
+        **getattr(args, "model_arg", {}),
+    )
     student = _PatchEmbedder(encoder).to(device)
     teacher = copy.deepcopy(student)
     # Teacher starts identical to student, no grad.
@@ -190,10 +204,14 @@ class IJEPAMethod(PretrainMethod):
         weight=args.ijepa_weight,
     )
 
-  def train_step(self, model, images, global_step, *, labels=None):
+  def train_step(self, model, blob, global_step, *, labels=None):
     set_train_mode(model, 'train')
-    loss, info = model(images)
-    return loss, info
+    loss, info = model(blob.data)
+    return LossOutput(
+        loss=loss,
+        metrics={
+            k: torch.tensor(v, dtype=torch.float32) for k, v in info.items()
+        })
 
   def get_checkpoint_state(self, model, args):
     return {

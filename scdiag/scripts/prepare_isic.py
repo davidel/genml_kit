@@ -3,7 +3,7 @@
 
 Downloads images from the ISIC (International Skin Imaging Collaboration)
 archive using the isic-cli tool, and stores them in a target folder
-compatible with genml-kit-pretrain.
+compatible with genml-kit-train (--datasets).
 
 Usage:
     python scripts/prepare_isic.py --output_dir ./isic_images
@@ -198,7 +198,8 @@ def main():
 
     print("\n" + "=" * 60)
     print("DONE! Use the following command to pretrain:")
-    print(f"  genml-kit-pretrain --datasets {args.output_dir} --image_size 448 ...")
+    print(f"  genml-kit-train --pipeline images --method simmim "
+          f"--datasets {args.output_dir} --image_size 448 ...")
     print("=" * 60)
 
   except RuntimeError as e:

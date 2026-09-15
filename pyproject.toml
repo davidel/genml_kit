@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "genml_kit"
 version = "0.1.0"
-description = "General-purpose ML toolkit: image-classification training, self-supervised pre-training, and XGBoost ensemble inference."
+description = "General-purpose ML toolkit: image-classification, visual-odometry and self-supervised pre-training through one unified harness."
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.9"
@@ -32,7 +32,6 @@ dev = ["pytest", "ruff", "yapf"]
 
 [project.scripts]
 genml-kit-train = "genml_kit.training.train:main"
-genml-kit-pretrain = "genml_kit.pretrain.cli:main"
 genml-kit-infer = "genml_kit.training.infer:main"
 
 [tool.setuptools.packages.find]
@@ -43,7 +42,11 @@ target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "SIM", "UP"]
-ignore = ["LOG015", "PLC0415", "RUF012", "PLR0402"]
+# I001 (import sorting) is disabled: ruff's isort forces 4-space
+# continuation indents inside parenthesized imports, while the project's
+# yapf config (.style.yapf, Google style, 2-space base) wraps them with
+# 2-space continuation.  yapf is authoritative for indentation.
+ignore = ["I001", "LOG015", "PLC0415", "RUF012", "PLR0402"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

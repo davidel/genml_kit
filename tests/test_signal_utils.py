@@ -109,10 +109,8 @@ class TestSigexcept:
     assert interrupts.received == ["SIGUSR1"]
 
   def test_train_import_wiring(self):
-    # Integration smoke: the training entries must expose the shared
-    # loop result type (wiring reviewed via the train/pretrain patches).
-    import genml_kit.pretrain.cli
+    # Integration smoke: the training entry must expose the shared loop
+    # result type (v4.2: one unified genml-kit-train binary).
     import genml_kit.training.train
 
     assert genml_kit.training.train.TrainingResult is TrainingResult
-    assert genml_kit.pretrain.cli.TrainingResult is TrainingResult

@@ -4,39 +4,38 @@ Pre-training method wiring the :class:`~genml_kit.models.dino.DINO`
 student/teacher module to the multi-crop data pipeline.
 
 Reference: Caron et al., *"Emerging Properties in Self-Supervised Vision
-Transformers"*, ICCV 2021 — https://arxiv.org/abs/2104.14294
+Transformers"*, ICCV 2021 -- https://arxiv.org/abs/2104.14294
 """
 
 import torch
 
+from genml_kit.methods.base import Method
+from genml_kit.methods.registry import register_method
+from genml_kit.models import load_model
 from genml_kit.models.dino import DINO
+from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.pretrain.augmentations.multicrop import MultiCropTransform
-from genml_kit.pretrain.methods.base import PretrainMethod
-from genml_kit.pretrain.methods.registry import register_method
 from genml_kit.training.model_utils import set_train_mode
 
 
 @register_method
-class DINOMethod(PretrainMethod):
+class DINOMethod(Method):
   """Self-distillation pre-training via DINO with multi-crop.
 
-  Responsibilities per training step (see :meth:`PretrainMethod` hooks):
+  Responsibilities per training step:
 
   1. **Data**: :meth:`build_transform` returns a
      :class:`~genml_kit.pretrain.augmentations.multicrop.MultiCropTransform`
      producing 2 global crops and ``--dino_local_num`` local crops per
-     image; the training loop stacks them and
-     :meth:`~genml_kit.pretrain.augmentations.multicrop.MultiCropTransform.split_crops`
-     splits the list into the ``(global_crops, local_crops)`` tensors
-     expected by ``DINO.forward``.
+     image; ``train_step`` splits ``blob.data`` (a stacked crop tensor)
+     into the ``(global_crops, local_crops)`` pair expected by
+     ``DINO.forward``.
   2. **Model step**: ``model(global_crops, local_crops)`` computes the
-     DINO loss (student vs. teacher, see
-     :class:`~genml_kit.losses.dino.DINOLoss`).
+     DINO loss (student vs. teacher).
   3. **Teacher update**: the EMA momentum is linearly scheduled from
      ``--dino_momentum`` to ``--dino_final_momentum`` over the total
      number of optimiser steps (:meth:`_current_momentum`), then applied
-     with ``model.update_momentum(momentum)``.  Scheduling the momentum
-     toward 1.0 progressively freezes the teacher.
+     with ``model.update_momentum(momentum)``.
 
   Checkpointing: :meth:`get_checkpoint_state` persists the loss center
   and the momentum schedule endpoints so resumed runs continue with an
@@ -45,9 +44,9 @@ class DINOMethod(PretrainMethod):
 
   NAME = "dino"
   needs_labels = False
+  metric_key = "loss"
 
-  @classmethod
-  def add_args(cls, parser):
+  def add_args(self, parser):
     g = parser.add_argument_group("DINO")
     g.add_argument("--dino_proj_dim",
                    type=int,
@@ -90,7 +89,32 @@ class DINOMethod(PretrainMethod):
                    default=8,
                    help="Number of local crops.")
 
-  def build_transform(self, image_size):
+  def build_model(self, args, device):
+    self._dino_global_size = getattr(args, "dino_global_size", 224)
+    self._dino_local_size = getattr(args, "dino_local_size", 96)
+    self._dino_local_num = getattr(args, "dino_local_num", 8)
+    self._dino_momentum = args.dino_momentum
+    self._dino_final_momentum = args.dino_final_momentum
+    encoder = load_model(
+        args.model,
+        num_labels=0,
+        id2label={},
+        label2id={},
+        image_size=args.image_size,
+        cache_dir=getattr(args, "cache_dir", None),
+        device=device,
+        **getattr(args, "model_arg", {}),
+    )
+    return DINO(
+        encoder,
+        proj_dim=args.dino_proj_dim,
+        proj_hidden=args.dino_proj_hidden,
+        teacher_temp=args.dino_teacher_temp,
+        student_temp=args.dino_student_temp,
+        center_momentum=args.dino_center_momentum,
+    ).to(device)
+
+  def build_transform(self, args, image_size):
     return MultiCropTransform(
         global_size=min(image_size, self._global_size),
         local_size=self._local_size,
@@ -109,31 +133,26 @@ class DINOMethod(PretrainMethod):
   def _local_num(self):
     return getattr(self, "_dino_local_num", 8)
 
-  def build(self, args, encoder, device):
-    self._dino_global_size = getattr(args, "dino_global_size", 224)
-    self._dino_local_size = getattr(args, "dino_local_size", 96)
-    self._dino_local_num = getattr(args, "dino_local_num", 8)
-    return DINO(
-        encoder,
-        proj_dim=args.dino_proj_dim,
-        proj_hidden=args.dino_proj_hidden,
-        teacher_temp=args.dino_teacher_temp,
-        student_temp=args.dino_student_temp,
-        center_momentum=args.dino_center_momentum,
-    ).to(device)
-
-  def train_step(self, model, images, global_step, *, labels=None):
+  def train_step(self, model, blob, global_step, *, labels=None):
+    images = blob.data
+    # MultiCropTransform yields a per-item tuple of (global_1, global_2,
+    # local_1..N); collation stacks each position -> tuple of stacked
+    # tensors.  First two are global crops, the rest local.
     set_train_mode(model, "train")
-    if isinstance(images, (list, tuple)):
-      global_crops = torch.cat(images[:2], dim=0)
-      local_crops = torch.cat(images[2:], dim=0)
+    if isinstance(images, (tuple, list)):
+      global_crops = images[0]
+      local_crops = (torch.cat(images[1:], dim=0) if len(images) > 1 else global_crops)
     else:
       global_crops = images
       local_crops = images
     loss, info = model(global_crops, local_crops)
     momentum = self._current_momentum(global_step, model)
     model.update_momentum(momentum)
-    return loss, info
+    return LossOutput(
+        loss=loss,
+        metrics={
+            k: (v.detach() if hasattr(v, "detach") else v) for k, v in info.items()
+        })
 
   def _current_momentum(self, global_step, model):
     """Compute the teacher EMA momentum for this optimiser step.

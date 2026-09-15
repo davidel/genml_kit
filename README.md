@@ -488,18 +488,20 @@ size and GPU memory:
 ### Example: Full Pre-Training Pipeline
 
 ```bash
-# Step 1: Pre-train with SimMIM on two large image collections
-genml-kit-pretrain --method simmim \
-                   --model convvit \
-                   --datasets "imagefolder/raw-photos" "imagefolder/more-photos" \
-                   --image_size 448 \
-                   --batch_size 32 \
-                   --epochs 200 \
-                   --lr 1e-4 \
-                   --scheduler CosineAnnealingLR \
-                   --sched_arg T_max=200 --sched_arg eta_min=1e-6 \
-                   --amp_dtype bfloat16 \
-                   --checkpoint ./checkpoints/convvit_simmim
+# Step 1: Pre-train with SimMIM on two large image collections.
+# v4.2: pre-training is a *configuration* of the unified genml-kit-train
+# CLI (--pipeline images + --method simmim), not a separate binary.
+genml-kit-train --pipeline images --method simmim \
+                --model convvit \
+                --datasets "imagefolder/raw-photos" "imagefolder/more-photos" \
+                --image_size 448 \
+                --batch_size 32 \
+                --epochs 200 \
+                --lr 1e-4 \
+                --scheduler CosineAnnealingLR \
+                --sched_arg T_max=200 --sched_arg eta_min=1e-6 \
+                --amp_dtype bfloat16 \
+                --checkpoint ./checkpoints/convvit_simmim
 
 # Step 2: Fine-tune on your labeled dataset
 genml-kit-train --model convvit \
@@ -515,19 +517,19 @@ genml-kit-train --model convvit \
 ### Example: Supervised Contrastive Pre-Training
 
 ```bash
-genml-kit-pretrain --method supcon \
-                   --model convvit \
-                   --datasets my-org/labeled-photos \
-                   --label_column category \
-                   --image_size 448 \
-                   --batch_size 64 \
-                   --samples_per_class 16 \
-                   --proj_dim 128 \
-                   --temperature 0.07 \
-                   --epochs 100 \
-                   --lr 1e-4 \
-                   --amp_dtype bfloat16 \
-                   --checkpoint ./checkpoints/convvit_supcon
+genml-kit-train --pipeline images --method supcon \
+                --model convvit \
+                --datasets my-org/labeled-photos \
+                --label_column category \
+                --image_size 448 \
+                --batch_size 64 \
+                --samples_per_class 16 \
+                --proj_dim 128 \
+                --temperature 0.07 \
+                --epochs 100 \
+                --lr 1e-4 \
+                --amp_dtype bfloat16 \
+                --checkpoint ./checkpoints/convvit_supcon
 
 # Then fine-tune as above with --source_checkpoint ./checkpoints/convvit_supcon_latest.pt
 ```
@@ -588,9 +590,9 @@ genml-kit-pretrain --method supcon \
 
 ### Dataset Ensemble
 
-`genml-kit-pretrain` stitches multiple datasets into a single pre-training
-corpus. This is useful because no single dataset is large enough for
-effective pre-training on its own.
+With `--pipeline images`, `genml-kit-train` stitches multiple datasets into
+a single pre-training corpus (via `--datasets`). This is useful because no
+single dataset is large enough for effective pre-training on its own.
 
 Supported dataset types:
 - **HuggingFace datasets** — any HF dataset ID that returns decoded image
@@ -629,8 +631,9 @@ python my_prepare_script.py --output_dir ./prepared_images
 Then use the extracted directory as a local dataset:
 
 ```bash
-genml-kit-pretrain --datasets ./prepared_images ./other-images \
-                   --image_size 448 --batch_size 32 ...
+genml-kit-train --pipeline images --method simmim \
+                --datasets ./prepared_images ./other-images \
+                --image_size 448 --batch_size 32 ...
 ```
 
 For a concrete worked example of such a preparation script, see
@@ -1057,8 +1060,8 @@ checkpoint if one exists at the `--checkpoint` path.
 
 `--remote_checkpoint` uploads each saved checkpoint to cloud storage.
 Requires `pip install "genml_kit[s3]"` for `s3://` and `r2://` URIs (both
-use boto3), or `genml_kit[gcs]` for `gs://`. Both `genml-kit-train` and
-`genml-kit-pretrain` accept the flag.
+use boto3), or `genml_kit[gcs]` for `gs://`. The unified `genml-kit-train`
+CLI accepts the flag for every pipeline/method configuration.
 
 The sync also works in reverse at startup: before auto-resume, any missing
 `_latest.pt` / `_best.pt` is downloaded from the remote prefix (latest is

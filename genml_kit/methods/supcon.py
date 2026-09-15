@@ -4,17 +4,20 @@ Reference: Khosla et al., "Supervised Contrastive Learning",
 NeurIPS 2020.
 """
 
+from genml_kit.methods.base import Method
+from genml_kit.methods.registry import register_method
+from genml_kit.models import load_model
 from genml_kit.models.contrastive import ContrastiveEncoder
+from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.pretrain.losses.contrastive import supcon_loss
-from genml_kit.pretrain.methods.base import PretrainMethod
-from genml_kit.pretrain.methods.registry import register_method
 
 
 @register_method
-class SupConMethod(PretrainMethod):
+class SupConMethod(Method):
   """Supervised contrastive pre-training via NT-Xent loss."""
 
   NAME = "supcon"
+  metric_key = "loss"
   needs_labels = True
 
   def add_args(self, p):
@@ -37,7 +40,17 @@ class SupConMethod(PretrainMethod):
         help="NT-Xent temperature (default: 0.07).",
     )
 
-  def build(self, args, encoder, device):
+  def build_model(self, args, device):
+    encoder = load_model(
+        args.model,
+        num_labels=0,
+        id2label={},
+        label2id={},
+        image_size=args.image_size,
+        cache_dir=getattr(args, "cache_dir", None),
+        device=device,
+        **getattr(args, "model_arg", {}),
+    )
     model = ContrastiveEncoder(
         encoder,
         proj_dim=args.proj_dim,
@@ -46,13 +59,19 @@ class SupConMethod(PretrainMethod):
     model.temperature = args.temperature
     return model
 
-  def train_step(self, model, images, global_step, *, labels=None):
+  def train_step(self, model, blob, global_step, *, labels=None):
+    images = blob.data
+    labels_ = blob.meta.get("labels", labels)
+    if labels_ is None:
+      raise ValueError(
+          "SupConMethod requires labels (blob.meta['labels'] or labels kwarg).")
     features = model(images)
-    loss = supcon_loss(features, labels, temperature=model.temperature)
-    return loss, {
-        "loss": loss.item(),
-        "temperature": model.temperature,
-    }
+    loss = supcon_loss(features, labels_, temperature=model.temperature)
+    return LossOutput(loss=loss,
+                      metrics={
+                          "loss": loss.detach(),
+                          "temperature": model.temperature,
+                      })
 
   def get_checkpoint_state(self, model, args):
     return {

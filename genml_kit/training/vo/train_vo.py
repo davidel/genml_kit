@@ -1,8 +1,13 @@
-"""VO training: losses, staged photometric auxiliary, evaluation.
+"""VO training losses and metrics (staged photometric + mce).
 
 The loss schedule and the metric definitions follow ``vo/README.md``
 section 4; the closed-form components come from
 ``genml_kit.geometry.similarity``.
+
+In v4.2 the VO *objective* (model + loss + metric) is the
+``vo_pair`` method (``genml_kit/methods/vo_pair.py``); this module keeps
+the loss/eval building blocks as module-level functions so the method
+and the unit tests share one implementation.
 """
 
 import collections
@@ -11,9 +16,13 @@ import torch
 import torch.nn.functional as f
 
 from genml_kit.geometry.similarity import corner_residual, wrap_angle
-from genml_kit.training.trainer import BaseTrainer
 
-VOMetrics = collections.namedtuple("VOMetrics", ["mce", "dlog_s", "dtheta", "conf_mae"],
+VOMetrics = collections.namedtuple("VOMetrics", [
+    "mce",
+    "dlog_s",
+    "dtheta",
+    "conf_mae",
+],
                                    defaults=[float("nan")] * 4)
 
 STAGES = {"supervised": 0, "photometric": 1}
@@ -136,80 +145,6 @@ def evaluate_vo(model, loader, device):
     return VOMetrics()
   sums /= count
   return VOMetrics(*sums.tolist())
-
-
-class VOTrainer(BaseTrainer):
-  """VO trainer -- extends the shared loop.
-
-  All loop mechanics (model report, grad monitor, checkpoint saver,
-  signal-safe exit, best-checkpoint selection, save-on-exit) come from
-  ``genml_kit.training.trainer.BaseTrainer``; this class only supplies
-  the VO-specific epoch body and validation.
-
-  MCE (mean corner error, pixels) is a *minimized* metric, so
-  ``has_metric_improved`` is overridden to "lower wins" -- no sign
-  negation at the loop boundary.  ``BEST_METRIC`` picks the field by
-  name out of ``evaluate_vo``'s ``VOMetrics`` named tuple, and
-  ``best_metric`` starts at ``float("inf")``: an honest "no error
-  measured yet" that also guarantees the first validation wins the
-  lower-is-better comparison (a ``0.0`` init would never save a best
-  checkpoint, since no real error is below zero).
-  """
-
-  BEST_METRIC = "mce"
-  BEST_METRIC_KEY = "best_mce"
-
-  def __init__(self,
-               args,
-               model,
-               loaders,
-               optimization,
-               device,
-               writer,
-               start_epoch=0,
-               best_metric=float("inf"),
-               global_step=0):
-    super().__init__(args, model, optimization, device, writer, start_epoch,
-                     best_metric, global_step)
-    self.loaders = loaders
-    self.cfg = getattr(args, "vo_loss_cfg", _LossCfg())
-
-  def has_metric_improved(self, old, new):
-    """Return True when the corner error improved (lower is better)."""
-    return new < old
-
-  def train_epoch(self, epoch, saver, step, monitor):
-    """One VO epoch: supervised loss, staged photometric per §4.1."""
-    self.model.train()
-    stage = getattr(self.args, "vo_stage", STAGES["supervised"])
-    total, batches = 0.0, 0
-    for batch in self.loaders.train_loader:
-      image_a = batch["image_a"].to(self.device)
-      image_b = batch["image_b"].to(self.device)
-      out = self.model(image_a, image_b)
-      loss, _ = vo_losses({
-          "params": out["params"],
-          "conf": out["conf"]
-      }, {
-          **batch, "corners": out["corners"],
-          "dc": out["dc"]
-      }, self.cfg, stage)
-      (loss / self.args.grad_accum_steps).backward()
-      monitor.step(step)
-      if (step + 1) % self.args.grad_accum_steps == 0:
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-        self.optimization.optimizer.step()
-        self.optimization.optimizer.zero_grad(set_to_none=True)
-        step += 1
-      total += loss.item()
-      batches += 1
-    self.writer.add_scalar("VO/loss_train", total / max(batches, 1), epoch)
-    return total / max(batches, 1), step
-
-  def validate(self):
-    metrics = evaluate_vo(self.model, self.loaders.val_loader, self.device)
-    self.writer.add_scalar("VO/mce_val", metrics.mce, self.epoch)
-    return metrics
 
 
 class _LossCfg:

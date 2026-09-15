@@ -24,7 +24,8 @@ and use `--label_column` when the label column is not auto-detected (it is
 
 The scripts in [`scripts/`](scripts/) turn the public corpora into
 `imagefolder/`-compatible directory trees that
-[`genml-kit-pretrain`](../README.md#pre-training-guide) can consume directly:
+[`genml-kit-train --pipeline images`](../README.md#pre-training-guide) can
+consume directly (via `--datasets`):
 
 | Script | Purpose |
 |---|---|
@@ -54,25 +55,25 @@ genml-kit-train --model google/vit-base-patch16-224 \
                 --image_size 448
 
 # Supervised-contrastive pre-training on HAM10000
-genml-kit-pretrain --method supcon \
-                   --model convvit \
-                   --datasets marmal88/skin_cancer \
-                   --label_column diagnosis \
-                   --image_size 448 \
-                   --batch_size 64 \
-                   --samples_per_class 16 \
-                   --proj_dim 128 \
-                   --temperature 0.07 \
-                   --epochs 100 \
-                   --lr 1e-4 \
-                   --amp_dtype bfloat16 \
-                   --checkpoint ./checkpoints/convvit_supcon
+genml-kit-train --pipeline images --method supcon \
+                --model convvit \
+                --datasets marmal88/skin_cancer \
+                --label_column diagnosis \
+                --image_size 448 \
+                --batch_size 64 \
+                --samples_per_class 16 \
+                --proj_dim 128 \
+                --temperature 0.07 \
+                --epochs 100 \
+                --lr 1e-4 \
+                --amp_dtype bfloat16 \
+                --checkpoint ./checkpoints/convvit_supcon
 
 # SimMIM pre-training on the large extracted corpora
-genml-kit-pretrain --method simmim \
-                   --model convvit \
-                   --datasets ./derm1m_images ./ham10000_grouped \
-                   --image_size 448 --batch_size 32 ...
+genml-kit-train --pipeline images --method simmim \
+                --model convvit \
+                --datasets ./derm1m_images ./ham10000_grouped \
+                --image_size 448 --batch_size 32 ...
 
 # Fine-tune from the pre-trained encoder
 genml-kit-train --model convvit \

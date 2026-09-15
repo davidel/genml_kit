@@ -1,13 +1,14 @@
-"""Tests for DINO pre-training method."""
+"""Tests for DINO pre-training method (v4.2: genml_kit.methods)."""
 
 import argparse
 
 import torch
 
+from genml_kit.methods import get_method
 from genml_kit.models.dino import DINO
+from genml_kit.pipelines.contracts import DataBlob, LossOutput
 from genml_kit.pretrain.augmentations.multicrop import MultiCropTransform
 from genml_kit.pretrain.losses.dino import DINOLoss
-from genml_kit.pretrain.methods import get_method
 
 
 class _FakeBackbone(torch.nn.Module):
@@ -143,43 +144,43 @@ class TestDINOMethod:
     assert args.dino_teacher_temp == 0.04
     assert args.dino_local_num == 8
 
-  def test_build(self):
+  def test_train_step_returns_lossoutput(self):
     method = get_method("dino")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
-    backbone = _FakeBackbone(out_dim=128)
-    device = torch.device("cpu")
-    model = method.build(args, backbone, device)
-    assert isinstance(model, DINO)
-
-  def test_train_step(self):
-    method = get_method("dino")()
-    parser = argparse.ArgumentParser()
-    method.add_args(parser)
-    args = parser.parse_args([])
-    backbone = _FakeBackbone(out_dim=128)
-    device = torch.device("cpu")
-    model = method.build(args, backbone, device)
-    crops = [torch.randn(2, 3, 32, 32) for _ in range(2)]  # 2 global
-    crops += [torch.randn(2, 3, 32, 32) for _ in range(4)]  # 4 local
-    loss, info = method.train_step(model, crops, global_step=0)
-    assert loss.ndim == 0
-    assert "loss" in info
+    model = DINO(_FakeBackbone(out_dim=128),
+                 proj_dim=args.dino_proj_dim,
+                 proj_hidden=64,
+                 backbone_dim=128)
+    method._dino_momentum = args.dino_momentum
+    method._dino_final_momentum = args.dino_final_momentum
+    # Multi-crop collated blob: tuple of stacked global/local crops.
+    v1 = torch.randn(2, 3, 32, 32)
+    v2 = torch.randn(2, 3, 32, 32)
+    local = torch.randn(4, 3, 32, 32)
+    out = method.train_step(model,
+                            DataBlob(data=(v1, v2, local), meta={}),
+                            global_step=0)
+    assert isinstance(out, LossOutput)
+    assert out.loss.ndim == 0
+    assert "loss" in out.metrics
 
   def test_checkpoint_roundtrip(self):
     method = get_method("dino")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
-    backbone = _FakeBackbone(out_dim=128)
-    device = torch.device("cpu")
-    model = method.build(args, backbone, device)
+    model = DINO(_FakeBackbone(out_dim=128),
+                 proj_dim=args.dino_proj_dim,
+                 proj_hidden=64,
+                 backbone_dim=128)
     state = method.get_checkpoint_state(model, args)
     assert state["method"] == "dino"
     assert "center" in state
     method2 = get_method("dino")()
     method2.load_checkpoint_state(model, state, args)
+    assert method2._dino_momentum == args.dino_momentum
 
   def test_validate_returns_none(self):
     method = get_method("dino")()
@@ -190,5 +191,6 @@ class TestDINOMethod:
     method._dino_global_size = 64
     method._dino_local_size = 32
     method._dino_local_num = 4
-    tf = method.build_transform(128)
+    args = argparse.Namespace(image_size=128)
+    tf = method.build_transform(args, 128)
     assert isinstance(tf, MultiCropTransform)

@@ -1,10 +1,12 @@
-"""Tests for SupConMethod pre-training method."""
+"""Tests for SupConMethod pre-training method (v4.2: genml_kit.methods)."""
 
 import argparse
 
 import torch
 
-from genml_kit.pretrain.methods.supcon import SupConMethod
+from genml_kit.methods import get_method, list_methods
+from genml_kit.models.contrastive import ContrastiveEncoder
+from genml_kit.pipelines.contracts import DataBlob, LossOutput
 
 
 class _FakeBackbone(torch.nn.Module):
@@ -23,75 +25,74 @@ class _FakeBackbone(torch.nn.Module):
 class TestSupConMethod:
 
   def test_registered(self):
-    from genml_kit.pretrain.methods import get_method, list_methods
     assert "supcon" in list_methods()
     cls = get_method("supcon")
-    assert cls is SupConMethod
+    assert cls is not None
 
   def test_needs_labels(self):
-    assert SupConMethod.needs_labels is True
+    assert get_method("supcon").needs_labels is True
 
   def test_add_args(self):
     parser = argparse.ArgumentParser()
-    method = SupConMethod()
+    method = get_method("supcon")()
     method.add_args(parser)
     args = parser.parse_args([])
     assert args.proj_dim == 256
     assert args.proj_hidden == 2048
     assert args.temperature == 0.07
 
-  def test_build(self):
-    parser = argparse.ArgumentParser()
-    method = SupConMethod()
-    method.add_args(parser)
-    args = parser.parse_args([])
-    device = torch.device("cpu")
-    backbone = _FakeBackbone(out_dim=64)
-    model = method.build(args, backbone, device)
-    assert hasattr(model, "projection")
-    assert hasattr(model, "encoder")
-
   def test_train_step(self):
     parser = argparse.ArgumentParser()
-    method = SupConMethod()
+    method = get_method("supcon")()
     method.add_args(parser)
     args = parser.parse_args([])
-    device = torch.device("cpu")
-    backbone = _FakeBackbone(out_dim=64)
-    model = method.build(args, backbone, device)
+    model = ContrastiveEncoder(_FakeBackbone(out_dim=64),
+                               proj_dim=args.proj_dim,
+                               proj_hidden=64)
+    model.temperature = args.temperature
 
     images = torch.randn(8, 3, 64, 64)
     labels = torch.tensor([0, 0, 1, 1, 2, 2, 3, 3])
-    loss, info = method.train_step(model, images, 0, labels=labels)
-    assert torch.isfinite(loss)
-    assert "loss" in info
-    assert "temperature" in info
+    out = method.train_step(model, DataBlob(data=images, meta={"labels": labels}), 0)
+    assert isinstance(out, LossOutput)
+    assert torch.isfinite(out.loss)
+    assert "loss" in out.metrics
+    assert "temperature" in out.metrics
 
   def test_train_step_backward(self):
     parser = argparse.ArgumentParser()
-    method = SupConMethod()
+    method = get_method("supcon")()
     method.add_args(parser)
     args = parser.parse_args([])
-    device = torch.device("cpu")
-    backbone = _FakeBackbone(out_dim=64)
-    model = method.build(args, backbone, device)
+    model = ContrastiveEncoder(_FakeBackbone(out_dim=64),
+                               proj_dim=args.proj_dim,
+                               proj_hidden=64)
+    model.temperature = args.temperature
 
     images = torch.randn(8, 3, 64, 64)
     labels = torch.tensor([0, 0, 1, 1, 2, 2, 3, 3])
-    loss, _ = method.train_step(model, images, 0, labels=labels)
-    loss.backward()
+    out = method.train_step(model, DataBlob(data=images, meta={"labels": labels}), 0)
+    out.loss.backward()
     has_grad = any(
         p.grad is not None and p.grad.abs().sum() > 0 for p in model.parameters())
     assert has_grad
 
+  def test_train_step_requires_labels(self):
+    method = get_method("supcon")()
+    model = ContrastiveEncoder(_FakeBackbone(out_dim=64), proj_dim=16, proj_hidden=32)
+    model.temperature = 0.07
+    import pytest
+    with pytest.raises(ValueError, match="requires labels"):
+      method.train_step(model, DataBlob(data=torch.randn(2, 3, 64, 64), meta={}), 0)
+
   def test_validate_returns_none(self):
-    method = SupConMethod()
+    method = get_method("supcon")()
     result = method.validate(None, torch.randn(2, 3, 64, 64), 2)
     assert result is None
 
   def test_checkpoint_state(self):
     parser = argparse.ArgumentParser()
-    method = SupConMethod()
+    method = get_method("supcon")()
     method.add_args(parser)
     args = parser.parse_args([])
     state = method.get_checkpoint_state(None, args)

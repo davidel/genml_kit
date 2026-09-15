@@ -1,13 +1,14 @@
-"""Tests for BYOL pre-training method."""
+"""Tests for BYOL pre-training method (v4.2: genml_kit.methods)."""
 
 import argparse
 
 import pytest
 import torch
 
+from genml_kit.methods import get_method
 from genml_kit.models.byol import BYOL, _PredictorMLP
+from genml_kit.pipelines.contracts import DataBlob, LossOutput
 from genml_kit.pretrain.losses.byol import byol_loss
-from genml_kit.pretrain.methods import get_method
 
 
 class _FakeBackbone(torch.nn.Module):
@@ -117,29 +118,24 @@ class TestBYOLMethod:
     assert args.byol_proj_dim == 256
     assert args.byol_momentum == 0.996
 
-  def test_build(self):
+  def test_train_step_returns_lossoutput(self):
     method = get_method("byol")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
-    backbone = _FakeBackbone(out_dim=128)
-    device = torch.device("cpu")
-    model = method.build(args, backbone, device)
-    assert isinstance(model, BYOL)
-
-  def test_train_step(self):
-    method = get_method("byol")()
-    parser = argparse.ArgumentParser()
-    method.add_args(parser)
-    args = parser.parse_args([])
-    backbone = _FakeBackbone(out_dim=128)
-    device = torch.device("cpu")
-    model = method.build(args, backbone, device)
+    model = BYOL(_FakeBackbone(out_dim=128),
+                 proj_dim=args.byol_proj_dim,
+                 proj_hidden=64,
+                 predictor_hidden=64,
+                 backbone_dim=128)
     v1 = torch.randn(4, 3, 32, 32)
     v2 = torch.randn(4, 3, 32, 32)
-    loss, info = method.train_step(model, (v1, v2), global_step=0)
-    assert loss.ndim == 0
-    assert "loss" in info
+    method._byol_momentum = args.byol_momentum
+    method._byol_final_momentum = args.byol_final_momentum
+    out = method.train_step(model, DataBlob(data=(v1, v2), meta={}), global_step=0)
+    assert isinstance(out, LossOutput)
+    assert out.loss.ndim == 0
+    assert "loss" in out.metrics
 
   def test_checkpoint_roundtrip(self):
     method = get_method("byol")()

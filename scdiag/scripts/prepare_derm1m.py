@@ -4,14 +4,15 @@
 The redlessone/Derm1M HuggingFace dataset contains CSV metadata with filenames
 that reference images inside zip archives (IIYI.zip, ISIC.zip, etc.). This
 script downloads and extracts those archives, then moves the images into a
-flat ImageFolder directory compatible with genml-kit-pretrain.
+flat ImageFolder directory compatible with genml-kit-train (--datasets).
 
 Usage:
     python scripts/prepare_derm1m.py --output_dir ./derm1m_images
     python scripts/prepare_derm1m.py --output_dir ./derm1m_images --min_resolution 224
 
-    Then use with pretraining:
-    genml-kit-pretrain --datasets ./derm1m_images --image_size 448 ...
+    Then use with the unified pre-training entry point:
+    genml-kit-train --pipeline images --method simmim \
+                    --datasets ./derm1m_images --image_size 448 ...
 """
 
 import argparse
@@ -213,7 +214,8 @@ def main():
 
   print("\n" + "=" * 60)
   print("DONE! Use the following command to pretrain:")
-  print(f"  genml-kit-pretrain --datasets {args.output_dir} --image_size 448 ...")
+  print(f"  genml-kit-train --pipeline images --method simmim "
+        f"--datasets {args.output_dir} --image_size 448 ...")
   print("=" * 60)
 
 

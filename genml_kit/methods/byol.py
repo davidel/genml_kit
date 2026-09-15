@@ -3,22 +3,24 @@
 import torch
 from torchvision.transforms import v2
 
+from genml_kit.methods.base import Method
+from genml_kit.methods.registry import register_method
+from genml_kit.models import load_model
 from genml_kit.models.byol import BYOL
+from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.pretrain.augmentations.dual_view import DualViewTransform
-from genml_kit.pretrain.methods.base import PretrainMethod
-from genml_kit.pretrain.methods.registry import register_method
 from genml_kit.training.model_utils import set_train_mode
 
 
 @register_method
-class BYOLMethod(PretrainMethod):
+class BYOLMethod(Method):
   """Self-supervised contrastive pre-training via BYOL."""
 
   NAME = "byol"
   needs_labels = False
+  metric_key = "loss"
 
-  @classmethod
-  def add_args(cls, parser):
+  def add_args(self, parser):
     g = parser.add_argument_group("BYOL")
     g.add_argument("--byol_proj_dim",
                    type=int,
@@ -41,7 +43,27 @@ class BYOLMethod(PretrainMethod):
                    default=1.0,
                    help="Final EMA momentum (ramped up over training).")
 
-  def build_transform(self, image_size):
+  def build_model(self, args, device):
+    self._byol_momentum = args.byol_momentum
+    self._byol_final_momentum = args.byol_final_momentum
+    encoder = load_model(
+        args.model,
+        num_labels=0,
+        id2label={},
+        label2id={},
+        image_size=args.image_size,
+        cache_dir=getattr(args, "cache_dir", None),
+        device=device,
+        **getattr(args, "model_arg", {}),
+    )
+    return BYOL(
+        encoder,
+        proj_dim=args.byol_proj_dim,
+        proj_hidden=args.byol_proj_hidden,
+        predictor_hidden=args.byol_predictor_hidden,
+    ).to(device)
+
+  def build_transform(self, args, image_size):
     base = v2.Compose([
         v2.Resize(image_size, interpolation=v2.InterpolationMode.BICUBIC),
         v2.CenterCrop(image_size),
@@ -57,20 +79,17 @@ class BYOLMethod(PretrainMethod):
     ])
     return DualViewTransform(base)
 
-  def build(self, args, encoder, device):
-    return BYOL(
-        encoder,
-        proj_dim=args.byol_proj_dim,
-        proj_hidden=args.byol_proj_hidden,
-        predictor_hidden=args.byol_predictor_hidden,
-    ).to(device)
-
-  def train_step(self, model, images, global_step, *, labels=None):
+  def train_step(self, model, blob, global_step, *, labels=None):
+    images = blob.data
     set_train_mode(model, "train")
     loss, info = model(images)
     momentum = self._current_momentum(global_step, model)
     model.update_momentum(momentum)
-    return loss, info
+    return LossOutput(
+        loss=loss,
+        metrics={
+            k: (v.detach() if hasattr(v, "detach") else v) for k, v in info.items()
+        })
 
   def _current_momentum(self, global_step, model):
     total = getattr(model, "_total_steps", 0)
