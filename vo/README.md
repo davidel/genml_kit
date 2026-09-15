@@ -401,32 +401,32 @@ the algebra, this test breaks loudly — which is the entire point.
 
 ## 4. How We Store The Parameters (Log Scale, Wrapped Angle)
 
-The math of §2 uses $`(s, \theta, t)`$.  The code uses $`(\log s, \theta, t)`$.  Two of the
+The math of §2 uses $`(s, \theta, t)`$.  The code uses $`(\\log s, \theta, t)`$.  Two of the
 four numbers are stored differently, and each difference exists because it
 makes the *learning problem* better behaved.
 
 ### 4.1 Scale In Log Space
 
-We store $`\log s`$ (natural logarithm) and recover $`s = e^{\log s}`$.
+We store $`\\log s`$ (natural logarithm) and recover $`s = e^{\\log s}`$.
 
 **Why?** Three independent reasons, all of which matter in a trained network:
 
-1. **Scale must never be negative.**  $`s = e^{\log s}`$ is positive for every
-   real value of $`\log s`$.  If a network regressed $`s`$ directly, it could
+1. **Scale must never be negative.**  $`s = e^{\\log s}`$ is positive for every
+   real value of $`\\log s`$.  If a network regressed $`s`$ directly, it could
    output $`s \le 0`$ — a mirror image, a different transform family that is
    physically impossible for a rigid camera.  In log space, *any* real-number
    output is a valid positive scale.  The network literally cannot produce an
    invalid scale.
 2. **Multiplications become additions.**  Two successive frames with scales
    $`s_{1}`$ and $`s_{2}`$ compose multiplicatively ($`s_{total} = s_{1} \cdot s_{2}`$), but in log
-   space: $`\log s_{total} = \log s_{1} + \log s_{2}`$.  A network that predicts "how much
+   space: $`\\log s_{total} = \\log s_{1} + \\log s_{2}`$.  A network that predicts "how much
    did the scale change" from frame to frame is predicting an *additive*
    increment — the native arithmetic of a linear regression head.  There is
    nothing to "learn to multiply".
 3. **Symmetric errors.**  "10% too big" and "10% too small" are equally bad
    perception errors, but in linear scale $`s`$ they are $`+0.1`$ and $`-0.09`$
    (asymmetric).  In log space they are $`\pm \log(1.1)`$ — symmetric.  Any loss
-   on $`\log s`$ automatically treats over- and under-estimation fairly.
+   on $`\\log s`$ automatically treats over- and under-estimation fairly.
 
 ### 4.2 Angle In Radians, Wrapped
 
@@ -556,7 +556,7 @@ corners fully determine whether the *entire* transform is right?  The honest
 answer has two parts.
 
 *(a) Exactness: MCE = 0 if and only if the transforms agree everywhere.*  A
-similarity has four degrees of freedom $`(\log s, \theta, t_{x}, t_{y})`$.  A corner point
+similarity has four degrees of freedom $`(\\log s, \theta, t_{x}, t_{y})`$.  A corner point
 $`u_{i}`$ mapped by the transform contributes two scalar equations ($`u_{i} \mapsto M u_{i}`$
 has an x- and a y-coordinate).  Four corners therefore give eight equations in
 four unknowns — an overdetermined system, but one whose *minimal* content is
@@ -590,7 +590,7 @@ $$
 $$
 
 Both terms on the right are controlled by the MCE.  The set of similarities with
-$`MCE \le m`$ is compact (the MCE is a continuous, coercive function of $`(\log s, \theta, t)`$
+$`MCE \le m`$ is compact (the MCE is a continuous, coercive function of $`(\\log s, \theta, t)`$
 and $`m`$ bounds it), and on that compact set both $`\lVert \Delta A \rVert`$ and $`\lVert \Delta t \rVert`$ attain maxima;
 therefore there is a constant $`C`$ (depending only on image size, not on the
 particular transform) with
@@ -1083,7 +1083,7 @@ distinct sub-problem:
    destinations), the **Umeyama** algorithm computes the exact least-squares
    similarity in closed form.
 3. **§14 — what the network actually regresses.**  Instead of guessing
-   $`(\log s, \theta, t)`$ directly (a non-linearly-constrained target), the head
+   $`(\\log s, \theta, t)`$ directly (a non-linearly-constrained target), the head
    predicts *corner offsets*, and the Umeyama solve converts them into a
    guaranteed-valid similarity.
 4. **§15 — a differentiable warp.**  For the *photometric* auxiliary loss
@@ -1387,7 +1387,7 @@ independent dense least-squares solve.
 
 ## 14. Why We Regress Corners, Not Parameters
 
-The final head could regress $`(\log s, \theta, t)`$ directly — a 4-vector — and be
+The final head could regress $`(\\log s, \theta, t)`$ directly — a 4-vector — and be
 done.  It does **not**, and the reason is worth understanding because it is
 a recurring pattern in geometric deep learning: *some outputs are easier to
 regress than others, and the difference is about geometry, not network
@@ -1415,7 +1415,7 @@ Why is this dramatically better than regressing parameters?
 2. **Interpretable units.**  Corner deltas are pixels — the same unit the
    metric uses (§6) and the same unit the incremental EKF consumes (§24).
    Learning "move these corners by this many pixels" is a well-scaled,
-   well-conditioned regression.  Learning $`\log s \in [-1.2, 2.0]`$, $`\theta \in [- \pi, \pi]`$
+   well-conditioned regression.  Learning $`\\log s \in [-1.2, 2.0]`$, $`\theta \in [- \pi, \pi]`$
    (a quasi-circular target), and $`t \in [-50, 50]`$ is three different scales of
    problem glued together, with a *discontinuity* in the angle at the wrap
    boundary (§4.2).  Robust uniform regression of that 4-vector is harder than
@@ -1434,24 +1434,24 @@ Why is this dramatically better than regressing parameters?
 
 **The conditioning argument, made precise.**  Claim 4 ("ill-conditioning is
 turned around") deserves the linear algebra that backs it, because it is the
-deepest of the four.  Let $`f: (\log s, \theta, t) \mapsto (corners)`$ be the map from
+deepest of the four.  Let $`f: (\\log s, \theta, t) \mapsto (corners)`$ be the map from
 parameters to the four image corners they produce.  The *condition number* of
 this map at a point is, roughly, how much the corners' output error
 amplifies back into parameter-error sensitivity: if the Jacobian
-$`J = \partial f/\partial(\log s, \theta, t)`$ has a small singular value, then a unit change in the
+$`J = \partial f/\partial(\\log s, \theta, t)`$ has a small singular value, then a unit change in the
 corresponding parameter direction produces almost *no* change in the corners —
 so the corners simply do not *contain* the information to estimate that
 direction reliably.
 
 Compute the Jacobian's singular values near the identity
-($`\log s = 0, \theta = 0, t = 0`$).  For a corner displaced by $`u`$ from the center,
+($`\\log s = 0, \theta = 0, t = 0`$).  For a corner displaced by $`u`$ from the center,
 the corner position as a function of the parameters is
 
 $$
 \large
-f(u) = e^{\log s} R_\theta u + t
-\\, \approx\\, (1 + \log s)(I + \theta G)\\,u + t
-\\, \approx\\,  u + (\log s)\\, u + \theta G u + t ,
+f(u) = e^{\\log s} R_\theta u + t
+\\, \approx\\, (1 + \\log s)(I + \theta G)\\,u + t
+\\, \approx\\,  u + (\\log s)\\, u + \theta G u + t ,
 $$
 
 where $`G`$ is the $`2 \times 2`$ rotation-generator matrix.  The three parameter
@@ -1459,7 +1459,7 @@ directions therefore act on the corners with:
 
 $$
 \large
-\frac{\partial f}{\partial \log s} = u,
+\frac{\partial f}{\partial \\log s} = u,
 \qquad
 \frac{\partial f}{\partial \theta} = G u,
 \qquad
@@ -1557,7 +1557,7 @@ similarity* (the fitted one from §9):
 
 $$
 \large
-\mathcal{L}_{\mathrm{sup}} = \mathcal{L}_{\mathrm{mce}} + \lambda_s \lVert \log \hat{s} - \log s \rVert_1 + \lambda_\theta \bigl\lvert \mathrm{wrap}(\hat{\theta} - \theta) \bigr\rvert + \lambda_c\\, \mathrm{SmoothL1}(\hat{r}, \rho)
+\mathcal{L}_{\mathrm{sup}} = \mathcal{L}_{\mathrm{mce}} + \lambda_s \lVert \log \hat{s} - \\log s \rVert_1 + \lambda_\theta \bigl\lvert \mathrm{wrap}(\hat{\theta} - \theta) \bigr\rvert + \lambda_c\\, \mathrm{SmoothL1}(\hat{r}, \rho)
 $$
 
 where the hatted quantities are the network's predictions.  Each term:
@@ -1576,18 +1576,18 @@ system is graded on and the EKF consumes
 - it is computed via `corner_residual`, so it is automatically consistent
   with the evaluation metric — training and grading speak the same language.
 
-### 16.2 $`\lambda_{s} \cdot |\log \hat{s} - \log s|_{1}`$ — Scale In log Space
+### 16.2 $`\lambda_{s} \cdot |\log \hat{s} - \\log s|_{1}`$ — Scale In log Space
 
 Why L1?  Because L1 (mean absolute error) is robust to outliers and does not
 over-penalize occasional large scale errors the way L2 would.  Why *log*
 space?  §4.1: symmetric relative errors, additive composition, and no $`s \le 0`$
 ever.  A "10% too big" error has the same absolute value in log space as a
-"10% too small" error — L1 on $`\log s`$ treats them identically, which matches
+"10% too small" error — L1 on $`\\log s`$ treats them identically, which matches
 how the physical error is perceived.
 
 **Why L1 is robust, derived.**  The claim "L1 does not over-penalize outliers
 the way L2 does" is quantitative, and the quantity is the *influence* of one
-large error on the gradient.  Let the true residual be $`e = \log \hat{s} - \log s`$
+large error on the gradient.  Let the true residual be $`e = \log \hat{s} - \\log s`$
 and consider the contribution of a *single* sample to the total loss (the
 $`\lambda_{s}`$ factor is a constant and drops out):
 
@@ -1966,8 +1966,8 @@ Now take the frequency-plane axes $`(u, v)`$ and write them in **polar** form
 $`(r, \phi)`$ with $`r = \log\sqrt{u^{2} + v^{2}}`$.  Then:
 
 - rotation by $`\alpha`$ shifts the polar angle $`\phi`$ by $`\alpha`$ — a *shift in φ*;
-- scaling by $`s`$ shifts the log-radius $`r`$ by $`\log s`$ — because the radial
-  frequency axis in log units is $`\log(\rho/s) = \log \rho - \log s`$, a *shift in
+- scaling by $`s`$ shifts the log-radius $`r`$ by $`\\log s`$ — because the radial
+  frequency axis in log units is $`\log(\rho/s) = \log \rho - \\log s`$, a *shift in
   log-radius*.
 
 Both rotation and scale have become **pure translations** in the
@@ -2035,7 +2035,7 @@ $`\rho \to \rho/s`$, so after taking the logarithm,
 $$
 \large
 \log \rho \\,\xrightarrow{\\,s\\,}
- \log(\rho / s) = \log \rho - \log s,
+ \log(\rho / s) = \log \rho - \\log s,
 $$
 
 a pure shift *along the log-radius axis*.  Both operations are now
@@ -2670,7 +2670,7 @@ section where it first appears.
 | Symbol | Meaning | First appears |
 |---|---|---|
 | $`x, x'`$ | a point in the image (and its transformed image) | §2 |
-| $`s`$, $`\log s`$ | uniform scale; natural log of the scale | §2, §4 |
+| $`s`$, $`\\log s`$ | uniform scale; natural log of the scale | §2, §4 |
 | $`\theta`$ | rotation angle, radians, wrapped to $`(- \pi, \pi]`$ | §2, §4 |
 | $`t = (t_{x}, t_{y})`$ | translation, pixels | §2 |
 | $`R_\theta`$ | 2×2 rotation matrix by $`\theta`$ | §2 |
@@ -2757,7 +2757,7 @@ is the defense already built into the system.
   differ in linear units; and nothing in a raw linear regression prevents a
   negative output.
 - **Why the design handles it.**  Scale is stored and regressed in *log*
-  space: $`s = e^{\log s} > 0`$ always, and log-space errors are symmetric
+  space: $`s = e^{\\log s} > 0`$ always, and log-space errors are symmetric
   relative errors (§4.1, §16.2).  The Umeyama solve additionally guarantees
   $`s > 0`$ by construction (§13).
 
