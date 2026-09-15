@@ -453,8 +453,8 @@ discontinuity by construction.
 
 **Check your understanding.**  What is $`\mathop{\mathrm{wrap}}(\pi + 0.1)`$ and why does it matter
 for a network predicting angles near the boundary?  *Answer:
-$\mathop{\mathrm{wrap}}(\pi + 0.1)\approx -(\pi - 0.1)$.  The angle $\pi$ (a half
-turn) and $-\pi$ (also a half turn, the other way around) are the same physical
+$`\mathop{\mathrm{wrap}}(\pi + 0.1)\approx -(\pi - 0.1)`$.  The angle $`\pi`$ (a half
+turn) and $`-\pi`$ (also a half turn, the other way around) are the same physical
 rotation; wrapping puts the prediction on the same side of the cut as the
 target, so the loss is small where the physical error is small.*
 
