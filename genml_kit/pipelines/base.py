@@ -27,8 +27,13 @@ class DataPipeline(abc.ABC):  # noqa: B024
 
   # --- Loading ------------------------------------------------------------
 
-  def build_loader(self, args, mode="train", **kwargs):
+  def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
     """Build and cache the loader for *mode* (train/val).
+
+    Args:
+        needs_labels: If True, the pipeline must ensure labels are present in
+            the data. If False, labels are stripped. If None (default), the
+            pipeline decides based on its own logic (backward compat).
 
     Raises:
         NotImplementedError: until the concrete pipeline implements it.

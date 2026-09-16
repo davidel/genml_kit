@@ -370,7 +370,7 @@ def main(argv=None):
   pipeline = build_pipeline(args.pipeline)
   method = build_method(args.method)
   logging.info("Resolved run: pipeline=%s method=%s (metric_key=%s)", pipeline.NAME,
-               method.NAME, method.metric_key)
+               method.NAME, method.METRIC_KEY)
 
   is_classification = isinstance(method, get_method("classification"))
   if is_classification:
@@ -392,7 +392,7 @@ def main(argv=None):
       args,
       model,
       device,
-      metric_key=f"best_{method.metric_key}",
+      metric_key=f"best_{method.METRIC_KEY}",
       default_metric=_default_metric(method),
   )
   method.load_checkpoint_state(model, ckpt_extra.get("method_state", {}), args)

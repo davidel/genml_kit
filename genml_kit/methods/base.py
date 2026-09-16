@@ -19,6 +19,8 @@ class Method(abc.ABC):
 
   metric_key = "loss"  # best-checkpoint metric key (best_<metric_key>)
 
+  NEEDS_LABELS = False  # whether this method requires labels in the data blob
+
   @abc.abstractmethod
   def build_model(self, args, device):
     """Return the model.  Model's forward(data) takes the blob.data shape."""

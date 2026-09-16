@@ -108,7 +108,7 @@ class TestBYOLMethod:
 
   def test_needs_labels(self):
     method = get_method("byol")()
-    assert method.needs_labels is False
+    assert method.NEEDS_LABELS is False
 
   def test_add_args(self):
     method = get_method("byol")()

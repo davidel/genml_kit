@@ -39,8 +39,8 @@ class TinyMethod(Method):
   """Reconstruction-free stub method exercising the generic harness."""
 
   NAME = "tiny_smoke"
-  needs_labels = False
-  metric_key = "loss"
+  NEEDS_LABELS = False
+  METRIC_KEY = "loss"
 
   def add_args(self, parser):
     pass

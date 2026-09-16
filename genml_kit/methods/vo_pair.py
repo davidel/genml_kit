@@ -32,7 +32,8 @@ class VOPairMethod(Method):
   """
 
   NAME = "vo_pair"
-  metric_key = "mce"
+  METRIC_KEY = "mce"
+  NEEDS_LABELS = True
 
   def __init__(self):
     super().__init__()

@@ -130,7 +130,7 @@ class ImagesPipeline(DataPipeline):
 
   # --- Loader construction ------------------------------------------------
 
-  def build_loader(self, args, mode="train", **kwargs):
+  def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
     """Build (and cache) the loader for *mode* (train/val).
 
     Dispatches on whether ``--dataset`` (classification) or ``--datasets``
@@ -138,14 +138,22 @@ class ImagesPipeline(DataPipeline):
     ``training/train.py::build_data`` and ``pretrain/cli.py`` (v4.2 s 6.1).
     ``method`` (optional) supplies the objective-level augmentation via
     ``method.build_transform(args, image_size)``.
+
+    Args:
+        needs_labels: If True, the pipeline must ensure labels are present in
+            the data. If False, labels are stripped. If None (default), the
+            pipeline decides based on its own logic (backward compat).
     """
     method = kwargs.get("method")
+    # Use method's NEEDS_LABELS if not explicitly provided
+    if needs_labels is None and method is not None:
+      needs_labels = getattr(method, "NEEDS_LABELS", False)
     if getattr(args, "dataset", None):
       if self.train_loader is None or self.val_loader is None:
-        self._build_classification(args, method=method)
+        self._build_classification(args, method=method, needs_labels=needs_labels)
       return self.val_loader if mode == "val" else self.train_loader
     if self.train_loader is None:
-      self._build_ensemble(args, method=method)
+      self._build_ensemble(args, method=method, needs_labels=needs_labels)
     return self.train_loader
 
   def build_val_loader(self, args, **kwargs):
@@ -153,7 +161,7 @@ class ImagesPipeline(DataPipeline):
 
   # --- Classification path (train.py::build_data + load_and_split_dataset) --
 
-  def _build_classification(self, args, method=None):
+  def _build_classification(self, args, method=None, needs_labels=True):
     # Imported lazily to avoid a circular import (train -> pipelines.images).
     from genml_kit.training.train import load_and_split_dataset
 
@@ -223,7 +231,7 @@ class ImagesPipeline(DataPipeline):
 
   # --- Ensemble path (pretrain/cli.py::build_pretrain_*) -------------------
 
-  def _build_ensemble(self, args, method=None):
+  def _build_ensemble(self, args, method=None, needs_labels=False):
     """Build the ensemble loader (pre-training path)."""
     configs = parse_dataset_specs(
         args.datasets,
@@ -238,7 +246,6 @@ class ImagesPipeline(DataPipeline):
     )
     self.ensemble = ensemble
     self.num_labels = ensemble.num_labels if ensemble.has_labels else None
-    needs_labels = bool(getattr(args, "needs_labels", False))
     if needs_labels:
       ensemble.ensure_label_space()
       if ensemble.unlabeled_datasets:

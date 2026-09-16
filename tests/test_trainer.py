@@ -50,7 +50,7 @@ class _Params:
 class FakeMethod:
   """Minimal maximizer method: loss from a model parameter, metric = loss."""
 
-  metric_key = "macro_f1"
+  METRIC_KEY = "macro_f1"
   NAME = "fake"
 
   def __init__(self):
@@ -88,9 +88,9 @@ class FakeMethod:
 
 
 class MinimizingFakeMethod(FakeMethod):
-  """Minimize-direction method (VO mce): metric_key = 'mce'."""
+  """Minimize-direction method (VO mce): METRIC_KEY = 'mce'."""
 
-  metric_key = "mce"
+  METRIC_KEY = "mce"
 
   def has_metric_improved(self, new, best):
     return new < best

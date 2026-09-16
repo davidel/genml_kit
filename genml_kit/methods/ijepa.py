@@ -127,8 +127,8 @@ class IJEPAMethod(Method):
   """I-JEPA: Image-based Joint-Embedding Predictive Architecture."""
 
   NAME = "ijepa"
-  needs_labels = False
-  metric_key = "loss"
+  NEEDS_LABELS = False
+  METRIC_KEY = "loss"
 
   def add_args(self, parser):
     p = parser.add_argument_group("I-JEPA")

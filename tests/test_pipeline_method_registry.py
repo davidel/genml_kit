@@ -290,7 +290,7 @@ class TestClassificationMethod:
 
   def test_metric_key_and_direction(self):
     method = build_method("classification")
-    assert method.metric_key == "macro_f1"
+    assert method.METRIC_KEY == "macro_f1"
     assert method.has_metric_improved(0.9, 0.8) is True
     assert method.has_metric_improved(0.7, 0.8) is False
 
@@ -331,7 +331,7 @@ class TestVOPairMethod:
 
   def test_metric_key_and_direction(self):
     method = build_method("vo_pair")
-    assert method.metric_key == "mce"
+    assert method.METRIC_KEY == "mce"
     # mce is minimized.
     assert method.has_metric_improved(0.5, 0.8) is True
     assert method.has_metric_improved(0.9, 0.8) is False

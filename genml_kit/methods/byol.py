@@ -17,8 +17,8 @@ class BYOLMethod(Method):
   """Self-supervised contrastive pre-training via BYOL."""
 
   NAME = "byol"
-  needs_labels = False
-  metric_key = "loss"
+  NEEDS_LABELS = False
+  METRIC_KEY = "loss"
 
   def add_args(self, parser):
     g = parser.add_argument_group("BYOL")

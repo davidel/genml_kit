@@ -22,7 +22,8 @@ class ClassificationMethod(Method):
   """
 
   NAME = "classification"
-  metric_key = "macro_f1"
+  METRIC_KEY = "macro_f1"
+  NEEDS_LABELS = True
 
   def __init__(self):
     super().__init__()

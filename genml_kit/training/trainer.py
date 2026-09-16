@@ -134,7 +134,7 @@ class BaseTrainer:
     return total / max(batches, 1), step
 
   def validate(self):
-    """Evaluate and return ``metrics[method.metric_key]`` (or ``None``).
+    """Evaluate and return ``metrics[method.METRIC_KEY]`` (or ``None``).
 
     ``evaluate`` owns its mode: the default implementation wraps in
     ``torch.no_grad()``; overrides that need eval-mode (SimMIM
@@ -144,7 +144,7 @@ class BaseTrainer:
       return None
     metrics = self.method.evaluate(self.model, self.pipeline.val_loader, self.device,
                                    self.pipeline.to_device)
-    key = self.method.metric_key
+    key = self.method.METRIC_KEY
     val = metrics[key]
     if self.writer is not None:
       self.writer.add_scalar(f"val/{key}", val, self.epoch)
@@ -169,7 +169,7 @@ class BaseTrainer:
   @property
   def best_metric_key(self):
     """Checkpoint dict key carrying the best metric value."""
-    return f"best_{self.method.metric_key}"
+    return f"best_{self.method.METRIC_KEY}"
 
   def _init_grad_monitor(self):
     grad_monitor = create_grad_monitor(self.args, self.model)

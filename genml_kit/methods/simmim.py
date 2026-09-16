@@ -64,8 +64,8 @@ class SimMIMMethod(Method):
   """SimMIM: simple masked image modeling."""
 
   NAME = "simmim"
-
-  metric_key = "loss"
+  NEEDS_LABELS = False
+  METRIC_KEY = "loss"
 
   def add_args(self, parser):
     p = parser.add_argument_group("SimMIM")

@@ -30,7 +30,7 @@ class TestSupConMethod:
     assert cls is not None
 
   def test_needs_labels(self):
-    assert get_method("supcon").needs_labels is True
+    assert get_method("supcon").NEEDS_LABELS is True
 
   def test_add_args(self):
     parser = argparse.ArgumentParser()

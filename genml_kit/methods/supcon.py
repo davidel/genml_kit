@@ -17,8 +17,8 @@ class SupConMethod(Method):
   """Supervised contrastive pre-training via NT-Xent loss."""
 
   NAME = "supcon"
-  metric_key = "loss"
-  needs_labels = True
+  METRIC_KEY = "loss"
+  NEEDS_LABELS = True
 
   def add_args(self, p):
     p.add_argument(
