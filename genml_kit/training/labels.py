@@ -1,9 +1,9 @@
 """Label-space training utilities shared by pipelines, methods and tests.
 
 Single source of truth for the class-weight / class-multiplier helpers
-and Mixup (B1 deduplication, plans/REVIEW.md): ``pipelines.images``,
-``training.train_compat`` and ``methods.classification`` import from here
-instead of each carrying a copy.
+and Mixup: ``pipelines.images``, ``training.train_compat`` and
+``methods.classification`` import from here instead of each carrying a
+copy.
 
 Import direction is safe in both directions: this module only imports
 ``torch`` / ``numpy`` and ``utils.logging`` -- it never imports

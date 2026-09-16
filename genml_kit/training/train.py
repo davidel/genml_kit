@@ -356,8 +356,9 @@ def main(argv=None):
   """Run the unified training harness.
 
   The driver is branchless: it calls the ``Method`` lifecycle hooks
-  (plans/B3_PLAN.md s 2.1) in one fixed order and never inspects which
-  method/pipeline it is running.
+  (see the Method class docstring in ``genml_kit/methods/base.py``) in
+  one fixed order and never inspects which method/pipeline it is
+  running.
 
       parse -> seed -> device -> pipeline/method objects
         -> method.prepare_transforms   (processor normalization, if any)
@@ -382,8 +383,7 @@ def main(argv=None):
   logging.info("Resolved run: pipeline=%s method=%s (metric_key=%s)", pipeline.NAME,
                method.NAME, method.METRIC_KEY)
 
-  # Method lifecycle (plans/B3_PLAN.md s 2.1), in the one order the driver
-  # guarantees:
+  # Method lifecycle, in the one order the driver guarantees:
   #   1. prepare_transforms -- model-processor normalization before loaders
   #   2. loaders            -- the pipeline owns the data
   #   3. wire_data          -- the method consumes pipeline data attributes

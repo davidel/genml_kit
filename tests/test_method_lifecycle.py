@@ -1,4 +1,4 @@
-"""Tests for the Method lifecycle contract (plans/B3_PLAN.md s 2, s 6.1).
+"""Tests for the Method lifecycle contract.
 
 Covers the base-class hooks the genml-kit-train driver calls and the
 protected `_apply_model_extras` helper that every `build_model`
