@@ -61,7 +61,7 @@ class _DictAdapter(Dataset):
     }
 
 
-@register_pipeline("images")
+@register_pipeline
 class ImagesPipeline(DataPipeline):
   """Image data pipeline: single dataset (train) or ensemble (pretrain)."""
 

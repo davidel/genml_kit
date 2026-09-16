@@ -10,7 +10,7 @@ from genml_kit.pipelines.registry import register_pipeline
 from genml_kit.utils.seed import seed_worker
 
 
-@register_pipeline("vo_pair")
+@register_pipeline
 class VOPairPipeline(DataPipeline):
   """Synthetic VO pair pipeline (no external data).
 

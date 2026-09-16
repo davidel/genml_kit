@@ -63,12 +63,14 @@ class TestPipelineRegistry:
 
   def test_duplicate_registration_raises(self):
 
-    @register_pipeline("dup_pipeline")
+    @register_pipeline
     class _Dup(DataPipeline):
       NAME = "dup_pipeline"
 
-    with pytest.raises(ValueError, match="already registered"):
-      register_pipeline("dup_pipeline")(_Dup)
+    with pytest.raises(RuntimeError, match="Duplicate pipeline name"):
+      @register_pipeline
+      class _Dup2(DataPipeline):
+        NAME = "dup_pipeline"
 
 
 class TestMethodRegistry:
@@ -96,7 +98,7 @@ class TestCustomRegistration:
 
   def test_register_custom_pipeline(self):
 
-    @register_pipeline("custom_pipe")
+    @register_pipeline
     class _Custom(DataPipeline):
       NAME = "custom_pipe"
 
