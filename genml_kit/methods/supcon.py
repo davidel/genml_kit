@@ -57,7 +57,9 @@ class SupConMethod(Method):
         proj_hidden=args.proj_hidden,
     ).to(device)
     model.temperature = args.temperature
-    return model
+    # LoRA / freeze / checkpointing target the whole wrapper: the projection
+    # head must stay trainable, PEFT reaches the backbone through it.
+    return self._apply_model_extras(args, model, device)
 
   def train_step(self, model, blob, global_step, *, labels=None):
     images = blob.data

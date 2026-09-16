@@ -180,6 +180,13 @@ class IJEPAMethod(Method):
         device=device,
         **getattr(args, "model_arg", {}),
     )
+    # Apply LoRA / freeze / checkpointing to the student's encoder BEFORE
+    # building the student/teacher pair: IJEPA deep-copies the student into
+    # the EMA teacher, so adapting afterwards would double the adapters and
+    # break teacher/student state-dict symmetry.  The teacher copy inherits
+    # the (frozen, never-gradient-updated) adapter weights -- correct EMA
+    # semantics.
+    encoder = self._apply_model_extras(args, encoder, device)
     student = _PatchEmbedder(encoder).to(device)
     teacher = copy.deepcopy(student)
     # Teacher starts identical to student, no grad.

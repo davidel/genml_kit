@@ -106,7 +106,10 @@ class SimMIMMethod(Method):
         decoder_depth=args.decoder_depth,
     ).to(device)
     model.mask_ratio = args.mask_ratio
-    return model
+    # LoRA / freeze / checkpointing target the whole wrapper: PEFT injects
+    # into the encoder's Linear layers through it, and the SimMIM decoder
+    # stays trainable either way.
+    return self._apply_model_extras(args, model, device)
 
   def train_step(self, model, blob, global_step, *, labels=None):
     images = blob.data

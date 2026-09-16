@@ -11,11 +11,15 @@ implementation ends with:
 """
 
 import argparse
+from unittest.mock import patch
+
 import torch
 
 import pytest
 
+from genml_kit.methods import get_method
 from genml_kit.methods.base import Method
+from genml_kit.models.contrastive import ContrastiveEncoder
 from genml_kit.pipelines.contracts import LossOutput
 
 peft = pytest.importorskip("peft", reason="LoRA tests need the peft package")
@@ -26,13 +30,16 @@ class _LinearBackbone(torch.nn.Module):
   have a stable target.
 
   Pre-declares ``use_grad_checkpoint`` (as ConvViT / UVito do) so the
-  per-block fallback of ``enable_grad_checkpointing`` has a target to set.
+  per-block fallback of ``enable_grad_checkpointing`` has a target to set,
+  and ``num_features`` so ``detect_backbone_dim`` can infer the output dim
+  (required by the contrastive wrappers).
   """
 
-  def __init__(self):
+  def __init__(self, out_features=2):
     super().__init__()
-    self.fc = torch.nn.Linear(4, 2)
+    self.fc = torch.nn.Linear(4, out_features)
     self.use_grad_checkpoint = False
+    self.num_features = out_features
 
   def forward(self, x):
     return self.fc(x)
@@ -136,3 +143,49 @@ class TestApplyModelExtras:
                                        _LinearBackbone(), torch.device("cpu"))
     assert model.fc.weight.requires_grad is True
     assert model.fc.bias.requires_grad is True
+
+  def test_self_supervised_build_model_lora_path(self):
+    # End-to-end through a real self-supervised method's build_model:
+    # SupCon wraps (backbone + projection head) and the extras must reach
+    # the backbone through the wrapper.
+    method = get_method("supcon")()
+    parser = argparse.ArgumentParser()
+    method.add_args(parser)
+    args = parser.parse_args([
+        "--proj_dim", "8",
+        "--proj_hidden", "8",
+        "--temperature", "0.07",
+    ])
+    args.model = "fc-tiny"
+    args.image_size = 16
+    args.lora = True
+    args.lora_r = 2
+    args.lora_alpha = 4
+    args.lora_dropout = 0.0
+    args.lora_target_modules = ""
+    args.model_arg = {}
+    args.cache_dir = None
+    args.source_checkpoint = None
+    args.param_rename = None
+    args.freeze = ""
+    args.grad_checkpoint = False
+    with patch.dict("genml_kit.models.registry._MODEL_REGISTRY",
+                    {"fc-tiny": lambda **kwargs: _LinearBackbone(out_features=8)}):
+      model = method.build_model(args, torch.device("cpu"))
+    # The wrapper itself is now the PeftModel base (extras wrap the whole
+    # ContrastiveEncoder so the backbone Linear is adapted through it).
+    assert isinstance(model, peft.PeftModel)
+    assert isinstance(model.get_base_model(), ContrastiveEncoder)
+    backbone_linears = [
+        n for n, m in model.named_modules()
+        if isinstance(m, peft.tuners.lora.Linear)
+    ]
+    assert backbone_linears, "LoRA adapters must reach the backbone"
+    # The adapter's target Linear is the backbone's `fc`; the LoRA wrapper
+    # module itself carries `lora_` child names.  Assert the backbone fc is
+    # adapted.
+    assert any(".fc" in n for n in backbone_linears)
+    # And inspect the actual adapted weight locations: adapter params live
+    # under lora_A/lora_B children of the wrapped fc layer.
+    adapted = [n for n, p in model.named_parameters() if "lora_" in n]
+    assert any(".fc." in n for n in adapted)

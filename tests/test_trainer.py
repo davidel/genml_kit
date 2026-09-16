@@ -234,6 +234,17 @@ def test_vo_trainer_uses_shared_loop(tmp_path):
   args.in_ch = 1
   args.seed = None
   args.state_save = "none"
+  # _apply_model_extras is invoked by build_model; give it its neutral
+  # flag surface (the CLI defaults).
+  args.grad_checkpoint = False
+  args.lora = False
+  args.lora_r = 8
+  args.lora_alpha = 16
+  args.lora_dropout = 0.0
+  args.lora_target_modules = ""
+  args.source_checkpoint = None
+  args.param_rename = None
+  args.freeze = ""
 
   pipeline = VOPairPipeline()
   pipeline.build_loader(args, mode="train")

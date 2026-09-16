@@ -74,7 +74,9 @@ class VOPairMethod(Method):
         in_ch=getattr(args, "in_ch", 1),
     ).model
     model.to(device)
-    return model
+    # Extras (LoRA / freeze / checkpointing) apply to the VOSimilarityNet
+    # itself; supported but exercised only by unit-level tests today.
+    return self._apply_model_extras(args, model, device)
 
   def _parse_loss_cfg(self, spec):
     """Parse a comma-separated loss-weight string into a small namespace."""

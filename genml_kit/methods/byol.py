@@ -56,6 +56,13 @@ class BYOLMethod(Method):
         device=device,
         **getattr(args, "model_arg", {}),
     )
+    # Apply LoRA / freeze / checkpointing to the online encoder BEFORE
+    # constructing the composite: BYOL deep-copies the online encoder into
+    # the EMA target, so adapting afterwards would double the adapters and
+    # break online/target state-dict symmetry.  The target copy inherits the
+    # (frozen, never-gradient-updated) adapter weights -- correct EMA
+    # semantics; update_momentum blends them with the online branch's.
+    encoder = self._apply_model_extras(args, encoder, device)
     return BYOL(
         encoder,
         proj_dim=args.byol_proj_dim,

@@ -105,6 +105,13 @@ class DINOMethod(Method):
         device=device,
         **getattr(args, "model_arg", {}),
     )
+    # Apply LoRA / freeze / checkpointing to the student's encoder BEFORE
+    # constructing the composite: DINO deep-copies the student into the EMA
+    # teacher, so adapting afterwards would double the adapters and break
+    # teacher/student state-dict symmetry.  The teacher copy inherits the
+    # (frozen, never-gradient-updated) adapter weights, which is correct
+    # EMA semantics; update_momentum blends them with the student's.
+    encoder = self._apply_model_extras(args, encoder, device)
     return DINO(
         encoder,
         proj_dim=args.dino_proj_dim,
