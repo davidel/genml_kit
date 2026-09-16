@@ -49,12 +49,13 @@ class DataPipeline(abc.ABC):  # noqa: B024
   # --- Transforms ---------------------------------------------------------
 
   def build_transform(self, args, method):
-    """Optional generic preprocessing for a method (default: identity).
+    """Optional generic preprocessing (default: None = no pipeline phase).
 
-    Default no-op; a pipeline MAY apply its generic preprocessing here
-    (resize/normalize/crop-flip-jitter).  Objective-defined augmentation
-    (DualView / MultiCrop) is composed by the METHOD on top -- see "two-phase
-    contract" in the plan (s 6.1).  Returns a callable applied to each raw
-    item before it becomes a DataBlob.
+    Default returns None so that only the method's own augmentation (or the
+    historic fallback) is used.  A pipeline MAY override this to apply its
+    generic preprocessing (resize/normalize/crop-flip-jitter); it is composed
+    with the METHOD's objective augmentation (DualView / MultiCrop) -- the
+    "two-phase contract" in the plan (s 6.1).  Returns a callable applied to
+    each raw item before it becomes a DataBlob, or None.
     """
-    return lambda x: x
+    return None

@@ -145,9 +145,14 @@ class ImagesPipeline(DataPipeline):
             pipeline decides based on its own logic (backward compat).
     """
     method = kwargs.get("method")
-    # Use method's NEEDS_LABELS if not explicitly provided
-    if needs_labels is None and method is not None:
-      needs_labels = getattr(method, "NEEDS_LABELS", False)
+    # Use method's NEEDS_LABELS if not explicitly provided (via kwarg or args)
+    if needs_labels is None:
+      if hasattr(args, "needs_labels"):
+        needs_labels = bool(args.needs_labels)
+      elif method is not None:
+        needs_labels = getattr(method, "NEEDS_LABELS", False)
+      else:
+        needs_labels = False
     if getattr(args, "dataset", None):
       if self.train_loader is None or self.val_loader is None:
         self._build_classification(args, method=method, needs_labels=needs_labels)
@@ -256,14 +261,27 @@ class ImagesPipeline(DataPipeline):
             ValueError,
         )
 
+    # Two-phase transform composition (v4.2 s 6.1):
+    # 1. Pipeline generic preprocessing (resize/normalize/crop-flip-jitter)
+    # 2. Method-specific augmentation (DualView / MultiCrop / etc.)
+    pipeline_transform = self.build_transform(args, method)
+    method_transform = None
     if method is not None and hasattr(method, "build_transform"):
-      transform = method.build_transform(args, getattr(args, "image_size", 224))
+      method_transform = method.build_transform(args, getattr(args, "image_size", 224))
+
+    if pipeline_transform is not None and method_transform is not None:
+      # Compose: pipeline first, then method
+      from torchvision.transforms import v2
+      transform = v2.Compose([pipeline_transform, method_transform])
+    elif pipeline_transform is not None:
+      transform = pipeline_transform
+    elif method_transform is not None:
+      transform = method_transform
     else:
       transform = getattr(args, "train_transforms", None)
-    if transform is None:
-      # No method/CLI transform: fall back to the historic default
-      # pre-training augmentation (v4.2 s 6.1).
-      transform = build_pretrain_transform(getattr(args, "image_size", 224))
+      if transform is None:
+        transform = build_pretrain_transform(getattr(args, "image_size", 224))
+
     dataset = DictFieldTransform(ensemble, transform, fields=(ensemble.image_column,))
     if not needs_labels:
       # Methods that ignore labels get image-only items: a mixed ensemble
