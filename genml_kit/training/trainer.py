@@ -39,6 +39,13 @@ TrainingResult = namedtuple("TrainingResult", [
 ])
 
 
+class _NoMonitor:
+  """Null-object grad monitor: step() is a no-op."""
+
+  def step(self, *_args, **_kwargs):
+    return None
+
+
 class BaseTrainer:
   """Task-agnostic training loop over ``method`` + ``pipeline``.
 
@@ -174,13 +181,6 @@ class BaseTrainer:
   def _init_grad_monitor(self):
     grad_monitor = create_grad_monitor(self.args, self.model)
     if grad_monitor is None:
-
-      class _NoMonitor:
-        """Null-object monitor: step() is a no-op."""
-
-        def step(self, *_args, **_kwargs):
-          return None
-
       grad_monitor = _NoMonitor()
     return grad_monitor
 

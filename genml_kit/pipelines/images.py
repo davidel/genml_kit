@@ -153,6 +153,13 @@ class ImagesPipeline(DataPipeline):
         needs_labels = getattr(method, "NEEDS_LABELS", False)
       else:
         needs_labels = False
+    # The two data paths are mutually exclusive (v4.2 plan s 6.1).
+    if getattr(args, "dataset", None) and getattr(args, "datasets", None):
+      fatal(
+          "Provide either --dataset (classification) or --datasets (ensemble), "
+          "not both.",
+          ValueError,
+      )
     if getattr(args, "dataset", None):
       if self.train_loader is None or self.val_loader is None:
         self._build_classification(args, method=method, needs_labels=needs_labels)
@@ -357,8 +364,6 @@ class ImagesPipeline(DataPipeline):
 
 _images_collate = ImagesPipeline._collate
 
-# --- Moved verbatim from pretrain/cli.py (v4.2 s 12.10) --------------------
-
 
 def build_pretrain_transform(image_size=448):
   """Default augmentations for pre-training.
@@ -448,9 +453,6 @@ def log_validation_images(method,
     # recon is (N, C, H, W) -- log first sample.
     writer.add_image("recon/original", images[0], global_step)
     writer.add_image("recon/reconstructed", recon[0].clamp(0, 1), global_step)
-
-
-# --- Moved verbatim from training/train.py (v4.2 s 6.1) --------------------
 
 
 def parse_class_multipliers(s, num_labels, label2id):

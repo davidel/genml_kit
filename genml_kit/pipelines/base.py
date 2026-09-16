@@ -16,7 +16,6 @@ class DataPipeline(abc.ABC):  # noqa: B024
   NAME = ""  # registry key (matches Method.NAME convention)
 
   def __init__(self, **kwargs):
-    self.args = kwargs.get("args")
     self.train_loader = None
     self.val_loader = None
 

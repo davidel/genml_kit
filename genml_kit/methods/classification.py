@@ -126,9 +126,6 @@ class ClassificationMethod(Method):
       loss = self._criterion(logits, targets)
       hard_targets = targets
 
-    with model_mode(model, "eval"):
-      pass  # no mode flip: reporting uses logits directly
-
     top1 = (logits.argmax(dim=1) == hard_targets).float().mean()
     return LossOutput(loss=loss, metrics={"top1": top1.detach(), "loss": loss.detach()})
 
