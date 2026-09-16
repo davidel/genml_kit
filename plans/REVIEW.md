@@ -63,10 +63,10 @@ with an explicit `best_metric=float("inf")` and never routes through
 ### 1.2 `method.needs_labels` is never wired into `args.needs_labels`
 
 Where: `genml_kit/pipelines/images.py:241` reads
-`getattr(args, "needs_labels", False)`; `genml_kit/training/train.py:345`
+`getattr(args, \"needs_labels\", False)`; `genml_kit/training/train.py:345`
 defaults `args.needs_labels` to `False`.
 
-Design intent (plan §6.1): the pipeline must read **`method.needs_labels`**;
+Design intent (plan \u00a76.1): the pipeline must read **`method.needs_labels`**;
 the classification method is `True`, self-supervised methods are `False`. The
 deleted `pretrain/cli.py` did exactly `needs_labels=method.needs_labels`.
 
@@ -74,10 +74,18 @@ Reality: nothing in `genml_kit/` ever sets `args.needs_labels` from the method.
 Search confirms only tests set it. `_build_ensemble` *receives* `method` but uses
 it only for `build_transform`, never for `needs_labels`.
 
+**Verified**: `Method` base has no `needs_labels`. Only `SupConMethod`,
+`DINOMethod`, `BYOLMethod`, `IJEPAMethod` define `needs_labels = False`.
+`ClassificationMethod` and `VOPairMethod` do **not** define it.
+
 Consequence: `--method supcon --datasets ...` applies the label-stripping branch
 (`FieldSectorDataset` image-only items) and `SupConMethod.train_step` then raises
-`ValueError("SupConMethod requires labels ...")`. Only `supcon` currently
+`ValueError(\"SupConMethod requires labels ...\")`. Only `supcon` currently
 declares `needs_labels = True`, but the contract is broken for the whole family.
+
+Fix in **A2**: add `needs_labels = False` to `Method` base, `True` to
+`ClassificationMethod` / `VOPairMethod`, then propagate from method to
+`args.needs_labels` in `train.py` before `pipeline.build_loader`.
 
 ### 1.3 Reconstruction visualization silently dropped; `log_validation_images` is dead code
 
@@ -99,7 +107,7 @@ leaving a public function plus an import as dead code and a stale doc row.
 
 ## Part 2 — Design / structure issues
 
-### 2.1 Duplicated helpers — two sources of truth
+### 2.1 Duplicated helpers \u2014 two sources of truth
 
 Byte-identical definitions (verified by diffing the extracted functions) exist
 in **both** `genml_kit/pipelines/images.py` and
@@ -108,6 +116,15 @@ in **both** `genml_kit/pipelines/images.py` and
 - `compute_class_weights` (`images.py:471`, `train_compat.py:92`)
 - `parse_class_multipliers` (`images.py:431`, `train_compat.py:109`)
 - `fmt_weights` (`images.py:488`, `train_compat.py:87`)
+
+`mixup_data` is **not** identical \u2014 `train_compat.py` uses `np.random.beta`
+while `images.py` does not have it (defined in `classification.py:187`).  The
+duplicated trio (`compute_class_weights`, `parse_class_multipliers`,
+`fmt_weights`) creates two sources of truth for classification pipeline logic.
+The pipeline is the canonical owner (data-side); `train_compat.py` re-exports
+them for backward compatibility.  Recommended: keep them in `images.py` and
+import from there in `train_compat.py` (or consolidate to a shared utils
+module).  Current state is harmless but confusing.
 
 `mixup_data` is additionally duplicated between `training/train_compat.py:149`
 and `methods/classification.py:188` (near-identical; the method copy does an
@@ -151,7 +168,7 @@ pre-existing `training/classifiers/__init__.py`).
 
 ### 2.5 Default `evaluate()` calls `train_step`, which has side effects
 
-Where: `methods/base.py:56` — the default `evaluate` iterates the loader calling
+Where: `methods/base.py:56` \u2014 the default `evaluate` iterates the loader calling
 `train_step` under `no_grad` to average metrics.
 
 For DINO/BYOL, `train_step` calls `model.update_momentum(...)`; for SimMIM it
@@ -159,6 +176,78 @@ samples a fresh random mask. Any method relying on the default `evaluate` for
 validation would mutate EMA state or be stochastic. Today this is masked because
 the ensemble path only sets `train_loader` (`val_loader` stays `None` for
 pre-training), but the base contract is a footgun for future methods.
+
+### 2.6 `log_validation_images` imported but never called \u2014 SimMIM validation images lost
+
+Where: `genml_kit/training/train.py:25` imports `log_validation_images` from
+`pipelines.images`, but there is **no call site** in the training loop or
+trainer. The function exists and is tested (`tests/test_pretrain_vis.py`), but
+the integration was lost during the v4.2 refactor.
+
+Consequence: `SimMIM.validate()` (`methods/simmim.py:143`) \u2014 which returns
+reconstructed images for TensorBoard logging \u2014 has no live caller. The
+`--vis_every` flag documented in `README.md:570` is also dead.
+
+Recommendation: either (a) call `log_validation_images` from `BaseTrainer.run`
+after validation when `args.vis_every > 0` and `epoch % args.vis_every == 0`,
+or (b) remove the import, the function, the tests, and the stale doc row if
+the feature is not needed.
+
+### 2.7 `needs_labels` attribute missing from `Method` base class
+
+Where: `Method` base class (`methods/base.py`) has no `needs_labels` attribute.
+Only `SupConMethod`, `DINOMethod`, `BYOLMethod`, `IJEPAMethod` define
+`needs_labels = False`. `ClassificationMethod` and `VOPairMethod` do not
+define it (and thus default to... nothing, since it doesn't exist in base).
+
+The CLI in `train.py` uses a hardcoded default `needs_labels=False` for all
+methods (`normalize_args` in `utils/args.py:110`), which is incorrect for
+supervised methods. This causes a regression where `--method supcon` on a
+labeled ensemble silently strips labels (the old `pretrain/cli.py` used
+`needs_labels=method.needs_labels`).
+
+Fix tracked in **A2**: add `needs_labels = False` to `Method` base, set
+`needs_labels = True` on `ClassificationMethod` and `VOPairMethod`, and
+propagate from method to `args.needs_labels` in `train.py` before
+`pipeline.build_loader`.
+
+### 2.8 `pretrain/` folder is now a misnomer — move losses/augmentations up
+
+Since the v4.2 refactor (commit `ec19359`), there is no longer a separate
+"pretrain" CLI or bolted-in pretraining program. All methods (supervised +
+self-supervised) are unified under the `Method` registry and the single
+`genml-kit-train` binary. However, the shared utilities remain in
+`genml_kit/pretrain/`:
+
+```
+genml_kit/pretrain/
+├── augmentations/
+│   ├── dual_view.py     → DualViewTransform (used by BYOL)
+│   └── multicrop.py     → MultiCropTransform (used by DINO, IJEPA)
+└── losses/
+    ├── byol.py          → byol_loss (used by BYOL)
+    ├── contrastive.py   → supcon_loss (used by SupCon)
+    ├── dino.py          → DINOLoss (used by DINO)
+    └── focal.py         → CombinedFocalLoss (used by Classification)
+```
+
+These are **general-purpose utilities** used by multiple methods, not
+pretraining-specific. The `pretrain/` namespace is now misleading and
+couples classification (via `CombinedFocalLoss`) to a "pretrain" module.
+
+**Recommendation**: move to a neutral top-level namespace:
+- `genml_kit/augmentations/dual_view.py`, `genml_kit/augmentations/multicrop.py`
+- `genml_kit/losses/byol.py`, `genml_kit/losses/contrastive.py`, `genml_kit/losses/dino.py`, `genml_kit/losses/focal.py`
+
+Then update imports in:
+- `methods/byol.py`, `methods/dino.py`, `methods/supcon.py`, `methods/classification.py`
+- `models/dino.py`, `models/byol.py`
+- `training/train_compat.py`
+- `pretrain/losses/__init__.py`, `pretrain/augmentations/__init__.py` (remove)
+
+This is a mechanical rename with no behavioral change, but it cleans up the
+legacy architecture and avoids the false implication that these are
+"pretraining-only" utilities.
 
 ---
 
@@ -174,16 +263,29 @@ pre-training), but the base contract is a footgun for future methods.
 - **C2.** Unused attribute `DataPipeline.args` (`pipelines/base.py:19`):
   `build_pipeline(args.pipeline)` is always called without kwargs, so
   `self.args` is always `None`. Dead.
-- **C3.** Vestigial `del ckpt_extra` (`train.py:420`) immediately before
-  constructing the trainer — harmless noise.
+- **C3.** `del ckpt_extra` (`train.py:408`) \u2014 **NOT vestigial**. The variable
+  `ckpt_extra` is a dict returned by `open_resume_context` containing the full
+  checkpoint extras (optimizer state, scheduler state, scaler state, method
+  state, etc.). After extracting the needed pieces (`ckpt_extra.get("method_state")`,
+  `global_step`, and passing `ckpt_extra` to `build_optimization` for state
+  restoration), the `del` explicitly drops the reference so the potentially
+  large checkpoint dict can be garbage-collected before the trainer is
+  constructed. This is intentional memory hygiene, not noise.  **Do not remove.**
+
+  **Action**: Added explanatory comment in `train.py:405-407` to document the
+  intent and prevent future reviewers from flagging it as vestigial.
 - **C4.** Plan deviation: §6.1 says "if both `--dataset` and `--datasets` are
   present → `fatal`". Not implemented; `build_loader` silently prefers
   `--dataset`.
 - **C5.** `_NoMonitor` is (re)defined inside `_init_grad_monitor` on every call
   (`trainer.py:175`); hoist to module scope.
 - **C6.** `Method` base has no `needs_labels`; only `supcon/dino/byol/ijepa`
-  define it — `classification/vo_pair` do not (verified). Adding the default to
+  define it \u2014 `classification/vo_pair` do not (verified). Adding the default to
   the base makes the contract explicit (folded into fix item A2).
+- **C7.** Decorative section comments in `genml_kit/pipelines/images.py:335,428`
+  (`# --- Moved verbatim from ... (v4.2 s ...) --------------------`) carry no
+  semantic value and serve only as visual dividers from the legacy migration.
+  Remove them.
 
 ---
 
@@ -332,14 +434,16 @@ Same concept, two conventions. Make both class-decorators reading `cls.NAME`
 Tests: `tests/test_pipeline_method_registry.py:100` uses
 `@register_pipeline("custom_pipe")` — update.
 
-### Group C — Minor cleanups
+### Group C \u2014 Minor cleanups
 
-- **C1.** Delete the no-op `with model_mode(model, "eval"): pass`
+- **C1.** Delete the no-op `with model_mode(model, \"eval\"): pass`
   (`methods/classification.py:128-129`).
 - **C2.** Remove the unused `DataPipeline.args` attribute
   (`pipelines/base.py:19`).
-- **C3.** Remove the vestigial `del ckpt_extra` (`train.py:420`).
-- **C4.** Enforce the "both `--dataset` and `--datasets` → `fatal`" rule in
+- **C3.** ~~Remove the vestigial `del ckpt_extra`~~ \u2014 **KEEP IT**.
+  The `del ckpt_extra` at `train.py:405` is intentional memory hygiene
+  (see Part 3).  No action needed.
+- **C4.** Enforce the \"both `--dataset` and `--datasets` \u2192 `fatal`\" rule in
   `ImagesPipeline.build_loader` (`pipelines/images.py:133`).
 - **C5.** Hoist `_NoMonitor` to module scope (`trainer.py:175`).
 - **C6.** Folded into A2 (`Method.needs_labels` base default). Optionally

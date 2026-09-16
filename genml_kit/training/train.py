@@ -402,6 +402,9 @@ def main(argv=None):
       "global_step",
       start_epoch * (len(pipeline.train_loader) // args.grad_accum_steps),
   )
+  # Drop the reference to the full checkpoint extras dict so the potentially
+  # large optimizer/scheduler/scaler state can be GC'd before the trainer is
+  # constructed. This is intentional memory hygiene, not vestigial code.
   del ckpt_extra
 
   writer = open_writer(log_dir=args.log_dir)
