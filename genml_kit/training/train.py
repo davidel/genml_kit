@@ -324,6 +324,12 @@ def parse_args(argv=None):
       default=1,
       help="Input channels (VO pipelines use single-channel imagery).",
   )
+  parser.add_argument(
+      "--vis_every",
+      type=int,
+      default=0,
+      help="Log validation images every N epochs (0 disables).",
+  )
   args = parser.parse_args(argv)
   _post_process(parser, args)
   return args

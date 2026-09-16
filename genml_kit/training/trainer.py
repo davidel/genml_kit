@@ -228,6 +228,25 @@ class BaseTrainer:
             self.optimization.scheduler.step()
 
           metrics = self.validate()
+
+          # Log validation images if enabled and method supports it
+          if (metrics is not None and self.writer is not None
+              and getattr(self.args, "vis_every", 0) > 0
+              and self.epoch % self.args.vis_every == 0):
+            try:
+              from genml_kit.pipelines.images import log_validation_images
+              log_validation_images(
+                  self.method,
+                  self.model,
+                  self.pipeline.val_loader,
+                  self.writer,
+                  self.global_step,
+                  self.device,
+                  image_column=getattr(self.args, "image_column", "image"),
+              )
+            except Exception as e:
+              logging.warning("Failed to log validation images: %s", e)
+
           if (metrics is not None and
               self.has_metric_improved(self.best_metric, metrics)):
             best_metric = self.best_metric
