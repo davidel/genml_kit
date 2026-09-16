@@ -118,7 +118,9 @@ def _run_smoke(tmp_path, resume=False):
 
   with (
       patch("sys.argv", test_args),
-      patch("genml_kit.training.train.load_model", return_value=TinyBackbone()),
+      # B3 step 5: the model is built by TinyMethod.build_model via
+      # load_model; patch the package-level entry point (lazy import).
+      patch("genml_kit.models.load_model", return_value=TinyBackbone()),
       patch("genml_kit.training.trainer.create_model_report", side_effect=_report_spy),
   ):
     from genml_kit.training.train import main

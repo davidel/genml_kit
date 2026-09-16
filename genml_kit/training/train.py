@@ -12,7 +12,6 @@ import logging
 import os
 
 import datasets as _datasets
-import torch
 
 from genml_kit.datasets.hf_proxy import HFDatasetProxy  # noqa: F401
 from genml_kit.io.checkpointing import open_resume_context, parse_state_flags
@@ -23,7 +22,6 @@ from genml_kit.pipelines.images import (  # noqa: F401
     build_pretrain_dataset, build_pretrain_transform, compute_class_weights,
     log_validation_images,
 )
-from genml_kit.training.model_utils import apply_lora, enable_grad_checkpointing
 from genml_kit.training.optim_factory import build_optimization
 from genml_kit.training.train_compat import (
     CombinedFocalLoss,  # noqa: F401
@@ -357,15 +355,22 @@ def _post_process(parser, args):
 def main(argv=None):
   """Run the unified training harness.
 
-  Wire order (s 5.1):
+  The driver is branchless: it calls the ``Method`` lifecycle hooks
+  (plans/B3_PLAN.md s 2.1) in one fixed order and never inspects which
+  method/pipeline it is running.
 
-      parser(s)  ->  pipeline  ->  method  ->  model  ->  optimization
-      ->  BaseTrainer(method, pipeline).run()
+      parse -> seed -> device -> pipeline/method objects
+        -> method.prepare_transforms   (processor normalization, if any)
+        -> pipeline.build_loader x2    (data side)
+        -> method.wire_data            (label space, criterion, ...)
+        -> method.build_model          (model side, sized from wire_data)
+        -> resume -> optimization -> BaseTrainer.run()
+        -> [interrupt guard] -> method.post_train
 
-  Transforms are resolved BEFORE the loaders are built (the classification
-  data path needs the model processor's normalization), matching the
-  legacy ``train.py`` order: parse -> processor -> resolve_augmentations
-  -> build_data -> build_model.
+  Invariant: transforms are resolved BEFORE the loaders are built (the
+  classification data path consumes them during loader construction), and
+  wire_data runs BEFORE build_model (the HF head is sized from the label
+  space).  Both are enforced by the hook order, not by convention.
   """
   args = normalize_args(parse_args(argv))
   setup_logging(args.log_level, args.log_targets)
@@ -377,19 +382,18 @@ def main(argv=None):
   logging.info("Resolved run: pipeline=%s method=%s (metric_key=%s)", pipeline.NAME,
                method.NAME, method.METRIC_KEY)
 
-  is_classification = isinstance(method, get_method("classification"))
-  if is_classification:
-    _resolve_classification_transforms(args, device)
-
-  # Pipeline first (it owns the data + loader); then the method can read
-  # data-driven attributes (num_labels, label space) for supervised tasks.
+  # Method lifecycle (plans/B3_PLAN.md s 2.1), in the one order the driver
+  # guarantees:
+  #   1. prepare_transforms -- model-processor normalization before loaders
+  #   2. loaders            -- the pipeline owns the data
+  #   3. wire_data          -- the method consumes pipeline data attributes
+  #   4. build_model        -- the method constructs the model (sized from
+  #                            the label space wire_data provided)
+  method.prepare_transforms(args, device)
   pipeline.build_loader(args, mode="train", method=method)
   pipeline.build_loader(args, mode="val", method=method)
-
-  if is_classification:
-    _wire_classification(args, pipeline, method)
-
-  model = _build_model(args, device, pipeline, method)
+  method.wire_data(args, pipeline)
+  model = method.build_model(args, device)
   method.load_checkpoint_state(model, {}, args)
 
   states_to_load = parse_state_flags(args.state_load)
@@ -439,95 +443,17 @@ def _default_metric(method):
   return float("inf") if method.has_metric_improved(0.0, 1.0) else float("-inf")
 
 
-def _wire_classification(args, pipeline, method):
-  """Feed pipeline data attrs into the classification method."""
-  if pipeline.num_labels is None:
-    fatal("--method classification requires a labeled --dataset.", ValueError)
-  method.set_label_space(pipeline.num_labels, pipeline.id2label, pipeline.label2id)
-  method.set_mixup_alpha(getattr(args, "mixup_alpha", 0.0))
-  class_weights = pipeline.class_weights
-  if class_weights is None:
-    class_weights = torch.ones(pipeline.num_labels, dtype=torch.float32)
-  method.build_criterion(args, class_weights)
-
-
-def _resolve_classification_transforms(args, device):
-  """Load the model processor and resolve train/val/TTA transforms.
-
-  Transitional (B3 step 4): the implementation now lives in
-  ClassificationMethod.prepare_transforms; this driver helper forwards to
-  it.  Step 5 deletes this function and calls the hook directly.
-  """
-  from genml_kit.methods import get_method
-  method = get_method("classification")()
-  method.prepare_transforms(args, device)
-
-
-def _build_model(args, device, pipeline, method):
-  """Build the model: classification loads via the registry, others via
-  the method's `build_model`."""
-  # Transitional (B3 step 4): both branches now forward to the method's
-  # real build_model (classification constructs via the registry inside
-  # the method).  Step 5 collapses this to a single unconditional call.
-  model = method.build_model(args, device)
-  if args.grad_checkpoint:
-    enable_grad_checkpointing(model)
-  return model
-
-
-def _load_processor(args, device):
-  return load_processor(
-      args.model,
-      image_size=args.image_size,
-      cache_dir=getattr(args, "cache_dir", None),
-  )
-
-
-def _resolve_transforms(args, processor):
-  from genml_kit.training.train_compat import resolve_augmentations
-  train_t, val_t, tta_t = resolve_augmentations(args, processor)
-  args.train_transforms = train_t
-  args.val_transforms = val_t
-  args.tta_transform = tta_t
-
-
-def _load_classification_model(args, device, pipeline, method):
-  num_labels = pipeline.num_labels
-  model = load_model(
-      args.model,
-      num_labels=num_labels,
-      id2label=pipeline.id2label,
-      label2id=pipeline.label2id,
-      image_size=args.image_size,
-      cache_dir=getattr(args, "cache_dir", None),
-      device=device,
-      **getattr(args, "model_arg", {}),
-  )
-  if args.lora:
-    target = (args.lora_target_modules.split(",") if args.lora_target_modules else None)
-    model = apply_lora(model,
-                       r=args.lora_r,
-                       alpha=args.lora_alpha,
-                       dropout=args.lora_dropout,
-                       target_modules=target)
-  elif args.source_checkpoint:
-    from genml_kit.io.checkpointing import load_checkpoint_weights
-    load_checkpoint_weights(args.source_checkpoint,
-                            model,
-                            device=device,
-                            param_rename=args.param_rename)
-  return model
-
-
 def _post_train(args, pipeline, method, device, result):
-  """Run entry-point post-training stages (currently only XGBoost)."""
+  """Run the method's post-training stages, unless the run was interrupted.
+
+  The interrupt guard is driver orchestration (whether post stages run at
+  all); what runs is the method's business (post_train hook).
+  """
   if result.interrupt_signals and result.interrupt_signals != ["SIGINT"]:
     logging.info("Interrupted by %s; checkpoint saved, exiting.",
                  result.interrupt_signals)
     return
-  if isinstance(method, get_method("classification")):
-    from genml_kit.training.train_compat import maybe_train_xgboost
-    maybe_train_xgboost(args, pipeline, device)
+  method.post_train(args, pipeline, device, result)
 
 
 if __name__ == "__main__":

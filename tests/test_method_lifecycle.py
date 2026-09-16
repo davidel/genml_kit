@@ -303,3 +303,36 @@ class TestClassificationLifecycle:
     assert len(calls) == 1
     assert calls[0][0] is args
     assert calls[0][1] is pipeline
+
+
+class TestDriverIsBranchless:
+  """The structural guarantee of B3: main() dispatches through the
+  lifecycle hooks only, never by inspecting concrete method types."""
+
+  def test_main_has_no_method_type_sniffing(self):
+    import inspect
+
+    from genml_kit.training import train
+
+    source = inspect.getsource(train.main)
+    assert "isinstance(method" not in source
+    assert 'get_method("classification")' not in source
+    assert "is_classification" not in source
+    # And the hooks are actually invoked.
+    for hook in ("prepare_transforms", "wire_data", "build_model",
+                 "post_train"):
+      assert f"method.{hook}" in source
+
+  def test_driver_module_has_no_method_type_sniffing(self):
+    import inspect
+
+    from genml_kit.training import train
+
+    source = inspect.getsource(train)
+    assert 'get_method("classification")' not in source
+    assert "is_classification" not in source
+    # The old driver helpers are gone.
+    for gone in ("_wire_classification", "_build_model",
+                 "_load_classification_model",
+                 "_resolve_classification_transforms"):
+      assert f"def {gone}" not in source
