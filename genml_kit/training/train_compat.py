@@ -11,13 +11,21 @@ import gc
 import logging
 import re
 
-import numpy as np
 import torch
 from torchvision.transforms import v2
 from torchvision.transforms.v2 import InterpolationMode
 
 from genml_kit.losses.focal import CombinedFocalLoss
 from genml_kit.training.eval import evaluate_performance
+# Label-space helpers live in training.labels (single source of truth, B1);
+# re-exported here for backward compatibility with the historic
+# `training.train` / `training.train_compat` import surface.
+from genml_kit.training.labels import (
+    compute_class_weights,
+    fmt_weights,
+    mixup_data,
+    parse_class_multipliers,
+)
 from genml_kit.training.model_utils import (
     apply_lora,
     enable_grad_checkpointing,
@@ -82,82 +90,6 @@ def build_transforms(processor, image_size, train_aug_fn=None):
       *tail,
   ])
   return train_augmentations, val_augmentations
-
-
-def fmt_weights(weights, decimals=3):
-  """Format a 1-D tensor as a human-readable list string."""
-  return "[" + ", ".join(f"{v:.{decimals}f}" for v in weights.tolist()) + "]"
-
-
-def compute_class_weights(train_dataset, num_labels, label_column="label"):
-  """Compute inverse-frequency class weights as a CPU tensor."""
-  labels = np.asarray([row[label_column] for row in train_dataset], dtype=np.int64)
-  actual_labels = set(labels.tolist())
-  if len(actual_labels) > num_labels:
-    fatal(
-        f"Dataset has {len(actual_labels)} unique labels but "
-        f"num_labels={num_labels}",
-        ValueError,
-    )
-  counts = np.bincount(labels, minlength=num_labels).astype(np.float64)
-  counts = np.maximum(counts, 1.0)
-  weights = 1.0 / counts
-  weights = weights / weights.sum() * num_labels
-  return torch.tensor(weights, dtype=torch.float32)
-
-
-def parse_class_multipliers(s, num_labels, label2id):
-  """Parse a ``--class_multipliers`` string into a ``[num_labels]`` tensor.
-
-  *s* is a comma-separated string of ``NAME=VALUE`` pairs where *NAME* is
-  a label string or an integer label index and *VALUE* is a float
-  multiplier.  Unspecified classes default to ``1.0``.
-
-  Returns a ``torch.Tensor`` of shape ``[num_labels]``.
-  """
-  m = torch.ones(num_labels)
-  if not s or not s.strip():
-    return m
-  for pair in s.split(","):
-    pair = pair.strip()
-    if not pair:
-      continue
-    if "=" not in pair:
-      fatal(
-          f"Invalid --class_multipliers entry: '{pair}'. "
-          "Expected NAME=VALUE (e.g. cat=4.0).",
-          ValueError,
-      )
-    name, val = pair.split("=", 1)
-    name, val = name.strip(), val.strip()
-    if name.isdigit():
-      idx = int(name)
-    else:
-      if name not in label2id:
-        fatal(
-            f"Unknown class name '{name}' in --class_multipliers. "
-            f"Available: {list(label2id.keys())}",
-            ValueError,
-        )
-      idx = label2id[name]
-    if not (0 <= idx < num_labels):
-      fatal(f"Label index {idx} out of range [0, {num_labels})", ValueError)
-    m[idx] = float(val)
-  return m
-
-
-def mixup_data(x, y, alpha=0.2):
-  """Apply Mixup to a batch: returns mixed images, and two label sets +
-  lambda."""
-  if alpha <= 0:
-    return x, y, y, 1.0
-  lam = np.random.beta(alpha, alpha)
-  # Fold into lam so y_a is always the dominant label.
-  lam = max(lam, 1.0 - lam)
-  batch_size = x.size(0)
-  index = torch.randperm(batch_size, device=x.device)
-  mixed_x = lam * x + (1.0 - lam) * x[index]
-  return mixed_x, y, y[index], lam
 
 
 def resolve_augmentations(args, processor):

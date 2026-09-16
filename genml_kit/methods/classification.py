@@ -9,6 +9,7 @@ from genml_kit.methods.base import Method
 from genml_kit.methods.registry import register_method
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.losses.focal import CombinedFocalLoss
+from genml_kit.training.labels import mixup_data
 from genml_kit.training.model_utils import model_mode
 from genml_kit.utils.logging import fatal
 
@@ -242,24 +243,3 @@ class ClassificationMethod(Method):
 
   def get_checkpoint_state(self, model, args):
     return {"method": "classification", "num_labels": self._num_labels}
-
-
-def mixup_data(x, y, alpha=0.2):
-  """Apply Mixup to a batch: returns mixed images, and two label sets + lambda.
-
-  Returns ``(mixed_x, y_a, y_b, lam)`` where ``lam`` is the interpolation
-  coefficient sampled from ``Beta(alpha, alpha)``.  When ``alpha <= 0`` the
-  function is a no-op and returns the originals unchanged.
-  """
-  import numpy as np
-  if alpha <= 0:
-    return x, y, y, 1.0
-  lam = np.random.beta(alpha, alpha)
-  # Fold into lam so y_a is always the dominant label and callers can
-  # use y_a alone for hard-label metrics; the y_b contribution survives
-  # only through the 1-lam weight in the soft-target loss.
-  lam = max(lam, 1.0 - lam)
-  batch_size = x.size(0)
-  index = torch.randperm(batch_size, device=x.device)
-  mixed_x = lam * x + (1.0 - lam) * x[index]
-  return mixed_x, y, y[index], lam

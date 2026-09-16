@@ -10,7 +10,6 @@ transfer; never builds models or losses.
 
 import logging
 
-import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import v2
@@ -24,6 +23,11 @@ from genml_kit.datasets.weighted_sampler import build_weighted_sampler
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import register_pipeline
+from genml_kit.training.labels import (
+    compute_class_weights,
+    fmt_weights,
+    parse_class_multipliers,
+)
 from genml_kit.training.model_utils import model_mode
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
@@ -449,65 +453,3 @@ def log_validation_images(method,
     # recon is (N, C, H, W) -- log first sample.
     writer.add_image("recon/original", images[0], global_step)
     writer.add_image("recon/reconstructed", recon[0].clamp(0, 1), global_step)
-
-
-def parse_class_multipliers(s, num_labels, label2id):
-  """Parse a ``--class_multipliers`` string into a ``[num_labels]`` tensor.
-
-  *s* is a comma-separated string of ``NAME=VALUE`` pairs where *NAME* is
-  a label string or an integer label index and *VALUE* is a float
-  multiplier.  Unspecified classes default to ``1.0``.
-
-  Returns a ``torch.Tensor`` of shape ``[num_labels]``.
-  """
-  m = torch.ones(num_labels)
-  if not s or not s.strip():
-    return m
-  for pair in s.split(","):
-    pair = pair.strip()
-    if not pair:
-      continue
-    if "=" not in pair:
-      fatal(
-          f"Invalid --class_multipliers entry: '{pair}'. "
-          "Expected NAME=VALUE (e.g. cat=4.0).",
-          ValueError,
-      )
-    name, val = pair.split("=", 1)
-    name, val = name.strip(), val.strip()
-    if name.isdigit():
-      idx = int(name)
-    else:
-      if name not in label2id:
-        fatal(
-            f"Unknown class name '{name}' in --class_multipliers. "
-            f"Available: {list(label2id.keys())}",
-            ValueError,
-        )
-      idx = label2id[name]
-    if not (0 <= idx < num_labels):
-      fatal(f"Label index {idx} out of range [0, {num_labels})", ValueError)
-    m[idx] = float(val)
-  return m
-
-
-def compute_class_weights(train_dataset, num_labels, label_column="label"):
-  """Compute inverse-frequency class weights as a CPU tensor."""
-  labels = np.asarray([row[label_column] for row in train_dataset], dtype=np.int64)
-  actual_labels = set(labels.tolist())
-  if len(actual_labels) > num_labels:
-    fatal(
-        f"Dataset has {len(actual_labels)} unique labels but "
-        f"num_labels={num_labels}",
-        ValueError,
-    )
-  counts = np.bincount(labels, minlength=num_labels).astype(np.float64)
-  counts = np.maximum(counts, 1.0)
-  weights = 1.0 / counts
-  weights = weights / weights.sum() * num_labels
-  return torch.tensor(weights, dtype=torch.float32)
-
-
-def fmt_weights(weights, decimals=3):
-  """Format a 1-D tensor as a human-readable list string."""
-  return "[" + ", ".join(f"{v:.{decimals}f}" for v in weights.tolist()) + "]"
