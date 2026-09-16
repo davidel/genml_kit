@@ -189,3 +189,117 @@ class TestApplyModelExtras:
     # under lora_A/lora_B children of the wrapped fc layer.
     adapted = [n for n, p in model.named_parameters() if "lora_" in n]
     assert any(".fc." in n for n in adapted)
+
+
+class TestClassificationLifecycle:
+  """wire_data -> build_model -> post_train contract (B3 step 4)."""
+
+  def _method(self):
+    return get_method("classification")()
+
+  def _pipeline(self, num_labels=3):
+    pipeline = argparse.Namespace()
+    pipeline.num_labels = num_labels
+    if num_labels is not None:
+      pipeline.id2label = {i: f"c{i}" for i in range(num_labels)}
+      pipeline.label2id = {f"c{i}": i for i in range(num_labels)}
+    else:
+      pipeline.id2label = None
+      pipeline.label2id = None
+    pipeline.class_weights = None
+    return pipeline
+
+  def _args(self):
+    return argparse.Namespace(
+        model="dummy/tiny-model",
+        image_size=16,
+        cache_dir=None,
+        model_arg={},
+        mixup_alpha=0.0,
+        focal_gamma=0.0,
+        label_smoothing=0.0,
+        grad_checkpoint=False,
+        lora=False,
+        lora_r=4,
+        lora_alpha=8,
+        lora_dropout=0.0,
+        lora_target_modules="fc",
+        source_checkpoint=None,
+        param_rename=None,
+        freeze="",
+    )
+
+  def test_build_model_requires_wire_data(self):
+    with pytest.raises(RuntimeError, match="wire_data"):
+      self._method().build_model(self._args(), torch.device("cpu"))
+
+  def test_wire_data_builds_criterion_and_label_space(self):
+    method = self._method()
+    method.wire_data(self._args(), self._pipeline(num_labels=3))
+    assert method._num_labels == 3
+    assert method._criterion is not None
+
+  def test_wire_data_rejects_unlabeled_pipeline(self):
+    with pytest.raises(ValueError, match="labeled"):
+      self._method().wire_data(self._args(), self._pipeline(num_labels=None))
+
+  def test_build_model_happy_path(self):
+    from collections import namedtuple
+
+    LogitsOutput = namedtuple("LogitsOutput", ["logits"])
+
+    class _Classifier(torch.nn.Module):
+
+      def __init__(self, num_labels):
+        super().__init__()
+        self.fc = torch.nn.Linear(3 * 16 * 16, num_labels)
+
+      def forward(self, pixel_values, **kwargs):
+        return LogitsOutput(logits=self.fc(pixel_values.flatten(1)))
+
+    method = self._method()
+    method.wire_data(self._args(), self._pipeline(num_labels=3))
+    with patch("genml_kit.models.load_model",
+               return_value=_Classifier(3)):
+      model = method.build_model(self._args(), torch.device("cpu"))
+    logits = model(pixel_values=torch.zeros(2, 3, 16, 16)).logits
+    assert logits.shape == (2, 3)
+
+  def test_build_model_lora_path(self):
+    from collections import namedtuple
+
+    LogitsOutput = namedtuple("LogitsOutput", ["logits"])
+
+    class _Classifier(torch.nn.Module):
+
+      def __init__(self, num_labels):
+        super().__init__()
+        self.fc = torch.nn.Linear(3 * 16 * 16, num_labels)
+
+      def forward(self, pixel_values, **kwargs):
+        return LogitsOutput(logits=self.fc(pixel_values.flatten(1)))
+
+    method = self._method()
+    method.wire_data(self._args(), self._pipeline(num_labels=3))
+    args = self._args()
+    args.lora = True
+    with patch("genml_kit.models.load_model",
+               return_value=_Classifier(3)):
+      model = method.build_model(args, torch.device("cpu"))
+    assert isinstance(model, peft.PeftModel)
+
+  def test_post_train_delegates_to_maybe_train_xgboost(self, monkeypatch):
+    # The hook unconditionally forwards; the --xgboost_model flag check is
+    # owned by maybe_train_xgboost (its own guard, covered by its contract).
+    calls = []
+    monkeypatch.setattr(
+        "genml_kit.training.train_compat.maybe_train_xgboost",
+        lambda *a, **k: calls.append(a))
+    method = self._method()
+    args = self._args()
+    args.xgboost_model = "some/path"
+    pipeline = self._pipeline()
+    method.post_train(args, pipeline, "cpu", None)
+    assert len(calls) == 1
+    assert calls[0][0] is args
+    assert calls[0][1] is pipeline

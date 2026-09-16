@@ -112,12 +112,16 @@ def _run_train_smoke(tmp_path):
   with (
       patch("sys.argv", test_args),
       patch("genml_kit.training.train.load_dataset", return_value=ds),
+      # B3 step 4: processor/model loading moved into
+      # ClassificationMethod.prepare_transforms / build_model.  Both are
+      # lazy imports there, so patch the source modules (patch resolves
+      # the name at call time either way).
       patch(
-          "genml_kit.training.train.load_processor",
+          "genml_kit.models.load_processor",
           return_value=TinyProcessor(),
       ),
       patch(
-          "genml_kit.training.train.load_model",
+          "genml_kit.models.load_model",
           return_value=TinyModel(num_labels=3),
       ),
   ):
@@ -193,9 +197,11 @@ def test_sampler_skips_freq_in_loss_weights(tmp_path):
   with (
       patch("sys.argv", test_args),
       patch("genml_kit.training.train.load_dataset", return_value=ds),
-      patch("genml_kit.training.train.load_processor", return_value=TinyProcessor()),
-      patch("genml_kit.training.train.load_model",
-            return_value=TinyModel(num_labels=2)),
+      # B3 step 4: processor/model loading moved into ClassificationMethod;
+      # patch the package-level entry points (the method imports them
+      # lazily from genml_kit.models, which re-exports the registry).
+      patch("genml_kit.models.load_processor", return_value=TinyProcessor()),
+      patch("genml_kit.models.load_model", return_value=TinyModel(num_labels=2)),
   ):
     from genml_kit.training.train import main
     main()

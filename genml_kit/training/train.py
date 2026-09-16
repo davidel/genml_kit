@@ -27,7 +27,6 @@ from genml_kit.training.model_utils import apply_lora, enable_grad_checkpointing
 from genml_kit.training.optim_factory import build_optimization
 from genml_kit.training.train_compat import (
     CombinedFocalLoss,  # noqa: F401
-    apply_freeze_patterns,
     build_transforms,  # noqa: F401
     evaluate_performance,  # noqa: F401
     load_augmentation_script,  # noqa: F401
@@ -453,20 +452,23 @@ def _wire_classification(args, pipeline, method):
 
 
 def _resolve_classification_transforms(args, device):
-  """Load the model processor and resolve train/val/TTA transforms."""
-  processor = _load_processor(args, device)
-  _resolve_transforms(args, processor)
+  """Load the model processor and resolve train/val/TTA transforms.
+
+  Transitional (B3 step 4): the implementation now lives in
+  ClassificationMethod.prepare_transforms; this driver helper forwards to
+  it.  Step 5 deletes this function and calls the hook directly.
+  """
+  from genml_kit.methods import get_method
+  method = get_method("classification")()
+  method.prepare_transforms(args, device)
 
 
 def _build_model(args, device, pipeline, method):
   """Build the model: classification loads via the registry, others via
   the method's `build_model`."""
-  if isinstance(method, get_method("classification")):
-    model = _load_classification_model(args, device, pipeline, method)
-    if args.grad_checkpoint:
-      enable_grad_checkpointing(model)
-    apply_freeze_patterns(args, model)
-    return model
+  # Transitional (B3 step 4): both branches now forward to the method's
+  # real build_model (classification constructs via the registry inside
+  # the method).  Step 5 collapses this to a single unconditional call.
   model = method.build_model(args, device)
   if args.grad_checkpoint:
     enable_grad_checkpointing(model)

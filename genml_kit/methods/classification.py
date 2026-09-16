@@ -10,6 +10,7 @@ from genml_kit.methods.registry import register_method
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.losses.focal import CombinedFocalLoss
 from genml_kit.training.model_utils import model_mode
+from genml_kit.utils.logging import fatal
 
 
 @register_method
@@ -29,6 +30,7 @@ class ClassificationMethod(Method):
     super().__init__()
     self._num_labels = None
     self._id2label = None
+    self._label2id = None
     self._criterion = None
 
   def add_args(self, parser):
@@ -83,15 +85,80 @@ class ClassificationMethod(Method):
   # --- Model ----------------------------------------------------------------
 
   def build_model(self, args, device):
-    # The classification backbone/head is loaded by the unified CLI via the
-    # model registry (load_model) because it needs processor + id2label for
-    # the HF head.  Return None so the CLI's model loading stands in.
-    return None
+    """Load the classifier via the model registry and finalize it.
+
+    Requires :meth:`wire_data` to have run (the HF head is constructed
+    from the pipeline's label space); fails fast with an explicit message
+    otherwise instead of a confusing HuggingFace error.
+    """
+    if self._num_labels is None:
+      fatal("ClassificationMethod.build_model requires wire_data(args, "
+            "pipeline) to have provided the label space; check the run "
+            "order (wire_data before build_model).", RuntimeError)
+    from genml_kit.models import load_model
+    model = load_model(
+        args.model,
+        num_labels=self._num_labels,
+        id2label=self._id2label,
+        label2id=self._label2id,
+        image_size=args.image_size,
+        cache_dir=getattr(args, "cache_dir", None),
+        device=device,
+        **getattr(args, "model_arg", {}),
+    )
+    return self._apply_model_extras(args, model, device)
 
   def set_label_space(self, num_labels, id2label, label2id):
     """Call after the pipeline is built; before model construction."""
     self._num_labels = num_labels
     self._id2label = id2label
+    self._label2id = label2id
+
+  def prepare_transforms(self, args, device):
+    """Load the model processor and resolve train/val/TTA transforms.
+
+    The HF processor owns the normalization (image_mean/std) the
+    classification data path must use, so this runs before the loaders
+    are built (lifecycle position 1).
+    """
+    from genml_kit.models import load_processor
+    from genml_kit.training.train_compat import resolve_augmentations
+    processor = load_processor(
+        args.model,
+        image_size=args.image_size,
+        cache_dir=getattr(args, "cache_dir", None),
+    )
+    train_t, val_t, tta_t = resolve_augmentations(args, processor)
+    args.train_transforms = train_t
+    args.val_transforms = val_t
+    args.tta_transform = tta_t
+
+  def wire_data(self, args, pipeline):
+    """Read the pipeline's label space and weights; build the criterion.
+
+    Lifecycle position 2: the loaders exist, so `pipeline.num_labels` /
+    `pipeline.class_weights` / `pipeline.id2label` are final.  Must run
+    before :meth:`build_model` (the HF head is sized from the label
+    space).
+    """
+    if pipeline.num_labels is None:
+      fatal("--method classification requires a labeled --dataset.",
+            ValueError)
+    self.set_label_space(pipeline.num_labels, pipeline.id2label, pipeline.label2id)
+    self.set_mixup_alpha(getattr(args, "mixup_alpha", 0.0))
+    class_weights = pipeline.class_weights
+    if class_weights is None:
+      class_weights = torch.ones(pipeline.num_labels, dtype=torch.float32)
+    self.build_criterion(args, class_weights)
+
+  def post_train(self, args, pipeline, device, result):
+    """Train the XGBoost head on frozen embeddings after a successful run.
+
+    No-op unless --xgboost_model is set (maybe_train_xgboost owns that
+    check).  The driver's interrupt guard runs before this hook.
+    """
+    from genml_kit.training.train_compat import maybe_train_xgboost
+    maybe_train_xgboost(args, pipeline, device)
 
   def train_step(self, model, blob, global_step, *, labels=None):
     images = blob.data
