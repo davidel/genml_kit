@@ -18,6 +18,7 @@ in [`vo/README.md`](vo/README.md).
 
 - [Why genml_kit?](#why-genml_kit)
 - [How It Works](#how-it-works)
+  - [The Method Lifecycle](#the-method-lifecycle)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Pre-Training Guide](#pre-training-guide)
@@ -118,6 +119,30 @@ the [Pre-Training Guide](#pre-training-guide)). The
 [timm documentation](https://huggingface.co/docs/timm/index) and the
 [Hugging Face image classification guide](https://huggingface.co/docs/transformers/tasks/image_classification)
 are useful references when selecting a backbone or processor.
+
+### The Method Lifecycle
+
+`genml-kit-train` is a *branchless* driver: it never inspects which
+`--method` or `--pipeline` it is running.  Instead, every objective registers
+itself through the `Method` registry and declares the same four lifecycle
+hooks, which the driver calls in one fixed order:
+
+| # | Hook | Purpose |
+|---|---|---|
+| 1 | `prepare_transforms(args, device)` | Resolve any transforms the method needs (e.g. the HF processor's normalization) **before** the loaders are built. |
+| 2 | `wire_data(args, pipeline)` | Consume pipeline-built data attributes: label space, class weights, criterion. Runs **before** the model so the HF head can be sized from the label space. |
+| 3 | `build_model(args, device)` | Construct the model. Every method applies LoRA (`--lora`), source-checkpoint weights (`--source_checkpoint`), freeze patterns (`--freeze`) and gradient checkpointing (`--grad_checkpoint`) through the same `_apply_model_extras` step — so all four flags work for **every** objective, not just classification. |
+| 4 | `post_train(args, pipeline, device, result)` | Optional post-training stage, called after `BaseTrainer.run()` returns (skipped when the run was interrupted). |
+
+Two ordering invariants are enforced by the hook order itself, not by
+convention: transforms resolve before loaders consume them, and the label
+space exists before the classification head is constructed.
+
+Adding a new objective means implementing the hooks you need (only
+`build_model` and `train_step` are abstract); the driver never changes.
+`ClassificationMethod` additionally implements `post_train` to run the
+optional XGBoost shallow-head stage; any future classifier-style method can
+reuse the same hook.
 
 ## Package Layout
 

@@ -418,6 +418,12 @@ Recommendation: **(a)** unless the two-phase composition is genuinely needed;
 
 #### B3. Remove classification `isinstance` special-casing from the driver
 
+**Status: IMPLEMENTED** — see `plans/B3_PLAN.md` and the six commits from
+`f4770ef` (C8) through `6be0b35` (branchless flip).  The `build_model`
+signature stayed `(args, device)` (the label space is the method's own state;
+Q4 resolved as (iii)-plus: the driver became branchless without threading
+`pipeline` through every method).
+
 Files: `genml_kit/training/train.py`, `genml_kit/methods/classification.py`,
   `genml_kit/training/train_compat.py`, `genml_kit/methods/base.py`
 
