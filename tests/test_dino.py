@@ -7,8 +7,8 @@ import torch
 from genml_kit.methods import get_method
 from genml_kit.models.dino import DINO
 from genml_kit.pipelines.contracts import DataBlob, LossOutput
-from genml_kit.pretrain.augmentations.multicrop import MultiCropTransform
-from genml_kit.pretrain.losses.dino import DINOLoss
+from genml_kit.augmentations.multicrop import MultiCropTransform
+from genml_kit.losses.dino import DINOLoss
 
 
 class _FakeBackbone(torch.nn.Module):

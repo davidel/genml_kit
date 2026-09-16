@@ -16,7 +16,7 @@ import torch
 from torchvision.transforms import v2
 from torchvision.transforms.v2 import InterpolationMode
 
-from genml_kit.pretrain.losses.focal import CombinedFocalLoss
+from genml_kit.losses.focal import CombinedFocalLoss
 from genml_kit.training.eval import evaluate_performance
 from genml_kit.training.model_utils import (
     apply_lora,

@@ -60,7 +60,7 @@ class BYOL(nn.Module):
       z1 = self.target_encoder(v1)
       z2 = self.target_encoder(v2)
 
-    from genml_kit.pretrain.losses.byol import byol_loss
+    from genml_kit.losses.byol import byol_loss
     loss = byol_loss(p1, z2, p2, z1)
     return loss, {"loss": loss.item()}
 

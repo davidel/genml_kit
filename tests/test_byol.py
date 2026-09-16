@@ -8,7 +8,7 @@ import torch
 from genml_kit.methods import get_method
 from genml_kit.models.byol import BYOL, _PredictorMLP
 from genml_kit.pipelines.contracts import DataBlob, LossOutput
-from genml_kit.pretrain.losses.byol import byol_loss
+from genml_kit.losses.byol import byol_loss
 
 
 class _FakeBackbone(torch.nn.Module):

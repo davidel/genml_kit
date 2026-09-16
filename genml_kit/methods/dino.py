@@ -14,7 +14,7 @@ from genml_kit.methods.registry import register_method
 from genml_kit.models import load_model
 from genml_kit.models.dino import DINO
 from genml_kit.pipelines.contracts import LossOutput
-from genml_kit.pretrain.augmentations.multicrop import MultiCropTransform
+from genml_kit.augmentations.multicrop import MultiCropTransform
 from genml_kit.training.model_utils import set_train_mode
 
 
@@ -25,7 +25,7 @@ class DINOMethod(Method):
   Responsibilities per training step:
 
   1. **Data**: :meth:`build_transform` returns a
-     :class:`~genml_kit.pretrain.augmentations.multicrop.MultiCropTransform`
+     :class:`~genml_kit.augmentations.multicrop.MultiCropTransform`
      producing 2 global crops and ``--dino_local_num`` local crops per
      image; ``train_step`` splits ``blob.data`` (a stacked crop tensor)
      into the ``(global_crops, local_crops)`` pair expected by

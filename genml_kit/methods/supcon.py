@@ -9,7 +9,7 @@ from genml_kit.methods.registry import register_method
 from genml_kit.models import load_model
 from genml_kit.models.contrastive import ContrastiveEncoder
 from genml_kit.pipelines.contracts import LossOutput
-from genml_kit.pretrain.losses.contrastive import supcon_loss
+from genml_kit.losses.contrastive import supcon_loss
 
 
 @register_method

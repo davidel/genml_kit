@@ -124,7 +124,9 @@ are useful references when selecting a backbone or processor.
 | Module | Contents |
 |---|---|
 | `genml_kit.training` | `train.py` and `infer.py` CLI harnesses, `optim_factory.py` (optimizers, LLRD, schedulers), `model_utils.py` (loading, freezing, feature extraction), `param_align.py`, `eval.py` + `metrics.py`, `grad_monitor.py`, `train_reporting.py`, `tta.py`, `xgb_utils.py` + `xgb_pipeline.py`, `classifiers/` (pluggable heads) |
-| `genml_kit.pretrain` | `cli.py` harness; `methods/` (SimMIM, I-JEPA, DINO, BYOL, SupCon via one registry); `losses/`; `augmentations/` (multi-crop, dual-view) |
+| `genml_kit.methods` | objective-side registry (classification, vo_pair, SimMIM, I-JEPA, DINO, BYOL, SupCon) |
+| `genml_kit.losses` | shared loss library (focal, NT-Xent contrastive, DINO self-distillation, BYOL) |
+| `genml_kit.augmentations` | objective-level transforms (dual-view, multi-crop) |
 | `genml_kit.models` | model/processor registry; `timm/`, `convvit/`, `uvito/`, `cls_model_wrapper/` backends; `processors/base.py` |
 | `genml_kit.datasets` | `hf_proxy.py` (HuggingFace → PyTorch bridge), `image_folder.py`, `ensemble.py`, `field_dataset.py`, `balanced_sampler.py`, `weighted_sampler.py`, `retry.py`, `vo_pairs.py` (synthetic VO pairs) |
 | `genml_kit.geometry` | `similarity.py` (2-D similarity algebra, batched differentiable Umeyama, backward-map warp) — the math behind the visual-odometry front-end lives in [`vo/README.md`](vo/README.md) |
@@ -906,7 +908,7 @@ With $`\gamma = 0`$ the factor is 1 for every example and the loss is plain
 cross-entropy; typical values are 1–3, and 2.0 is the usual default.
 
 genml_kit implements the general form (`CombinedFocalLoss` in
-`genml_kit/pretrain/losses/focal.py`), which composes cleanly with the other
+`genml_kit/losses/focal.py`), which composes cleanly with the other
 tools in this section. Let $`q`$ be the target distribution from the previous
 step (one-hot, Mixup-blended, or label-smoothed), $`w_c`$ the per-class
 multipliers (`--class_multipliers`), and $`p`$ the model's softmax output.

@@ -25,7 +25,7 @@ import torch.nn as nn
 
 from genml_kit.models.contrastive import ProjectionHead
 from genml_kit.models.encoder_utils import detect_backbone_dim, encode_with_backbone
-from genml_kit.pretrain.losses.dino import DINOLoss
+from genml_kit.losses.dino import DINOLoss
 
 
 class DINO(nn.Module):

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import register_method
 from genml_kit.pipelines.contracts import LossOutput
-from genml_kit.pretrain.losses.focal import CombinedFocalLoss
+from genml_kit.losses.focal import CombinedFocalLoss
 from genml_kit.training.model_utils import model_mode
 
 
