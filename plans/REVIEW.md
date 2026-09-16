@@ -188,10 +188,27 @@ Consequence: `SimMIM.validate()` (`methods/simmim.py:143`) \u2014 which returns
 reconstructed images for TensorBoard logging \u2014 has no live caller. The
 `--vis_every` flag documented in `README.md:570` is also dead.
 
-Recommendation: either (a) call `log_validation_images` from `BaseTrainer.run`
-after validation when `args.vis_every > 0` and `epoch % args.vis_every == 0`,
-or (b) remove the import, the function, the tests, and the stale doc row if
-the feature is not needed.
+**Recommendation (a)**: call `log_validation_images` from `BaseTrainer.run`
+after validation when `args.vis_every > 0` and `epoch % args.vis_every == 0`.
+This restores the reconstruction visualization feature for SimMIM (and any
+future method with a `validate()` that returns images).
+
+Implementation sketch:
+- In `BaseTrainer.run()`, after `val = self.validate()` and the `has_metric_improved`
+  check, add:
+  ```python
+  if self.writer is not None and getattr(self.args, "vis_every", 0) > 0:
+    if self.epoch % self.args.vis_every == 0:
+      from genml_kit.pipelines.images import log_validation_images
+      log_validation_images(
+          self.method, self.model, self.pipeline.val_loader, self.writer,
+          self.global_step, self.device,
+          image_column=getattr(self.args, "image_column", "image"),
+      )
+  ```
+- Ensure `args.vis_every` and `args.image_column` are added to the parser
+  (they exist in the legacy code but may need re-adding).
+- The `--vis_every` flag in `README.md:570` would become functional again.
 
 ### 2.7 `needs_labels` attribute missing from `Method` base class
 
