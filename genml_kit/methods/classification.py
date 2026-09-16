@@ -31,8 +31,6 @@ class ClassificationMethod(Method):
     self._id2label = None
     self._criterion = None
 
-  # --- CLI surface ----------------------------------------------------------
-
   def add_args(self, parser):
     group = parser.add_argument_group("classification method")
     group.add_argument("--mixup_alpha",
@@ -95,8 +93,6 @@ class ClassificationMethod(Method):
     self._num_labels = num_labels
     self._id2label = id2label
 
-  # --- Training step ----------------------------------------------------------
-
   def train_step(self, model, blob, global_step, *, labels=None):
     images = blob.data
     targets = blob.meta.get("labels", None)
@@ -151,8 +147,6 @@ class ClassificationMethod(Method):
         label_smoothing=args.label_smoothing,
     )
     return self._criterion
-
-  # --- Validation -----------------------------------------------------------
 
   def evaluate(self, model, loader, device, to_device):
     """Return dict with macro_f1 (and top1) over *loader* (DataBlob items)."""

@@ -314,8 +314,6 @@ class ImagesPipeline(DataPipeline):
     )
     logging.info(ensemble.summary())
 
-  # --- Helpers ------------------------------------------------------------
-
   def _make_loader(self, dataset, batch_size, **kwargs):
     return DataLoader(dataset,
                       batch_size=batch_size,
@@ -338,8 +336,6 @@ class ImagesPipeline(DataPipeline):
       else:
         meta[k] = v
     return DataBlob(data=data, meta=meta)
-
-  # --- Collation ------------------------------------------------------------
 
   @staticmethod
   def _collate(batch):

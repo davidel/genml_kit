@@ -33,8 +33,6 @@ class VOPairPipeline(DataPipeline):
     self.train_dataset = None
     self.val_dataset = None
 
-  # --- Collation -----------------------------------------------------------
-
   @staticmethod
   def _collate(batch):
     """Collate a list of VO pair dict items into a DataBlob.

@@ -91,8 +91,6 @@ class BaseTrainer:
     # read by ``validate`` so logging lands on the right epoch.
     self.epoch = start_epoch - 1
 
-  # --- Epoch body (s 4) ---------------------------------------------------
-
   def train_epoch(self, epoch, saver, step, monitor):
     """Run one training epoch; return ``(avg_loss, new_step)``."""
     set_train_mode(self.model, "train")  # loop owns train/eval mode
@@ -183,8 +181,6 @@ class BaseTrainer:
     if grad_monitor is None:
       grad_monitor = _NoMonitor()
     return grad_monitor
-
-  # --- Loop ----------------------------------------------------------------
 
   def run(self):
     """Run the training loop and return a ``TrainingResult``."""
