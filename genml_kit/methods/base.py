@@ -99,3 +99,86 @@ class Method(abc.ABC):
 
   def on_epoch_end(self, model, epoch, writer):  # noqa: B027
     """Hook called at the end of each training epoch (optional)."""
+
+  # --- Lifecycle hooks (called by the genml-kit-train driver, in order) ------
+
+  def prepare_transforms(self, args, device):  # noqa: B027
+    """Resolve any transforms this method needs BEFORE loaders are built.
+
+    Lifecycle position 1: called by the driver after parsing and seeding,
+    before ``pipeline.build_loader``.  The classification data path reads
+    ``args.train_transforms`` / ``args.val_transforms`` / ``args.tta_transform``
+    while building its loaders, so a method whose preprocessing depends on a
+    model processor must set them here.  Default: no-op.
+    """
+
+  def wire_data(self, args, pipeline):  # noqa: B027
+    """Consume pipeline-built data attributes (labels, weights).
+
+    Lifecycle position 2: called after both loaders are built and before
+    ``build_model``.  Override to read ``pipeline.num_labels`` /
+    ``pipeline.class_weights`` / ``pipeline.id2label`` and construct
+    criteria or label mappings.  Default: no-op.
+    """
+
+  def post_train(self, args, pipeline, device, result):  # noqa: B027
+    """Optional post-training stage (e.g. shallow-head probing).
+
+    Lifecycle position 4: called by the driver after ``BaseTrainer.run()``
+    returns, unless the run was interrupted (the driver owns the interrupt
+    guard).  ``result`` is the ``TrainingResult`` of the run.  Default: no-op.
+    """
+
+  # --- Model post-construction (called by build_model implementations) -------
+
+  def _apply_model_extras(self, args, model, device):
+    """Apply grad checkpointing, LoRA / source weights, freeze patterns.
+
+    Called by ``build_model`` implementations AFTER the raw model is
+    constructed and moved to *device*.  Every method gets the same
+    treatment, which is what makes ``--lora``, ``--source_checkpoint``,
+    ``--freeze`` and ``--grad_checkpoint`` work for every objective, not
+    just classification.  Returns the (possibly wrapped) model.
+
+    A method whose outer object is a composite (EMA teacher copies, masked
+    wrappers) should apply extras to the module that PEFT/freeze must
+    target -- typically the student-side backbone -- and build the composite
+    afterwards; see DINO/BYOL/IJEPA for the pattern.
+    """
+    if getattr(args, "grad_checkpoint", False):
+      from genml_kit.training.model_utils import enable_grad_checkpointing
+      enable_grad_checkpointing(model)
+    if getattr(args, "lora", False):
+      from genml_kit.training.model_utils import apply_lora
+      if args.lora_target_modules:
+        target_modules = args.lora_target_modules.split(",")
+      else:
+        # PEFT raises when target_modules is None or matches nothing, so the
+        # default must intersect the standard transformer projection names
+        # with what the model actually has (ViT backbones use q_proj/k_proj/
+        # v_proj; timm ViT uses qkv; HF attention uses query/key/value).
+        # Models matching none of the standard names (e.g. the fc-only test
+        # backbone) fall back to adapting every nn.Linear.
+        default_names = {"q_proj", "k_proj", "v_proj", "qkv", "query", "key", "value"}
+        present = {name.split(".")[-1]
+                   for name, mod in model.named_modules()
+                   if isinstance(mod, torch.nn.Linear)}
+        matched = sorted(default_names & present)
+        target_modules = matched or [n for n, m in model.named_modules()
+                                     if isinstance(m, torch.nn.Linear)]
+      model = apply_lora(
+          model,
+          r=args.lora_r,
+          alpha=args.lora_alpha,
+          dropout=args.lora_dropout,
+          target_modules=target_modules,
+      )
+    elif getattr(args, "source_checkpoint", None):
+      from genml_kit.io.checkpointing import load_checkpoint_weights
+      load_checkpoint_weights(args.source_checkpoint,
+                              model,
+                              device=device,
+                              param_rename=args.param_rename)
+    from genml_kit.training.train_compat import apply_freeze_patterns
+    apply_freeze_patterns(args, model)
+    return model
