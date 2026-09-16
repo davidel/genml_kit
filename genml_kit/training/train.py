@@ -425,8 +425,13 @@ def main(argv=None):
 
 
 def _default_metric(method):
-  """Best-metric sentinel for the first validation of a run."""
-  return float("inf") if not method.has_metric_improved(0.0, 1.0) else 0.0
+  """Best-metric sentinel for the first validation of a run.
+
+  The sentinel is the worst possible value in the method's metric direction,
+  so the first real metric always wins.  Probe the direction with two
+  constants rather than duplicating maximize/minimize knowledge.
+  """
+  return float("inf") if method.has_metric_improved(0.0, 1.0) else float("-inf")
 
 
 def _wire_classification(args, pipeline, method):
