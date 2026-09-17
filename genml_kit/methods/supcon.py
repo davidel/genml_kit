@@ -22,20 +22,20 @@ class SupConMethod(Method):
   NEEDS_LABELS = True
 
   @classmethod
-  def add_args(cls, p):
-    p.add_argument(
+  def add_args(cls, parser):
+    parser.add_argument(
         "--proj_dim",
         type=int,
         default=256,
         help="Projection head output dimension (default: 256).",
     )
-    p.add_argument(
+    parser.add_argument(
         "--proj_hidden",
         type=int,
         default=2048,
         help="Projection head hidden dimension (default: 2048).",
     )
-    p.add_argument(
+    parser.add_argument(
         "--temperature",
         type=float,
         default=0.07,
