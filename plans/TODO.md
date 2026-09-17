@@ -156,102 +156,63 @@ committed):**
 
 ## 2. `--sampler balanced` divisibility: "warn but still run" (REVIEW_2 #10)
 
-**Status: PARTIALLY IMPLEMENTED — the wiring landed, but the
-divisibility semantics differ from the plan text and are recorded here
-for a follow-up decision.**
+**Status: IMPLEMENTED — Option B with even-spread partial buckets
+(default-on).**
 
-### What was implemented in `72f5853`
+### Decision
+
+`BalancedBatchSampler` no longer hard-fails on indivisible batch sizes.
+When `batch_size` is not a multiple of `samples_per_class`, the
+remainder is spread **evenly (round-robin)** across the per-class
+groups, so group sizes differ by at most one and every batch still
+contains exactly `batch_size` samples:
+
+- `batch_size=10, samples_per_class=3` → groups `[3, 3, 2, 2]`
+- `batch_size=8,  samples_per_class=3` → groups `[3, 3, 2]`
+
+`batch_size < samples_per_class` still fails fast (`ValueError`): a
+batch cannot hold a full class group.
+
+### What changed
+
+`genml_kit/datasets/balanced_sampler.py`:
+- The divisibility `fatal(...)` was replaced by a single
+  `logging.warning(...)`; the hard error is kept only for
+  `batch_size < samples_per_class`.
+- `self._n_groups = ceil(batch_size / samples_per_class)` and a new
+  `_group_sizes` attribute holds the even-spread distribution
+  (`[q+1]*r + [q]*(spc-r)` where `r = batch_size % spc`).
+- `__iter__` draws each group using its own size (not the nominal
+  `samples_per_class`), preserving the per-group single-class invariant.
 
 `genml_kit/pipelines/images.py`:
-- `--sampler` choices extended to `["none", "weighted", "balanced"]`
-  (line ~121).
-- `--samples_per_class` added (default 16).
-- In `_build_classification` (lines 225-251):
+- Removed the `elif args.batch_size % args.samples_per_class:` branch
+  that fell back to `shuffle=True`. `--sampler balanced` now always
+  uses the sampler when a label column is present, even for
+  non-divisible batch sizes.
+- `--samples_per_class` help text updated.
 
-```python
-sampler = None
-_sampler_balanced = args.sampler == "balanced"
-if args.sampler == "weighted" and train_proxy.label_column:
-  sampler = build_weighted_sampler(...)
-elif _sampler_balanced:
-  if not train_proxy.label_column:
-    logging.warning("--sampler balanced requires a label column; "
-                    "falling back to shuffle=True.")
-    args.sampler = "none"
-  elif args.batch_size % args.samples_per_class:
-    logging.warning("--sampler balanced: batch_size %d is not divisible "
-                    "by samples_per_class %d; falling back to shuffle=True.",
-                    args.batch_size, args.samples_per_class)
-    args.sampler = "none"
-  else:
-    from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
-    labels = train_proxy.dataset[train_proxy.label_column]
-    sampler = BalancedBatchSampler(labels,
-                                   batch_size=args.batch_size,
-                                   samples_per_class=args.samples_per_class)
-```
+Tests:
+- `tests/test_balanced_sampler.py`: `test_raises_on_indivisible_batch`
+  replaced by `test_indivisible_batch_spreads_remainder_evenly`,
+  `test_indivisible_batch_group_sizes`, and
+  `test_warns_on_indivisible_batch`; added
+  `test_raises_when_batch_smaller_than_samples_per_class`.
+- `tests/test_pipeline_method_registry.py`:
+  `test_balanced_sampler_falls_back_on_indivisible_batch` became
+  `test_balanced_sampler_used_on_indivisible_batch`, asserting the
+  loader uses the sampler with group sizes `[2, 2]`.
 
-Regression tests added in `tests/test_pipeline_method_registry.py`
-(`test_balanced_sampler_wired_into_train_loader`,
-`test_balanced_sampler_falls_back_on_indivisible_batch`).
+Docs: README (`--sampler` table, `--samples_per_class` table + SupCon
+tip) and `scdiag/README.md` updated to describe the even-spread
+behavior; no "must be divisible" wording remains.
 
-### The open discrepancy
+### Validation
 
-REVIEW_2 §10 said:
-
-> `batch_size % samples_per_class != 0` **warns but still runs**.
-
-The implementation instead **falls back to `shuffle=True`** (still
-"runs", but without balanced batching). Reason for the deviation:
-`BalancedBatchSampler.__init__` **hard-fails** on indivisible sizes
-(`genml_kit/datasets/balanced_sampler.py:37-40`):
-
-```python
-if batch_size % samples_per_class != 0:
-  fatal(
-      f"batch_size ({batch_size}) must be divisible by "
-      f"samples_per_class ({samples_per_class})", ValueError)
-```
-
-So "warn and still use the balanced sampler" is impossible without
-changing the sampler; "warn and still run the epoch" is what the
-fallback provides.
-
-### Open decision — pick ONE of the following
-
-**Option A (current, minimal): keep the fallback-to-shuffle.**
-Document the semantics in the README/help text as "not divisible ⇒
-balanced sampler is unavailable, falls back to shuffling". No code
-change beyond doc wording.
-
-**Option B: make `BalancedBatchSampler` tolerant of indivisible sizes.**
-Change `batch_size % samples_per_class != 0` from `fatal(...)` to a
-warning, and adjust `self._n_groups = batch_size // samples_per_class`
-so the last group is partial (or the last batch is smaller). This matches
-REVIEW_2's literal wording but changes the sampler's contract for all
-existing callers (unit tests in `tests/test_balanced_sampler.py` assert
-the `ValueError`, e.g. `test_raises_on_indivisible_batch` — those tests
-must be updated). Then revert the pipeline fallback so `--sampler
-balanced` with a non-divisible batch uses the sampler anyway.
-
-**Option C: reject at the CLI.** Keep the sampler strict and make the
-pipeline `fatal(...)` instead of warning+fallback, so a misconfigured
-`--sampler balanced --batch_size N --samples_per_class M` fails fast at
-arg-parse/loader-build time.
-
-Recommendation: **Option B** best matches the REVIEW_2 intent ("warns
-but still runs" with the sampler) and is the most user-friendly, at the
-cost of updating 1-2 unit tests. Confirm before implementing.
-
-### Validation expected for whichever option
-
-- `tests/test_balanced_sampler.py` updated to the new contract and
-  green.
-- Pipeline tests in `tests/test_pipeline_method_registry.py` updated to
-  match (either the sampler is used with a partial group, or the CLI
-  rejects).
-- README `--sampler` / `--samples_per_class` wording matches the chosen
-  behavior.
+- `tests/test_balanced_sampler.py` green (even-spread bucket sizes,
+  single-class buckets, batch length, length semantics, warning).
+- `tests/test_pipeline_method_registry.py` green (`--sampler balanced`
+  used for non-divisible config; no RandomSampler fallback).
 - Full suite green; `ruff check .` clean.
 
 ---

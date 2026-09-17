@@ -507,8 +507,9 @@ size and GPU memory:
   loss acts on a small projection space rather than every pixel; the defaults
   above match the method-specific `--dino_*` / `--byol_*` flags.
 - `--samples_per_class 16` with `--batch_size 64` gives 4 classes per batch
-  on a 7-class dataset. Adjust so batch_size is divisible by
-  samples_per_class × num_classes.
+  on a 7-class dataset. batch_size need not be divisible by
+  samples_per_class; the remainder is spread evenly across the per-class
+  groups so each batch still contains exactly batch_size samples.
 - Use `--amp_dtype bfloat16` if your GPU supports it (Ampere+). Otherwise
   `float16` with GradScaler works too.
 
@@ -618,7 +619,7 @@ specific objective.** The pre-training examples invoke
 | `--proj_dim` | `128` | Output dimensionality of the projection head. |
 | `--proj_hidden` | `None` | Hidden layer size of the projection MLP. `None` = single linear layer. |
 | `--temperature` | `0.07` | NT-Xent temperature. Lower = sharper contrastive distribution. |
-| `--samples_per_class` | `16` | Samples per class in each batch. Batch size should be divisible by this. |
+| `--samples_per_class` | `16` | Samples per class in each batch. Batch size need not be divisible by this; the remainder is spread evenly across the per-class groups. |
 
 ### Dataset Ensemble
 
@@ -1041,7 +1042,7 @@ resume point.
 | `--label_smoothing` | `0.0` | Label smoothing factor. |
 | `--focal_gamma` | `0.0` | Focal loss gamma (`0` = disabled). Down-weights easy examples. |
 | `--class_multipliers` | `""` | Per-class priority multipliers. Example: `"cat=3.0,dog=1.0"`. |
-| `--sampler` | `none` | Training sampler: `none` (shuffle) or `weighted` (WeightedRandomSampler for class imbalance). |
+| `--sampler` | `none` | Training sampler: `none` (shuffle), `weighted` (WeightedRandomSampler for class imbalance), or `balanced` (equal samples per class per batch; batch_size need not divide evenly). |
 | `--sampler_weights` | `frequency` | Weight mode for `--sampler weighted`: `frequency` (inverse-freq), `multipliers` (--class_multipliers), or `combined` (freq × multipliers). |
 | `--mixup_alpha` | `0.0` | Mixup alpha (`0` = disabled; recommended: `0.2`). |
 | `--seed` | `None` | Explicit RNG seed: pins the train/val split and the XGBoost stage and enables full determinism (cuDNN deterministic kernels, benchmark off). Omit (default) to keep runs fast — shuffling/mixup/dropout are still seeded from `$GENML_KIT_SEED` (default 42). See [Reproducibility](#reproducibility). |

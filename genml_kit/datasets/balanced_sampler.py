@@ -11,8 +11,14 @@ from genml_kit.utils.logging import fatal
 class BalancedBatchSampler(Sampler):
   """Yields mini-batches with a guaranteed number of samples per class.
 
-  Each batch contains ``batch_size // samples_per_class`` groups, where
-  every group holds ``samples_per_class`` examples from the same class.
+  Each batch is split into ``ceil(batch_size / samples_per_class)`` groups,
+  where every group holds examples from a single class.  When *batch_size*
+  is not a multiple of *samples_per_class* the shortfall is spread evenly
+  (round-robin) across the groups, so group sizes differ by at most one
+  and the batch always contains exactly *batch_size* samples.  A batch
+  smaller than *samples_per_class* is rejected: it cannot hold a full
+  class group.
+
   Classes are sampled uniformly at random so that rare classes appear
   with the same frequency as common ones.
 
@@ -21,9 +27,12 @@ class BalancedBatchSampler(Sampler):
   labels : array-like of int
       Integer class label for every sample in the dataset.
   batch_size : int
-      Total batch size (must be divisible by *samples_per_class*).
+      Total batch size.  Must be at least *samples_per_class*; need not be
+      divisible by it (remainder samples are spread evenly across groups).
   samples_per_class : int
-      Number of examples drawn from each class within a batch.
+      Number of examples drawn from each class within a batch.  When the
+      batch is not divisible, groups hold either this many or one fewer
+      sample.
   seed : int, optional
       Seed for the class/index RNG.  When None (default) each epoch's
       batch composition is drawn from fresh OS entropy; pass a seed for
@@ -34,14 +43,20 @@ class BalancedBatchSampler(Sampler):
 
   def __init__(self, labels, batch_size, samples_per_class, seed=None):
     labels = np.asarray(labels)
-    if batch_size % samples_per_class != 0:
+    if batch_size < samples_per_class:
       fatal(
-          f"batch_size ({batch_size}) must be divisible by "
-          f"samples_per_class ({samples_per_class})", ValueError)
+          f"batch_size ({batch_size}) must be at least samples_per_class "
+          f"({samples_per_class})", ValueError)
+    if batch_size % samples_per_class != 0:
+      logging.warning(
+          f"BalancedBatchSampler: batch_size ({batch_size}) is not divisible "
+          f"by samples_per_class ({samples_per_class}); the remainder will be "
+          f"spread evenly across groups so group sizes differ by at most one.")
 
     self._batch_size = batch_size
     self._samples_per_class = samples_per_class
-    self._n_groups = batch_size // samples_per_class
+    self._n_groups = -(-batch_size // samples_per_class)  # ceil division
+    self._group_sizes = self._even_group_sizes(batch_size, self._n_groups)
 
     # Build per-class index lists.
     self._class_indices = {}
@@ -60,7 +75,20 @@ class BalancedBatchSampler(Sampler):
     logging.info(f"BalancedBatchSampler: {len(labels):,} samples, "
                  f"{n_classes} classes, batch_size={batch_size}, "
                  f"samples_per_class={samples_per_class}, "
+                 f"group_sizes={self._group_sizes}, "
                  f"batches/epoch={self._n_batches}")
+
+  @staticmethod
+  def _even_group_sizes(batch_size, n_groups):
+    """Distribution of samples across groups.
+
+    Groups hold ``batch_size // n_groups`` samples each, except the first
+    ``batch_size % n_groups`` groups which hold one extra -- the sizes
+    differ by at most one and sum to *batch_size*.
+    """
+    base = batch_size // n_groups
+    extra = batch_size % n_groups
+    return [base + 1] * extra + [base] * (n_groups - extra)
 
   def __len__(self):
     return self._n_batches
@@ -71,12 +99,12 @@ class BalancedBatchSampler(Sampler):
       # Pick which classes appear in this batch.
       chosen = rng.choice(self._all_classes, size=self._n_groups, replace=True)
       batch = []
-      for cls in chosen:
+      for cls, group_size in zip(chosen, self._group_sizes):
         pool = self._class_indices[int(cls)]
         chosen_idx = rng.choice(
             pool,
-            size=self._samples_per_class,
-            replace=len(pool) < self._samples_per_class,
+            size=group_size,
+            replace=len(pool) < group_size,
         )
         batch.extend(chosen_idx.tolist())
       yield batch

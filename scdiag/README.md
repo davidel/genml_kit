@@ -101,8 +101,9 @@ Task-specific advice that does not belong in the generic docs:
   (loss weighting and sampler multipliers are documented in the
   [root README](../README.md#fine-tuning-guide)).
 - **SupCon batch shape.** With the 7 skin_cancer classes,
-  `--samples_per_class 16 --batch_size 64` gives 4 classes per batch; tune so
-  `batch_size` is divisible by `samples_per_class × num_classes`.
+  `--samples_per_class 16 --batch_size 64` gives 4 classes per batch.
+  `batch_size` need not be divisible by `samples_per_class`: the remainder
+  is spread evenly across the per-class groups.
 - **Augmentations must be dermatologically plausible.** Horizontal flips and
   mild colour jitter are safe; aggressive crops can cut off the lesion or
   remove the very cue that distinguishes classes. Verify visually with the

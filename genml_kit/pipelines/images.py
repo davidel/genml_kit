@@ -130,8 +130,9 @@ class ImagesPipeline(DataPipeline):
     group.add_argument("--samples_per_class",
                        type=int,
                        default=16,
-                       help="Samples per class in each balanced batch; "
-                       "batch_size should be divisible by this.")
+                       help="Samples per class in each balanced batch. "
+                       "batch_size need not be divisible by it; the remainder "
+                       "is spread evenly across the per-class groups.")
     group.add_argument("--val_split",
                        type=float,
                        default=0.2,
@@ -234,12 +235,6 @@ class ImagesPipeline(DataPipeline):
       if not train_proxy.label_column:
         logging.warning("--sampler balanced requires a label column; falling back to "
                         "shuffle=True.")
-        args.sampler = "none"
-      elif args.batch_size % args.samples_per_class:
-        logging.warning(
-            "--sampler balanced: batch_size %d is not divisible by "
-            "samples_per_class %d; falling back to shuffle=True.", args.batch_size,
-            args.samples_per_class)
         args.sampler = "none"
       else:
         from genml_kit.datasets.balanced_sampler import BalancedBatchSampler

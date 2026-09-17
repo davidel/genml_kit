@@ -14,11 +14,35 @@ class TestBalancedBatchSampler:
     batches = list(sampler)
     for batch in batches:
       assert len(batch) == 6
+      for i in range(0, len(batch), 2):
+        # Each group must be same class.
+        assert labels[batch[i]] == labels[batch[i + 1]]
 
-  def test_raises_on_indivisible_batch(self):
+  def test_indivisible_batch_spreads_remainder_evenly(self):
+    # 10 = 3*3 + 1 remainder -> 4 groups of [3, 3, 2, 2].
+    labels = np.array([0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3])
+    sampler = BalancedBatchSampler(labels, batch_size=10, samples_per_class=3)
+    batches = list(sampler)
+    for batch in batches:
+      assert len(batch) == 10
+      # Group boundaries: sizes [3, 3, 2, 2].  Each group single-class.
+      offsets = [0, 3, 6, 8]
+      for i, off in enumerate(offsets):
+        size = [3, 3, 2, 2][i]
+        group = labels[batch[off:off + size]]
+        assert len(set(group.tolist())) == 1
+
+  def test_indivisible_batch_group_sizes(self):
+    labels = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2])
+    s = BalancedBatchSampler(labels, batch_size=10, samples_per_class=3)
+    assert s._group_sizes == [3, 3, 2, 2]
+    s2 = BalancedBatchSampler(labels, batch_size=8, samples_per_class=3)
+    assert s2._group_sizes == [3, 3, 2]
+
+  def test_raises_when_batch_smaller_than_samples_per_class(self):
     labels = np.array([0, 0, 1, 1])
-    with pytest.raises(ValueError, match="divisible"):
-      BalancedBatchSampler(labels, batch_size=5, samples_per_class=2)
+    with pytest.raises(ValueError, match="at least samples_per_class"):
+      BalancedBatchSampler(labels, batch_size=4, samples_per_class=5)
 
   def test_each_group_has_same_class(self):
     rng = np.random.default_rng(42)
@@ -61,3 +85,10 @@ class TestBalancedBatchSampler:
     sampler = BalancedBatchSampler(labels, batch_size=6, samples_per_class=2)
     for batch in sampler:
       assert all(0 <= i < len(labels) for i in batch)
+
+  def test_warns_on_indivisible_batch(self, caplog):
+    import logging
+    labels = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2])
+    with caplog.at_level(logging.WARNING):
+      BalancedBatchSampler(labels, batch_size=10, samples_per_class=3)
+    assert any("not divisible" in r.message for r in caplog.records)

@@ -243,8 +243,10 @@ class TestImagesPipelineLoader:
     loader = pipeline.build_loader(args, mode="train")
     assert isinstance(loader.sampler, BalancedBatchSampler)
 
-  def test_balanced_sampler_falls_back_on_indivisible_batch(self, tmp_path):
-    """batch_size % samples_per_class != 0 => warn and shuffle."""
+  def test_balanced_sampler_used_on_indivisible_batch(self, tmp_path):
+    """batch_size % samples_per_class != 0 => sampler still used with spread."""
+    from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
+
     data_dir = _make_imagefolder(tmp_path)
     args = self._args(tmp_path)
     args.dataset = f"imagefolder/{data_dir}"
@@ -252,7 +254,7 @@ class TestImagesPipelineLoader:
     args.image_column = "image"
     args.sampler = "balanced"
     args.samples_per_class = 3
-    args.batch_size = 4  # 4 % 3 != 0 -> fallback
+    args.batch_size = 4  # 4 % 3 != 0, but the sampler still runs
     args.class_multipliers = ""
     args.sampler_weights = "frequency"
     args.train_transforms = build_pretrain_transform(args.image_size)
@@ -260,15 +262,10 @@ class TestImagesPipelineLoader:
     args.tta_transform = None
     args.needs_labels = True
 
-    from torch.utils.data.sampler import RandomSampler
-
-    from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
-
     pipeline = ImagesPipeline()
     loader = pipeline.build_loader(args, mode="train")
-    # shuffle=True -> torch creates a RandomSampler, NOT a balanced one.
-    assert isinstance(loader.sampler, RandomSampler)
-    assert not isinstance(loader.sampler, BalancedBatchSampler)
+    assert isinstance(loader.sampler, BalancedBatchSampler)
+    assert loader.sampler._group_sizes == [2, 2]
 
   def test_self_supervised_ignores_labels(self, tmp_path):
     data_dir = _make_imagefolder(tmp_path)
