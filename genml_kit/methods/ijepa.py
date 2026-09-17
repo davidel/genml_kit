@@ -138,38 +138,38 @@ class IJEPAMethod(Method):
 
   @classmethod
   def add_args(cls, parser):
-    p = parser.add_argument_group("I-JEPA")
-    p.add_argument(
+    group = parser.add_argument_group("I-JEPA")
+    group.add_argument(
         "--teacher_momentum",
         type=float,
         default=0.996,
         help="Initial EMA momentum for teacher (default: 0.996).",
     )
-    p.add_argument(
+    group.add_argument(
         "--teacher_final_momentum",
         type=float,
         default=1.0,
         help="Final EMA momentum after cosine ramp (default: 1.0).",
     )
-    p.add_argument(
+    group.add_argument(
         "--predictor_depth",
         type=int,
         default=6,
         help="Transformer depth of the predictor MLP (default: 6).",
     )
-    p.add_argument(
+    group.add_argument(
         "--predictor_dim",
         type=int,
         default=512,
         help="Hidden dimension of the predictor (default: 512).",
     )
-    p.add_argument(
+    group.add_argument(
         "--predictor_heads",
         type=int,
         default=12,
         help="Number of attention heads in the predictor (default: 12).",
     )
-    p.add_argument(
+    group.add_argument(
         "--ijepa_weight",
         type=float,
         default=1.0,
