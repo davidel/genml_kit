@@ -70,20 +70,20 @@ class SimMIMMethod(Method):
 
   @classmethod
   def add_args(cls, parser):
-    p = parser.add_argument_group("SimMIM")
-    p.add_argument(
+    group = parser.add_argument_group("SimMIM")
+    group.add_argument(
         "--mask_ratio",
         type=float,
         default=0.6,
         help="Fraction of patches to mask (default: 0.6).",
     )
-    p.add_argument(
+    group.add_argument(
         "--decoder_dim",
         type=int,
         default=768,
         help="Hidden dimension of the decoder MLP (default: 768).",
     )
-    p.add_argument(
+    group.add_argument(
         "--decoder_depth",
         type=int,
         default=2,
