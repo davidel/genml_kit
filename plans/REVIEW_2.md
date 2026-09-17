@@ -20,6 +20,24 @@ changed yet** and nothing is committed.
 Severity: 🔴 correctness bug affecting training · 🟠 real bug, narrower
 reach · 🟡 robustness/latent · ⚪ docs/consistency.
 
+Decision shorthand used throughout the fix sections (D-N labels map to the
+DECIDED fix for each finding):
+
+| Label | Finding | Decided fix |
+|---|---|---|
+| D-1 | #1, #3 | `_run_loss` shared helper + thin `train_step`/`eval_step` in DINO/BYOL; `update_center` knob. |
+| D-2 | #4 | `METRIC_MINIMIZE` class flag on the base; set on the five loss-keyed methods. |
+| D-3 | #2 | `wire_data` computes the step budget; unknown-total fallback = `_momentum_start()`. |
+| D-4 | #5 | Explicit cross-crop reindex of the teacher target table in `models/dino.py`. |
+| D-5 | #7 | Keep two-pass parser; `--help` intercepted pre-probe; `_register_all` for help only (§7.1 policy). |
+| D-6 | #10 | Wire `--sampler balanced` → `BalancedBatchSampler` (label-guard + `shuffle=False`). |
+| D-7 | #6 | Move vis logging into `SimMIMMethod.log_validation`; drop `Method.validate` contract; delete pipeline helper. |
+| D-8 | #12 | Rename base `metric_key` → `METRIC_KEY`. |
+| D-9 | #8 | `__getitem__` normalizes negative indices then validates (Option 1). |
+| D-10 | #9 | Guarded `getattr` chain in `encode_with_backbone`, fall back to `.logits`. |
+| D-11 | #13 | Reword stale present-tense `pretrain.py`/`pretrain/cli.py` docstring references. |
+| D-12 | #11 | Correct README pre-training table to actual defaults + framing note. |
+
 ---
 
 ## 1. Summary table
@@ -288,6 +306,22 @@ Notes:
   `self.training` check, so eval semantics are visible and unit-testable.
 - BYOL's momentum update already lives only in `train_step`, so its
   `_run_loss` is naturally side-effect-free.
+- **Why `_run_loss` calls `set_train_mode(model, "train")` even on the eval
+  path, and why that is safe:** `set_train_mode` (`training/model_utils.py:19`)
+  forces any *frozen* sub-tree back to eval mode after the recursive
+  `net.train(True)` (its documented purpose), so frozen backbones never
+  update BN running stats or activate dropout during eval. The trainable
+  heads that do contain train/eval-sensitive layers (BYOL `_PredictorMLP`
+  BatchNorm1d; SupCon `ProjectionHead` BatchNorm1d) are the same layers the
+  training loop exercises; `evaluate()` is a mean-loss check over the same
+  forward, so running them in the same mode as training is *consistent*,
+  not accidental. (SimMIM's decoder is stateless — LayerNorm-free,
+  dropout-free — so it is unaffected either way.)
+  Concretely, the state that must NOT change across eval is the teacher EMA
+  and the center — and that is precisely what
+  `update_center=False` (DINO) and the train-only `update_momentum`
+  (DINO/BYOL) gate. The regression tests assert the observable contract
+  (0 teacher-param change, center untouched), not the mode flag.
 - IJEPA updates its teacher on `on_epoch_end` (`ijepa.py:237-240`), not per
   step — unaffected by `evaluate()`; no change needed there.
 
@@ -412,6 +446,14 @@ Assumptions to lock down with a unit test:
   local student row `i` pairs with teacher row `B + (i % B)`.
 - `update_center(t_global)` and `DINOLoss` are unchanged; only the target
   table changes.
+- **Test-path note (review round 2):** the pairing test must run
+  **end-to-end through the real data path** — `MultiCropTransform` +
+  `ImagesPipeline._collate` + `DINOMethod.train_step` — with unequal
+  global/local sizes (defaults 224/96). Building the `global_crops` /
+  `local_crops` tensors by hand in the test would silently re-encode the
+  same layout assumption the fix is proving, so the regression must not
+  shortcut the collate. (This also makes it the same test that catches #1,
+  since that path is what currently crashes.)
 
 ### 6. Reconstruction/vis logging is dead on the production collate path
 
@@ -507,45 +549,132 @@ genml-kit-train --help  -> 62 lines; contains --dataset: False
 --lr …` invocation reaching model download.) The tool's own help contradicts
 every README CLI table.
 
-**Fix — DECIDED: single-pass parser registering ALL registered owners
-(per review discussion).** Replace the two-pass probe with one parser that
-registers every pipeline and method in the registry (not only the selected
-one). Each owner already creates its own named argument group inside
-`add_args` (`pipelines/images.py:92` "images pipeline", `pipelines/vo_pair.py:60`
-"vo_pair pipeline", `methods/classification.py` "classification method",
-`methods/dino.py:50` "DINO", `byol.py:24` "BYOL", `ijepa.py:134` "I-JEPA",
-`simmim.py`, `supcon.py`); a merged parser of all owners parses `[]` with
-**no option-string conflicts and no duplicate dests** (verified).
+**Fix — REVISED (review round 2): two-pass parser kept; `--help`
+intercepted *before* the probe pass; all owners registered only for help.**
+The earlier "single-pass parser registering ALL owners for every run" design
+was superseded during review. Two facts drove the revision (both verified
+against the working tree):
+
+1. **argparse fails hard on duplicate option strings.** Adding the same
+   option string to two argument groups raises
+   `argparse.ArgumentError: argument --foo: conflicting option string: --foo`.
+   Argument groups do **not** namespace their flags, so "same flag, same
+   intent" cannot be resolved by registration order (first/last wins would
+   be ambiguous); every duplicate must be *one* definition or an explicit
+   error.
+2. **The current owner surface is collision-free**, so a merged parser works
+   today — but that is a property of the *current* flag set, not of the
+   design. The audit script (register every pipeline + method on one parser)
+   finds no duplicate option strings among the 2 pipelines + 7 methods; the
+   only `--help` repeats come from the per-section simulation artifact, not
+   a real single-parser conflict.
+
+Why keep the two-pass parser (instead of single-pass-always): the probe
+pass is what lets `parse_args` stay **selection-driven** — only the
+selected pipeline/method governs a real run, and a flag keeps its *usage
+locality* next to its owner. Moving "same-named" flags into a global section
+to dodge future collisions would orphan usage if the originating module is
+retired (a single surviving `--foo` in the global section with no trace of
+who needed it). The shared-helpers pattern (`utils/args.py`) already exists
+for flags that are genuinely global; per-owner flags must stay per-owner.
 
 ```python
-# training/train.py — no probe parser, no helper, no group-name generation:
-def parse_args(argv=None):
-  parser = build_parser()
+# training/train.py — help interception, then the unchanged two-pass parse:
+_HELP_FLAGS = ("-h", "--help")   # argparse also accepts --help=<formatter>
+
+def _wants_help(argv):
+  return any(a in _HELP_FLAGS for a in (argv or []))
+
+def _register_all(parser):
   for name in list_pipelines():
     get_pipeline(name)().add_args(parser)      # owner creates its own group
   for name in list_methods():
     get_method(name)().add_args(parser)        # "classification method", "DINO", ...
-  args = parser.parse_args(argv)               # single pass; --help shows ALL groups
+
+def parse_args(argv=None):
+  if _wants_help(argv):
+    parser = build_parser()
+    _register_all(parser)                       # superset help, then exit
+    parser.parse_args(["--help"])
+  parser = build_parser()
+  known, _ = parser.parse_known_args(argv)      # unchanged probe pass
+  pipeline_cls = get_pipeline(known.pipeline)
+  method_cls = get_method(known.method)
+  pipeline_cls().add_args(parser)
+  method_cls().add_args(parser)
+  add_checkpoint_args(parser, ...)              # shared sections, unchanged
+  ...
+  args = parser.parse_args(argv)
   _post_process(parser, args)
   return args
 ```
 
 Consequences:
-- `--help` becomes the **superset** of all registered owners' flags,
-  grouped under each owner's own title — a deliberate, documented shift from
-  "only my selected method's flags".
-- Unselected owners' flags are accepted but inert (their defaults are
-  stored; only the selected owner's args drive the run). No conflict because
-  all option strings are prefixed per owner (verified).
-- **Standard to enforce (add a comment):** every future owner's `add_args`
-  MUST create its own named argument group before adding flags; `parse_args`
-  will not namespace per-owner anymore. This is the caller-as-knowledge
-  design: the owner names its own group.
+- `--help` becomes the **superset** of all registered owners' flags, grouped
+  under each owner's own title — the same user-facing result as the
+  single-pass design, achieved *only* on the help path.
+- The real-run path is bit-for-bit the current behavior: zero regression
+  risk to the 930-test baseline or to flag-selection semantics.
+- Invalid flag combinations on a *real* run are still caught by the second
+  `parse_args` as today; `--help` never validates combinations.
+- Registration stays **selection-driven**: a flag lives with its owner; if
+  that owner is retired, the flag disappears with it (no orphaned globals).
+- **Standard to enforce (add a comment):** every owner's `add_args` MUST
+  create its own named argument group before adding flags, and MUST NOT
+  redeclare an option string already added by `build_parser` or by another
+  owner. Where two owners genuinely need the same *semantic* flag, the flag
+  belongs in a shared helper in `utils/args.py` (single definition, single
+  owner = the helper); if the intended meaning differs, rename one flag.
+  A collision diagnostic is included in `_register_all` (see §7.1).
 
 Regression test: `genml-kit-train --help` output contains `--dataset`,
 `--vo_length`, `--dino_local_num`, `--lr`, `--checkpoint` (covers
 pipeline + method + shared flags) and the `"DINO"`/`"images pipeline"`
-group titles.
+group titles; plus a test that a real run with no `--help` does **not**
+register unselected owners (verify via `parse_known_args` picking the
+selected owner only).
+
+### 7.1 `add_args` ownership & collision policy (dedicated section)
+
+**Problem.** argparse makes duplicate option strings a hard `ArgumentError`,
+groups do not namespace flags, and the codebase has two kinds of "same flag":
+genuinely global knobs (correctly centralized in `utils/args.py` helpers)
+and per-owner knobs that merely happen to share a name. The risk with the
+pre-revision single-pass design was that *today's* collision-free surface is
+not a guarantee *tomorrow's* is — and the fix for a future collision must
+not be "copy the flag into the global parser" (loses which owner needed it).
+
+**Design — ownership, not namespace.**
+
+1. `add_args(parser)` is the **owner's declaration of its own arg surface**.
+   An owner adds flags through one named argument group it creates itself
+   (`parser.add_argument_group(...)`), so help output and code both show the
+   owner — this is caller-as-knowledge: the owner names its group, the
+   driver never generates group names.
+2. **No duplicate option strings.** An owner redeclaring an existing option
+   string (from `build_parser`, a shared helper, or another owner) is a bug.
+   Because argparse raises `ArgumentError` on the second `add_argument`,
+   `_register_all` wraps each owner's registration and re-raises with an
+   actionable message: which flag, which owners, and the *intended* fix
+   (shared helper for same-semantic flags; rename otherwise).
+3. **The same-flag-same-intent rule for global flags.** A flag is eligible
+   for the global section / a `utils/args.py` helper only if it is
+   semantically identical for *every* consumer and stays so when a consumer
+   is added or removed:
+   - Consumers agree on default, type, help, and dest;
+   - It has a natural owner that is a *concern* (checkpointing, optimizer,
+     logging), not a feature module;
+   - A future owner that needs the same flag uses the same helper — usage
+     stays traceable to the helper call, and retiring module A never leaves
+     an orphaned flag because the *helper* is the single owner.
+   If module A and module B each need `--foo` with a *different* default or
+   meaning, that is two flags that must be named differently (e.g.
+   `--a_foo` / `--b_foo`) — never one global `--foo` with first-wins
+   semantics.
+4. **Enforcement (cheap, CI-able).** A unit test registers every pipeline
+   and method on one parser (the audit script from §7) and asserts no
+   `ArgumentError` is raised; this is the regression guard that keeps the
+   owner surface collision-free as the registry grows.
 
 ### 8. `ImageFolderDataset.__getitem__` mishandles negative / out-of-range-low indices
 
@@ -848,7 +977,8 @@ interfaces:
    and D-2's `METRIC_MINIMIZE`).
 3. **#5 DINO pairing** (do with #1, same PR/test; D-4's cross-crop reindex).
 4. **#6 vis logging** (D-7: method-owned `log_validation`), **#7 `--help`**
-   (D-5: single-pass registry registration) — cheap, user-facing correctness.
+   (D-5: two-pass kept, `--help` intercepted pre-probe + §7.1 collision
+   policy) — cheap, user-facing correctness.
 5. **#8, #9** — robustness guards (D-9 normalize-then-validate; D-10 guarded
    getattr chain).
 6. **#10, #11, #12, #13** — docs + attribute rename + sampler wiring
@@ -872,5 +1002,23 @@ No open decisions remain on the 12 findings. For the implementation session:
 - Confirm whether `grad_accum_steps`-aware step budget is wanted for the
   D-3 ramp (divide total by `grad_accum_steps` so the momentum anneals over
   optimizer steps).
+
+  **Clarification (review round 2):** `global_step` is **already the
+    optimizer-step counter**, not a per-batch counter — verified in
+    `trainer.py::train_epoch`: `step += 1` happens only inside the
+    `grad_accum_steps` flush block (`trainer.py:117,132`), and
+    `method.train_step(self.model, blob, step)` is called with that counter
+    (`trainer.py:109`). So on a grad-accum run multiple `train_step` calls
+    between flushes see the *same* `step`, and the counter advances once per
+    optimizer step — exactly what the D-3 ramp needs. The open question is
+    therefore only about the **denominator**: is `wire_data`'s budget
+    `epochs * len(train_loader)` (micro-batch total) or
+    `(epochs * len(train_loader)) // grad_accum_steps` (optimizer-step
+    total)? Both are internally consistent as long as the numerator is
+    `<unit>-step`; mixing micro-batch total with the optimizer-step counter
+    `global_step` would anneal `grad_accum_steps`× too slowly. Recommend:
+    use the optimizer-step total so the ramp completes at the last optimizer
+    step of the last epoch, and compute it in `wire_data` where
+    `len(train_loader)` and `args.grad_accum_steps` are both available.
 - Re-run `ruff check .` + `pytest tests` + `format_file` (yapf, `.style.yapf`)
   after each fix batch; no new Ruff suppressions without approval.
