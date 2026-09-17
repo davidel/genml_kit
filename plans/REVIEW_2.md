@@ -676,6 +676,17 @@ not be "copy the flag into the global parser" (loses which owner needed it).
    `ArgumentError` is raised; this is the regression guard that keeps the
    owner surface collision-free as the registry grows.
 
+**Deferred — not part of the current implementation pass.** The refactor
+sketched in §7 (help interception, `_register_all`, shared-args extraction)
+and the §7.1 collision policy are **recorded here as design, not scheduled
+for this pass**. Two reasons: the current owner surface is already
+collision-free (verified), and #7's user-visible bug (under-reported
+`--help`) needs no structural change to fix. If/when this is picked up, it
+should be its own PR, after the plan's other findings, so the flag-surface
+refactor is reviewed independently of the functional fixes. Until then:
+do NOT add `_wants_help`/`_register_all` or extract shared-args helpers;
+keep `parse_args` exactly as it is today.
+
 ### 8. `ImageFolderDataset.__getitem__` mishandles negative / out-of-range-low indices
 
 `datasets/image_folder.py:196–203` guards only `idx >= len(self._paths)`;
@@ -976,9 +987,9 @@ interfaces:
    both are SSL-loop semantics; do together with D-1's `eval_step`/`_run_loss`
    and D-2's `METRIC_MINIMIZE`).
 3. **#5 DINO pairing** (do with #1, same PR/test; D-4's cross-crop reindex).
-4. **#6 vis logging** (D-7: method-owned `log_validation`), **#7 `--help`**
-   (D-5: two-pass kept, `--help` intercepted pre-probe + §7.1 collision
-   policy) — cheap, user-facing correctness.
+4. **#6 vis logging** (D-7: method-owned `log_validation`) — cheap,
+   user-facing correctness. **#7 `--help` is DEFERRED** (see §7.1:
+   design recorded, refactor not scheduled for this pass).
 5. **#8, #9** — robustness guards (D-9 normalize-then-validate; D-10 guarded
    getattr chain).
 6. **#10, #11, #12, #13** — docs + attribute rename + sampler wiring

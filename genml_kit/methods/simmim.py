@@ -66,6 +66,7 @@ class SimMIMMethod(Method):
   NAME = "simmim"
   NEEDS_LABELS = False
   METRIC_KEY = "loss"
+  METRIC_MINIMIZE = True  # loss is minimized
 
   def add_args(self, parser):
     p = parser.add_argument_group("SimMIM")
@@ -143,16 +144,38 @@ class SimMIMMethod(Method):
       model.mask_ratio = old_val
       args.mask_ratio = old_val
 
-  def validate(self, model, images, num_samples):
-    """Return reconstructed images for validation logging."""
+  def log_validation(self,
+                     model,
+                     loader,
+                     to_device,
+                     writer,
+                     global_step,
+                     device,
+                     num_samples=8):
+    """Log one reconstructed vs. original image pair to TensorBoard.
+
+    Pulls a single batch from *loader* (which yields ``DataBlob``
+    namedtuples via the production collate), reconstructs the first
+    ``num_samples`` images under eval mode, and writes
+    ``recon/original`` / ``recon/reconstructed``.
+    """
+    try:
+      blob = next(iter(loader))
+    except StopIteration:
+      return
+    blob = to_device(blob, device)
+    images = blob.data
+    if isinstance(images, (tuple, list)):
+      images = images[0]  # dual-view/multi-crop: log the first view
+    images = images[:num_samples]
     with model_mode(model, "eval"):
-      samples = images[:num_samples].to(next(model.parameters()).device)
-      mask = make_mask(samples, model.patch_size, model.mask_ratio)
-      output, _target = model(samples, mask)
+      mask = make_mask(images, model.patch_size, model.mask_ratio)
+      output, _target = model(images, mask)
       recon = unpatchify(
           output,
           patch_size=model.patch_size,
-          img_size=samples.shape[2],
+          img_size=images.shape[2],
           channels=model.in_channels,
       )
-      return recon
+    writer.add_image("recon/original", images[0], global_step)
+    writer.add_image("recon/reconstructed", recon[0].clamp(0, 1), global_step)

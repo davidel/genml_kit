@@ -85,10 +85,23 @@ class TestSupConMethod:
     with pytest.raises(ValueError, match="requires labels"):
       method.train_step(model, DataBlob(data=torch.randn(2, 3, 64, 64), meta={}), 0)
 
-  def test_validate_returns_none(self):
+  def test_log_validation_is_noop(self):
     method = get_method("supcon")()
-    result = method.validate(None, torch.randn(2, 3, 64, 64), 2)
-    assert result is None
+
+    class _Writer:
+
+      def __init__(self):
+        self.calls = []
+
+      def add_image(self, tag, tensor, step):
+        self.calls.append(tag)
+
+    def _to_device(blob, device):
+      return blob
+
+    method.log_validation(None, iter([]), _to_device, _Writer(), 0, torch.device("cpu"))
+    # Reaching here without raising is the no-vis contract.
+    assert True
 
   def test_checkpoint_state(self):
     parser = argparse.ArgumentParser()

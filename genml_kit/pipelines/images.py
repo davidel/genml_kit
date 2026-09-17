@@ -28,7 +28,6 @@ from genml_kit.training.labels import (
     fmt_weights,
     parse_class_multipliers,
 )
-from genml_kit.training.model_utils import model_mode
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
 
@@ -119,13 +118,20 @@ class ImagesPipeline(DataPipeline):
     group.add_argument("--sampler",
                        type=str,
                        default="none",
-                       choices=["none", "weighted"],
-                       help="Training sampler (classification).")
+                       choices=["none", "weighted", "balanced"],
+                       help="Training sampler (classification): weighted "
+                       "(inverse-frequency) or balanced (equal samples per "
+                       "class per batch).")
     group.add_argument("--class_multipliers",
                        type=str,
                        default="",
                        help="Comma-separated NAME=VALUE per-class priority "
                        "multipliers (classification).")
+    group.add_argument("--samples_per_class",
+                       type=int,
+                       default=16,
+                       help="Samples per class in each balanced batch; "
+                       "batch_size should be divisible by this.")
     group.add_argument("--val_split",
                        type=float,
                        default=0.2,
@@ -138,8 +144,9 @@ class ImagesPipeline(DataPipeline):
     """Build (and cache) the loader for *mode* (train/val).
 
     Dispatches on whether ``--dataset`` (classification) or ``--datasets``
-    (ensemble) was provided; the two builder paths are moved verbatim from
-    ``training/train.py::build_data`` and ``pretrain/cli.py`` (v4.2 s 6.1).
+    (ensemble) was provided; the two builder paths were moved verbatim from
+    the old ``training/train.py::build_data`` / ``pretrain/cli.py`` (v4.2 s 6.1)
+    and are now owned by this pipeline.
     ``method`` (optional) supplies the objective-level augmentation via
     ``method.build_transform(args, image_size)``.
 
@@ -216,12 +223,32 @@ class ImagesPipeline(DataPipeline):
     self.data_generator = data_generator
 
     sampler = None
+    _sampler_balanced = args.sampler == "balanced"
     if args.sampler == "weighted" and train_proxy.label_column:
       sampler = build_weighted_sampler(train_proxy.dataset,
                                        self.num_labels,
                                        train_proxy.label_column,
                                        args.sampler_weights,
                                        multipliers=self.class_multipliers)
+    elif _sampler_balanced:
+      if not train_proxy.label_column:
+        logging.warning("--sampler balanced requires a label column; falling back to "
+                        "shuffle=True.")
+        args.sampler = "none"
+      elif args.batch_size % args.samples_per_class:
+        logging.warning(
+            "--sampler balanced: batch_size %d is not divisible by "
+            "samples_per_class %d; falling back to shuffle=True.", args.batch_size,
+            args.samples_per_class)
+        args.sampler = "none"
+      else:
+        from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
+        labels = train_proxy.dataset[train_proxy.label_column]
+        sampler = BalancedBatchSampler(
+            labels,
+            batch_size=args.batch_size,
+            samples_per_class=args.samples_per_class,
+        )
 
     self.train_loader = DataLoader(
         self.train_dataset,
@@ -245,7 +272,7 @@ class ImagesPipeline(DataPipeline):
         collate_fn=_images_collate,
     )
 
-  # --- Ensemble path (pretrain/cli.py::build_pretrain_*) -------------------
+  # --- Ensemble path (was pretrain/cli.py::build_pretrain_*) -----------------
 
   def _build_ensemble(self, args, method=None, needs_labels=False):
     """Build the ensemble loader (pre-training path)."""
@@ -418,38 +445,3 @@ def build_pretrain_dataset(args, needs_labels=False, transform=None):
                                  fields={ensemble.image_column: ensemble.image_column})
   logging.info(ensemble.summary())
   return dataset, ensemble
-
-
-def log_validation_images(method,
-                          model,
-                          loader,
-                          writer,
-                          global_step,
-                          device,
-                          image_column,
-                          num_samples=8):
-  """Log method-specific validation images to TensorBoard.
-
-  Pulls a single batch from *loader*, extracts the images stored under
-  ``batch[image_column]`` (the loader yields dicts), slices the first
-  *num_samples* and hands them to ``method.validate()``, which returns
-  optional reconstruction images.  If the method returns ``None``
-  (methods without pixel-space visualisations, e.g. I-JEPA), nothing
-  is logged.
-
-  The model is restored to train mode even when nothing is logged.
-  """
-  with model_mode(model, "eval"):
-    batch = next(iter(loader))
-    raw = batch[image_column]
-    if isinstance(raw, (tuple, list)):
-      images = type(raw)(v[:num_samples].to(device) for v in raw)
-    else:
-      images = raw[:num_samples].to(device)
-    with torch.no_grad():
-      recon = method.validate(model, images, num_samples)
-    if recon is None:
-      return
-    # recon is (N, C, H, W) -- log first sample.
-    writer.add_image("recon/original", images[0], global_step)
-    writer.add_image("recon/reconstructed", recon[0].clamp(0, 1), global_step)

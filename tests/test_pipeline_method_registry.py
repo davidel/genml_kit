@@ -68,6 +68,7 @@ class TestPipelineRegistry:
       NAME = "dup_pipeline"
 
     with pytest.raises(RuntimeError, match="Duplicate pipeline name"):
+
       @register_pipeline
       class _Dup2(DataPipeline):
         NAME = "dup_pipeline"
@@ -219,6 +220,56 @@ class TestImagesPipelineLoader:
     assert batch.meta["labels"] is not None
     assert batch.meta["labels"].shape[0] == batch.data.shape[0]
 
+  def test_balanced_sampler_wired_into_train_loader(self, tmp_path):
+    """Regression for #10: --sampler balanced builds a BalancedBatchSampler."""
+    from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
+
+    data_dir = _make_imagefolder(tmp_path)
+    args = self._args(tmp_path)
+    args.dataset = f"imagefolder/{data_dir}"
+    args.label_column = "label"
+    args.image_column = "image"
+    args.sampler = "balanced"
+    args.samples_per_class = 2
+    args.batch_size = 4
+    args.class_multipliers = ""
+    args.sampler_weights = "frequency"
+    args.train_transforms = build_pretrain_transform(args.image_size)
+    args.val_transforms = build_pretrain_transform(args.image_size)
+    args.tta_transform = None
+    args.needs_labels = True
+
+    pipeline = ImagesPipeline()
+    loader = pipeline.build_loader(args, mode="train")
+    assert isinstance(loader.sampler, BalancedBatchSampler)
+
+  def test_balanced_sampler_falls_back_on_indivisible_batch(self, tmp_path):
+    """batch_size % samples_per_class != 0 => warn and shuffle."""
+    data_dir = _make_imagefolder(tmp_path)
+    args = self._args(tmp_path)
+    args.dataset = f"imagefolder/{data_dir}"
+    args.label_column = "label"
+    args.image_column = "image"
+    args.sampler = "balanced"
+    args.samples_per_class = 3
+    args.batch_size = 4  # 4 % 3 != 0 -> fallback
+    args.class_multipliers = ""
+    args.sampler_weights = "frequency"
+    args.train_transforms = build_pretrain_transform(args.image_size)
+    args.val_transforms = build_pretrain_transform(args.image_size)
+    args.tta_transform = None
+    args.needs_labels = True
+
+    from torch.utils.data.sampler import RandomSampler
+
+    from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
+
+    pipeline = ImagesPipeline()
+    loader = pipeline.build_loader(args, mode="train")
+    # shuffle=True -> torch creates a RandomSampler, NOT a balanced one.
+    assert isinstance(loader.sampler, RandomSampler)
+    assert not isinstance(loader.sampler, BalancedBatchSampler)
+
   def test_self_supervised_ignores_labels(self, tmp_path):
     data_dir = _make_imagefolder(tmp_path)
     args = self._args(tmp_path)
@@ -341,3 +392,24 @@ class TestVOPairMethod:
   def test_stage_default(self):
     method = build_method("vo_pair")
     assert method.NAME == "vo_pair"
+
+
+class TestMetricDirection:
+
+  def test_loss_keyed_methods_minimize(self):
+    for name in ("dino", "byol", "supcon", "simmim", "ijepa"):
+      method = build_method(name)
+      assert method.METRIC_KEY == "loss"
+      assert method.METRIC_MINIMIZE is True
+      # Lower loss is better.
+      assert method.has_metric_improved(0.5, 0.8) is True
+      assert method.has_metric_improved(0.9, 0.8) is False
+
+  def test_default_metric_sentinel_follows_direction(self):
+    from genml_kit.training.train import _default_metric
+    # Loss-keyed: has_metric_improved(0.0, 1.0) is True (0 < 1) -> -inf.
+    dino = build_method("dino")
+    assert _default_metric(dino) == float("inf")
+    # Classification: maximizes; sentinel is -inf so the first epoch wins.
+    cls = build_method("classification")
+    assert _default_metric(cls) == float("-inf")

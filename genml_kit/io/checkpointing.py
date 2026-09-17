@@ -556,7 +556,7 @@ def open_resume_context(args,
                         default_metric=0.0):
   """Fetch remote checkpoints and auto-resume into ``model``.
 
-  Wraps the resume boilerplate shared by ``train.py`` and ``pretrain.py``:
+  Wraps the resume boilerplate used by ``train.py``:
   derive the ``_latest.pt`` / ``_best.pt`` paths from ``--checkpoint``,
   pull missing local copies from ``--remote_checkpoint``, then resume.
 

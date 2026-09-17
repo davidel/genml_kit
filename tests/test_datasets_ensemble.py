@@ -22,6 +22,34 @@ class TestImageFolderDataset:
     assert isinstance(item["image"], Image.Image)
     assert item["image"].mode == "RGB"
 
+  def test_negative_index_is_python_semantics(self, tmp_path):
+    """-1 == last element (unchanged Python convention)."""
+    for i in range(3):
+      Image.new("RGB", (64, 64)).save(tmp_path / f"img_{i}.png")
+    ds = ImageFolderDataset(str(tmp_path))
+    assert len(ds) == 3
+    last = ds[-1]
+    assert isinstance(last, dict)
+
+  def test_out_of_range_low_raises(self, tmp_path):
+    """Regression for #8: ds[-(n+1)] must raise IndexError.
+
+    The old code let negatives slip into getitem_retry, which silently
+    returned a random sample instead of raising.
+    """
+    for i in range(3):
+      Image.new("RGB", (64, 64)).save(tmp_path / f"img_{i}.png")
+    ds = ImageFolderDataset(str(tmp_path))
+    with pytest.raises(IndexError, match="out of range"):
+      ds[-4]
+
+  def test_upper_bound_still_raises(self, tmp_path):
+    for i in range(3):
+      Image.new("RGB", (64, 64)).save(tmp_path / f"img_{i}.png")
+    ds = ImageFolderDataset(str(tmp_path))
+    with pytest.raises(IndexError, match="out of range"):
+      ds[3]
+
   def test_empty_dir(self, tmp_path):
     with pytest.raises(FileNotFoundError, match="No images found"):
       ImageFolderDataset(str(tmp_path))

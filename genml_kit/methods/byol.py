@@ -1,5 +1,7 @@
 """BYOL: Bootstrap Your Own Latent (Grill et al., NeurIPS 2020)."""
 
+import contextlib
+
 import torch
 from torchvision.transforms import v2
 
@@ -19,6 +21,7 @@ class BYOLMethod(Method):
   NAME = "byol"
   NEEDS_LABELS = False
   METRIC_KEY = "loss"
+  METRIC_MINIMIZE = True  # loss is minimized
 
   def add_args(self, parser):
     g = parser.add_argument_group("BYOL")
@@ -86,12 +89,45 @@ class BYOLMethod(Method):
     ])
     return DualViewTransform(base)
 
+  def wire_data(self, args, pipeline):
+    """Compute the optimizer-step budget for the EMA momentum ramp.
+
+    Lifecycle position 2: both loaders exist, so ``len(train_loader)`` is
+    final.  ``global_step`` is the optimizer-step counter (the trainer
+    increments it once per ``grad_accum_steps`` flushes), so the budget
+    is the micro-batch total divided by ``grad_accum_steps`` -- the ramp
+    completes exactly at the last optimizer step of the last epoch.
+    """
+    total = None
+    with contextlib.suppress(TypeError):
+      total = len(pipeline.train_loader)  # iterable-only datasets: no len()
+    if total:
+      total = total * args.epochs // max(getattr(args, "grad_accum_steps", 1), 1)
+    self._total_steps = total
+
   def train_step(self, model, blob, global_step, *, labels=None):
-    images = blob.data
+    """Compute the BYOL loss for one dual-view blob (train path).
+
+    Delegates to the shared :meth:`_run_loss` and additionally advances
+    the target EMA with the momentum for this optimizer step.  The EMA
+    update is the train-only side effect that :meth:`eval_step` omits.
+    """
+    out = self._run_loss(model, blob.data)
+    model.update_momentum(self._current_momentum(global_step, model))
+    return out
+
+  def eval_step(self, model, blob, global_step=0, *, labels=None):
+    """Compute the BYOL loss with NO training side-effects.
+
+    Unlike :meth:`train_step`, this does not advance the target EMA.
+    ``evaluate()`` calls this instead of ``train_step``.
+    """
+    return self._run_loss(model, blob.data)
+
+  def _run_loss(self, model, images):
+    """Forward + LossOutput wrapping (shared by train/eval)."""
     set_train_mode(model, "train")
     loss, info = model(images)
-    momentum = self._current_momentum(global_step, model)
-    model.update_momentum(momentum)
     return LossOutput(
         loss=loss,
         metrics={
@@ -99,9 +135,9 @@ class BYOLMethod(Method):
         })
 
   def _current_momentum(self, global_step, model):
-    total = getattr(model, "_total_steps", 0)
-    if total <= 0:
-      return self._momentum_end()
+    total = getattr(self, "_total_steps", None)
+    if not total:
+      return self._momentum_start()
     ratio = min(global_step / total, 1.0)
     start = self._momentum_start()
     end = self._momentum_end()

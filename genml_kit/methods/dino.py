@@ -7,6 +7,8 @@ Reference: Caron et al., *"Emerging Properties in Self-Supervised Vision
 Transformers"*, ICCV 2021 -- https://arxiv.org/abs/2104.14294
 """
 
+import contextlib
+
 import torch
 
 from genml_kit.methods.base import Method
@@ -45,6 +47,7 @@ class DINOMethod(Method):
   NAME = "dino"
   NEEDS_LABELS = False
   METRIC_KEY = "loss"
+  METRIC_MINIMIZE = True  # loss is minimized
 
   def add_args(self, parser):
     g = parser.add_argument_group("DINO")
@@ -140,21 +143,61 @@ class DINOMethod(Method):
   def _local_num(self):
     return getattr(self, "_dino_local_num", 8)
 
+  def wire_data(self, args, pipeline):
+    """Compute the optimizer-step budget for the EMA momentum ramp.
+
+    Lifecycle position 2: both loaders exist, so ``len(train_loader)`` is
+    final.  ``global_step`` is the optimizer-step counter (the trainer
+    increments it once per ``grad_accum_steps`` flushes), so the budget
+    is the micro-batch total divided by ``grad_accum_steps`` -- the ramp
+    completes exactly at the last optimizer step of the last epoch.
+    """
+    total = None
+    with contextlib.suppress(TypeError):
+      total = len(pipeline.train_loader)  # iterable-only datasets: no len()
+    if total:
+      total = total * args.epochs // max(getattr(args, "grad_accum_steps", 1), 1)
+    self._total_steps = total
+
   def train_step(self, model, blob, global_step, *, labels=None):
-    images = blob.data
-    # MultiCropTransform yields a per-item tuple of (global_1, global_2,
-    # local_1..N); collation stacks each position -> tuple of stacked
-    # tensors.  First two are global crops, the rest local.
+    """Compute the DINO loss for one multi-crop blob (train path).
+
+    Delegates to the shared :meth:`_run_loss` and additionally advances
+    the teacher EMA with the momentum for this optimizer step.  The EMA
+    update is the train-only side effect that :meth:`eval_step` omits.
+    """
+    out = self._run_loss(model, blob.data)
+    model.update_momentum(self._current_momentum(global_step, model))
+    return out
+
+  def eval_step(self, model, blob, global_step=0, *, labels=None):
+    """Compute the DINO loss with NO training side-effects.
+
+    Unlike :meth:`train_step`, this does not advance the teacher EMA and
+    runs the model with ``update_center=False`` so the loss center is left
+    untouched.  ``evaluate()`` calls this instead of ``train_step``.
+    """
+    return self._run_loss(model, blob.data, update_center=False)
+
+  def _run_loss(self, model, images, *, update_center=True):
+    """Crop split + forward + LossOutput wrapping (shared by train/eval).
+
+    MultiCropTransform yields a per-item tuple ``(global_1, global_2,
+    local_1..N)``; collation stacks each position, so *images* is a tuple
+    of ``2 + local_num`` tensors each of shape ``(B, C, S, S)``.  The
+    first two positions are the global pair, the rest the locals.  A
+    single tensor is treated as ``global_crops == local_crops``.
+    """
     set_train_mode(model, "train")
     if isinstance(images, (tuple, list)):
-      global_crops = images[0]
-      local_crops = (torch.cat(images[1:], dim=0) if len(images) > 1 else global_crops)
+      global_crops = torch.stack(images[:2]).flatten(0, 1)  # (2B, C, H, W)
+      if len(images) > 2:
+        local_crops = torch.stack(images[2:]).flatten(0, 1)  # (N*B, C, h, w)
+      else:
+        local_crops = global_crops
     else:
-      global_crops = images
-      local_crops = images
-    loss, info = model(global_crops, local_crops)
-    momentum = self._current_momentum(global_step, model)
-    model.update_momentum(momentum)
+      global_crops = local_crops = images
+    loss, info = model(global_crops, local_crops, update_center=update_center)
     return LossOutput(
         loss=loss,
         metrics={
@@ -165,12 +208,16 @@ class DINOMethod(Method):
     """Compute the teacher EMA momentum for this optimiser step.
 
     Linearly interpolates from ``--dino_momentum`` (at step 0) to
-    ``--dino_final_momentum`` (at the last step).  If the model does not
-    expose a total step count, the final momentum is used.
+    ``--dino_final_momentum`` (at the last step).  The total step budget
+    is computed in :meth:`wire_data` from the real loader length and the
+    optimizer-step semantics of ``global_step`` (see
+    :meth:`BaseTrainer.train_epoch`).  A missing budget never freezes the
+    teacher: it falls back to the *start* momentum so the teacher still
+    tracks the student.
     """
-    total = getattr(model, "_total_steps", 0)
-    if total <= 0:
-      return self._momentum_end()
+    total = getattr(self, "_total_steps", None)
+    if not total:
+      return self._momentum_start()
     ratio = min(global_step / total, 1.0)
     start = self._momentum_start()
     end = self._momentum_end()

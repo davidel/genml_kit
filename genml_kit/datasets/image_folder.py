@@ -194,13 +194,16 @@ class ImageFolderDataset:
     return len(self._paths)
 
   def __getitem__(self, idx):
-    if idx >= len(self._paths):
+    n = len(self._paths)
+    if idx < 0:
+      idx += n  # Python-style negative indexing (-1 == last)
+    if idx < 0 or idx >= n:
       fatal(f"Index {idx} out of range for '{self.name}'", IndexError)
 
     def load(i):
       return Image.open(self._paths[i]).convert("RGB")
 
-    image, gidx = getitem_retry(idx, load, len(self._paths))
+    image, gidx = getitem_retry(idx, load, n)
     if self._labels is not None:
       return {"image": image, "label": int(self._labels[gidx])}
     return {"image": image}

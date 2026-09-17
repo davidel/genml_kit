@@ -1,6 +1,6 @@
 """CLI utilities for parsing repeatable ``--KEY=VALUE`` arguments.
 
-Used by ``train.py``, ``pretrain.py``, and ``infer.py`` to allow users to
+Used by ``train.py`` and ``infer.py`` to allow users to
 override model, processor, optimizer, and scheduler parameters from the
 command line without changing the argument parser for every possible knob.
 

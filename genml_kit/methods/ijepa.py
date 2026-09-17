@@ -129,6 +129,7 @@ class IJEPAMethod(Method):
   NAME = "ijepa"
   NEEDS_LABELS = False
   METRIC_KEY = "loss"
+  METRIC_MINIMIZE = True  # loss is minimized
 
   def add_args(self, parser):
     p = parser.add_argument_group("I-JEPA")

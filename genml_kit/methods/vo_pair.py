@@ -27,12 +27,13 @@ from genml_kit.training.vo.train_vo import STAGES, vo_losses
 class VOPairMethod(Method):
   """VO similarity objective (supervised or photometric self-supervised).
 
-  ``metric_key`` is ``mce`` (minimize): the best-checkpoint value is
-  stored under ``best_mce`` (positive, as measured).
+  ``METRIC_KEY`` is ``mce`` and ``METRIC_MINIMIZE`` is ``True``: the
+  best-checkpoint value is stored under ``best_mce`` (positive, as measured).
   """
 
   NAME = "vo_pair"
   METRIC_KEY = "mce"
+  METRIC_MINIMIZE = True  # mce is minimized
   NEEDS_LABELS = True
 
   def __init__(self):

@@ -17,10 +17,7 @@ from PIL import Image
 from torchvision.transforms import v2
 
 from genml_kit.datasets.ensemble import DatasetEnsemble
-from genml_kit.pipelines.images import (
-    build_pretrain_dataset,
-    log_validation_images,
-)
+from genml_kit.pipelines.images import build_pretrain_dataset
 
 
 def _make_labeled_dir(root, per_class=3):
@@ -101,34 +98,49 @@ class TestFieldSectorOnMixedEnsemble:
       total += batch["image"].shape[0]
     assert total == 10  # every image went through default_collate unharmed
 
-  def test_log_validation_images_on_real_loader(self, tmp_path):
-    """End-to-end: vis helper consumes a real collated mixed batch."""
+  def test_log_validation_consumes_real_collated_loader(self, tmp_path):
+    """End-to-end: log_validation consumes a real collated mixed batch.
 
-    class _FakeModel(torch.nn.Module):
+    The vis path must work with the production collate (DataBlob), which
+    is what the trainer feeds to ``method.log_validation``.
+    """
+    from genml_kit.pipelines.contracts import DataBlob
+
+    class _Writer:
 
       def __init__(self):
-        super().__init__()
-        self.lin = torch.nn.Linear(2, 2)
+        self.calls = []
 
-    class _NoValidateMethod:
+      def add_image(self, tag, tensor, step):
+        self.calls.append(tag)
 
-      def validate(self, model, images, num_samples):
-        return None
+    class _NoopMethod:
+      """Minimal method with only the default log_validation behavior."""
+
+      def log_validation(self,
+                         model,
+                         loader,
+                         to_device,
+                         writer,
+                         global_step,
+                         device,
+                         num_samples=8):  # noqa: B027
+        pass
 
     dataset, ensemble = build_pretrain_dataset(_pretrain_args(tmp_path),
                                                needs_labels=False,
                                                transform=_to_tensor_transform())
     loader = torch.utils.data.DataLoader(dataset, batch_size=4, num_workers=0)
 
-    model = _FakeModel()
-    log_validation_images(_NoValidateMethod(),
-                          model,
-                          loader,
-                          _NullWriter(),
-                          0,
-                          torch.device("cpu"),
-                          image_column=ensemble.image_column)
-    assert model.training
+    def _to_device(blob, device):
+      if isinstance(blob, DataBlob):
+        return DataBlob(data=blob.data.to(device), meta=blob.meta)
+      return blob
+
+    writer = _Writer()
+    _NoopMethod().log_validation(None, loader, _to_device, writer, 0,
+                                 torch.device("cpu"))
+    assert writer.calls == []  # no-op method logs nothing
 
   def test_label_requiring_method_rejects_mixed(self, tmp_path):
     """Methods needing labels refuse mixed ensembles.

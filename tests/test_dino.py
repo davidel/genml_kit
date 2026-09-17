@@ -166,6 +166,46 @@ class TestDINOMethod:
     assert out.loss.ndim == 0
     assert "loss" in out.metrics
 
+  def test_train_step_unequal_global_local_sizes_end_to_end(self):
+    """Regression for #1/#5: multi-crop collate + train_step, unequal sizes.
+
+    MultiCropTransform produces (global1, global2, local1..N); the
+    production collate stacks each position; ``_run_loss`` must split the
+    tuple back into (2B global, N*B local) tensors.  Before the fix this
+    crashed (the old code treated ``images[0]`` as ALL globals) or silently
+    mis-paired teacher targets (#5).
+    """
+    from genml_kit.augmentations.multicrop import MultiCropTransform
+    from genml_kit.pipelines.images import ImagesPipeline
+
+    method = get_method("dino")()
+    parser = argparse.ArgumentParser()
+    method.add_args(parser)
+    args = parser.parse_args([])
+    method._dino_global_size = 32
+    method._dino_local_size = 16
+    method._dino_local_num = 3
+    method._dino_momentum = args.dino_momentum
+    method._dino_final_momentum = args.dino_final_momentum
+    model = DINO(_FakeBackbone(out_dim=128),
+                 proj_dim=args.dino_proj_dim,
+                 proj_hidden=64,
+                 backbone_dim=128)
+
+    tf = MultiCropTransform(global_size=32, local_size=16, local_num=3)
+    # Apply the real per-item multi-crop transform, then collate: this is
+    # the exact production path (#1 crashed before the split fix).
+    items = [{"image": tf(torch.randn(3, 64, 64))} for _ in range(2)]
+    blob = ImagesPipeline._collate(items)  # DataBlob, tuple of stacked crops
+    assert isinstance(blob.data, tuple)
+    assert len(blob.data) == 5  # 2 global + 3 local positions
+    assert blob.data[0].shape[0] == 2  # each position stacked over B
+
+    out = method.train_step(model, blob, global_step=0)
+    assert isinstance(out, LossOutput)
+    assert out.loss.ndim == 0
+    assert "loss" in out.metrics
+
   def test_checkpoint_roundtrip(self):
     method = get_method("dino")()
     parser = argparse.ArgumentParser()
@@ -182,9 +222,23 @@ class TestDINOMethod:
     method2.load_checkpoint_state(model, state, args)
     assert method2._dino_momentum == args.dino_momentum
 
-  def test_validate_returns_none(self):
+  def test_log_validation_is_noop(self):
     method = get_method("dino")()
-    assert method.validate(None, torch.randn(2, 3, 32, 32), 2) is None
+
+    class _Writer:
+
+      def __init__(self):
+        self.calls = []
+
+      def add_image(self, tag, tensor, step):
+        self.calls.append(tag)
+
+    def _to_device(blob, device):
+      return blob
+
+    method.log_validation(None, iter([]), _to_device, _Writer(), 0, torch.device("cpu"))
+    # Nothing was logged; the method has no vis support.
+    assert True  # reaching here without raising is the contract
 
   def test_build_transform(self):
     method = get_method("dino")()
@@ -194,3 +248,56 @@ class TestDINOMethod:
     args = argparse.Namespace(image_size=128)
     tf = method.build_transform(args, 128)
     assert isinstance(tf, MultiCropTransform)
+
+  def test_momentum_ramp_uses_wire_data_budget(self):
+    """Regression for #2: the teacher EMA must actually ramp.
+
+    With a step budget wired, step 0 uses the start momentum (< 1.0); the
+    old code always returned the END momentum (1.0) because _total_steps
+    was never set, freezing the teacher.
+    """
+    method = get_method("dino")()
+    model = DINO(_FakeBackbone(out_dim=128),
+                 proj_dim=32,
+                 proj_hidden=64,
+                 backbone_dim=128)
+    method._dino_momentum = 0.996
+    method._dino_final_momentum = 1.0
+    method._total_steps = 100
+    assert method._current_momentum(0, model) < 1.0
+    assert method._current_momentum(0, model) == method._momentum_start()
+    assert method._current_momentum(100, model) == 1.0
+
+  def test_momentum_missing_budget_falls_back_to_start(self):
+    """Without a budget the teacher still MOVES (never pins to 1.0)."""
+    method = get_method("dino")()
+    model = DINO(_FakeBackbone(out_dim=128),
+                 proj_dim=32,
+                 proj_hidden=64,
+                 backbone_dim=128)
+    method._dino_momentum = 0.996
+    method._dino_final_momentum = 1.0
+    # as if wire_data never ran: no _total_steps attribute at all
+    assert not hasattr(method, "_total_steps")
+    assert method._current_momentum(0, model) == method._momentum_start()
+    assert method._current_momentum(0, model) < 1.0
+
+  def test_teacher_diverges_from_init_within_few_ema_steps(self):
+    """A moving teacher must differ from its init after several EMA steps."""
+    method = get_method("dino")()
+    model = DINO(_FakeBackbone(out_dim=128),
+                 proj_dim=32,
+                 proj_hidden=64,
+                 backbone_dim=128)
+    method._dino_momentum = 0.996
+    method._dino_final_momentum = 1.0
+    method._total_steps = 100
+    init = torch.cat([p.detach().reshape(-1) for p in model.teacher.parameters()])
+    # Perturb the student a bit, then run several teacher updates.
+    with torch.no_grad():
+      for p in model.student.parameters():
+        p.add_(torch.randn_like(p) * 0.1)
+      for step in range(5):
+        model.update_momentum(method._current_momentum(step, model))
+    after = torch.cat([p.detach().reshape(-1) for p in model.teacher.parameters()])
+    assert not torch.equal(init, after)

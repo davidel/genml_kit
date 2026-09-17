@@ -20,7 +20,6 @@ from genml_kit.models import load_model, load_processor  # noqa: F401
 from genml_kit.pipelines import build_pipeline, get_pipeline, list_pipelines
 from genml_kit.pipelines.images import (  # noqa: F401
     build_pretrain_dataset, build_pretrain_transform, compute_class_weights,
-    log_validation_images,
 )
 from genml_kit.training.optim_factory import build_optimization
 from genml_kit.training.train_compat import (

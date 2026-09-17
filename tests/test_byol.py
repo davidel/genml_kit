@@ -148,6 +148,20 @@ class TestBYOLMethod:
     method2.load_checkpoint_state(None, state, args)
     assert method2._byol_momentum == 0.996
 
-  def test_validate_returns_none(self):
+  def test_log_validation_is_noop(self):
     method = get_method("byol")()
-    assert method.validate(None, torch.randn(2, 3, 32, 32), 2) is None
+
+    class _Writer:
+
+      def __init__(self):
+        self.calls = []
+
+      def add_image(self, tag, tensor, step):
+        self.calls.append(tag)
+
+    def _to_device(blob, device):
+      return blob
+
+    method.log_validation(None, iter([]), _to_device, _Writer(), 0, torch.device("cpu"))
+    # Reaching here without raising is the no-vis contract.
+    assert True

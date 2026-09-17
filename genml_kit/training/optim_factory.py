@@ -1,6 +1,6 @@
 """Factory functions for creating optimizers and schedulers.
 
-Used by ``train.py`` and ``pretrain.py`` to replace hardcoded optimizer /
+Used by ``train.py`` to replace hardcoded optimizer /
 scheduler creation with configurable versions driven by CLI arguments.
 """
 

@@ -8,7 +8,7 @@ original (train.py / pretrain/cli.py / train_vo.py):
 - the single ``CheckpointSaver`` and its save-on-exit ``finally``;
 - signal handling: interrupts land a consistent checkpoint before exit;
 - the best-checkpoint cycle driven by ``method.has_metric_improved`` and
-  ``method.metric_key`` (the checkpoint value is always stored under
+  ``method.METRIC_KEY`` (the checkpoint value is always stored under
   ``best_<metric_key>`` -- the loop never negates).
 
 The epoch body (s 4) is the union of the two legacy loops: AMP autocast +
@@ -225,24 +225,21 @@ class BaseTrainer:
 
           metrics = self.validate()
 
-          # Log validation images if enabled and method supports it
-          if (metrics is not None and self.writer is not None
-              and getattr(self.args, "vis_every", 0) > 0
-              and self.epoch % self.args.vis_every == 0):
+          # Log validation images if enabled and the method supports it
+          if (metrics is not None and self.writer is not None and
+              getattr(self.args, "vis_every", 0) > 0 and
+              self.epoch % self.args.vis_every == 0):
             try:
-              from genml_kit.pipelines.images import log_validation_images
-              log_validation_images(
-                  self.method,
+              self.method.log_validation(
                   self.model,
                   self.pipeline.val_loader,
+                  self.pipeline.to_device,
                   self.writer,
                   self.global_step,
                   self.device,
-                  image_column=getattr(self.args, "image_column", "image"),
               )
             except Exception as e:
               logging.warning("Failed to log validation images: %s", e)
-
           if (metrics is not None and
               self.has_metric_improved(self.best_metric, metrics)):
             best_metric = self.best_metric

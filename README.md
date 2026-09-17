@@ -565,7 +565,7 @@ genml-kit-train --pipeline images --method supcon \
 
 | Argument | Default | Description |
 |---|---|---|
-| `--method` | `simmim` | Pre-training method. Choices: `simmim`, `ijepa`, `dino`, `byol`, `supcon`. |
+| `--method` | `classification` | Objective. The pre-training examples below pass `--method simmim` explicitly. Choices: `classification`, `simmim`, `ijepa`, `dino`, `byol`, `supcon`, `vo_pair`. |
 | `--model` | `convvit` | Model name registered in genml_kit or HuggingFace model ID. |
 | `--datasets` | (required) | Space-separated dataset names or local paths. |
 | `--cache_dir` | `None` | HuggingFace cache directory for downloads. |
@@ -577,14 +577,14 @@ genml-kit-train --pipeline images --method supcon \
 | `--image_size` | `448` | Input image size (square). |
 | `--batch_size` | `32` | Per-GPU batch size. |
 | `--seed` | `None` | Explicit RNG seed: pins the shuffling and enables full determinism (cuDNN deterministic kernels, benchmark off). Omit (default) to keep runs fast — RNG streams are still seeded from `$GENML_KIT_SEED` (default 42). See [Reproducibility](#reproducibility). |
-| `--epochs` | `200` | Total pre-training epochs. |
-| `--lr` | `1e-4` | Peak learning rate for AdamW. |
+| `--epochs` | `5` | Number of epochs. The recipes below override this for pre-training. |
+| `--lr` | `3e-5` | Peak learning rate (base). The recipes below override this. |
 | `--amp_dtype` | `None` | Mixed precision: `float16` or `bfloat16`. Omit to disable. |
 | `--num_workers` | `4` | DataLoader worker processes. |
 | `--device` | auto-detect | Device: `cpu`, `cuda`, or `cuda:INDEX`. |
 | `--resume` | `True` | Auto-resume from latest checkpoint. Use `--no-resume` to disable. |
-| `--state_save` | `opt,sched` | States to save: `opt`, `sched`, `amp`, `none`. |
-| `--state_load` | `opt,sched` | States to restore on resume: `opt`, `sched`, `amp`, `none`. |
+| `--state_save` | `opt,sched,amp` | States to save: `opt`, `sched`, `amp`, `none`. |
+| `--state_load` | `opt,sched,amp` | States to restore on resume: `opt`, `sched`, `amp`, `none`. |
 | `--checkpoint` | (required) | Checkpoint path prefix (saves `_latest.pt` and `_best.pt`). |
 | `--log_level` | `INFO` | Minimum logging level. |
 | `--log_targets` | `STDERR` | Comma-separated log destinations. `STDERR` logs to standard error; any other entry is a log file path (appended). Example: `STDERR,/tmp/train.log` logs to both. |
@@ -605,6 +605,11 @@ genml-kit-train --pipeline images --method supcon \
 | `--source_checkpoint` | `None` | Path to source checkpoint to absorb parameters from. |
 | `--param_rename` | `None` | Regex-based key rename patterns (`SEARCH;REPLACE`). |
 | `--grad_checkpoint` | `False` | Enable gradient checkpointing. Reduces activation memory by ~40-50% at the cost of ~25-35% more compute per step. Enables larger batch sizes. See [Gradient Checkpointing](#gradient-checkpointing). |
+
+**Defaults shown are the generic `genml-kit-train` defaults; the
+pre-training recipes below override `--method`, `--epochs`, `--lr` for their
+specific objective.** The pre-training examples invoke
+`genml-kit-train --pipeline images --method simmim ...` explicitly.
 
 **SupCon-specific arguments:**
 

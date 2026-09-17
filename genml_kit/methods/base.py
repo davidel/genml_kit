@@ -17,7 +17,9 @@ class Method(abc.ABC):
 
   NAME = ""  # registry key (matches PretrainMethod.NAME today)
 
-  metric_key = "loss"  # best-checkpoint metric key (best_<metric_key>)
+  METRIC_KEY = "loss"  # best-checkpoint metric key (best_<METRIC_KEY>)
+
+  METRIC_MINIMIZE = False  # True for loss-keyed methods (lower is better)
 
   NEEDS_LABELS = False  # whether this method requires labels in the data blob
 
@@ -43,6 +45,21 @@ class Method(abc.ABC):
     The loop owns AMP / grad-accum / clipping around this call.
     """
 
+  def eval_step(self, model, blob, global_step=0, *, labels=None):
+    """Compute the loss for one blob *without* training side-effects.
+
+    Default implementation delegates to :meth:`train_step`, which is
+    correct for methods whose ``train_step`` is side-effect-free (e.g.
+    classification, SimMIM).  Methods that mutate state during training
+    (DINO/BYOL teacher EMA, DINO center update) MUST override this to run
+    the same forward without those mutations; ``evaluate()`` calls this
+    instead of ``train_step``.
+
+    ``global_step`` is accepted for signature parity with
+    :meth:`train_step`; eval does not use it.
+    """
+    return self.train_step(model, blob, global_step, labels=labels)
+
   def get_checkpoint_state(self, model, args):
     """Optional: dict of method-owned state persisted to every checkpoint.
 
@@ -59,7 +76,7 @@ class Method(abc.ABC):
     """Return dict[str, float] of validation metrics (default: loss mean).
 
     Default implementation iterates *loader*, moves each blob with the
-    pipeline's ``to_device`` callback, calls ``train_step`` under
+    pipeline's ``to_device`` callback, calls ``eval_step`` under
     ``torch.no_grad()`` and returns the mean of each metric key.  Override
     for objective-specific metrics: VO (mce), classification (macro-F1 /
     confusion matrix).
@@ -69,18 +86,23 @@ class Method(abc.ABC):
     with torch.no_grad():
       for blob in loader:
         blob = to_device(blob, device)
-        out = self.train_step(model, blob, 0)
+        out = self.eval_step(model, blob, 0)
         for k, v in out.metrics.items():
           metrics_acc[k] += float(v)
         n += 1
     return {k: v / max(n, 1) for k, v in metrics_acc.items()}
 
   def has_metric_improved(self, new_metric, best_metric):
-    """Return True when *new_metric* beats *best_metric* (higher is better).
+    """Return True when *new_metric* beats *best_metric*.
 
-    Direction lives ONLY here; the loop never negates.  Override for
-    minimize-direction metrics (e.g. VO mce: ``new < best``).
+    Direction is bound to the metric declaration via ``METRIC_MINIMIZE``
+    (``True`` for loss-keyed methods: lower is better; ``False`` for
+    accuracy/F1/mce-maximize).  Direction lives ONLY here; the loop never
+    negates.  ``_default_metric`` and the best-checkpoint cycle both probe
+    this method, so the sentinel follows the same direction automatically.
     """
+    if self.METRIC_MINIMIZE:
+      return new_metric < best_metric
     return new_metric > best_metric
 
   def add_args(self, parser):  # noqa: B027
@@ -99,6 +121,24 @@ class Method(abc.ABC):
 
   def on_epoch_end(self, model, epoch, writer):  # noqa: B027
     """Hook called at the end of each training epoch (optional)."""
+
+  def log_validation(self,  # noqa: B027
+                     model,
+                     loader,
+                     to_device,
+                     writer,
+                     global_step,
+                     device,
+                     num_samples=8):
+    """Log method-specific validation images to the writer (optional).
+
+    Called by the trainer after a validation pass when ``--vis_every`` is
+    enabled.  The default implementation is a silent no-op; methods that
+    can visualise their objective (e.g. SimMIM reconstructions) override
+    this to pull one batch from *loader* (which yields ``DataBlob``
+    namedtuples via the production collate) and call ``writer.add_image``
+    under ``model_mode(model, "eval")``.
+    """
 
   # --- Lifecycle hooks (called by the genml-kit-train driver, in order) ------
 
@@ -160,12 +200,15 @@ class Method(abc.ABC):
         # Models matching none of the standard names (e.g. the fc-only test
         # backbone) fall back to adapting every nn.Linear.
         default_names = {"q_proj", "k_proj", "v_proj", "qkv", "query", "key", "value"}
-        present = {name.split(".")[-1]
-                   for name, mod in model.named_modules()
-                   if isinstance(mod, torch.nn.Linear)}
+        present = {
+            name.split(".")[-1]
+            for name, mod in model.named_modules()
+            if isinstance(mod, torch.nn.Linear)
+        }
         matched = sorted(default_names & present)
-        target_modules = matched or [n for n, m in model.named_modules()
-                                     if isinstance(m, torch.nn.Linear)]
+        target_modules = matched or [
+            n for n, m in model.named_modules() if isinstance(m, torch.nn.Linear)
+        ]
       model = apply_lora(
           model,
           r=args.lora_r,

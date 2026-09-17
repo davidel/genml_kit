@@ -4,7 +4,7 @@ The loop is exercised through a minimal ``FakeMethod``/``FakePipeline``
 pair -- exactly the extension contract production methods/pipelines
 implement -- with a real ``CheckpointSaver`` and writer.
 
-v4.2: the best-checkpoint cycle is keyed off ``method.metric_key`` and
+v4.2: the best-checkpoint cycle is keyed off ``method.METRIC_KEY`` and
 ``method.has_metric_improved``; the checkpoint value is stored under
 ``best_<metric_key>`` and the loop never negates.
 """

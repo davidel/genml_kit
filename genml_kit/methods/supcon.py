@@ -18,6 +18,7 @@ class SupConMethod(Method):
 
   NAME = "supcon"
   METRIC_KEY = "loss"
+  METRIC_MINIMIZE = True  # loss is minimized
   NEEDS_LABELS = True
 
   def add_args(self, p):

@@ -45,10 +45,11 @@ class DINO(nn.Module):
 
   1. encode the 2 global crops with both towers;
   2. encode the ``N`` local crops with the student only;
-  3. update the loss center from the teacher's global outputs (EMA);
-  4. repeat the teacher's global-crop projections to obtain one target
-     row per student crop (``t_all`` below) — the teacher target is
-     shared by the student's global *and* local views of the same image;
+  3. unless ``update_center=False`` (eval), update the loss center from
+     the teacher's global outputs (EMA);
+  4. build the teacher-target table ``t_all``: the *other* global view
+     for each global student row (never the same crop), and the view-2
+     teacher row for each local student row of the same image;
   5. evaluate the cross-entropy-style :class:`DINOLoss` between the
      student's log-probabilities and the (sharpened, centered) teacher
      probabilities.
@@ -100,28 +101,44 @@ class DINO(nn.Module):
     for sp, tp in zip(self.student.parameters(), self.teacher.parameters()):
       tp.data.mul_(momentum).add_(sp.data, alpha=1.0 - momentum)
 
-  def forward(self, global_crops, local_crops):
+  def forward(self, global_crops, local_crops, update_center=True):
     """Compute DINO loss.
 
     Args:
-        global_crops: ``(B, C, H, W)`` — 2 global crops stacked.
-        local_crops: ``(N, C, h, w)`` — N local crops stacked.
+        global_crops: ``(2B, C, H, W)`` — 2 global crops stacked; the
+            first ``B`` rows are view 1 of each image, the last ``B`` rows
+            view 2.
+        local_crops: ``(N*B, C, h, w)`` — N local crops stacked in
+            per-crop blocks (crop 1 of all images, then crop 2, …).
+        update_center: If ``True`` (train), EMA-update the loss center from
+            the teacher's global outputs.  ``False`` (eval) leaves the
+            center untouched.
 
     Returns:
         (loss, info_dict)
     """
-    n_global = global_crops.shape[0]
+    n_global = global_crops.shape[0]  # 2B
+    b = n_global // 2
 
     s_global = self.student(global_crops)
     s_local = self.student(local_crops)
 
     with torch.no_grad():
       t_global = self.teacher(global_crops)
-      self.loss.update_center(t_global)
+      if update_center:
+        self.loss.update_center(t_global)
+
+    # DINO pairing: each global view must be teacher-paired with the OTHER
+    # view of the same image (never with itself); each local student row is
+    # paired with the view-2 teacher row of its own image.  Layouts:
+    #   t_global[0:B]   = teacher output of global view 1
+    #   t_global[B:2B]  = teacher output of global view 2
+    paired_global = torch.cat([t_global[b:2 * b], t_global[0:b]], dim=0)
+    n_local = s_local.shape[0]  # N*B
+    t_local = t_global[b:2 * b].repeat((n_local // b) + 1, 1)[:n_local]
+    t_all = torch.cat([paired_global, t_local], dim=0)
 
     s_all = torch.cat([s_global, s_local], dim=0)
-    t_all = t_global.repeat((s_all.shape[0] // n_global) + 1, 1)[:s_all.shape[0]]
-
     loss = self.loss(s_all, t_all)
     return loss, {"loss": loss.item()}
 

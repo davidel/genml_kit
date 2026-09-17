@@ -1,188 +1,126 @@
-"""Tests for log_validation_images (moved to genml_kit.pipelines.images).
+"""Tests for SimMIMMethod.log_validation.
 
-Regression tests for the loader contract: pretrain loaders yield
-dicts (``{image_column: tensor, ...}``), so the visualization helper
-must unpack the batch by column name rather than slicing it directly.
+Regression tests for the vis-logging contract: production loaders use
+``_images_collate`` and yield ``DataBlob`` namedtuples (not dicts), so
+``log_validation`` must unpack ``blob.data`` rather than indexing by a
+column name.  The base ``Method.log_validation`` is a silent no-op.
 """
 
 import torch
 import torch.nn as nn
 
-from genml_kit.pipelines.images import log_validation_images
+from genml_kit.methods import get_method
+from genml_kit.pipelines.contracts import DataBlob
 
 
 class _Writer:
   """Minimal TensorBoard writer stand-in recording add_image calls."""
 
   def __init__(self):
-    self.images = []
+    self._images = []
 
-  def add_image(self, tag, tensor, step):
-    self.images.append((tag, tensor, step))
+  def add_image(self, tag, tensor, global_step):
+    self._images.append((tag, tensor.clone(), global_step))
 
 
-class _FakeModel(nn.Module):
-  """Tiny module tracking eval/train transitions."""
+class _FakeSimMIM(nn.Module):
+  """Minimal object with the interface SimMIMMethod.log_validation needs.
 
-  def __init__(self):
+  ``forward(images, mask)`` returns ``(output, target)`` where *output*
+  is the flattened patch tensor ``unpatchify`` can reshape back to
+  ``(B, C, H, W)``.
+  """
+
+  def __init__(self, patch_size=4, img_size=16, channels=3):
     super().__init__()
-    self.lin = nn.Linear(2, 2)
+    self.patch_size = patch_size
+    self.mask_ratio = 0.5
+    self.in_channels = channels
+    num_patches = (img_size // patch_size)**2
+    self._out_dim = num_patches * patch_size * patch_size * channels
+    self._img_size = img_size
 
-  @property
-  def in_eval(self):
-    return not self.training
-
-
-class _NoValidateMethod:
-  """Method without pixel-space visualisations (e.g. I-JEPA)."""
-
-  def validate(self, model, images, num_samples):
-    return None
-
-
-class _ReconMethod:
-  """Method returning a reconstruction for each input image."""
-
-  def validate(self, model, images, num_samples):
-    return torch.clamp(images, 0, 1)
+  def forward(self, images, mask):
+    b = images.shape[0]
+    patch = self.patch_size
+    h = w = self._img_size // patch
+    # unpatched (B, C, h, w, patch, patch) -> flat (B, N, patch^2*C)
+    num_patches = h * w
+    dim = patch * patch * self.in_channels
+    recon = torch.zeros(b, num_patches, dim)
+    return recon, images
 
 
-def _dict_loader(image_column, batch, labels=None):
-  """One-shot loader yielding a single dict batch."""
+def _blob_loader(num_batches=1, batch_size=2, size=16):
+  """A loader yielding DataBlob batches (production collate semantics)."""
 
   class _Loader:
 
     def __iter__(self):
-      item = {image_column: batch}
-      if labels is not None:
-        item["label"] = labels
-      yield item
+      for _ in range(num_batches):
+        yield DataBlob(data=torch.randn(batch_size, 3, size, size),
+                       meta={"labels": None})
 
   return _Loader()
 
 
-def _tensor_loader(batch):
-  """One-shot loader yielding a bare tensor (legacy contract)."""
+def test_base_log_validation_is_noop():
+  """Methods without vis support log nothing (silent no-op)."""
+  method = get_method("dino")()
+  writer = _Writer()
+  loader = _blob_loader()
+
+  def _to_device(blob, device):
+    return blob
+
+  method.log_validation(None, loader, _to_device, writer, 0, torch.device("cpu"))
+  assert writer._images == []
+
+
+def test_simmim_logs_recon_pair():
+  """SimMIM logs one original + one reconstructed image."""
+  method = get_method("simmim")()
+  writer = _Writer()
+  loader = _blob_loader(batch_size=2, size=16)
+
+  def _to_device(blob, device):
+    return DataBlob(data=blob.data.to(device), meta=blob.meta)
+
+  model = _FakeSimMIM()
+  method.log_validation(model,
+                        loader,
+                        _to_device,
+                        writer,
+                        7,
+                        torch.device("cpu"),
+                        num_samples=2)
+  tags = [tag for tag, _, _ in writer._images]
+  assert "recon/original" in tags
+  assert "recon/reconstructed" in tags
+  assert all(step == 7 for _, _, step in writer._images)
+
+
+def test_simmim_logs_first_view_of_multiview():
+  """A multi-view blob logs the first view only."""
+  method = get_method("simmim")()
+  writer = _Writer()
 
   class _Loader:
 
     def __iter__(self):
-      yield batch
+      yield DataBlob(data=(torch.randn(2, 3, 16, 16), torch.randn(2, 3, 16, 16)),
+                     meta={"labels": None})
 
-  return _Loader()
+  def _to_device(blob, device):
+    return DataBlob(data=tuple(d.to(device) for d in blob.data), meta=blob.meta)
 
-
-class TestLogValidationImages:
-
-  def test_dict_batch_does_not_raise(self):
-    """Regression: dict batches must not be sliced as tensors."""
-    model = _FakeModel()
-    loader = _dict_loader("image", torch.rand(16, 3, 8, 8))
-    writer = _Writer()
-
-    # Must not raise KeyError: slice(...) — and must restore train mode.
-    log_validation_images(_NoValidateMethod(),
-                          model,
-                          loader,
-                          writer,
-                          0,
-                          torch.device("cpu"),
-                          image_column="image")
-    assert not model.in_eval
-
-  def test_dict_batch_logs_reconstructions(self):
-    model = _FakeModel()
-    batch = torch.rand(4, 3, 8, 8)
-    loader = _dict_loader("image", batch)
-    writer = _Writer()
-
-    log_validation_images(_ReconMethod(),
-                          model,
-                          loader,
-                          writer,
-                          42,
-                          torch.device("cpu"),
-                          image_column="image")
-    assert len(writer.images) == 2
-    tags = [tag for tag, _, _ in writer.images]
-    assert tags == ["recon/original", "recon/reconstructed"]
-    steps = [step for _, _, step in writer.images]
-    assert steps == [42, 42]
-
-  def test_dict_batch_slices_num_samples(self):
-    model = _FakeModel()
-    batch = torch.rand(16, 3, 8, 8)
-    loader = _dict_loader("image", batch)
-    writer = _Writer()
-
-    captured = {}
-
-    def _capture(model_arg, images, num_samples):
-      captured["num"] = images.shape[0]
-      return None
-
-    method = _NoValidateMethod()
-    method.validate = _capture
-    log_validation_images(method,
-                          model,
-                          loader,
-                          writer,
-                          0,
-                          torch.device("cpu"),
-                          image_column="image",
-                          num_samples=8)
-    assert captured["num"] == 8
-
-  def test_train_mode_restored_when_no_recon(self):
-    """validate() returning None must not leave the model in eval mode."""
-    model = _FakeModel()
-    loader = _dict_loader("image", torch.rand(4, 3, 8, 8))
-    writer = _Writer()
-
-    log_validation_images(_NoValidateMethod(),
-                          model,
-                          loader,
-                          writer,
-                          0,
-                          torch.device("cpu"),
-                          image_column="image")
-    assert model.training
-
-  def test_train_mode_restored_on_recon(self):
-    model = _FakeModel()
-    loader = _dict_loader("image", torch.rand(4, 3, 8, 8))
-    writer = _Writer()
-
-    log_validation_images(_ReconMethod(),
-                          model,
-                          loader,
-                          writer,
-                          0,
-                          torch.device("cpu"),
-                          image_column="image")
-    assert model.training
-
-  def test_tuple_batch_dual_view(self):
-    """Dual-view transforms yield tuples of tensors — both sliced."""
-    model = _FakeModel()
-    loader = _dict_loader("image", (torch.rand(4, 3, 8, 8), torch.rand(4, 3, 8, 8)))
-    writer = _Writer()
-    seen = {}
-
-    def _capture(model_arg, images, num_samples):
-      seen["type"] = type(images)
-      seen["lens"] = [v.shape[0] for v in images]
-      return None
-
-    method = _NoValidateMethod()
-    method.validate = _capture
-    log_validation_images(method,
-                          model,
-                          loader,
-                          writer,
-                          0,
-                          torch.device("cpu"),
-                          image_column="image",
-                          num_samples=2)
-    assert seen["lens"] == [2, 2]
-    assert not model.in_eval
+  model = _FakeSimMIM()
+  method.log_validation(model,
+                        _Loader(),
+                        _to_device,
+                        writer,
+                        0,
+                        torch.device("cpu"),
+                        num_samples=2)
+  original = [t for tag, t, _ in writer._images if tag == "recon/original"][0]
+  assert original.ndim == 3  # single image (C, H, W) after [0] indexing
