@@ -165,4 +165,5 @@ class _EncoderWithHead(nn.Module):
     return encode_with_backbone(self.encoder, images)
 
   def forward(self, images):
+    # Backbone then projection head: (B, C, H, W) -> (B, D) -> (B, proj_dim).
     return self.projection(self.encode(images))

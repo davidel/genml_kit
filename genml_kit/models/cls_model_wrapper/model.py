@@ -74,6 +74,8 @@ class ClsModelWrapper(nn.Module):
         "'last_hidden_state' key.", ValueError)
 
   def forward(self, pixel_values):
+    # Backbone: (B, C, H, W) -> raw output; normalize to (B, N, D), then
+    # classifier: (B, N, D) -> (B, num_labels) logits wrapped as .logits.
     raw = self.backbone(pixel_values)
     hidden_states = self._extract_hidden_states(raw)
     return ModelOutput(logits=self.classifier(hidden_states))
@@ -97,6 +99,8 @@ class ClsModelWrapper(nn.Module):
     from genml_kit.training.model_utils import model_mode
 
     with model_mode(self, "eval"), torch.no_grad():
+      # Eval-mode backbone: (B, C, H, W) -> (B, N, D), then classifier
+      # features: (B, N, D) -> (B, F).
       raw = self.backbone(pixel_values)
       hidden_states = self._extract_hidden_states(raw)
       return self.classifier.extract_features(hidden_states)

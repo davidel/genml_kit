@@ -79,6 +79,7 @@ class _EncoderWithProjection(nn.Module):
     return encode_with_backbone(self.encoder, images)
 
   def forward(self, images):
+    # Backbone then projection head: (B, C, H, W) -> (B, D) -> (B, proj_dim).
     return self.projection(self.encode(images))
 
 
@@ -95,4 +96,5 @@ class _PredictorMLP(nn.Module):
     )
 
   def forward(self, x):
+    # Linear -> BN -> ReLU -> Linear: (B, in_dim) -> (B, out_dim).
     return self.net(x)

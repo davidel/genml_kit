@@ -70,7 +70,14 @@ def simmim_loss(pred, target, mask):
 
 
 class SimMIM(nn.Module):
-  """Generic SimMIM wrapper around a masked-image encoder adapter."""
+  """Generic SimMIM wrapper around a masked-image encoder adapter.
+
+  Masks a random subset of patch embeddings (replacing them with a shared
+  learnable mask token), lets the encoder process the corrupted sequence,
+  and decodes the resulting features back to per-patch pixels.  The loss
+  compares the decoder output against the original (unmasked) patch
+  pixels over the masked positions only (see :func:`simmim_loss`).
+  """
 
   def __init__(self, encoder: MaskedImageEncoder, decoder_dim=768, decoder_depth=2):
     super().__init__()
@@ -108,15 +115,21 @@ class SimMIM(nn.Module):
     return self._encoder_api.in_channels
 
   def forward(self, images, mask):
+    # Ground truth: (B, C, H, W) -> (B, N, P^2 * C) patch pixels.
     target = patchify(
         images,
         patch_size=self._encoder_api.patch_size,
         channels=self._encoder_api.in_channels,
     )
+    # Patch embed: (B, C, H, W) -> (B, N, D) embeddings.
     embeddings = self._encoder_api.patch_embed(images)
     if embeddings.shape[:2] != mask.shape:
       fatal(f"Expected mask shape {embeddings.shape[:2]}, got {mask.shape}", ValueError)
+    # Broadcast the shared mask token over masked positions:
+    # (1, 1, D) -> (B, N, D), then substitute where mask is True.
     mask_tokens = self.mask_token.expand(embeddings.shape[0], embeddings.shape[1], -1)
     embeddings = torch.where(mask.unsqueeze(-1), mask_tokens, embeddings)
+    # Encode the masked token sequence: (B, N, D) -> (B, N, D) features.
     features = self._encoder_api.encode_embeddings(embeddings)
+    # Decode back to raw patch pixels: (B, N, D) -> (B, N, P^2 * C).
     return self.decoder(features), target

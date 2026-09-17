@@ -30,6 +30,7 @@ class UVitoAdapter(nn.Module):
     self.config = config
 
   def forward(self, pixel_values=None, **kwargs):
+    # UVito forward: (B, C, H, W) -> (B, num_labels); wrapped as .logits.
     logits = self.model(pixel_values)
     return ModelOutput(logits=logits)
 

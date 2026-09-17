@@ -59,12 +59,17 @@ class DINOLoss(nn.Module):
     Returns:
       Scalar loss tensor.
     """
+    # Center then sharpen the teacher logits: (B, D) -> (B, D).
     teacher_out = (teacher_output - self.center) / self.teacher_temp
+    # Softmax into a (detached) target distribution: (B, D) -> (B, D).
     teacher_prob = torch.softmax(teacher_out, dim=1).detach()
 
+    # Scale student logits by the student temperature: (B, D) -> (B, D).
     student_out = student_output / self.student_temp
+    # Log-softmax student logits: (B, D) -> (B, D).
     student_log_prob = torch.log_softmax(student_out, dim=1)
 
+    # Cross-entropy H(teacher_prob, student_log_prob): (B, D) -> scalar.
     loss = -(teacher_prob * student_log_prob).sum(dim=1).mean()
     return loss
 

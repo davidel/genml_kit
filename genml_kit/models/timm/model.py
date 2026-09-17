@@ -40,6 +40,7 @@ class TimmForClassification(nn.Module):
     return None
 
   def forward(self, pixel_values=None, **kwargs):
+    # timm forward: (B, C, H, W) -> (B, num_labels); wrapped as .logits.
     logits = self.model(pixel_values)
     return ModelOutput(logits)
 

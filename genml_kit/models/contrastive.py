@@ -27,6 +27,7 @@ class ProjectionHead(nn.Module):
     )
 
   def forward(self, x):
+    # MLP projection head: (B, in_dim) -> (B, out_dim).
     return self.net(x)
 
 

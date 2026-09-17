@@ -31,6 +31,7 @@ class DropPath(nn.Module):
     self.drop_prob = drop_prob
 
   def forward(self, x):
+    # Stochastic Depth: (B, T, D) -> (B, T, D), same shape in eval/zero-drop.
     return drop_path(x, self.drop_prob, self.training)
 
 
@@ -44,10 +45,11 @@ class SwiGLUFFN(nn.Module):
     self.dropout = nn.Dropout(dropout)
 
   def forward(self, x):
-    # x: (B, T, D)
-    x12 = self.w12(x)  # (B, T, 2 * H)
-    x1, x2 = x12.chunk(2, dim=-1)  # (B, T, H) each
-    # Gate then project back to the model dim: (B, T, H) -> (B, T, D)
+    # Project to the gating/expanded space: (B, T, D) -> (B, T, 2 * H).
+    x12 = self.w12(x)
+    # Split into the two SwiGLU branches: (B, T, 2 * H) -> (B, T, H) x2.
+    x1, x2 = x12.chunk(2, dim=-1)
+    # Gate (SiLU) then project back to the model dim: (B, T, H) -> (B, T, D).
     return self.dropout(self.w3(F.silu(x1) * x2))
 
 
@@ -84,8 +86,10 @@ class TransformerBlock(nn.Module):
     self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
   def forward(self, x):
-    # x: (B, T, D); attention and FFN both preserve (B, T, D).
-    attn_out, _ = self.self_attn(self.ln1(x), self.ln1(x), self.ln1(x))  # (B, T, D)
+    # Pre-norm self-attention: (B, T, D) -> (B, T, D) query/key/value.
+    attn_out, _ = self.self_attn(self.ln1(x), self.ln1(x), self.ln1(x))
+    # Residual add with stochastic depth: (B, T, D) stays (B, T, D).
     x = x + self.drop_path(attn_out)
+    # Pre-norm FFN + residual add: (B, T, D) stays (B, T, D).
     x = x + self.drop_path(self.ffn(self.ln2(x)))
-    return x  # (B, T, D)
+    return x

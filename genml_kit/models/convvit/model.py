@@ -31,7 +31,13 @@ class ConvPatchEmbeddingBlock(nn.Module):
 
 
 class ConvPatchEmbedding(nn.Module):
-  """Multi-block conv front-end with skip connections."""
+  """Multi-block conv front-end with skip connections.
+
+  Chains :class:`ConvPatchEmbeddingBlock` stages, each halving the
+  spatial resolution and (except for the final) gradually widening the
+  channels up to ``embed_dim``.  The output is a flattened sequence of
+  ``num_patches_h * num_patches_w`` embedding tokens.
+  """
 
   def __init__(self, img_channels, embed_dim, num_blocks, img_size):
     super().__init__()
@@ -71,8 +77,11 @@ class ConvPatchEmbedding(nn.Module):
     return self.num_patches_h * self.num_patches_w
 
   def forward(self, x):
+    # Conv stem: (B, in_channels, H, W) -> (B, embed_dim, H/2^n, W/2^n).
     x = self.blocks(x)
-    x = x.flatten(2).transpose(1, 2)  # (B, N, embed_dim)
+    # Flatten the spatial grid into a token sequence:
+    # (B, embed_dim, H', W') -> (B, N, embed_dim) with N = H' * W'.
+    x = x.flatten(2).transpose(1, 2)
     return x
 
 
@@ -183,17 +192,21 @@ class CustomPatchTransformer(nn.Module):
                                              self.num_cls_tokens:, :])  # CLS, spatial
 
   def forward(self, x):
-    embeddings = self.patch_embed(x)  # [B, N, D]
-    # _run_transformer splits the (B, 1+N, D) sequence into CLS + spatial
-    cls_out, spatial_out = self._run_transformer(embeddings)  # (B, nc, D), (B, N, D)
+    # Conv stem: (B, 3, H, W) -> (B, N, D) patch embeddings.
+    embeddings = self.patch_embed(x)
+    # Transformer core splits the (B, K + N, D) sequence into
+    # CLS (B, K, D) + spatial (B, N, D) tokens.
+    cls_out, spatial_out = self._run_transformer(embeddings)
     if self.head is None:
-      # Headless mode: extract CLS tokens and flatten (uvito convention).
-      # (B, num_cls, D) -> (B, num_cls * D)
+      # Headless mode: flatten the CLS tokens (uvito convention):
+      # (B, K, D) -> (B, K * D).
       return cls_out.reshape(embeddings.shape[0], -1)
-    # Pool every CLS token over the spatial tokens (multi-query
-    # cross-attention), then flatten into the classifier head.
-    pooled = self.cls_guided_pool(cls_out, spatial_out)  # [B, num_cls, D]
-    return self.head(pooled.reshape(embeddings.shape[0], -1))  # (B, num_classes)
+    # Multi-query cross-attention: pool every CLS token over the spatial
+    # tokens -- (B, K, D) with (B, N, D) keys/values -> (B, K, D).
+    pooled = self.cls_guided_pool(cls_out, spatial_out)
+    # Flatten the pooled CLS vectors into the classifier head:
+    # (B, K * D) -> (B, num_classes) logits.
+    return self.head(pooled.reshape(embeddings.shape[0], -1))
 
   def encoder_forward(self, patch_embeddings):
     """Run the transformer encoder on pre-computed patch embeddings.

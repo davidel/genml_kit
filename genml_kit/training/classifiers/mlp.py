@@ -47,8 +47,10 @@ class Classifier(BaseClassifier):
     )
 
   def forward(self, hidden_states):
+    # Extract CLS features then MLP: (B, N, D) -> (B, K*D) -> (B, num_labels).
     return self.head(self.extract_features(hidden_states))
 
   def extract_features(self, hidden_states):
-    cls_tokens = hidden_states[:, self._cls_slice, :]  # (B, K, D)
-    return cls_tokens.flatten(start_dim=1)  # (B, K*D)
+    # Slice the CLS token(s): (B, N, D) -> (B, K, D), then flatten to (B, K*D).
+    cls_tokens = hidden_states[:, self._cls_slice, :]
+    return cls_tokens.flatten(start_dim=1)

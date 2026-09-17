@@ -43,8 +43,9 @@ class CombinedFocalLoss(nn.Module):
     num_classes = logits.size(-1)
 
     # 1. Build the target distribution vector.
+    # Integer targets (B,) -> one-hot (B, C) with optional label smoothing;
+    # continuous soft targets (B, C) are kept as-is.
     if targets.dim() == 1:
-      # Integer targets → one-hot with optional label smoothing.
       target_dist = torch.zeros_like(logits)
       if self.label_smoothing > 0:
         target_dist.fill_(self.label_smoothing / (num_classes - 1))
@@ -53,23 +54,24 @@ class CombinedFocalLoss(nn.Module):
       # Soft targets already supplied (e.g. from Mixup).
       target_dist = targets
 
-    # 2. Apply class weights.
+    # 2. Apply per-class cost weights: (B, C) * (1, C) -> (B, C).
     weighted_targets = target_dist * self.weights.unsqueeze(0)
 
-    # 3. Base cross-entropy via log_softmax (numerically stable).
+    # 3. Numerically stable log-softmax and its exponential: (B, C) -> (B, C).
     log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
     probs = log_probs.exp()
 
-    # Weighted CE: sum_k  -t_k * log(p_k)
+    # Weighted CE per sample: -sum_k t_k * w_k * log(p_k): (B, C) -> (B,).
     base_ce_loss = -(weighted_targets * log_probs).sum(dim=-1)
 
-    # 4. Compute unified expected true probability p_t.
+    # 4. Expected true probability under the target distribution: (B, C) -> (B,).
     p_t = torch.sum(target_dist * probs, dim=-1)
 
-    # 5. Modulate the entire loss once per sample.
+    # 5. Modulate the per-sample loss once: (B,) * (B,) -> (B,).
     focal_weight = (1.0 - p_t)**self.gamma
     loss = focal_weight * base_ce_loss
 
+    # Reduce per-sample loss (B,) -> scalar (or keep (B,) with 'none').
     if self.reduction == "mean":
       return loss.mean()
     elif self.reduction == "sum":

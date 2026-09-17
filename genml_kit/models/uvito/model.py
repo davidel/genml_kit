@@ -16,6 +16,17 @@ from genml_kit.models.transformer_utils import TransformerBlock
 
 
 class UVito(nn.Module):
+  """UVito \u2014 frozen SMP CNN encoder + Transformer for image classification.
+
+  The frozen encoder (e.g. ResNet50, ImageNet weights) produces a
+  multi-scale feature pyramid; the selected stage is flattened into
+  spatial tokens, projected to the transformer width, prepended with
+  learnable CLS tokens and positional embeddings, and passed through a
+  stack of pre-norm Transformer blocks (with DropPath).  The CLS slots are
+  LayerNorm-ed per token and flattened into an MLP head that emits class
+  logits.  With ``num_classes == 0`` the model is headless and
+  ``forward`` returns the pooled features.
+  """
 
   def __init__(
       self,
@@ -144,7 +155,7 @@ class UVito(nn.Module):
     # features[feature_tap] = selected stage, same indexing rationale as
     # in __init__ Step 3.
     features = self.frozen_encoder(x)  # list of (B, C_i, H/s_i, W/s_i)
-    bottleneck = features[self.feature_tap]  # (B, C, h, w)
+    bottleneck = features[self.feature_tap]  # (B, C, H, W)
     b, c, h, w = bottleneck.shape
 
     # Reshape spatial dims → tokens: flatten h * w positions into a
@@ -203,6 +214,8 @@ class UVito(nn.Module):
     return self.mlp_head(self.head_norm(tokens).reshape(batch_size, -1))
 
   def forward(self, x):
+    # Backbone features: (B, 3, H, W) -> flattened CLS states (B, num_cls * D);
+    # head: (B, num_cls * D) -> (B, num_classes) logits (or passthrough).
     return self._head(self.backbone_features(x))
 
   def train(self, mode=True):

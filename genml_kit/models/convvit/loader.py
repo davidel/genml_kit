@@ -35,7 +35,8 @@ class ConvViTAdapter(nn.Module):
     return self.model.head
 
   def forward(self, pixel_values=None, **kwargs):
-    logits = self.model(pixel_values)  # [B, num_classes]
+    # ConvViT forward: (B, C, H, W) -> (B, num_labels); wrapped as .logits.
+    logits = self.model(pixel_values)
     return ModelOutput(logits)
 
   def extract_backbone_features(self, pixel_values):

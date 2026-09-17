@@ -81,11 +81,16 @@ class Classifier(BaseClassifier):
     self.head = nn.Linear(hidden_size, num_labels)
 
   def forward(self, hidden_states):
+    # Pool CLS over spatial tokens then linear head:
+    # (B, N, D) -> (B, D) -> (B, num_labels).
     return self.head(self.extract_features(hidden_states))
 
   def extract_features(self, hidden_states):
+    # Slice the CLS query (B, K, D) and spatial key/value tokens (B, S, D).
     cls_out = hidden_states[:, self._cls_slice, :]
     spatial_out = hidden_states[:, self._spc_slice, :]
     if self.encoder is not None:
+      # Optional task-specific capacity: (B, S, D) -> (B, S, D).
       spatial_out = self.encoder(spatial_out)
-    return self.pool(cls_out, spatial_out)  # (B, D)
+    # Cross-attention pooling: (B, K, D) with (B, S, D) -> (B, D).
+    return self.pool(cls_out, spatial_out)

@@ -32,7 +32,12 @@ def _conv_block(in_ch, out_ch, stride):
 
 
 class _Encoder(nn.Module):
-  """Strided conv/ReLU stack producing features at 1/cost_scale."""
+  """Strided conv/ReLU stack producing features at 1/cost_scale.
+
+  Each stage starts with a stride-2 conv (halving the spatial size) and
+  continues with stride-1 convs at the same resolution; the final stage
+  width must match the MLP input width expected by ``VOSimilarityNet``.
+  """
 
   def __init__(self, in_ch, widths, blocks):
     super().__init__()
@@ -46,6 +51,7 @@ class _Encoder(nn.Module):
     self.stages = nn.Sequential(*stages)
 
   def forward(self, image):
+    # Strided conv stack: (B, in_ch, H, W) -> (B, widths[-1], H/2^n, W/2^n).
     return self.stages(image)
 
 
@@ -63,14 +69,14 @@ def correlate(fa, fb, radius):
   sees plain conv-shaped work.
 
   Args:
-      fa: (B, C, h, w) reference features.
-      fb: (B, C, h, w) moving features.
-      radius: max displacement in feature-map pixels.
+      fa: (B, C, H, W) reference features.
+      fb: (B, C, H, W) moving features.
+      radius: max displacement (R) in feature-map pixels.
 
   Returns:
-      (B, (2r+1)^2, h, w) correlation score per displacement, ordered
+      (B, (2R+1)^2, H, W) correlation score per displacement, ordered
       dy-major: displacement (dy, dx) sits at channel
-      (dy + r) * (2r + 1) + (dx + r).
+      (dy + R) * (2R + 1) + (dx + R).
   """
   padded = nn.functional.pad(fb, (radius,) * 4)
   disps = [(dy, dx)
@@ -87,12 +93,21 @@ def correlate(fa, fb, radius):
 class VOSimilarityNet(nn.Module):
   """Estimates the inter-frame similarity + confidence of an image pair.
 
-  forward() returns a plain dict (not a namedtuple): tensors of varying
-  shape, consumed by name in the loss functions.  The similarity itself is
-  produced by the closed-form Umeyama solve over predicted corner
-  correspondences, so the output is always a *valid* similarity (any
-  rotation, any positive scale) -- the network cannot emit an invalid
-  (theta, s) pair.
+  A Siamese encoder lifts both frames to a shared feature space, a
+  correlation cost volume (see :func:`correlate`) scores every
+  displacement, and a 1x1-conv head + small MLP predict per-image corner
+  offsets and a confidence pair.  The similarity itself is produced by the
+  closed-form Umeyama solve over the predicted corner correspondences, so
+  the output is always a *valid* similarity (any rotation, any positive
+  scale) -- the network cannot emit an invalid (theta, s) pair.
+
+  forward() returns a plain dict (not a namedtuple), consumed by name in
+  the loss functions:
+
+  * ``params``: ``(B, 3)`` similarity as ``(theta, s, tx, ty)``.
+  * ``corners``: ``(B, 4, 2)`` reference corner coordinates in pixels.
+  * ``dc``: ``(B, 4, 2)`` predicted corner deltas (in pixels).
+  * ``conf``: ``(B, 2)`` predicted confidence pair.
   """
 
   def __init__(self, config):
@@ -115,27 +130,36 @@ class VOSimilarityNet(nn.Module):
     self.head = nn.LazyConv2d(widths[-1], 1)
 
   def forward(self, a, b):
-    # Shape evolution (B = batch, H = W for square frames; C = final
-    # encoder width, e.g. 128 for the default npu-small profile):
-    #   a, b:                       (B, in_ch, H, W)
-    #   encoder:                    -> fa, fb (B, C, H/8, W/8)
-    #   correlate(fa, fb, r)        -> vol (B, (2r+1)^2, H/8, W/8)
-    #   cat([vol, fa], dim=1)       -> (B, C + (2r+1)^2, H/8, W/8)
-    #   head (1x1 conv)             -> feats (B, C, H/8, W/8)
-    #   mean over space             -> pooled (B, C)
-    # The corner MLP then maps pooled (B, C) -> (B, 10); the first 8
-    # values are corner deltas, the last 2 are the confidence pair.
+    # B = batch, H = W for square frames; C = final encoder width
+    # (e.g. 128 for the default npu-small profile).
+    # Siamese encode: (B, in_ch, H, W) -> (B, C, H/8, W/8) per frame.
     fa = self.encoder(a)
     fb = self.encoder(b)
+    # Correlation volume: (B, C, H/8, W/8) x (B, C, H/8, W/8) ->
+    # (B, (2R+1)^2, H/8, W/8), score per displacement (dy, dx).
     vol = correlate(fa, fb, self.cfg.cost_range)
+    # Concatenate volume with reference features and refine with a 1x1
+    # conv: (B, C + (2R+1)^2, H/8, W/8) -> (B, C, H/8, W/8).
     feats = self.head(torch.cat([vol, fa], dim=1))
+    # Global average pooling: (B, C, H/8, W/8) -> (B, C).
     pooled = feats.mean(dim=(2, 3))
+    # Reference corners in normalized coords, broadcast over the batch:
+    # (4, 2) -> (B, 4, 2).
     corners = self.ref_corners.unsqueeze(0).expand(a.shape[0], -1, -1)
+    # Corner MLP reads the pooled vector: (B, C) -> (B, 10); the first 8
+    # values are corner deltas (4 corners x 2), the last 2 the confidence
+    # pair.
     head_out = self.corner_mlp(pooled)
+    # Split off per-corner deltas: (B, 10) -> (B, 4, 2).
     deltas = head_out[:, :8].view(-1, 4, 2)
+    # Feature-map extent (H/8, W/8) maps the normalized corners to pixels.
     size = torch.tensor(
         [fa.shape[-1], fa.shape[-2]], device=a.device, dtype=deltas.dtype) / 2.0
+    # Pixels: normalized corner * half-extent * scale + half-extent
+    # (shift to the frame center): (B, 4, 2) stays (B, 4, 2).
     src = corners * size.unsqueeze(0) * self.scale + size.unsqueeze(0)
+    # Closed-form Umeyama least-squares similarity from src to src + deltas.
     params = umeyama_similarity(src, src + deltas)
+    # Confidence pair: (B, 10) -> (B, 2).
     conf = head_out[:, 8:10]
     return {"params": params, "corners": src, "dc": deltas, "conf": conf}
