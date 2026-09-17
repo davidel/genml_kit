@@ -42,7 +42,8 @@ class TinyMethod(Method):
   NEEDS_LABELS = False
   METRIC_KEY = "loss"
 
-  def add_args(self, parser):
+  @classmethod
+  def add_args(cls, parser):
     pass
 
   def build_model(self, args, device):

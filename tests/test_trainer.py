@@ -83,7 +83,8 @@ class FakeMethod:
   def on_epoch_end(self, model, epoch, writer):
     self.epoch_ends += 1
 
-  def add_args(self, parser):
+  @classmethod
+  def add_args(cls, parser):
     pass
 
 

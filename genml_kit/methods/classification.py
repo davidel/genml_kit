@@ -34,7 +34,8 @@ class ClassificationMethod(Method):
     self._label2id = None
     self._criterion = None
 
-  def add_args(self, parser):
+  @classmethod
+  def add_args(cls, parser):
     group = parser.add_argument_group("classification method")
     group.add_argument("--mixup_alpha",
                        type=float,
@@ -83,8 +84,6 @@ class ClassificationMethod(Method):
     group.add_argument("--xgb_gamma", type=float, default=0.0)
     group.add_argument("--xgb_reg_alpha", type=float, default=0.0)
 
-  # --- Model ----------------------------------------------------------------
-
   def build_model(self, args, device):
     """Load the classifier via the model registry and finalize it.
 
@@ -93,9 +92,10 @@ class ClassificationMethod(Method):
     otherwise instead of a confusing HuggingFace error.
     """
     if self._num_labels is None:
-      fatal("ClassificationMethod.build_model requires wire_data(args, "
-            "pipeline) to have provided the label space; check the run "
-            "order (wire_data before build_model).", RuntimeError)
+      fatal(
+          "ClassificationMethod.build_model requires wire_data(args, "
+          "pipeline) to have provided the label space; check the run "
+          "order (wire_data before build_model).", RuntimeError)
     from genml_kit.models import load_model
     model = load_model(
         args.model,
@@ -143,8 +143,7 @@ class ClassificationMethod(Method):
     space).
     """
     if pipeline.num_labels is None:
-      fatal("--method classification requires a labeled --dataset.",
-            ValueError)
+      fatal("--method classification requires a labeled --dataset.", ValueError)
     self.set_label_space(pipeline.num_labels, pipeline.id2label, pipeline.label2id)
     self.set_mixup_alpha(getattr(args, "mixup_alpha", 0.0))
     class_weights = pipeline.class_weights

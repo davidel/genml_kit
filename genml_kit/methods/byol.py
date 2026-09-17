@@ -23,7 +23,8 @@ class BYOLMethod(Method):
   METRIC_KEY = "loss"
   METRIC_MINIMIZE = True  # loss is minimized
 
-  def add_args(self, parser):
+  @classmethod
+  def add_args(cls, parser):
     g = parser.add_argument_group("BYOL")
     g.add_argument("--byol_proj_dim",
                    type=int,

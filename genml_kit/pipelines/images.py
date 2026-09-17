@@ -85,9 +85,8 @@ class ImagesPipeline(DataPipeline):
     self.data_generator = None
     self.tta_transform = None
 
-  # --- Arg surface --------------------------------------------------------
-
-  def add_args(self, parser):
+  @classmethod
+  def add_args(cls, parser):
     group = parser.add_argument_group("images pipeline")
     group.add_argument("--dataset",
                        type=str,
@@ -139,8 +138,6 @@ class ImagesPipeline(DataPipeline):
                        help="Fraction held out as validation "
                        "(classification, --dataset).")
 
-  # --- Loader construction ------------------------------------------------
-
   def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
     """Build (and cache) the loader for *mode* (train/val).
 
@@ -182,8 +179,6 @@ class ImagesPipeline(DataPipeline):
 
   def build_val_loader(self, args, **kwargs):
     return self.build_loader(args, mode="val", **kwargs)
-
-  # --- Classification path (train.py::build_data + load_and_split_dataset) --
 
   def _build_classification(self, args, method=None, needs_labels=True):
     # Imported lazily to avoid a circular import (train -> pipelines.images).
@@ -266,8 +261,6 @@ class ImagesPipeline(DataPipeline):
         shuffle=False,
         collate_fn=_images_collate,
     )
-
-  # --- Ensemble path (was pretrain/cli.py::build_pretrain_*) -----------------
 
   def _build_ensemble(self, args, method=None, needs_labels=False):
     """Build the ensemble loader (pre-training path)."""

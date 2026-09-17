@@ -37,8 +37,6 @@ from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.images import ImagesPipeline, build_pretrain_transform
 from genml_kit.pipelines.vo_pair import VOPairPipeline
 
-# --- Registries -----------------------------------------------------------
-
 
 class TestPipelineRegistry:
 
@@ -121,9 +119,6 @@ class TestCustomRegistration:
     assert build_method("custom_method").NAME == "custom_method"
 
 
-# --- Contracts -------------------------------------------------------------
-
-
 class TestContracts:
 
   def test_datablob_shape(self):
@@ -147,9 +142,6 @@ class TestContracts:
     assert not hasattr(
         __import__("genml_kit.pipelines.contracts", fromlist=["ModelOutput"]),
         "ModelOutput")
-
-
-# --- Pipelines -------------------------------------------------------------
 
 
 class _ImageFolderArgs(argparse.Namespace):
@@ -331,9 +323,6 @@ class TestVOPairPipeline:
     val_loader = pipeline.build_loader(args, mode="val")
     assert pipeline.train_loader is train_loader
     assert pipeline.val_loader is val_loader
-
-
-# --- Methods ---------------------------------------------------------------
 
 
 class TestClassificationMethod:

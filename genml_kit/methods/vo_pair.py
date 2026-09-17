@@ -41,7 +41,8 @@ class VOPairMethod(Method):
     self._cfg = None
     self._stage = STAGES["supervised"]
 
-  def add_args(self, parser):
+  @classmethod
+  def add_args(cls, parser):
     group = parser.add_argument_group("vo_pair method")
     group.add_argument(
         "--vo_stage",

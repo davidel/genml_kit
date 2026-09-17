@@ -243,16 +243,24 @@ def build_parser():
   return parser
 
 
+def register_all_owners(parser):
+  """Register the CLI args of every pipeline and method.
+
+  Used by the single-pass ``parse_args`` so ``--help`` renders every
+  owner's flags.  If two owners ever register the same option string,
+  ``add_args`` raises ``ArgumentError`` here -- an explicit signal to
+  rename one of the flags.
+  """
+  for name in list_pipelines():
+    get_pipeline(name).add_args(parser)
+  for name in list_methods():
+    get_method(name).add_args(parser)
+
+
 def parse_args(argv=None):
-  """Two-pass parse: generic flags first, then pipeline + method flags."""
+  """Single-pass parse: every owner, then the shared groups."""
   parser = build_parser()
-  known, _ = parser.parse_known_args(argv)
-  pipeline_cls = get_pipeline(known.pipeline)
-  method_cls = get_method(known.method)
-  # ORDER MATTERS (s 5.1): pipeline added first, then method, so
-  # method-level flags override pipeline-level ones with the same name.
-  pipeline_cls().add_args(parser)
-  method_cls().add_args(parser)
+  register_all_owners(parser)
 
   add_checkpoint_args(parser, checkpoint_default="genml_kit", resume_default=True)
   add_optimization_args(parser)

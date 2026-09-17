@@ -105,8 +105,9 @@ class Method(abc.ABC):
       return new_metric < best_metric
     return new_metric > best_metric
 
-  def add_args(self, parser):  # noqa: B027
-    """Add this method's CLI flags.  Instance method (no-op by default)."""
+  @classmethod  # noqa: B027
+  def add_args(cls, parser):
+    """Add this method's CLI flags.  Class method (no-op by default)."""
 
   def build_transform(self, args, image_size):
     """Return the objective-level augmentation for this method.
@@ -122,14 +123,15 @@ class Method(abc.ABC):
   def on_epoch_end(self, model, epoch, writer):  # noqa: B027
     """Hook called at the end of each training epoch (optional)."""
 
-  def log_validation(self,  # noqa: B027
-                     model,
-                     loader,
-                     to_device,
-                     writer,
-                     global_step,
-                     device,
-                     num_samples=8):
+  def log_validation(  # noqa: B027
+      self,
+      model,
+      loader,
+      to_device,
+      writer,
+      global_step,
+      device,
+      num_samples=8):
     """Log method-specific validation images to the writer (optional).
 
     Called by the trainer after a validation pass when ``--vis_every`` is
@@ -139,8 +141,6 @@ class Method(abc.ABC):
     namedtuples via the production collate) and call ``writer.add_image``
     under ``model_mode(model, "eval")``.
     """
-
-  # --- Lifecycle hooks (called by the genml-kit-train driver, in order) ------
 
   def prepare_transforms(self, args, device):  # noqa: B027
     """Resolve any transforms this method needs BEFORE loaders are built.
@@ -168,8 +168,6 @@ class Method(abc.ABC):
     returns, unless the run was interrupted (the driver owns the interrupt
     guard).  ``result`` is the ``TrainingResult`` of the run.  Default: no-op.
     """
-
-  # --- Model post-construction (called by build_model implementations) -------
 
   def _apply_model_extras(self, args, model, device):
     """Apply grad checkpointing, LoRA / source weights, freeze patterns.

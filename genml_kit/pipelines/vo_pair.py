@@ -56,7 +56,8 @@ class VOPairPipeline(DataPipeline):
       meta["gt"][key] = torch.stack([b["meta"].gt[key] for b in batch])
     return DataBlob(data=(data_a, data_b), meta=meta)
 
-  def add_args(self, parser):
+  @classmethod
+  def add_args(cls, parser):
     group = parser.add_argument_group("vo_pair pipeline")
     group.add_argument("--vo_length",
                        type=int,

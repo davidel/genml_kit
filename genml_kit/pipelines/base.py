@@ -19,12 +19,9 @@ class DataPipeline(abc.ABC):  # noqa: B024
     self.train_loader = None
     self.val_loader = None
 
-  # --- Arg surface --------------------------------------------------------
-
-  def add_args(self, parser):  # noqa: B027
+  @classmethod  # noqa: B027
+  def add_args(cls, parser):
     """Add this pipeline's CLI flags.  No-op by default."""
-
-  # --- Loading ------------------------------------------------------------
 
   def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
     """Build and cache the loader for *mode* (train/val).
@@ -39,13 +36,9 @@ class DataPipeline(abc.ABC):  # noqa: B024
     """
     raise NotImplementedError
 
-  # --- Device transfer ----------------------------------------------------
-
   def to_device(self, blob, device):
     """Move a DataBlob (data AND meta) onto *device*."""
     raise NotImplementedError
-
-  # --- Transforms ---------------------------------------------------------
 
   def build_transform(self, args, method):
     """Optional generic preprocessing (default: None = no pipeline phase).

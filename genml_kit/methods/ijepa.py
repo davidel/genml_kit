@@ -131,7 +131,8 @@ class IJEPAMethod(Method):
   METRIC_KEY = "loss"
   METRIC_MINIMIZE = True  # loss is minimized
 
-  def add_args(self, parser):
+  @classmethod
+  def add_args(cls, parser):
     p = parser.add_argument_group("I-JEPA")
     p.add_argument(
         "--teacher_momentum",

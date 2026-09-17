@@ -21,7 +21,8 @@ class SupConMethod(Method):
   METRIC_MINIMIZE = True  # loss is minimized
   NEEDS_LABELS = True
 
-  def add_args(self, p):
+  @classmethod
+  def add_args(cls, p):
     p.add_argument(
         "--proj_dim",
         type=int,

@@ -49,7 +49,8 @@ class DINOMethod(Method):
   METRIC_KEY = "loss"
   METRIC_MINIMIZE = True  # loss is minimized
 
-  def add_args(self, parser):
+  @classmethod
+  def add_args(cls, parser):
     g = parser.add_argument_group("DINO")
     g.add_argument("--dino_proj_dim",
                    type=int,
