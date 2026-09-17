@@ -51,47 +51,47 @@ class DINOMethod(Method):
 
   @classmethod
   def add_args(cls, parser):
-    g = parser.add_argument_group("DINO")
-    g.add_argument("--dino_proj_dim",
-                   type=int,
-                   default=256,
-                   help="Projection head output dimension.")
-    g.add_argument("--dino_proj_hidden",
-                   type=int,
-                   default=2048,
-                   help="Projection head hidden dimension.")
-    g.add_argument("--dino_student_temp",
-                   type=float,
-                   default=0.1,
-                   help="Student temperature.")
-    g.add_argument("--dino_teacher_temp",
-                   type=float,
-                   default=0.04,
-                   help="Teacher temperature.")
-    g.add_argument("--dino_center_momentum",
-                   type=float,
-                   default=0.9,
-                   help="EMA momentum for center update.")
-    g.add_argument("--dino_momentum",
-                   type=float,
-                   default=0.996,
-                   help="Initial EMA momentum for teacher encoder.")
-    g.add_argument("--dino_final_momentum",
-                   type=float,
-                   default=1.0,
-                   help="Final EMA momentum.")
-    g.add_argument("--dino_global_size",
-                   type=int,
-                   default=224,
-                   help="Spatial size of global crops.")
-    g.add_argument("--dino_local_size",
-                   type=int,
-                   default=96,
-                   help="Spatial size of local crops.")
-    g.add_argument("--dino_local_num",
-                   type=int,
-                   default=8,
-                   help="Number of local crops.")
+    group = parser.add_argument_group("DINO")
+    group.add_argument("--dino_proj_dim",
+                       type=int,
+                       default=256,
+                       help="Projection head output dimension.")
+    group.add_argument("--dino_proj_hidden",
+                       type=int,
+                       default=2048,
+                       help="Projection head hidden dimension.")
+    group.add_argument("--dino_student_temp",
+                       type=float,
+                       default=0.1,
+                       help="Student temperature.")
+    group.add_argument("--dino_teacher_temp",
+                       type=float,
+                       default=0.04,
+                       help="Teacher temperature.")
+    group.add_argument("--dino_center_momentum",
+                       type=float,
+                       default=0.9,
+                       help="EMA momentum for center update.")
+    group.add_argument("--dino_momentum",
+                       type=float,
+                       default=0.996,
+                       help="Initial EMA momentum for teacher encoder.")
+    group.add_argument("--dino_final_momentum",
+                       type=float,
+                       default=1.0,
+                       help="Final EMA momentum.")
+    group.add_argument("--dino_global_size",
+                       type=int,
+                       default=224,
+                       help="Spatial size of global crops.")
+    group.add_argument("--dino_local_size",
+                       type=int,
+                       default=96,
+                       help="Spatial size of local crops.")
+    group.add_argument("--dino_local_num",
+                       type=int,
+                       default=8,
+                       help="Number of local crops.")
 
   def build_model(self, args, device):
     self._dino_global_size = getattr(args, "dino_global_size", 224)
