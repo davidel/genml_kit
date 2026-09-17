@@ -25,27 +25,27 @@ class BYOLMethod(Method):
 
   @classmethod
   def add_args(cls, parser):
-    g = parser.add_argument_group("BYOL")
-    g.add_argument("--byol_proj_dim",
-                   type=int,
-                   default=256,
-                   help="Projection head output dimension.")
-    g.add_argument("--byol_proj_hidden",
-                   type=int,
-                   default=2048,
-                   help="Projection head hidden dimension.")
-    g.add_argument("--byol_predictor_hidden",
-                   type=int,
-                   default=2048,
-                   help="Predictor MLP hidden dimension.")
-    g.add_argument("--byol_momentum",
-                   type=float,
-                   default=0.996,
-                   help="Initial EMA momentum for target encoder.")
-    g.add_argument("--byol_final_momentum",
-                   type=float,
-                   default=1.0,
-                   help="Final EMA momentum (ramped up over training).")
+    group = parser.add_argument_group("BYOL")
+    group.add_argument("--byol_proj_dim",
+                       type=int,
+                       default=256,
+                       help="Projection head output dimension.")
+    group.add_argument("--byol_proj_hidden",
+                      type=int,
+                      default=2048,
+                      help="Projection head hidden dimension.")
+    group.add_argument("--byol_predictor_hidden",
+                       type=int,
+                       default=2048,
+                       help="Predictor MLP hidden dimension.")
+    group.add_argument("--byol_momentum",
+                       type=float,
+                       default=0.996,
+                       help="Initial EMA momentum for target encoder.")
+    group.add_argument("--byol_final_momentum",
+                       type=float,
+                       default=1.0,
+                       help="Final EMA momentum (ramped up over training).")
 
   def build_model(self, args, device):
     self._byol_momentum = args.byol_momentum
