@@ -43,23 +43,21 @@ def test_evaluate_performance_preserves_metrics_for_absent_class():
       },
   )
 
-  (_, top1, balanced_accuracy, macro_f1, weighted_f1, per_class, cm,
-   original_metrics) = result
-  assert top1 == 66.66666666666666
-  assert balanced_accuracy == 50.0
-  assert macro_f1 == (4.0 / 9.0) * 100.0
-  assert weighted_f1 == (2.0 / 3.0) * 100.0
-  assert per_class["zero"] == {
+  assert result.top1 == 66.66666666666666
+  assert result.balanced_accuracy == 50.0
+  assert result.macro_f1 == (4.0 / 9.0) * 100.0
+  assert result.weighted_f1 == (2.0 / 3.0) * 100.0
+  assert result.per_class_metrics["zero"] == {
       "precision": 100.0,
       "recall": 50.0,
       "f1": (2.0 / 3.0) * 100.0,
       "support": 2,
   }
-  assert per_class["two"] == {
+  assert result.per_class_metrics["two"] == {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
       "support": 0,
   }
-  assert cm.tolist() == [[1, 1, 0], [0, 1, 0], [0, 0, 0]]
-  assert original_metrics is None
+  assert result.cm.tolist() == [[1, 1, 0], [0, 1, 0], [0, 0, 0]]
+  assert result.original_metrics is None

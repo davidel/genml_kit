@@ -95,10 +95,18 @@ class KVPairAction(argparse.Action):
     more than once, the last value wins.
     """
 
+  def __init__(self, *args, default=None, **kwargs):
+    # Normalize the default so consumers can always ``**unpack`` the
+    # attribute as a dict (e.g. ``**args.model_arg``).  Parser call sites
+    # pass ``default=None``; treat any falsy default as empty.
+    super().__init__(*args, default=dict(default) if default else {}, **kwargs)
+
   def __call__(self, parser, namespace, values, option_string=None):
-    d = getattr(namespace, self.dest) or {}
-    if not isinstance(d, dict):
-      d = {}
+    # argparse sets the per-action default (normalized in __init__) as the
+    # SAME object on every namespace that omits the flag, so never mutate
+    # it in place: copy first, then rebind the namespace to the fresh dict
+    # (also keeps a reused namespace from accumulating stale keys).
+    d = dict(getattr(namespace, self.dest))
     for token in values:
       if "=" not in token:
         parser.error(f"Expected KEY=VALUE pair, got: {token!r} "

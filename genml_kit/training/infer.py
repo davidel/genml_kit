@@ -67,7 +67,7 @@ def parse_args(argv=None):
       "--model_arg",
       nargs="+",
       action=KVPairAction,
-      default={},
+      default=None,
       metavar="KEY=VALUE",
       help="Override model configuration (repeatable). "
       "Example: --model_arg depth=6 num_heads=8. For "
@@ -78,7 +78,7 @@ def parse_args(argv=None):
       "--proc_arg",
       nargs="+",
       action=KVPairAction,
-      default={},
+      default=None,
       metavar="KEY=VALUE",
       help="Override processor configuration (repeatable).",
   )

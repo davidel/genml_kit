@@ -46,8 +46,6 @@ from genml_kit.utils.gpu import resolve_device
 from genml_kit.utils.logging import fatal, open_writer, setup_logging
 from genml_kit.utils.seed import resolve_seed, seed_everything
 
-load_dataset = _datasets.load_dataset  # patchable via 'training.train.load_dataset'
-
 
 def load_and_split_dataset(
     dataset_name,
@@ -58,13 +56,23 @@ def load_and_split_dataset(
     val_transform=None,
     image_column=None,
     label_column=None,
+    loader=None,
 ):
-  """Load a HuggingFace dataset, return ``(train_proxy, val_proxy)``."""
+  """Load a HuggingFace dataset, return ``(train_proxy, val_proxy)``.
+
+  *loader* defaults to ``datasets.load_dataset`` and is a parameter (rather
+  than a module-level alias) so tests can pass a stub directly.  The
+  default is late-bound (``None`` resolved at call time) so tests can also
+  simply ``patch("datasets.load_dataset")`` for call paths that go through
+  ``main()`` / the pipeline without threading the loader explicitly.
+  """
+  if loader is None:
+    loader = _datasets.load_dataset
   if dataset_name.startswith("imagefolder/"):
     data_dir = dataset_name.split("/", 1)[1]
-    raw = load_dataset("imagefolder", data_dir=data_dir, cache_dir=cache_dir)
+    raw = loader("imagefolder", data_dir=data_dir, cache_dir=cache_dir)
   else:
-    raw = load_dataset(dataset_name, cache_dir=cache_dir)
+    raw = loader(dataset_name, cache_dir=cache_dir)
 
   # Single split: validate, split and wrap.
   if isinstance(raw, _datasets.Dataset):
@@ -171,7 +179,7 @@ def build_parser():
   parser.add_argument(
       "--model_arg",
       action=KVPairAction,
-      default={},
+      default=None,
       help="Model constructor kwargs: --model_arg key=value --model_arg k2=v2.",
   )
   parser.add_argument(
@@ -279,7 +287,7 @@ def parse_args(argv=None):
                    help="Layer-wise LR decay factor.")
   opt.add_argument("--lr_group",
                    action=KVPairAction,
-                   default={},
+                   default=None,
                    help="Per-group LRs: --lr_group layer_name=lr ...")
   opt.add_argument("--optimizer",
                    type=str,
@@ -287,7 +295,7 @@ def parse_args(argv=None):
                    help="Optimizer class name (AdamW, Adam, SGD).")
   opt.add_argument("--opt_arg",
                    action=KVPairAction,
-                   default={},
+                   default=None,
                    help="Optimizer constructor kwargs.")
   opt.add_argument("--scheduler",
                    type=str,
@@ -296,7 +304,7 @@ def parse_args(argv=None):
                    "CosineAnnealingLR, StepLR) or a path/URL; default: none.")
   opt.add_argument("--sched_arg",
                    action=KVPairAction,
-                   default={},
+                   default=None,
                    help="Scheduler constructor kwargs.")
   parser.add_argument(
       "--save_every",

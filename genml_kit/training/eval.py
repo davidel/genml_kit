@@ -4,6 +4,8 @@ Extracted from ``train.py`` to reduce module size and allow reuse in
 other training scripts.
 """
 
+from collections import namedtuple
+
 import torch
 from sklearn.metrics import confusion_matrix, f1_score, precision_recall_fscore_support
 
@@ -59,6 +61,21 @@ def _compute_classification_metrics(all_labels, all_preds, num_labels, id2label)
   }
 
 
+EvalReport = namedtuple(
+    "EvalReport",
+    [
+        "avg_loss",
+        "top1",
+        "balanced_accuracy",
+        "macro_f1",
+        "weighted_f1",
+        "per_class_metrics",
+        "cm",
+        "original_metrics",
+    ],
+)
+
+
 def evaluate_performance(model,
                          dataloader,
                          criterion,
@@ -68,11 +85,12 @@ def evaluate_performance(model,
                          tta_transform=None):
   """Evaluate on a validation/test set.
 
-  Returns ``(eval_loss, top1_acc_pct, balanced_accuracy, macro_f1,
-  weighted_f1, per_class_metrics, cm, original_metrics)``.  The first seven
-  values describe the predictions used for evaluation (TTA predictions when
-  enabled).  *original_metrics* is ``None`` without TTA; otherwise it contains
-  the corresponding metrics for original-view predictions.
+  Returns an :class:`EvalReport` namedtuple with fields ``avg_loss``,
+  ``top1``, ``balanced_accuracy``, ``macro_f1``, ``weighted_f1``,
+  ``per_class_metrics``, ``cm`` and ``original_metrics``.  The first seven
+  fields describe the predictions used for evaluation (TTA predictions when
+  enabled).  ``original_metrics`` is ``None`` without TTA; otherwise it
+  contains the corresponding metrics for original-view predictions.
 
   When *tta_transform* is provided predictions are averaged over N views
   (including the original) while the loss is always computed on the
@@ -123,6 +141,6 @@ def evaluate_performance(model,
         sum(pred == target for pred, target in zip(all_orig_preds, all_labels)) /
         total_samples * 100.0)
 
-  return (avg_loss, top1, metrics["balanced_accuracy"], metrics["macro_f1"],
-          metrics["weighted_f1"], metrics["per_class_metrics"], metrics["cm"],
-          original_metrics)
+  return EvalReport(avg_loss, top1, metrics["balanced_accuracy"], metrics["macro_f1"],
+                    metrics["weighted_f1"], metrics["per_class_metrics"], metrics["cm"],
+                    original_metrics)

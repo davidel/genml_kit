@@ -132,8 +132,8 @@ class TestDetectImageColumn:
               "label": datasets.ClassLabel(names=["a", "b"]),
           }),
       )
-      with patch("genml_kit.training.train.load_dataset", return_value=ds):
-        train_p, _val_p = train_mod.load_and_split_dataset("fake_ds")
+      train_p, _val_p = train_mod.load_and_split_dataset("fake_ds",
+                                                         loader=lambda *a, **k: ds)
 
       img = train_p.dataset[0]["image_file"]
       assert isinstance(img, Image.Image), (f"Expected PIL Image, got {type(img)}")
@@ -293,8 +293,8 @@ class TestLoadAndSplit:
     train_mod = _import_train()
     raw = _make_synthetic_dataset(label_col="dx", image_col="image")
 
-    with patch("genml_kit.training.train.load_dataset", return_value=raw):
-      train_p, val_p = train_mod.load_and_split_dataset("fake_dataset")
+    train_p, val_p = train_mod.load_and_split_dataset("fake_dataset",
+                                                      loader=lambda *a, **k: raw)
 
     assert isinstance(train_p, train_mod.HFDatasetProxy)
     assert isinstance(val_p, train_mod.HFDatasetProxy)
@@ -307,8 +307,8 @@ class TestLoadAndSplit:
     train_mod = _import_train()
     raw = _make_synthetic_dataset(label_col="label", image_col="image")
 
-    with patch("genml_kit.training.train.load_dataset", return_value=raw):
-      train_p, _val_p = train_mod.load_and_split_dataset("fake_dataset")
+    train_p, _val_p = train_mod.load_and_split_dataset("fake_dataset",
+                                                       loader=lambda *a, **k: raw)
 
     assert "label" in train_p.dataset.column_names
 
@@ -325,9 +325,8 @@ class TestLoadAndSplit:
         }),
     )
 
-    with patch("genml_kit.training.train.load_dataset", return_value=ds), \
-         pytest.raises(ValueError, match="No image column"):
-      train_mod.load_and_split_dataset("fake_dataset")
+    with pytest.raises(ValueError, match="No image column"):
+      train_mod.load_and_split_dataset("fake_dataset", loader=lambda *a, **k: ds)
 
   def test_class_encode_non_classlabel_column(self):
     train_mod = _import_train()
@@ -347,8 +346,8 @@ class TestLoadAndSplit:
         }),
     )
 
-    with patch("genml_kit.training.train.load_dataset", return_value=raw):
-      train_p, _val_p = train_mod.load_and_split_dataset("fake_dataset")
+    train_p, _val_p = train_mod.load_and_split_dataset("fake_dataset",
+                                                       loader=lambda *a, **k: raw)
     assert "diagnosis" in train_p.dataset.column_names
     assert train_p.label_column == "diagnosis"
 

@@ -111,7 +111,10 @@ def _run_train_smoke(tmp_path):
 
   with (
       patch("sys.argv", test_args),
-      patch("genml_kit.training.train.load_dataset", return_value=ds),
+      # load_and_split_dataset's loader defaults to datasets.load_dataset,
+      # late-bound at call time -- patching the datasets module (the
+      # natural seam) is enough, no alias needed in train.py.
+      patch("datasets.load_dataset", return_value=ds),
       # B3 step 4: processor/model loading moved into
       # ClassificationMethod.prepare_transforms / build_model.  Both are
       # lazy imports there, so patch the source modules (patch resolves
@@ -196,7 +199,10 @@ def test_sampler_skips_freq_in_loss_weights(tmp_path):
 
   with (
       patch("sys.argv", test_args),
-      patch("genml_kit.training.train.load_dataset", return_value=ds),
+      # load_and_split_dataset's loader defaults to datasets.load_dataset,
+      # late-bound at call time -- patching the datasets module (the
+      # natural seam) is enough, no alias needed in train.py.
+      patch("datasets.load_dataset", return_value=ds),
       # B3 step 4: processor/model loading moved into ClassificationMethod;
       # patch the package-level entry points (the method imports them
       # lazily from genml_kit.models, which re-exports the registry).

@@ -9,12 +9,6 @@ import torch
 
 from genml_kit.utils.logging import fatal
 
-# Umask captured once at import time so that files created through
-# ``tempfile.mkstemp`` (which forces 0600) can be given the same mode a
-# plain ``open()`` would have produced.
-_UMASK = os.umask(0)
-os.umask(_UMASK)
-
 
 def parse_storage_uri(uri):
   """Parse a ``gs://``, ``r2://``, or ``s3://`` URI into ``(scheme, bucket,
@@ -305,10 +299,11 @@ def save_checkpoint(save_dict, path, remote_uri=None):
                                   suffix=".tmp")
   tmp_file = None
   try:
-    # ``mkstemp`` creates the file 0600; restore the mode a plain
-    # ``open()`` would have produced so the published checkpoint keeps
-    # its usual permissions.
-    os.chmod(tmp_path, 0o666 & ~_UMASK)
+    # ``mkstemp`` creates the file 0600; widen to the usual rw-r--r--
+    # checkpoint permissions (so artifacts are readable by other users
+    # / the team, matching what a plain ``open()`` under a typical umask
+    # would have produced) without mutating the process umask.
+    os.chmod(tmp_path, 0o644)
     tmp_file = os.fdopen(fd, "wb")
     with tmp_file:
       torch.save(save_dict, tmp_file)
