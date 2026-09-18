@@ -24,10 +24,6 @@ class DQNMethod(Method):
   METRIC_MINIMIZE = False  # higher return is better
   NEEDS_LABELS = False
 
-  # ------------------------------------------------------------------
-  # CLI args
-  # ------------------------------------------------------------------
-
   @classmethod
   def add_args(cls, parser):
     group = parser.add_argument_group("dqn method")
@@ -87,10 +83,6 @@ class DQNMethod(Method):
               "Polyak with --tau)."),
     )
 
-  # ------------------------------------------------------------------
-  # Lifecycle
-  # ------------------------------------------------------------------
-
   def wire_data(self, args, pipeline):
     """Read n_actions from the pipeline (set after env init)."""
     self.n_actions = pipeline.n_actions
@@ -124,10 +116,6 @@ class DQNMethod(Method):
     )
     model = self._apply_model_extras(args, model, device)
     return model
-
-  # ------------------------------------------------------------------
-  # Exploration
-  # ------------------------------------------------------------------
 
   def act(self, model, obs, *, deterministic=False):
     """Select an action via epsilon-greedy.
@@ -168,10 +156,6 @@ class DQNMethod(Method):
       # Default: hard update every step.
       model.hard_update()
 
-  # ------------------------------------------------------------------
-  # Learning
-  # ------------------------------------------------------------------
-
   def train_step(self, model, blob, global_step, *, labels=None):
     """Compute the TD loss (pure learning — no env interaction)."""
     data = blob if isinstance(blob, dict) else blob.data
@@ -208,10 +192,6 @@ class DQNMethod(Method):
     }
     return LossOutput(loss=loss, metrics=metrics)
 
-  # ------------------------------------------------------------------
-  # Evaluation
-  # ------------------------------------------------------------------
-
   def evaluate(self, model, pipeline, num_episodes, max_steps=10_000):
     """Run evaluation episodes and return mean return.
 
@@ -245,10 +225,6 @@ class DQNMethod(Method):
   def has_metric_improved(self, new_metric, best_metric):
     """Higher eval_return is better."""
     return new_metric > best_metric
-
-  # ------------------------------------------------------------------
-  # Checkpoint state
-  # ------------------------------------------------------------------
 
   def get_checkpoint_state(self, model, args):
     return {
