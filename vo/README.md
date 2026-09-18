@@ -95,7 +95,7 @@ code to understand the math.
   - [Appendix A: Symbol Table](#appendix-a-symbol-table)
   - [Appendix B: Failure Modes And Shortcuts](#appendix-b-failure-modes-and-shortcuts)
   - [Appendix C: Reading List](#appendix-c-reading-list)
-  - [Appendix D: Math Rendering Notes](#appendix-d-math-rendering-notes)
+  - [Appendix D: Math Rendering Reference](#appendix-d-math-rendering-reference)
 
 ---
 
@@ -2906,33 +2906,9 @@ is used here.  Every entry is a public, checkable source.
 
 ---
 
-# Appendix D: Math Rendering Notes
+# Appendix D: Math Rendering Reference
 
-This document targets **GitHub's native Markdown math rendering**.  The
-conventions used, and why:
-
-- **Inline math** always uses the GitHub dollar-backtick form — the raw
-  sequence `` $`…`$ ``, for example $`\theta`$ or $`s \cdot R`$ — and never the
-  bare `$ … $` form.  The backtick wrapper shields underscores, asterisks
-  and braces from the Markdown layer before the math renderer sees them,
-  and it keeps formulas visually distinct from prose.  Plain code spans
-  (single backticks) are reserved for actual code — file paths, function
-  names, API arguments, test names — never for math.
-- **Display math** uses `$$ … $$` on their own lines.  Every display block
-  starts with the `\large` prefix, because GitHub renders display math too
-  small at its default size.
-- **Backslash escapes before punctuation.**  GitHub's Markdown layer
-  consumes one level of backslash escaping when a backslash precedes an
-  ASCII punctuation character, while backslash-letter sequences such as
-  `\theta` pass through untouched.  Two consequences for every formula in
-  this document:
-  - thin spaces are written `\\,` in the file, which reaches KaTeX as
-    `\,`;  a single `\,` in the file renders as a bare comma;
-  - matrix row separators are written `\\\\` in the file, which reaches
-    KaTeX as `\\`;  fewer backslashes make every `bmatrix` collapse onto a
-    single line (§2, §7, §8, §13).
-- **Named operators.**  GitHub's renderer does not support
-  `\operatorname{…}`, so multi-letter operator names are written as
-  `\mathop{\mathrm{wrap}}`, `\mathop{\mathrm{atan2}}`, … — KaTeX renders
-  these with upright text and operator spacing.
+The Markdown + KaTeX rendering rules for this document (inline math,
+display math, escaping, operators, pitfalls) are centralized in
+[`docs/MARKDOWN_LATEX.txt`](docs/MARKDOWN_LATEX.txt).
 

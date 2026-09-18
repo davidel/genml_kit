@@ -81,7 +81,7 @@ code implements is derived here.
   - [Appendix A: Symbol Table](#appendix-a-symbol-table)
   - [Appendix B: Failure Modes And Shortcuts](#appendix-b-failure-modes-and-shortcuts)
   - [Appendix C: Reading List](#appendix-c-reading-list)
-  - [Appendix D: Math Rendering Notes](#appendix-d-math-rendering-notes)
+  - [Appendix D: Math Rendering Reference](#appendix-d-math-rendering-reference)
 
 ---
 
@@ -1821,48 +1821,63 @@ entry is a public, checkable source.
 - [1] R. S. Sutton and A. G. Barto, *Reinforcement Learning: An
   Introduction*, 2nd ed., MIT Press, 2018.  Parts 1–2 (Bellman equations,
   TD, Q-learning) follow this book closely.
+  URL: http://incompleteideas.net/book/the-book-2nd.html
 - [2] C. J. C. H. Watkins and P. Dayan, *Q-Learning*, Machine Learning 8,
   1992.  §5.2 (Q-learning convergence).
+  URL: https://www.gatsby.ucl.ac.uk/~dayan/papers/cjch.pdf
 - [3] T. Jaakkola, M. I. Jordan, and S. P. Singh, *On the Convergence of
   Stochastic Iterative Dynamic Programming Algorithms*, Neural Computation 6,
   1994.  §5.2 (convergence of stochastic approximation of the Bellman
   optimality operator).
+  URL: https://direct.mit.edu/neco/article/6/6/1185/5826/On-the-Convergence-of-Stochastic-Iterative-Dynamic
 
 **Deep RL**
 
 - [4] V. Mnih et al., *Human-level control through deep reinforcement
   learning*, Nature 518, 2015.  §6 (DQN, replay, target network).
+  URL: https://www.nature.com/articles/nature14236
 - [5] T. Schaul, J. Quan, I. Antonoglou, D. Silver, *Prioritized Experience
   Replay*, ICLR 2016.  §6.3 (prioritized replay) and §15.3.
+  URL: https://arxiv.org/abs/1511.05952
 - [6] H. van Hasselt, *Double Q-learning*, NeurIPS 2010.  §7 (maximization
   bias).
+  URL: https://papers.nips.cc/paper/2010/file/091d584fced301b442654dd8c23b3fc9-Paper.pdf
 - [7] Z. Wang et al., *Dueling Network Architectures for Deep Reinforcement
   Learning*, ICML 2016.  §8 (advantage decomposition).
+  URL: https://arxiv.org/abs/1511.06581
 
 **Policy gradients and PPO**
 
 - [8] R. S. Sutton, D. McAllester, S. Singh, Y. Mansour, *Policy Gradient
   Methods for Reinforcement Learning with Function Approximation*, NeurIPS
   1999.  §9 (policy gradient theorem).
+  URL: https://proceedings.neurips.cc/paper/1999/file/464d828b85b0bed98e80ade0a5c43b0f-Paper.pdf
 - [9] J. Schulman, P. Moritz, S. Levine, M. Jordan, P. Abbeel,
   *High-Dimensional Continuous Control Using Generalized Advantage
   Estimation*, ICLR 2016.  §10.2 (GAE).
+  URL: https://arxiv.org/abs/1506.02438
 - [10] J. Schulman et al., *Trust Region Policy Optimization*, ICML 2015.
   §11.1 (trust regions, KL constraint).
+  URL: https://arxiv.org/abs/1502.05477
 - [11] J. Schulman et al., *Proximal Policy Optimization Algorithms*, 2017.
   §11 (clipped surrogate).
+  URL: https://arxiv.org/abs/1707.06347
 
 **Maximum-entropy RL and SAC**
 
 - [12] B. Ziebart et al., *Maximum Entropy Inverse Reinforcement Learning*,
   AAAI 2008; T. Haarnoja et al., *Reinforcement Learning with Deep Energy
   Based Policies*, ICML 2017.  §12 (soft Bellman and Gibbs policy).
+  URL: https://cdn.aaai.org/AAAI/2008/AAAI08-227.pdf;
+  URL: https://arxiv.org/abs/1702.08165
 - [13] T. Haarnoja et al., *Soft Actor-Critic: Off-Policy Maximum Entropy
   Deep Reinforcement Learning with a Stochastic Actor*, ICML 2018.  §13
   (SAC: critic, actor, temperature).
+  URL: https://arxiv.org/abs/1801.01290
 - [14] S. Fujimoto, H. van Hoof, D. Meger, *Addressing Function
   Approximation Error in Actor-Critic Methods* (TD3), ICML 2018.  §13.2
   (twin critics, target policy smoothing).
+  URL: https://arxiv.org/abs/1802.09477
 
 **Software documentation**
 
@@ -1873,33 +1888,11 @@ entry is a public, checkable source.
 
 ---
 
-# Appendix D: Math Rendering Notes
+# Appendix D: Math Rendering Reference
 
-This document targets **GitHub's native Markdown math rendering**, exactly
-like `vo/README.md` (whose Appendix D is the reference).  The conventions
-used, and why:
-
-- **Inline math** always uses the GitHub dollar-backtick form — the raw
-  sequence `` $`…`$ ``, for example $`\gamma`$ or $`Q_\theta(s,a)`$ — and
-  never the bare `$ … $` form.  The backtick wrapper shields underscores,
-  asterisks and braces from the Markdown layer before math rendering runs.
-- **Display math** uses the GitHub fenced form
-  `$$\n\large\n…\n$$` with a `\large` directive on the first content line
-  (e.g. §§2.4, 3.3, 6.2, 12.3).  Inside display blocks:
-  - matrix row separators are written `\\\\` in the file, reaching KaTeX as
-    `\\`; fewer backslashes make every `bmatrix` collapse onto a single line
-    (see `vo/README.md` Appendix D);
-  - thin spaces are written `\\,` in the file, reaching KaTeX as `\,`;
-  - `\begin{aligned}` blocks are used for multi-line derivations
-    (e.g. §9.3), with the alignment `&=` and row breaks `\\` (written
-    `\\\\` above).
-- **Named operators.**  GitHub's renderer does not support
-  `\operatorname{…}`, so multi-letter operator names are written as
-  `\mathrm{clip}`, `\mathrm{KL}`, `\arg\max`, … — KaTeX renders these with
-  upright text and operator spacing.
-- **All math symbols are LaTeX.**  Never raw unicode for symbols (no `π`,
-  `θ`, `γ`, `→`, `≤` in math position); the prose uses normal unicode
-  punctuation (`—`, `§`, `…`) exactly as `vo/README.md` does.
+The Markdown + KaTeX rendering rules for this document (inline math,
+display math, escaping, operators, pitfalls) are centralized in
+[`docs/MARKDOWN_LATEX.txt`](docs/MARKDOWN_LATEX.txt).
 
 ---
 
@@ -1910,5 +1903,5 @@ used, and why:
 field_dataset,balanced_sampler,weighted_sampler,image_folder,retry}.py`,
 `utils/{args,cli,attr,script,seed,signal,logging,gpu,table,label,image_dump}.py`,
 `tests/{test_trainer,test_checkpointing,test_cli_help,test_byol,test_vo_pairs}.py`,
-`README.md`, `vo/README.md` (structure + LaTeX conventions), `pyproject.toml`,
-`.style.yapf`, `ci.yml`.*
+`README.md`, `vo/README.md`, `docs/MARKDOWN_LATEX.txt` (Markdown + KaTeX
+rendering conventions), `pyproject.toml`, `.style.yapf`, `ci.yml`.*

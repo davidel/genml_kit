@@ -21,8 +21,8 @@ reporting, CLI) as much as possible.
 > dollar-backtick form `` $`...`$ ``; display math uses
 > `$$\n\large\n...\n$$`; multi-letter operators are written
 > `\mathop{\mathrm{...}}`; **all** math symbols are LaTeX (never raw unicode
-> such as `\pi`, `\theta`, `\gamma`, `\to`, `\le` — see `rl/README.md`
-> Appendix D and `vo/README.md` Appendix D).
+> such as `\pi`, `\theta`, `\gamma`, `\to`, `\le` — see
+> [`docs/MARKDOWN_LATEX.txt`](docs/MARKDOWN_LATEX.txt) for the full rules).
 
 ---
 
@@ -560,8 +560,8 @@ workers, reward design DSLs (env provides), hierarchical RL.
 image_folder,retry,transforms,__init__}.py`,
 `utils/{args,cli,attr,script,seed,signal,logging,gpu,table,label,image_dump,transformer}.py`,
 `tests/{test_trainer,test_checkpointing,test_cli_help,test_byol,test_vo_pairs}.py`,
-`README.md`, `vo/README.md`, `pyproject.toml`, `.github/workflows/ci.yml`, `vo/README.md` LaTeX
-conventions (Appendix D).
+`README.md`, `vo/README.md`, `docs/MARKDOWN_LATEX.txt` (Markdown + KaTeX
+rendering conventions), `pyproject.toml`, `.github/workflows/ci.yml`.
 
 `rl/README.md` companion doc and this plan reference each other; both
 maintain 2-space prose style, no tabs, column ~88.
