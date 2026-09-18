@@ -9,10 +9,6 @@ All formulas reference ``rl/README.md``.
 import torch
 import torch.nn.functional as F
 
-# =====================================================================
-# DQN losses (Phase 1)
-# =====================================================================
-
 
 def td_target(
     rewards,
@@ -81,11 +77,6 @@ def td_loss(pred_q, target, reduction="mean"):
     Scalar loss (or (B,) tensor with ``reduction="none"``).
   """
   return F.smooth_l1_loss(pred_q, target, reduction=reduction)
-
-
-# =====================================================================
-# PPO losses (Phase 2)
-# =====================================================================
 
 
 def gae(rewards, values, next_values, dones, gamma, lam):
@@ -191,11 +182,6 @@ def entropy_bonus(log_probs):
   if log_probs.dim() == 2:
     log_probs = log_probs.squeeze(-1)
   return -log_probs.mean()
-
-
-# =====================================================================
-# SAC losses (Phase 2)
-# =====================================================================
 
 
 def sac_q_loss(q_pred, soft_target):
