@@ -83,7 +83,7 @@ $`Y`$ a random variable (or vector).  If $`\mathbb{E}[|X|] < \infty`$, then
 
 $$
 \large
-\mathbb{E}[X] = \mathbb{E}\!\left[\, \mathbb{E}[X \mid Y] \,\right].
+\mathbb{E}[X] = \mathbb{E}\\!\left[\\, \mathbb{E}[X \mid Y] \\,\right].
 $$
 
 **Proof.**  Take the case where $`Y`$ is discrete with probability mass
@@ -91,7 +91,7 @@ $`p_Y(y)`$.  By the definition of conditional expectation,
 
 $$
 \large
-\mathbb{E}[X \mid Y = y] = \sum_x x\, p(x \mid y),
+\mathbb{E}[X \mid Y = y] = \sum_x x\\, p(x \mid y),
 \qquad
 p(x \mid y) = \frac{p(x, y)}{p_Y(y)}.
 $$
@@ -101,11 +101,11 @@ Rearranging the double sum,
 $$
 \large
 \begin{aligned}
-\mathbb{E}\!\left[\, \mathbb{E}[X \mid Y] \,\right]
-&= \sum_y p_Y(y) \sum_x x\, p(x \mid y) \\
-&= \sum_x x \sum_y p_Y(y)\, p(x \mid y)
+\mathbb{E}\\!\left[\\, \mathbb{E}[X \mid Y] \\,\right]
+&= \sum_y p_Y(y) \sum_x x\\, p(x \mid y) \\
+&= \sum_x x \sum_y p_Y(y)\\, p(x \mid y)
  = \sum_x x \sum_y p(x, y)
- = \sum_x x\, p_X(x)
+ = \sum_x x\\, p_X(x)
  = \mathbb{E}[X].
 \end{aligned}
 $$
@@ -127,8 +127,8 @@ convergence),
 
 $$
 \large
-\nabla_\theta\, \mathbb{E}_{p_\theta}[f(x)]
-= \mathbb{E}_{p_\theta}\!\left[\, f(x)\, \nabla_\theta \log p_\theta(x) \,\right].
+\nabla_\theta\\, \mathbb{E}_{p_\theta}[f(x)]
+= \mathbb{E}_{p_\theta}\\!\left[\\, f(x)\\, \nabla_\theta \log p_\theta(x) \\,\right].
 $$
 
 **Proof.**  Differentiate under the integral sign and expand the logarithm:
@@ -136,11 +136,11 @@ $$
 $$
 \large
 \begin{aligned}
-\nabla_\theta\, \mathbb{E}_{p_\theta}[f(x)]
-&= \nabla_\theta \int f(x)\, p_\theta(x)\, dx
- = \int f(x)\, \nabla_\theta p_\theta(x)\, dx \\
-&= \int f(x)\, p_\theta(x)\, \nabla_\theta \log p_\theta(x)\, dx
- = \mathbb{E}_{p_\theta}\!\left[\, f(x)\, \nabla_\theta \log p_\theta(x) \,\right].
+\nabla_\theta\\, \mathbb{E}_{p_\theta}[f(x)]
+&= \nabla_\theta \int f(x)\\, p_\theta(x)\\, dx
+ = \int f(x)\\, \nabla_\theta p_\theta(x)\\, dx \\
+&= \int f(x)\\, p_\theta(x)\\, \nabla_\theta \log p_\theta(x)\\, dx
+ = \mathbb{E}_{p_\theta}\\!\left[\\, f(x)\\, \nabla_\theta \log p_\theta(x) \\,\right].
 \end{aligned}
 $$
 
@@ -162,8 +162,8 @@ there exists $`\gamma \in [0, 1)`$ with
 $$
 \large
 \left\lVert \mathcal{T} x - \mathcal{T} y \right\rVert
-\;\le\; \gamma\, \left\lVert x - y \right\rVert
-\qquad \forall\, x, y \in X.
+\\;\le\\; \gamma\\, \left\lVert x - y \right\rVert
+\qquad \forall\\, x, y \in X.
 $$
 
 Then $`\mathcal{T}`$ has a **unique fixed point** $`x^{\ast} = \mathcal{T}
@@ -173,7 +173,7 @@ $`x_{k+1} = \mathcal{T} x_k`$ converge to it geometrically:
 $$
 \large
 \left\lVert x_k - x^{\ast} \right\rVert
-\;\le\; \gamma^k\, \left\lVert x_0 - x^{\ast} \right\rVert.
+\\;\le\\; \gamma^k\\, \left\lVert x_0 - x^{\ast} \right\rVert.
 $$
 
 **Proof.**  *Existence by construction.*  Pick any $`x_0`$ and iterate.
@@ -184,8 +184,8 @@ $`m > n`$, the triangle inequality telescopes:
 $$
 \large
 \left\lVert x_m - x_n \right\rVert
-\;\le\; \sum_{j=n}^{m-1} \left\lVert x_{j+1} - x_j \right\rVert
-\;\le\; \frac{\gamma^n}{1 - \gamma}\, \left\lVert x_1 - x_0 \right\rVert,
+\\;\le\\; \sum_{j=n}^{m-1} \left\lVert x_{j+1} - x_j \right\rVert
+\\;\le\\; \frac{\gamma^n}{1 - \gamma}\\, \left\lVert x_1 - x_0 \right\rVert,
 $$
 
 which tends to $`0`$ as $`n \to \infty`$ because $`\gamma^n \to 0`$.  Hence
@@ -207,7 +207,7 @@ $$
 \large
 \left\lVert x^{\ast} - y^{\ast} \right\rVert
 = \left\lVert \mathcal{T} x^{\ast} - \mathcal{T} y^{\ast} \right\rVert
-\;\le\; \gamma\, \left\lVert x^{\ast} - y^{\ast} \right\rVert.
+\\;\le\\; \gamma\\, \left\lVert x^{\ast} - y^{\ast} \right\rVert.
 $$
 
 Since $`\gamma < 1`$, the only possibility is $`\lVert x^{\ast} - y^{\ast}
@@ -227,15 +227,15 @@ over actions, the Gibbs distribution
 
 $$
 \large
-\pi^{\ast}(a) \;=\; \frac{\exp\!\left( Q(a) / \alpha \right)}
-{\sum_{a'} \exp\!\left( Q(a') / \alpha \right)}
+\pi^{\ast}(a) \\;=\\; \frac{\exp\\!\left( Q(a) / \alpha \right)}
+{\sum_{a'} \exp\\!\left( Q(a') / \alpha \right)}
 $$
 
 is the unique maximizer of the entropy-regularized objective
 
 $$
 \large
-J(\pi) = \mathbb{E}_{a \sim \pi}\!\left[\, Q(a) - \alpha \log \pi(a) \,\right].
+J(\pi) = \mathbb{E}_{a \sim \pi}\\!\left[\\, Q(a) - \alpha \log \pi(a) \\,\right].
 $$
 
 **Proof.**  The objective is concave in $`\pi`$: the term
@@ -247,7 +247,7 @@ $`\sum_a \pi(a) = 1`$ with a Lagrange multiplier $`\lambda`$:
 $$
 \large
 \mathcal{L}(\pi, \lambda) =
-    \sum_a \pi(a)\, Q(a)
+    \sum_a \pi(a)\\, Q(a)
     - \alpha \sum_a \pi(a) \log \pi(a)
     + \lambda \Bigl( 1 - \sum_a \pi(a) \Bigr).
 $$
@@ -259,7 +259,7 @@ $$
 \frac{\partial \mathcal{L}}{\partial \pi(a)}
 = Q(a) - \alpha\bigl( \log \pi(a) + 1 \bigr) - \lambda = 0,
 \qquad
-\pi(a) = \exp\!\left( \frac{Q(a) - \lambda - \alpha}{\alpha} \right).
+\pi(a) = \exp\\!\left( \frac{Q(a) - \lambda - \alpha}{\alpha} \right).
 $$
 
 The normalization constant absorbs $`\lambda + \alpha`$, which gives the
@@ -394,7 +394,7 @@ mathematical and one economic:
 
 $$
 \large
-\lvert G_t \rvert \;\le\; \sum_{k=0}^{\infty} \gamma^k R_{\max}
+\lvert G_t \rvert \\;\le\\; \sum_{k=0}^{\infty} \gamma^k R_{\max}
 = \frac{R_{\max}}{1 - \gamma} < \infty.
 $$
 
@@ -453,8 +453,8 @@ state $`s`$:
 
 $$
 \large
-V^{\pi}(s) = \mathbb{E}_\pi\!\left[ G_t \;\middle|\; S_t = s \right]
-= \mathbb{E}_\pi\!\left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \;\middle|\; S_t = s \right].
+V^{\pi}(s) = \mathbb{E}_\pi\\!\left[ G_t \\;\middle|\\; S_t = s \right]
+= \mathbb{E}_\pi\\!\left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \\;\middle|\\; S_t = s \right].
 $$
 
 The **action-value function** (Q-function) is the expected return from state
@@ -462,7 +462,7 @@ $`s`$ after taking action $`a`$ and following $`\pi`$ afterwards:
 
 $$
 \large
-Q^{\pi}(s, a) = \mathbb{E}_\pi\!\left[ G_t \;\middle|\; S_t = s, A_t = a \right].
+Q^{\pi}(s, a) = \mathbb{E}_\pi\\!\left[ G_t \\;\middle|\\; S_t = s, A_t = a \right].
 $$
 
 The two are related by averaging over the policy's action distribution:
@@ -482,8 +482,8 @@ $`V^{\ast}(s) = \max_\pi V^\pi(s)`$, $`Q^{\ast}(s,a) = \max_\pi Q^\pi(s,a)`$.
 $$
 \large
 V^{\pi}(s) = \sum_{a} \pi(a \mid s)
-             \sum_{s'} p(s' \mid s, a)\,
-             \Bigl[\, r(s, a, s') + \gamma\\, V^{\pi}(s') \Bigr].
+             \sum_{s'} p(s' \mid s, a)\\,
+             \Bigl[\\, r(s, a, s') + \gamma\\, V^{\pi}(s') \Bigr].
 $$
 
 **Proof.**  Start from the definition, split off the first reward, and use
@@ -493,11 +493,11 @@ $$
 \large
 \begin{aligned}
 V^{\pi}(s)
-&= \mathbb{E}_\pi\!\left[ G_t \mid S_t = s \right] \\
-&= \mathbb{E}_\pi\!\left[ R_{t+1} + \gamma G_{t+1} \mid S_t = s \right] \\
-&= \sum_{a} \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\,
+&= \mathbb{E}_\pi\\!\left[ G_t \mid S_t = s \right] \\
+&= \mathbb{E}_\pi\\!\left[ R_{t+1} + \gamma G_{t+1} \mid S_t = s \right] \\
+&= \sum_{a} \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\\,
    \Bigl[ r(s, a, s') + \gamma\\, \mathbb{E}_\pi[G_{t+1} \mid S_{t+1} = s'] \Bigr] \\
-&= \sum_{a} \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\,
+&= \sum_{a} \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\\,
    \Bigl[ r(s, a, s') + \gamma\\, V^{\pi}(s') \Bigr].
 \end{aligned}
 $$
@@ -509,7 +509,7 @@ to the trailing expectation.  The Bellman equation for $`Q^\pi`$ reads
 
 $$
 \large
-Q^{\pi}(s, a) = \sum_{s'} p(s' \mid s, a)\,
+Q^{\pi}(s, a) = \sum_{s'} p(s' \mid s, a)\\,
                 \Bigl[ r(s, a, s') + \gamma\\,
                 \sum_{a'} \pi(a' \mid s')\\, Q^{\pi}(s', a') \Bigr].
 $$
@@ -525,10 +525,10 @@ The optimal value functions satisfy the **Bellman optimality equations**:
 
 $$
 \large
-V^{\ast}(s) = \max_{a} \sum_{s'} p(s' \mid s, a)\,
+V^{\ast}(s) = \max_{a} \sum_{s'} p(s' \mid s, a)\\,
           \Bigl[ r(s, a, s') + \gamma\\, V^{\ast}(s') \Bigr],
 \qquad
-Q^{\ast}(s, a) = \sum_{s'} p(s' \mid s, a)\,
+Q^{\ast}(s, a) = \sum_{s'} p(s' \mid s, a)\\,
              \Bigl[ r(s, a, s') + \gamma\\, \max_{a'} Q^{\ast}(s', a') \Bigr].
 $$
 
@@ -537,7 +537,7 @@ $`\pi'`$ be the *greedy policy with respect to* $`Q^{\pi}`$:
 
 $$
 \large
-\pi'(s) \;\in\; \arg\max_{a} Q^{\pi}(s, a).
+\pi'(s) \\;\in\\; \arg\max_{a} Q^{\pi}(s, a).
 $$
 
 Then $`V^{\pi'}(s) \ge V^{\pi}(s)`$ for every state $`s`$, with a strict
@@ -547,7 +547,7 @@ inequality at any state where $`\pi(s)`$ is not a maximizing action.
 
 $$
 \large
-Q^{\pi}(s, \pi'(s)) = \max_a Q^{\pi}(s, a) \;\ge\; Q^{\pi}(s, \pi(s)) = V^{\pi}(s)
+Q^{\pi}(s, \pi'(s)) = \max_a Q^{\pi}(s, a) \\;\ge\\; Q^{\pi}(s, \pi(s)) = V^{\pi}(s)
 $$
 
 for every $`s`$.  Now compare the two policies through their Bellman
@@ -589,7 +589,7 @@ real-valued functions over states, componentwise:
 $$
 \large
 \left(\mathcal{T}^\pi V\right)(s)
-= \sum_{a} \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\,
+= \sum_{a} \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\\,
   \Bigl[ r(s, a, s') + \gamma\\, V(s') \Bigr].
 $$
 
@@ -599,7 +599,7 @@ in the sup-norm $`\lVert V \rVert_\infty = \max_s |V(s)|`$:
 $$
 \large
 \left\lVert \mathcal{T}^\pi V_1 - \mathcal{T}^\pi V_2 \right\rVert_\infty
-\;\le\; \gamma\\, \left\lVert V_1 - V_2 \right\rVert_\infty.
+\\;\le\\; \gamma\\, \left\lVert V_1 - V_2 \right\rVert_\infty.
 $$
 
 **Proof.**  For any state $`s`$,
@@ -608,11 +608,11 @@ $$
 \large
 \begin{aligned}
 \Bigl|\left(\mathcal{T}^\pi V_1\right)(s) - \left(\mathcal{T}^\pi V_2\right)(s)\Bigr|
-&= \Bigl|\,\sum_a \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\,
+&= \Bigl|\\,\sum_a \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\\,
    \gamma\\, \bigl(V_1(s') - V_2(s')\bigr)\Bigr| \\
-&\le \gamma \sum_a \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\,
+&\le \gamma \sum_a \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\\,
    \left\lvert V_1(s') - V_2(s') \right\rvert \\
-&\le \gamma \sum_a \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\,
+&\le \gamma \sum_a \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\\,
    \left\lVert V_1 - V_2 \right\rVert_\infty
 = \gamma\\, \left\lVert V_1 - V_2 \right\rVert_\infty.
 \end{aligned}
@@ -670,7 +670,7 @@ $`G_t`$:
 
 $$
 \large
-V(s_t) \;\leftarrow\; V(s_t) + \alpha\\, \bigl[\, G_t - V(s_t) \,\bigr],
+V(s_t) \\;\leftarrow\\; V(s_t) + \alpha\\, \bigl[\\, G_t - V(s_t) \\,\bigr],
 \qquad \alpha \in (0, 1].
 $$
 
@@ -691,15 +691,15 @@ bootstrapped target that reuses the current estimate of the future:
 
 $$
 \large
-V(s_t) \;\leftarrow\; V(s_t) + \alpha\\,
-\bigl[\, R_{t+1} + \gamma\\, V(s_{t+1}) - V(s_t) \,\bigr].
+V(s_t) \\;\leftarrow\\; V(s_t) + \alpha\\,
+\bigl[\\, R_{t+1} + \gamma\\, V(s_{t+1}) - V(s_t) \\,\bigr].
 $$
 
 The quantity in brackets,
 
 $$
 \large
-\delta_t \;=\; R_{t+1} + \gamma\\, V(s_{t+1}) - V(s_t),
+\delta_t \\;=\\; R_{t+1} + \gamma\\, V(s_{t+1}) - V(s_t),
 $$
 
 is the **TD error** at time $`t`$.  The target
@@ -724,7 +724,7 @@ $$
 \mathbb{E}\left[\delta_t \mid S_t = s\right]
 &= \mathbb{E}\left[R_{t+1}\right] + \gamma\\,
    \mathbb{E}\left[V^\pi(S_{t+1})\right] - V^\pi(s) \\
-&= \sum_a \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\,
+&= \sum_a \pi(a \mid s) \sum_{s'} p(s' \mid s, a)\\,
    \Bigl[ r(s,a,s') + \gamma\\, V^\pi(s') \Bigr] - V^\pi(s).
 \end{aligned}
 $$
@@ -749,7 +749,7 @@ $`S_{t+1}`$ is terminal:
 
 $$
 \large
-\text{TD target} \;=\; R_{t+1} + \gamma\\, (1 - d_t)\\, V(s_{t+1}).
+\text{TD target} \\;=\\; R_{t+1} + \gamma\\, (1 - d_t)\\, V(s_{t+1}).
 $$
 
 **Proof.**  By definition of a terminal state, $`V(\text{terminal}) = 0`$:
@@ -808,9 +808,9 @@ the *max* operator from the Bellman optimality equation (Section 3.3):
 
 $$
 \large
-Q(s_t, a_t) \;\leftarrow\; Q(s_t, a_t) + \alpha\\,
-\Bigl[\, R_{t+1} + \gamma\\, (1 - d_t)\\, \max_{a'} Q(s_{t+1}, a')
-\;-\; Q(s_t, a_t) \,\Bigr].
+Q(s_t, a_t) \\;\leftarrow\\; Q(s_t, a_t) + \alpha\\,
+\Bigl[\\, R_{t+1} + \gamma\\, (1 - d_t)\\, \max_{a'} Q(s_{t+1}, a')
+\\;-\\; Q(s_t, a_t) \\,\Bigr].
 $$
 
 The behaviour policy (how actions are chosen in the environment) and the
@@ -827,8 +827,8 @@ behaviour policy's next-action probabilities.
 $$
 \large
 Q_{t+1}(s, a)
-= Q_t(s, a) + \alpha_t(s, a)\,
-\Bigl[\, R_{t+1} + \gamma\, \max_{a'} Q_t(s', a') - Q_t(s, a) \,\Bigr],
+= Q_t(s, a) + \alpha_t(s, a)\\,
+\Bigl[\\, R_{t+1} + \gamma\\, \max_{a'} Q_t(s', a') - Q_t(s, a) \\,\Bigr],
 $$
 
 where $`(s, a, s')`$ is the transition sampled at step $`t`$ under the
@@ -841,8 +841,8 @@ $`0`$ whenever the pair $`(s, a)`$ is not updated at step $`t`$.
 $$
 \large
 \bigl(\mathcal{T}^{\ast} Q\bigr)(s, a)
-= \sum_{s'} p(s' \mid s, a)\,
-  \Bigl[\, r(s, a, s') + \gamma\, \max_{a'} Q(s', a') \,\Bigr].
+= \sum_{s'} p(s' \mid s, a)\\,
+  \Bigl[\\, r(s, a, s') + \gamma\\, \max_{a'} Q(s', a') \\,\Bigr].
 $$
 
 This is the Bellman optimality equation's right-hand side: its fixed point
@@ -854,7 +854,7 @@ the fixed environment kernel).  Write the noise explicitly:
 
 $$
 \large
-R_{t+1} + \gamma\, \max_{a'} Q_t(s', a') - Q_t(s, a)
+R_{t+1} + \gamma\\, \max_{a'} Q_t(s', a') - Q_t(s, a)
 = \bigl(\mathcal{T}^{\ast} Q_t\bigr)(s, a) - Q_t(s, a) + w_t,
 $$
 
@@ -870,8 +870,8 @@ The proof is the one from Section 3.4 with the key inequality
 $$
 \large
 \Bigl\lvert \max_a f(a) - \max_a g(a) \Bigr\rvert
-\;\le\; \max_a \bigl\lvert f(a) - g(a) \bigr\rvert
-\;\le\; \lVert f - g \rVert_\infty,
+\\;\le\\; \max_a \bigl\lvert f(a) - g(a) \bigr\rvert
+\\;\le\\; \lVert f - g \rVert_\infty,
 $$
 
 which holds because both maxima lie between the two functions' pointwise
@@ -880,7 +880,7 @@ range.  Hence, exactly as in Section 3.4,
 $$
 \large
 \bigl\lVert \mathcal{T}^{\ast} Q_1 - \mathcal{T}^{\ast} Q_2 \bigr\rVert_\infty
-\;\le\; \gamma\, \bigl\lVert Q_1 - Q_2 \bigr\rVert_\infty,
+\\;\le\\; \gamma\\, \bigl\lVert Q_1 - Q_2 \bigr\rVert_\infty,
 $$
 
 so by Banach's theorem (Section 0.3) the deterministic iteration converges
@@ -978,9 +978,9 @@ $$
 \large
 \mathcal{L}(\theta)
 = \frac{1}{N} \sum_{i=1}^{N}
-  \Bigl[\,
-    \underbrace{r_i + \gamma (1 - d_i)\, \max_{a'} Q_{\theta^-}(s'_i, a')}_{\text{TD target } y_i}
-    \;-\; Q_\theta(s_i, a_i)
+  \Bigl[\\,
+    \underbrace{r_i + \gamma (1 - d_i)\\, \max_{a'} Q_{\theta^-}(s'_i, a')}_{\text{TD target } y_i}
+    \\;-\\; Q_\theta(s_i, a_i)
   \Bigr]^2 .
 $$
 
@@ -1030,10 +1030,10 @@ $$
 \large
 \nabla_\theta \mathcal{L}(\theta)
 = -\frac{2}{N} \sum_i
-  \Bigl[ y_i - Q_\theta(s_i, a_i) \Bigr]\,
+  \Bigl[ y_i - Q_\theta(s_i, a_i) \Bigr]\\,
   \nabla_\theta Q_\theta(s_i, a_i),
 \qquad
-y_i = r_i + \gamma (1 - d_i)\, \max_{a'} Q_{\theta^-}(s'_i, a').
+y_i = r_i + \gamma (1 - d_i)\\, \max_{a'} Q_{\theta^-}(s'_i, a').
 $$
 
 Because $`\theta^-`$ moves slowly (either hard-copied every $`C`$ steps or
@@ -1055,7 +1055,7 @@ point the learner can chase.
 - **Hard update.**  Every $`C`$ steps, copy $`\theta \to \theta^-`$.
   Simple, and what the original DQN paper used ($`C = 10^4`$ steps).
 - **Soft (Polyak) update.**  Every step,
-  $`\theta^- \;\leftarrow\; \tau\, \theta + (1 - \tau)\, \theta^-`$
+  $`\theta^- \\;\leftarrow\\; \tau\\, \theta + (1 - \tau)\\, \theta^-`$
   with small $`\tau`$ (e.g. $`0.005`$).  Smooth, and standard in modern
   actor-critic methods (SAC, TD3).  Because it is a convex combination,
   and $`\theta^-`$ and $`\theta`$ share the same parameter space, the
@@ -1075,8 +1075,8 @@ $`\varepsilon_{\text{start}}`$ (usually 1.0) to $`\varepsilon_{\text{end}}`$
 $$
 \large
 \varepsilon_t
-= \varepsilon_{\text{end}} + \bigl(\varepsilon_{\text{start}} - \varepsilon_{\text{end}}\bigr)\,
-  \max\!\Bigl(0,\; 1 - \tfrac{t}{T_{\text{decay}}}\Bigr).
+= \varepsilon_{\text{end}} + \bigl(\varepsilon_{\text{start}} - \varepsilon_{\text{end}}\bigr)\\,
+  \max\\!\Bigl(0,\\; 1 - \tfrac{t}{T_{\text{decay}}}\Bigr).
 $$
 
 The schedule depends on the global step count; a resumed run continues the
@@ -1097,7 +1097,7 @@ estimators of $`\mu_1, \dots, \mu_k`$.  Then
 
 $$
 \large
-\mathbb{E}\!\left[\max_i X_i\right] \;\ge\; \max_i \mu_i,
+\mathbb{E}\\!\left[\max_i X_i\right] \\;\ge\\; \max_i \mu_i,
 $$
 
 with strict inequality whenever the $`X_i`$ are not perfectly correlated and
@@ -1124,8 +1124,8 @@ Double Q-learning (Hasselt 2010, [6]) keeps *two* estimates and uses one to
 $$
 \large
 y_i^{\text{Double}}
-= r_i + \gamma (1 - d_i)\,
-  Q_{\theta^-}\!\Bigl(s'_i,\; \arg\max_{a'} Q_\theta(s'_i, a')\Bigr).
+= r_i + \gamma (1 - d_i)\\,
+  Q_{\theta^-}\\!\Bigl(s'_i,\\; \arg\max_{a'} Q_\theta(s'_i, a')\Bigr).
 $$
 
 The **online** network selects the best action at $`s'`$:
@@ -1152,7 +1152,7 @@ Define the **advantage** of action $`a`$ in state $`s`$
 
 $$
 \large
-A(s, a) \;=\; Q(s, a) - V(s).
+A(s, a) \\;=\\; Q(s, a) - V(s).
 $$
 
 $`A(s,a)`$ measures how much *better or worse than average* action $`a`$
@@ -1161,8 +1161,8 @@ policy, the expectation of $`A`$ over $`a \sim \pi`$ is zero:
 
 $$
 \large
-\sum_a \pi(a\mid s)\, A(s,a)
-= \sum_a \pi(a\mid s)\, Q(s,a) - V(s)\,
+\sum_a \pi(a\mid s)\\, A(s,a)
+= \sum_a \pi(a\mid s)\\, Q(s,a) - V(s)\\,
  \underbrace{\sum_a \pi(a\mid s)}_{1}
 = V(s) - V(s) = 0.
 $$
@@ -1174,7 +1174,7 @@ a sum of a state-value stream and an advantage stream:
 
 $$
 \large
-Q_\theta(s, a) \;=\; V_\eta(s) \;+\; A_\psi(s, a).
+Q_\theta(s, a) \\;=\\; V_\eta(s) \\;+\\; A_\psi(s, a).
 $$
 
 But this decomposition is **not identifiable**: adding a constant $`c(s)`$
@@ -1247,8 +1247,8 @@ The objective is the expected discounted return under $`\pi_\theta`$:
 
 $$
 \large
-J(\theta) \;=\; \mathbb{E}_{\pi_\theta}\!\left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \right]
-\;=\; \mathbb{E}_{\pi_\theta}\!\left[ G_t \right].
+J(\theta) \\;=\\; \mathbb{E}_{\pi_\theta}\\!\left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \right]
+\\;=\\; \mathbb{E}_{\pi_\theta}\\!\left[ G_t \right].
 $$
 
 We want $`\nabla_\theta J(\theta)`$.  The apparent obstacle: the
@@ -1265,10 +1265,10 @@ The engine of the whole section is a standard probabilistic identity.
 
 $$
 \large
-\mathbb{E}_{p_\theta}\!\left[ \nabla_\theta \log p_\theta(x) \right] = 0,
+\mathbb{E}_{p_\theta}\\!\left[ \nabla_\theta \log p_\theta(x) \right] = 0,
 \qquad
-\nabla_\theta \mathbb{E}_{p_\theta}\!\left[ f(x) \right]
-= \mathbb{E}_{p_\theta}\!\left[ f(x)\\, \nabla_\theta \log p_\theta(x) \right]
+\nabla_\theta \mathbb{E}_{p_\theta}\\!\left[ f(x) \right]
+= \mathbb{E}_{p_\theta}\\!\left[ f(x)\\, \nabla_\theta \log p_\theta(x) \right]
 $$
 
 for any function $`f`$ (under regularity conditions allowing the exchange
@@ -1285,14 +1285,14 @@ $$
 
 where the last step uses $`\nabla_\theta \log p_\theta = \nabla_\theta
 p_\theta / p_\theta`$.  For the second identity, differentiate
-$`\mathbb{E}[f] = \int f(x)\, p_\theta(x)\, dx`$:
+$`\mathbb{E}[f] = \int f(x)\\, p_\theta(x)\\, dx`$:
 
 $$
 \large
 \nabla_\theta \mathbb{E}_{p_\theta}[f]
-= \int f(x)\, \nabla_\theta p_\theta(x)\\, dx
-= \int f(x)\, p_\theta(x)\, \nabla_\theta \log p_\theta(x)\\, dx
-= \mathbb{E}_{p_\theta}\!\left[ f(x)\\, \nabla_\theta \log p_\theta(x) \right].
+= \int f(x)\\, \nabla_\theta p_\theta(x)\\, dx
+= \int f(x)\\, p_\theta(x)\\, \nabla_\theta \log p_\theta(x)\\, dx
+= \mathbb{E}_{p_\theta}\\!\left[ f(x)\\, \nabla_\theta \log p_\theta(x) \right].
 $$
 
 The quantity $`\nabla_\theta \log p_\theta(x)`$ is the **score** of $`p_\theta`$.
@@ -1305,7 +1305,7 @@ The quantity $`\nabla_\theta \log p_\theta(x)`$ is the **score** of $`p_\theta`$
 $$
 \large
 \nabla_\theta J(\theta)
-= \mathbb{E}_{\pi_\theta}\!\left[ G_t\\, \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right],
+= \mathbb{E}_{\pi_\theta}\\!\left[ G_t\\, \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right],
 $$
 
 where $`G_t`$ is the return from time $`t`$.
@@ -1336,8 +1336,8 @@ Now apply the score-function lemma with $`x = \tau`$, $`f = G`$:
 $$
 \large
 \nabla_\theta J(\theta)
-= \mathbb{E}_\tau\!\left[ G(\\tau)\, \nabla_\theta \log p_\theta(\tau) \right]
-= \mathbb{E}_\tau\!\left[ G(\\tau) \sum_{t \ge 0} \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right].
+= \mathbb{E}_\tau\\!\left[ G(\\tau)\\, \nabla_\theta \log p_\theta(\tau) \right]
+= \mathbb{E}_\tau\\!\left[ G(\\tau) \sum_{t \ge 0} \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right].
 $$
 
 Summing over $`t`$ inside the return and using linearity of expectation
@@ -1346,7 +1346,7 @@ classic REINFORCE update:
 
 $$
 \large
-\theta \;\leftarrow\; \theta + \alpha\\, G_t\\, \nabla_\theta \log \pi_\theta(A_t \mid S_t).
+\theta \\;\leftarrow\\; \theta + \alpha\\, G_t\\, \nabla_\theta \log \pi_\theta(A_t \mid S_t).
 $$
 
 ### 9.4 Reducing Variance: Baselines and the Advantage
@@ -1360,9 +1360,9 @@ depends only on the *state* does not change the gradient in expectation:
 
 $$
 \large
-\mathbb{E}_{\pi_\theta}\!\left[ \bigl(G_t - b(S_t)\bigr)\,
+\mathbb{E}_{\pi_\theta}\\!\left[ \bigl(G_t - b(S_t)\bigr)\\,
 \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right)
-= \mathbb{E}_{\pi_\theta}\!\left[ G_t\\, \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right].
+= \mathbb{E}_{\pi_\theta}\\!\left[ G_t\\, \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right].
 $$
 
 **Proof.**  It suffices to show the added term has zero mean.  Condition on
@@ -1372,11 +1372,11 @@ distribution $`\pi_\theta(\cdot \mid s)`$:
 $$
 \large
 \begin{aligned}
-\mathbb{E}_{\pi_\theta}\!\left[ b(S_t)\, \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right]
-&= \mathbb{E}_{S_t}\!\left[ b(s)\,
-   \mathbb{E}_{A_t \sim \pi_\theta(\cdot \mid s)}\!\left[
+\mathbb{E}_{\pi_\theta}\\!\left[ b(S_t)\\, \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right]
+&= \mathbb{E}_{S_t}\\!\left[ b(s)\\,
+   \mathbb{E}_{A_t \sim \pi_\theta(\cdot \mid s)}\\!\left[
      \nabla_\theta \log \pi_\theta(A_t \mid s) \right] \right] \\
-&= \mathbb{E}_{S_t}\!\left[ b(s)\\, 0 \right] = 0.
+&= \mathbb{E}_{S_t}\\!\left[ b(s)\\, 0 \right] = 0.
 \end{aligned}
 $$
 
@@ -1390,8 +1390,8 @@ gradient becomes
 $$
 \large
 \nabla_\theta J(\theta)
-= \mathbb{E}_{\pi_\theta}\!\left[
-  \bigl( G_t - V^{\pi_\theta}(S_t) \bigr)\,
+= \mathbb{E}_{\pi_\theta}\\!\left[
+  \bigl( G_t - V^{\pi_\theta}(S_t) \bigr)\\,
   \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right],
 $$
 
@@ -1413,8 +1413,8 @@ target is the **one-step actor-critic**:
 $$
 \large
 \nabla_\theta J(\theta)
-\approx \mathbb{E}\!\left[
-  \Bigl( R_{t+1} + \gamma\\, V_\phi(s_{t+1}) - V_\phi(s_t) \Bigr)\,
+\approx \mathbb{E}\\!\left[
+  \Bigl( R_{t+1} + \gamma\\, V_\phi(s_{t+1}) - V_\phi(s_t) \Bigr)\\,
   \nabla_\theta \log \pi_\theta(A_t \mid S_t) \right],
 $$
 
@@ -1436,14 +1436,14 @@ $$
 
 **Generalized Advantage Estimation** (Schulman et al. 2016, [9]) is the
 exponentially weighted average of all $`k`$-step advantages, with weight
-$`(1 - \lambda)\, \lambda^{k-1}`$ for a parameter $`\lambda \in [0,1]`$:
+$`(1 - \lambda)\\, \lambda^{k-1}`$ for a parameter $`\lambda \in [0,1]`$:
 
 $$
 \large
 A_t^{\text{GAE}(\gamma, \lambda)}
-= \sum_{k=1}^{\infty} (1-\lambda)\, \lambda^{k-1}\,
+= \sum_{k=1}^{\infty} (1-\lambda)\\, \lambda^{k-1}\\,
   \Bigl( \delta_t^{(k)} \Bigr)
-= \sum_{k=0}^{\infty} (\gamma \lambda)^k\,
+= \sum_{k=0}^{\infty} (\gamma \lambda)^k\\,
   \Bigl( R_{t+1} + \gamma\\, V_\phi(s_{t+k+1}) - V_\phi(s_{t+k}) \Bigr).
 $$
 
@@ -1466,7 +1466,7 @@ $$
 \large
 A_t^{\text{GAE}} = \sum_{k=1}^{\infty} (1-\lambda)\lambda^{k-1}
  \sum_{k'=0}^{k-1} \gamma^{k'} \delta_{t+k'}
-= \sum_{k'=0}^{\infty} (\gamma\lambda)^{k'}\, \delta_{t+k'},
+= \sum_{k'=0}^{\infty} (\gamma\lambda)^{k'}\\, \delta_{t+k'},
 $$
 
 where the last equality is a standard change of summation order
@@ -1477,7 +1477,7 @@ $`\gamma^{k'}`$ gives $`(\gamma\lambda)^{k'}`$).  The result:
 
 $$
 \large
-A_t^{\text{GAE}(\gamma, \lambda)} = \sum_{k=0}^{\infty} (\gamma\lambda)^k\,
+A_t^{\text{GAE}(\gamma, \lambda)} = \sum_{k=0}^{\infty} (\gamma\lambda)^k\\,
 \delta_{t+k},
 \qquad
 \delta_t = R_{t+1} + \gamma\\, V_\phi(s_{t+1}) - V_\phi(s_t).
@@ -1491,7 +1491,7 @@ $`\lambda \approx 0.95`$ and estimates the advantage by *bootstrapping the
 critic once per rollout, then summing with weights $`(\gamma\lambda)^k`$.
 
 In code this is computed with the *recurrent* form
-$`A_t = \delta_t + \gamma \lambda (1-d_t)\, A_{t+1}`$ evaluated backwards
+$`A_t = \delta_t + \gamma \lambda (1-d_t)\\, A_{t+1}`$ evaluated backwards
 from the end of a rollout — the numerically stable version of the
 infinite sum above.
 
@@ -1517,7 +1517,7 @@ $`\pi_{\theta_\text{old}}`$:
 
 $$
 \large
-r_t(\theta) \;=\;
+r_t(\theta) \\;=\\;
 \frac{\pi_\theta(A_t \mid S_t)}{\pi_{\theta_\text{old}}(A_t \mid S_t)}.
 $$
 
@@ -1526,7 +1526,7 @@ $$
 $$
 \large
 L^{\pi}(\theta)
-= \mathbb{E}_{s \sim d^{\pi_{\text{old}}},\, a \sim \pi_{\text{old}}}\!\left[
+= \mathbb{E}_{s \sim d^{\pi_{\text{old}}},\\, a \sim \pi_{\text{old}}}\\!\left[
   \frac{\pi_\theta(a \mid s)}{\pi_{\text{old}}(a \mid s)}\\, A^{\pi_{\text{old}}}(s,a)
 \right],
 $$
@@ -1546,10 +1546,10 @@ PPO's objective:
 $$
 \large
 L^{\text{CLIP}}(\theta)
-= \mathbb{E}_t\!\left[
-  \min\!\Bigl(\,
-    r_t(\theta)\\, A_t,\;
-    \mathrm{clip}(r_t(\theta),\; 1-\varepsilon,\; 1+\varepsilon)\\, A_t
+= \mathbb{E}_t\\!\left[
+  \min\\!\Bigl(\\,
+    r_t(\theta)\\, A_t,\\;
+    \mathrm{clip}(r_t(\theta),\\; 1-\varepsilon,\\; 1+\varepsilon)\\, A_t
   \Bigr) \right].
 $$
 
@@ -1568,10 +1568,10 @@ the ratio definition) is
 
 $$
 \large
-A_t\,
+A_t\\,
 \begin{cases}
-\nabla_\theta r_t(\theta), & r_t(\theta) \in (1-\varepsilon,\; 1+\varepsilon)
-  \;\text{or}\; (A_t < 0, r_t(\theta) > 1+\varepsilon) \\
+\nabla_\theta r_t(\theta), & r_t(\theta) \in (1-\varepsilon,\\; 1+\varepsilon)
+  \\;\text{or}\\; (A_t < 0, r_t(\theta) > 1+\varepsilon) \\
 0, & \text{otherwise (clipped)}.
 \end{cases}
 $$
@@ -1582,7 +1582,7 @@ The complete PPO loss adds a value-function loss and an entropy bonus:
 
 $$
 \large
-L^{\text{PPO}}(\theta) = \mathbb{E}_t\!\left[
+L^{\text{PPO}}(\theta) = \mathbb{E}_t\\!\left[
   L^{\text{CLIP}}(\theta) - c_1\\, L^{\text{VF}}(\theta) + c_2\\, H(\pi_\theta)(s_t)
 \right],
 $$
@@ -1618,9 +1618,9 @@ augments the return with the policy's entropy at every visited state:
 
 $$
 \large
-J(\theta) \;=\;
-\sum_{t} \mathbb{E}_{(s_t, a_t) \sim \pi_\theta}\!\left[
-  r(s_t, a_t) + \alpha\\, \mathcal{H}\!\left(\pi_\theta(\cdot \mid s_t)\right)
+J(\theta) \\;=\\;
+\sum_{t} \mathbb{E}_{(s_t, a_t) \sim \pi_\theta}\\!\left[
+  r(s_t, a_t) + \alpha\\, \mathcal{H}\\!\left(\pi_\theta(\cdot \mid s_t)\right)
 \right],
 $$
 
@@ -1638,10 +1638,10 @@ built into the value:
 $$
 \large
 Q_{\text{soft}}^{\pi}(s, a)
-= r(s, a) + \gamma\\, \mathbb{E}_{s' \sim p}\!\left[ V_{\text{soft}}^{\pi}(s') \right],
+= r(s, a) + \gamma\\, \mathbb{E}_{s' \sim p}\\!\left[ V_{\text{soft}}^{\pi}(s') \right],
 \qquad
 V_{\text{soft}}^{\pi}(s)
-= \mathbb{E}_{a \sim \pi}\!\left[ Q_{\text{soft}}^{\pi}(s, a) - \alpha\\, \log \pi(a \mid s) \right].
+= \mathbb{E}_{a \sim \pi}\\!\left[ Q_{\text{soft}}^{\pi}(s, a) - \alpha\\, \log \pi(a \mid s) \right].
 $$
 
 The term $`-\alpha \log \pi(a \mid s)`$ is the *entropy bonus in expectation*:
@@ -1655,8 +1655,8 @@ Combining the two definitions gives the **soft Bellman equation**:
 $$
 \large
 Q_{\text{soft}}^{\pi}(s, a)
-= r(s, a) + \gamma\\, \mathbb{E}_{s'}\!\left[
-  \mathbb{E}_{a' \sim \pi}\!\left[
+= r(s, a) + \gamma\\, \mathbb{E}_{s'}\\!\left[
+  \mathbb{E}_{a' \sim \pi}\\!\left[
     Q_{\text{soft}}^{\pi}(s', a') - \alpha\\, \log \pi(a' \mid s')
   \right]
 \right].
@@ -1666,8 +1666,8 @@ If we write the inner expectation explicitly as a sum, it reads
 
 $$
 \large
-Q_{\text{soft}}^{\pi}(s, a) = r(s,a) + \gamma \sum_{s'} p(s' \mid s, a)\,
-\sum_{a'} \pi(a' \mid s')\,
+Q_{\text{soft}}^{\pi}(s, a) = r(s,a) + \gamma \sum_{s'} p(s' \mid s, a)\\,
+\sum_{a'} \pi(a' \mid s')\\,
 \Bigl[ Q_{\text{soft}}^{\pi}(s', a') - \alpha \log \pi(a' \mid s') \Bigr],
 $$
 
@@ -1687,8 +1687,8 @@ soft value satisfies
 $$
 \large
 \pi^{\ast}_{\text{soft}}(a \mid s)
-\;\propto\;
-\exp\!\left( \frac{1}{\alpha}\, Q_{\text{soft}}^{\ast}(s, a) \right).
+\\;\propto\\;
+\exp\\!\left( \frac{1}{\alpha}\\, Q_{\text{soft}}^{\ast}(s, a) \right).
 $$
 
 **Proof.**  At each state $`s`$, the soft value as a function of the policy
@@ -1697,8 +1697,8 @@ is
 $$
 \large
 V_{\text{soft}}^{\pi}(s) =
-    \mathbb{E}_{a \sim \pi}\!\left[\, Q_{\text{soft}}^{\pi}(s, a) - \alpha \log \pi(a \mid s)
-    \,\right].
+    \mathbb{E}_{a \sim \pi}\\!\left[\\, Q_{\text{soft}}^{\pi}(s, a) - \alpha \log \pi(a \mid s)
+    \\,\right].
 $$
 
 This is exactly the entropy-regularized objective of Lemma 0.4 with
@@ -1708,8 +1708,8 @@ is the Gibbs distribution
 
 $$
 \large
-\pi^{\ast}(a \mid s) \;=\; \frac{\exp\!\left( Q_{\text{soft}}^{\pi}(s,a) /
-\alpha \right)}{\sum_{a'} \exp\!\left( Q_{\text{soft}}^{\pi}(s,a') / \alpha
+\pi^{\ast}(a \mid s) \\;=\\; \frac{\exp\\!\left( Q_{\text{soft}}^{\pi}(s,a) /
+\alpha \right)}{\sum_{a'} \exp\\!\left( Q_{\text{soft}}^{\pi}(s,a') / \alpha
 \right)}.
 $$
 
@@ -1753,11 +1753,11 @@ transitions $`(s, a, r, s', d)`$:
 
 $$
 \large
-\mathcal{L}_Q(\psi) = \mathbb{E}_{(s,a,r,s',d) \sim \mathcal{D}}\!\left[
+\mathcal{L}_Q(\psi) = \mathbb{E}_{(s,a,r,s',d) \sim \mathcal{D}}\\!\left[
   \Bigl( Q_\psi(s, a) - y \Bigr)^2
 \right],
 \qquad
-y = r + \gamma (1-d)\,
+y = r + \gamma (1-d)\\,
 \Bigl[
   \min_{j=1,2} Q_{\bar\psi_j}(s', \tilde{a}') - \alpha\\, \log \pi_\phi(\tilde{a}' \mid s')
   \Bigr],
@@ -1784,8 +1784,8 @@ The actor minimizes the KL divergence from the soft-optimal Gibbs policy:
 
 $$
 \large
-\mathcal{L}_\pi(\phi) = \mathbb{E}_{s \sim \mathcal{D}}\!\left[
-  \mathbb{E}_{\tilde{a} \sim \pi_\phi(\cdot \mid s)}\!\left[
+\mathcal{L}_\pi(\phi) = \mathbb{E}_{s \sim \mathcal{D}}\\!\left[
+  \mathbb{E}_{\tilde{a} \sim \pi_\phi(\cdot \mid s)}\\!\left[
     \alpha \log \pi_\phi(\tilde{a} \mid s) - Q_\psi(s, \tilde{a})
   \right]
 \right].
@@ -1793,12 +1793,12 @@ $$
 
 **Derivation.**  The soft-optimal (Gibbs) policy at state $`s`$ is
 $`\pi^{\ast} \propto \exp(Q_\psi(s, \cdot)/\alpha)`$ (Section 12.4).  Minimizing
-$`\mathrm{KL}(\pi_\phi \,\|\, \pi^{\ast})`$ over $`\pi_\phi`$:
+$`\mathrm{KL}(\pi_\phi \\,\|\\, \pi^{\ast})`$ over $`\pi_\phi`$:
 
 $$
 \large
-\mathrm{KL}(\pi_\phi \,\|\, \pi^{\ast})
-= \mathbb{E}_{a \sim \pi_\phi}\!\left[
+\mathrm{KL}(\pi_\phi \\,\|\\, \pi^{\ast})
+= \mathbb{E}_{a \sim \pi_\phi}\\!\left[
   \log \pi_\phi(a \mid s) - \log \pi^{\ast}(a \mid s)
 \right].
 $$
@@ -1819,15 +1819,15 @@ differentiating under the integral,
 
 $$
 \large
-\nabla_\phi\,
-\mathbb{E}_{a \sim \pi_\phi}[\, f(a) \,]
-= \nabla_\phi\, \mathbb{E}_\xi[\, f(f_\phi(s, \xi)) \,]
-= \mathbb{E}_\xi\!\left[\, \nabla_\phi f(f_\phi(s, \xi)) \,\right].
+\nabla_\phi\\,
+\mathbb{E}_{a \sim \pi_\phi}[\\, f(a) \\,]
+= \nabla_\phi\\, \mathbb{E}_\xi[\\, f(f_\phi(s, \xi)) \\,]
+= \mathbb{E}_\xi\\!\left[\\, \nabla_\phi f(f_\phi(s, \xi)) \\,\right].
 $$
 
 Contrast the score-function estimator of Section 9.2:
-$`\nabla_\phi \mathbb{E}_{\pi_\phi}[f] = \mathbb{E}_{\pi_\phi}[\, f\,
-\nabla_\phi \log \pi_\phi \,]`$.  Both estimators are unbiased.  The score
+$`\nabla_\phi \mathbb{E}_{\pi_\phi}[f] = \mathbb{E}_{\pi_\phi}[\\, f\\,
+\nabla_\phi \log \pi_\phi \\,]`$.  Both estimators are unbiased.  The score
 estimator multiplies $`f(a)`$ by the score
 $`\nabla_\phi \log \pi_\phi(a \mid s)`$, whose magnitude varies strongly
 from action to action, inflating the variance of any Monte-Carlo average;
@@ -1845,7 +1845,7 @@ target entropy constraint $`\mathcal{H}_0`$ (SAC default: $`-\dim(\mathcal{A})`$
 
 $$
 \large
-\mathcal{L}(\alpha) = -\alpha\\, \mathbb{E}_{a \sim \pi_\phi}\!\left[
+\mathcal{L}(\alpha) = -\alpha\\, \mathbb{E}_{a \sim \pi_\phi}\\!\left[
   \log \pi_\phi(a \mid s) + \mathcal{H}_0
 \right].
 $$
