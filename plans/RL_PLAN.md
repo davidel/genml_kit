@@ -206,9 +206,14 @@ infrastructure.
 
 ## 6. Proposed Architecture (full component specs)
 
-All new files.  Only registry re-export `__init__.py` files change, plus an
-optional backward-compatible `Method` base addition (default-implemented
-hook `update_target(model, global_step)` that no-ops, D9).
+All new files.  Only registry re-export `__init__.py` files change, plus a
+small number of backward-compatible additions/edits to existing modules:
+
+1. `Method` base addition: default-implemented hook `update_target(model,
+   global_step)` that no-ops (D9).
+2. `BaseTrainer` refactor (D10): extract `_apply_grad(loss, scaler,
+   amp_dtype)` protected helper so RLTrainer shares the microbatch
+   backward/step logic — behavior-preserving, no signature change.
 
 ```
 genml_kit/
@@ -349,8 +354,10 @@ All pure-torch, batched, reduction-aware (mirrors `losses/focal.py`):
   4. Create target: `model.target = copy.deepcopy(model.online); requires_grad_(False)`
      (or a composite `QNetwork` holding online+target; choose composite so
      state dict includes both, D3).
-- `train_step(model, blob, blob_meta, global_step, *, labels=None)`:
-  1. Unpack `(obs, action, reward, next_obs, done)` from `blob.data`.
+- `train_step(model, blob, global_step, *, labels=None)`:
+  1. Unpack `(obs, action, reward, next_obs, done)` from `blob.data`
+     (`blob.meta` available if needed, but RL transitions carry all
+     fields in `blob.data`).
   2. `q = model.online(obs).gather(1, action.unsqueeze(1))` (B,1).
   3. `target = td_target(...)` with online/target nets; `loss = td_loss(q, target)`.
   3b. Optional entropy/metric extras; `q_mean`, `q_max`, `epsilon`.
@@ -550,18 +557,44 @@ workers, reward design DSLs (env provides), hierarchical RL.
 
 ---
 
-## Appendix: Reviewed-Against (initial deep dive)
+## Appendix: Reviewed-Against (initial deep dive; updated after code audit)
 
-`train.py`, `trainer.py` (incl. full `train_epoch`/`run`), `optim_factory.py`,
-`checkpointing.py`, `storage_utils.py`, `pipelines/{base,images,vo_pair,registry}.py`,
-`contracts.py`, `methods/{base,classification,vo_pair,dino,byol,ijepa,simmim,supcon}.py`,
+`train.py`, `trainer.py` (incl. full `train_epoch`/`validate`/`run`),
+`train_compat.py` (freeze patterns), `optim_factory.py`,
+`grad_monitor.py` (`create_grad_monitor`), `model_utils.py`
+(`set_train_mode`, `model_mode`), `eval.py`, `param_align.py`,
+`checkpointing.py` (incl. `CheckpointSaver` constructor and
+`restore_training_state`), `storage_utils.py`,
+`pipelines/{base,images,vo_pair,registry}.py`, `contracts.py`
+(`DataBlob`, `LossOutput` namedtuple definitions),
+`methods/{base,classification,vo_pair,dino,byol,ijepa,simmim,supcon}.py`,
 `losses/*.py`, `models/{registry,byol,dino,encoder_utils,contrastive}.py`,
-`datasets/{ensemble,hf_proxy,vo_pairs,balanced_sampler,weighted_sampler,field_dataset,
-image_folder,retry,transforms,__init__}.py`,
-`utils/{args,cli,attr,script,seed,signal,logging,gpu,table,label,image_dump,transformer}.py`,
+`augmentations/{dual_view,multicrop}.py`,
+`datasets/{ensemble,hf_proxy,vo_pairs,balanced_sampler,weighted_sampler,
+field_dataset,image_folder,retry,transforms,__init__}.py`,
+`utils/{args,cli,attr,script,seed,signal,logging,gpu,table,label,
+image_dump,transformer}.py`,
 `tests/{test_trainer,test_checkpointing,test_cli_help,test_byol,test_vo_pairs}.py`,
 `README.md`, `vo/README.md`, `docs/MARKDOWN_LATEX.txt` (Markdown + KaTeX
 rendering conventions), `pyproject.toml`, `.github/workflows/ci.yml`.
+
+**Known API facts verified during audit (fixes applied to plan):**
+
+- `Method.train_step` signature: `(self, model, blob, global_step, *,
+  labels=None)` — keyword-only `labels`, no separate `blob_meta`
+  parameter.  RL methods unpack transitions from `blob.data` directly.
+- `Method.evaluate` signature: `(self, model, loader, device, to_device)`
+  — RL override may use a different signature (duck-typed) since
+  `RLTrainer.validate()` bypasses the base `evaluate` path.
+- `DataPipeline.__init__(self, **kwargs)` — loaders and args are passed to
+  `build_loader`, not the constructor.
+- `DataPipeline.build_loader(self, args, mode="train", *, needs_labels=None,
+  **kwargs)` — `mode` selects train/val; the base caches loaders on `self`.
+- `DataBlob.data` is always a Tensor or tuple of Tensors (never a dict);
+  `blob.meta` is the dict.
+- `CheckpointSaver(model, optimizer, scheduler, root=..., ...)` — `model` is
+  the first positional arg; no `writer` parameter; extra kwargs include
+  `states_to_save`, `scaler`, `save_frozen`, `save_every`, `extra_fn`.
 
 `rl/README.md` companion doc and this plan reference each other; both
 maintain 2-space prose style, no tabs, column ~88.
