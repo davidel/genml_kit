@@ -85,6 +85,9 @@ class _MLPBackbone(nn.Module):
     self.out_dim = hidden_dims[-1]
 
   def forward(self, obs):
+    # obs: (B, obs_dim)
+    # net: iteratively applies Linear + ReLU
+    # returns: (B, hidden_dims[-1])
     return self.net(obs)
 
 
@@ -124,6 +127,9 @@ class QNetwork(nn.Module):
     Returns:
         (B, n_actions) Q-values.
     """
+    # obs: (B, obs_dim)
+    # -> backbone: (B, hidden_dims[-1])
+    # -> head:     (B, n_actions)
     return self.online(obs)
 
   @torch.no_grad()

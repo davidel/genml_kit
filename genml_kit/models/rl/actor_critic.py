@@ -12,10 +12,6 @@ import torch.nn as nn
 
 from genml_kit.models.registry import register_model
 
-# =====================================================================
-# Backbones
-# =====================================================================
-
 
 class _MLPBackbone(nn.Module):
   """Simple MLP backbone for vector observations.
@@ -38,12 +34,10 @@ class _MLPBackbone(nn.Module):
     self.out_dim = hidden_dims[-1]
 
   def forward(self, obs):
+    # obs: (B, obs_dim)
+    # net: iteratively applies Linear + ReLU
+    # returns: (B, hidden_dims[-1])
     return self.net(obs)
-
-
-# =====================================================================
-# Policy heads
-# =====================================================================
 
 
 class CategoricalActor(nn.Module):
@@ -62,8 +56,16 @@ class CategoricalActor(nn.Module):
     self.logits = nn.Linear(hidden_dim, n_actions)
 
   def forward(self, h):
-    """Return (log_probs, entropy) from a Categorical distribution."""
-    logits = self.logits(h)
+    """Return a Categorical distribution from hidden features.
+
+    Args:
+        h: (B, hidden_dim) shared backbone features.
+
+    Returns:
+        A ``Categorical`` distribution over *n_actions* classes.
+    """
+    # h: (B, hidden_dim)
+    logits = self.logits(h)  # (B, n_actions)
     dist = torch.distributions.Categorical(logits=logits)
     return dist
 
@@ -71,14 +73,19 @@ class CategoricalActor(nn.Module):
   def get_action(self, h, deterministic=False):
     """Sample or greedily select an action.
 
+    Args:
+        h:            (B, hidden_dim) shared backbone features.
+        deterministic: If ``True``, return argmax; otherwise sample.
+
     Returns:
-        action:  (B,) int64 tensor.
+        action:   (B,) int64 tensor.
         log_prob: (B,) log π(a|s).
     """
-    logits = self.logits(h)
+    # h: (B, hidden_dim)
+    logits = self.logits(h)  # (B, n_actions)
     dist = torch.distributions.Categorical(logits=logits)
-    action = logits.argmax(dim=-1) if deterministic else dist.sample()
-    return action, dist.log_prob(action)
+    action = logits.argmax(dim=-1) if deterministic else dist.sample()  # (B,) int64
+    return action, dist.log_prob(action)  # (B,) int64, (B,) float
 
 
 class GaussianActor(nn.Module):
@@ -103,33 +110,42 @@ class GaussianActor(nn.Module):
     self.action_dim = action_dim
 
   def forward(self, h):
-    """Return a Normal distribution (before squashing)."""
-    mean = self.mean(h)
-    log_std = self.log_std(h).clamp(self.log_std_min, self.log_std_max)
-    std = log_std.exp()
-    return torch.distributions.Normal(mean, std)
+    """Return a Normal distribution (before squashing).
+
+    Args:
+        h: (B, hidden_dim) shared backbone features.
+
+    Returns:
+        A ``Normal`` distribution with
+        mean (B, action_dim) and std (B, action_dim).
+    """
+    # h: (B, hidden_dim)
+    mean = self.mean(h)  # (B, action_dim)
+    log_std = self.log_std(h).clamp(  # (B, action_dim)
+        self.log_std_min, self.log_std_max)
+    std = log_std.exp()  # (B, action_dim)
+    return torch.distributions.Normal(mean, std)  # event_dim = action_dim
 
   @torch.no_grad()
   def get_action(self, h, deterministic=False):
     """Sample or return the mean action (tanh-squashed).
 
+    Args:
+        h:            (B, hidden_dim) shared backbone features.
+        deterministic: If ``True``, return the mean; otherwise sample.
+
     Returns:
-        action:   (B, action_dim) tensor.
+        action:   (B, action_dim) tensor in [-1, 1].
         log_prob: (B,) log π(a|s) accounting for the tanh squashing.
     """
-    dist = self.forward(h)
-    action = dist.mean if deterministic else dist.rsample()
-    # Squash to [-1, 1].
-    squashed = torch.tanh(action)
-    # Log-prob with tanh squashing correction.
-    log_prob = dist.log_prob(action).sum(dim=-1)
-    log_prob -= torch.log(1.0 - squashed.pow(2) + 1e-6).sum(dim=-1)
+    # h: (B, hidden_dim)
+    dist = self.forward(h)  # Normal(mean=(B, action_dim), std=(B, action_dim))
+    action = dist.mean if deterministic else dist.rsample()  # (B, action_dim) unbounded
+    squashed = torch.tanh(action)  # (B, action_dim) in [-1, 1]
+    log_prob = dist.log_prob(action).sum(dim=-1)  # (B,)
+    log_prob -= torch.log(1.0 - squashed.pow(2) + 1e-6).sum(
+        dim=-1)  # (B,) squashing correction
     return squashed, log_prob
-
-
-# =====================================================================
-# Value head
-# =====================================================================
 
 
 class ValueHead(nn.Module):
@@ -141,11 +157,6 @@ class ValueHead(nn.Module):
 
   def forward(self, h):
     return self.fc(h).squeeze(-1)  # (B,)
-
-
-# =====================================================================
-# ActorCritic module
-# =====================================================================
 
 
 class ActorCritic(nn.Module):
@@ -186,19 +197,42 @@ class ActorCritic(nn.Module):
     """Forward pass through backbone + critic (for value estimates).
 
     For the policy distribution, call ``self.get_distribution(obs)``.
+
+    Args:
+        obs: (B, obs_dim) observation tensor.
+
+    Returns:
+        (B,) scalar value estimates.
     """
-    h = self.backbone(obs)
-    return self.critic(h)
+    # obs: (B, obs_dim)
+    h = self.backbone(obs)  # (B, hidden_dims[-1])
+    return self.critic(h)  # (B,)
 
   def get_distribution(self, obs):
-    """Return the policy distribution at *obs*."""
-    h = self.backbone(obs)
-    return self.actor(h)
+    """Return the policy distribution at *obs*.
+
+    Args:
+        obs: (B, obs_dim) observation tensor.
+
+    Returns:
+        Categorical (discrete) or Normal (continuous) distribution.
+    """
+    # obs: (B, obs_dim)
+    h = self.backbone(obs)  # (B, hidden_dims[-1])
+    return self.actor(h)  # distribution with event_dim = n_actions or action_dim
 
   def get_value(self, obs):
-    """Return scalar value V(s) at *obs*."""
-    h = self.backbone(obs)
-    return self.critic(h)
+    """Return scalar value V(s) at *obs*.
+
+    Args:
+        obs: (B, obs_dim) observation tensor.
+
+    Returns:
+        (B,) value predictions.
+    """
+    # obs: (B, obs_dim)
+    h = self.backbone(obs)  # (B, hidden_dims[-1])
+    return self.critic(h)  # (B,)
 
   def get_action_and_value(self, obs, action=None, deterministic=False):
     """Full forward: policy sample + value estimate.
@@ -206,45 +240,52 @@ class ActorCritic(nn.Module):
     If *action* is provided, evaluates ``log_prob(action)`` instead of
     sampling (used for PPO update epochs on stored actions).
 
+    Args:
+        obs:           (B, obs_dim) observation tensor.
+        action:        Optional (B,) int64 (discrete) or
+                       (B, action_dim) float (continuous).  If ``None``,
+                       a new action is sampled.
+        deterministic: If ``True``, return the mode instead of a sample.
+
     Returns:
-        action:     (B,) or (B, action_dim).
-        log_prob:   (B,).
-        entropy:    (B,) or scalar.
-        value:      (B,).
+        action:   (B,) int64 (discrete) or (B, action_dim) float
+                  (continuous, tanh-squashed to [-1, 1]).
+        log_prob: (B,) log π(a|s).
+        entropy:  (B,) policy entropy.
+        value:    (B,) V(s).
     """
-    h = self.backbone(obs)
-    dist = self.actor(h)
-    value = self.critic(h)
+    # obs: (B, obs_dim)
+    h = self.backbone(obs)  # (B, hidden_dims[-1])
+    dist = self.actor(h)  # Categorical or Normal distribution
+    value = self.critic(h)  # (B,)
 
     if action is not None:
       if self.discrete:
-        log_prob = dist.log_prob(action)
-        entropy = dist.entropy()
+        # action: (B,) int64
+        log_prob = dist.log_prob(action)  # (B,)
+        entropy = dist.entropy()  # (B,)
       else:
-        # For Gaussian: action is tanh-squashed; re-evaluate log_prob.
-        log_prob = dist.log_prob(action).sum(dim=-1)
-        log_prob -= torch.log(1.0 - torch.tanh(action).pow(2) + 1e-6).sum(dim=-1)
-        entropy = dist.entropy().sum(dim=-1)
+        # action is tanh-squashed; re-evaluate log_prob with correction.
+        # action: (B, action_dim)
+        log_prob = dist.log_prob(action).sum(dim=-1)  # (B,)
+        log_prob -= torch.log(1.0 - torch.tanh(action).pow(2) + 1e-6).sum(
+            dim=-1)  # (B,)
+        entropy = dist.entropy().sum(dim=-1)  # (B,)
     else:
       if self.discrete:
-        sampled = dist.sample()
-        log_prob = dist.log_prob(sampled)
-        entropy = dist.entropy()
+        sampled = dist.sample()  # (B,) int64
+        log_prob = dist.log_prob(sampled)  # (B,)
+        entropy = dist.entropy()  # (B,)
         action = sampled
       else:
-        raw = dist.rsample()
-        squashed = torch.tanh(raw)
-        log_prob = dist.log_prob(raw).sum(dim=-1)
-        log_prob -= torch.log(1.0 - squashed.pow(2) + 1e-6).sum(dim=-1)
-        entropy = dist.entropy().sum(dim=-1)
+        raw = dist.rsample()  # (B, action_dim) unbounded
+        squashed = torch.tanh(raw)  # (B, action_dim) in [-1, 1]
+        log_prob = dist.log_prob(raw).sum(dim=-1)  # (B,)
+        log_prob -= torch.log(1.0 - squashed.pow(2) + 1e-6).sum(dim=-1)  # (B,)
+        entropy = dist.entropy().sum(dim=-1)  # (B,)
         action = squashed
 
     return action, log_prob, entropy, value
-
-
-# =====================================================================
-# Registry
-# =====================================================================
 
 
 @register_model("rl/actor_critic")
