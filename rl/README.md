@@ -1,22 +1,18 @@
-# Reinforcement Learning for `genml_kit` — A Self-Contained Tutorial
+# Reinforcement Learning — A Self-Contained Tutorial
 
-This document teaches, from the ground up, the mathematics behind the
-reinforcement-learning (RL) training support of this repository: how an agent
-that only ever sees *states*, takes *actions*, and receives *rewards* can be
-trained into a policy that maximises cumulative reward — and how that
-teaching is wired into the same unified training harness that already handles
-classification, visual odometry, and self-supervised objectives.
+This document teaches, from the ground up, the mathematics of reinforcement
+learning (RL): how an agent that only ever sees *states*, takes *actions*,
+and receives *rewards* can be trained into a policy that maximises
+cumulative reward.
 
 We assume only what an engineering undergraduate knows: calculus, linear
-algebra, basic probability, and a working familiarity with PyTorch
-(`torch.nn.Module`, gradients via `backward()`, tensor broadcast).  No prior
-exposure to reinforcement learning is assumed.
+algebra, basic probability, and a working familiarity with automatic
+differentiation of a parameterised function (e.g. a neural network trained
+with `backward()`).  No prior exposure to reinforcement learning is assumed.
 
-The document is written in the same pedagogical style as `vo/README.md` in
-this repository: definitions first, then derivations, then *proofs where the
-claim is a theorem*, then *implementation notes* that tie the math to the
-actual `genml_kit` code.  Blind trust is never required; every formula the
-code implements is derived here.
+The document is written in a fixed pedagogical order: definitions first,
+then derivations, then *proofs* where the claim is a theorem.  Blind trust
+is never required; every formula that matters is derived here.
 
 ---
 
@@ -30,20 +26,13 @@ code implements is derived here.
   learning rules (TD, Q-learning) from the Bellman equations and explains
   why they are the correct thing to do when the model is unknown.  Part 3
   moves to *function approximation*: DQN, replay, target networks, Double
-  DQN and Dueling DQN — the exact algorithms in `genml_kit.methods.rl_dqn`.
-  Part 4 derives the *policy-gradient theorem*, the actor-critic reduction,
-  GAE and the PPO clipped surrogate — the Phase-2 on-policy method.  Part 5
-  derives *maximum-entropy* RL and Soft Actor-Critic — the Phase-2
-  off-policy method.  Part 6 maps everything back to the `genml_kit` code:
-  the `DataBlob` contract, the replay buffer as a `Dataset`, the RL trainer,
-  metrics, and checkpointing.
+  DQN and Dueling DQN.  Part 4 derives the *policy-gradient theorem*, the
+  actor-critic reduction, GAE and the PPO clipped surrogate.  Part 5 derives
+  *maximum-entropy* RL and Soft Actor-Critic.
 - **What is derived vs. what is asserted.**  Statements labelled
   **Proof** or **Derivation** are shown in full.  Statements labelled
   *Claim* are true but their proofs are standard textbook material; we give
   the precise reference in Appendix C so nothing is taken on faith silently.
-- **The code is the test.**  Every `*Implementation note.*` names the exact
-  module, class, or function that implements the formula above it.  When a
-  formula and a note disagree, the formula wins and the code is a bug.
 - **Notation.**  Tables (Appendix A) spell out every symbol at first use.
   Vectors are lowercase bold $`\boldsymbol{x}`$; scalars are lowercase
   italic $`x`$; random variables are uppercase $`S_t`$; matrices are
@@ -73,16 +62,10 @@ code implements is derived here.
 - **Part 5 — Maximum-Entropy RL And Soft Actor-Critic**
   - [12. Soft Value Functions And Soft Bellman Equations](#12-soft-value-functions-and-soft-bellman-equations)
   - [13. Soft Actor-Critic](#13-soft-actor-critic)
-- **Part 6 — Wiring RL Into `genml_kit`**
-  - [14. The RL Data Contract](#14-the-rl-data-contract)
-  - [15. The Replay Buffer As A Dataset](#15-the-replay-buffer-as-a-dataset)
-  - [16. The RL Trainer And The Learning Cadence](#16-the-rl-trainer-and-the-learning-cadence)
-  - [17. Metrics And Checkpointing For RL](#17-metrics-and-checkpointing-for-rl)
 - **Appendices**
   - [Appendix A: Symbol Table](#appendix-a-symbol-table)
   - [Appendix B: Failure Modes And Shortcuts](#appendix-b-failure-modes-and-shortcuts)
   - [Appendix C: Reading List](#appendix-c-reading-list)
-  - [Appendix D: Math Rendering Reference](#appendix-d-math-rendering-reference)
 
 ---
 
@@ -299,7 +282,7 @@ progress toward the goal **reward** `R_{t+1}`.  The drone wants a *policy*:
 a rule that maps observations to actions so that the *total* reward over the
 whole flight is as large as possible.
 
-Two features separate this from every problem in the rest of `genml_kit`:
+Two features separate RL from ordinary supervised learning:
 
 - **The training signal is a scalar, delayed, and sparse.**  The correct
   action in step $`t`$ is not labelled; the agent discovers it only through
@@ -308,16 +291,14 @@ Two features separate this from every problem in the rest of `genml_kit`:
 - **The agent's behavior changes the data it sees.**  A supervised dataset
   is a fixed file; an RL agent's next observation depends on the action it
   just chose.  The data distribution is *non-stationary and policy-dependent*.
-  This is why the training loop (Part 6) differs from the static-loader loop
-  of `classification` or `simmim`.
 
 > **What the training loop must therefore provide.**  A component that *acts*
 > in an environment and records transitions; a store of past transitions (the
 > replay buffer); and a learner that turns those transitions into a better
-> policy.  `genml_kit` provides all three without branching the driver: the
-> *pipeline* owns the environment + replay, the *trainer* owns the cadence,
-> the *method* owns the learning math.  The math of the learning math is this
-> document.
+> policy.  Every practical system decomposes these into three concerns: the
+> *environment interaction* owns acting and replay, the *orchestrator* owns
+> when to act vs. learn, and the *learner* owns the learning math.  The math
+> of the learning math is this document.
 
 ---
 
@@ -446,24 +427,19 @@ G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots
 = R_{t+1} + \gamma G_{t+1}.
 $$
 
-*Implementation note.*  In `genml_kit`, $`\gamma`$ is the `--gamma` CLI
-argument of the RL methods (`rl_dqn.py` group “dqn method”), default
-$`0.99`$ per the original DQN paper.  The recursion above is used verbatim
-whenever a bootstrap target is built (`losses/rl.py::td_target`,
-Section 6.2).
+**In practice.**  The recursion above is used verbatim whenever a bootstrap
+target is built (Sections 4 and 6).
 
 ### 2.5 Episodes Vs. Continuing Tasks
 
 - **Episodic tasks**: the trajectory ends at a terminal state (game over,
-  goal reached, or `--max_episode_steps` timeout).  The per-episode return
-  is a finite sum.
+  goal reached, or a timeout).  The per-episode return is a finite sum.
 - **Continuing tasks**: no terminal state; returns are always discounted.
 
-`genml_kit` treats every environment as an episodic one for bookkeeping
-purposes: the pipeline enforces `--max_episode_steps`, and `done` flags are
-explicitly propagated through the TD target (the $`(1-d)`$ term in
-Section 6.2).  This matches both Gymnasium and the `vo_pair` staged-data
-philosophy: the data generator owns the details, the learner sees uniform
+In this document we treat every task as an episodic one for bookkeeping:
+`done` flags are explicitly propagated through the TD target (the
+$(1-d)$ term in Section 4.4).  This matches the standard Gymnasium
+convention: the environment owns the details, the learner sees uniform
 transition batches.
 
 ---
@@ -556,26 +532,46 @@ Q^{\ast}(s, a) = \sum_{s'} p(s' \mid s, a)\,
              \Bigl[ r(s, a, s') + \gamma\\, \max_{a'} Q^{\ast}(s', a') \Bigr].
 $$
 
-**Why the max is legitimate (greedy improvement argument).**  Define the
-greedy policy with respect to $`Q`$:
+**Theorem (policy improvement).**  Let $`\pi`$ be any policy and let
+$`\pi'`$ be the *greedy policy with respect to* $`Q^{\pi}`$:
 
 $$
 \large
-\pi_g(s) \in \arg\max_{a} Q(s, a).
+\pi'(s) \;\in\; \arg\max_{a} Q^{\pi}(s, a).
 $$
 
-If $`Q = Q^{\ast}`$, acting greedily and then following $`\pi^{\ast}`$ afterwards
-yields, by definition of the max,
+Then $`V^{\pi'}(s) \ge V^{\pi}(s)`$ for every state $`s`$, with a strict
+inequality at any state where $`\pi(s)`$ is not a maximizing action.
+
+**Proof.**  By definition of the max,
 
 $$
 \large
-Q^{\ast}(s, \pi_g(s)) = \max_a Q^{\ast}(s, a) \ge Q^{\ast}(s, \pi^{\ast}(s)),
+Q^{\pi}(s, \pi'(s)) = \max_a Q^{\pi}(s, a) \;\ge\; Q^{\pi}(s, \pi(s)) = V^{\pi}(s)
 $$
 
-so the greedy policy is at least as good as $`\pi^{\ast}`$, hence optimal.  The
-optimal policy is *deterministic*: in every state, a best action exists and
-the others are never strictly needed.  This justifies value-based methods
-that represent only $`Q`$ and read off $`\pi(s) = \arg\max_a Q(s,a)`$.
+for every $`s`$.  Now compare the two policies through their Bellman
+operators (Section 3.4).  The operator $`\mathcal{T}^{\pi'}`$ is *monotone*:
+if $`f \le g`$ pointwise, then each term
+$`\sum_a \pi'(a \mid s) \sum_{s'} p(s' \mid s,a) [\cdots]`$ with its
+nonnegative weights preserves the inequality term by term, so
+$`\mathcal{T}^{\pi'} f \le \mathcal{T}^{\pi'} g`$.  Starting from
+$`V_0 = V^{\pi}`$ and iterating $`V_{k+1} = \mathcal{T}^{\pi'} V_k`$, the
+first step satisfies $`V_1 = \mathcal{T}^{\pi'} V^{\pi} \ge V^{\pi} = V_0`$,
+because at every state the greedy action gives a one-step lookahead at
+least as large as $`\pi`$'s own action.  Monotonicity then gives
+$`V_{k+1} \ge V_k`$ for all $`k`$; the contraction property (Section 3.4)
+gives $`V_k \to V^{\pi'}`$.  A monotonically increasing sequence converges
+from below, so $`V^{\pi'}(s) = \lim_{k \to \infty} V_k(s) \ge V_0(s) =
+V^{\pi}(s)`$ for every $`s`$.  QED
+
+**Consequences.**  (i) Repeated greedy improvement produces a nondecreasing
+sequence of policies, which must terminate at a policy that is greedy with
+respect to its *own* value — exactly the Bellman optimality equation
+above — hence at $`\pi^{\ast}`$.  (ii) The optimal policy is *deterministic*:
+at the fixed point, a best action exists in every state and the others are
+never strictly needed.  This justifies value-based methods that represent
+only $`Q`$ and read off $`\pi(s) = \arg\max_a Q(s,a)`$.
 
 > **Sanity check.**  In a grid world where the exit is one step right, the
 > Bellman optimality equation says the bonus $`V^{\ast}`$ propagates one cell per
@@ -643,11 +639,9 @@ This is *policy evaluation* (dynamic programming) and it is guaranteed to
 work — when we know $`p`$ and $`r`$.  RL exists precisely because we
 usually do not.  Part 2 replaces the sums over $`p`$ with *samples*.
 
-*Implementation note.*  The same contraction argument, on the space of
-*action-value* functions and with the *max* operator, is what makes
-Q-learning converge (Section 5.2).  In `genml_kit` the Bellman operator
-never appears as code; it is the mathematical reference the losses in
-`losses/rl.py` approximate with samples.
+The same contraction argument, on the space of *action-value* functions
+and with the *max* operator, will reappear as the engine of Q-learning
+convergence (Section 5.2).
 
 ---
 
@@ -777,11 +771,9 @@ when the episode ends there is no next state to bootstrap from, so the
 target must reduce to the observed reward $`R_{t+1}`$ alone, exactly as
 the formula $`R_{t+1} + \gamma (1 - d_t) V(s_{t+1})`$ does.  QED
 
-*Implementation note.*  Every target builder in `losses/rl.py` takes a
-`dones` tensor and multiplies the bootstrap term by `1 - dones` *before*
-the discount.  This is the single most common correctness bug in RL
-implementations; the code keeps it explicit and the unit test
-`test_rl_losses.py::test_td_target_done_masking` pins it.
+This masking step is the single most common correctness bug in RL
+implementations; every practical target builder multiplies the bootstrap
+term by `1 - done` *before* applying the discount.
 
 ### 4.5 The General n-Step View (and why 1-step is the deep-RL default)
 
@@ -801,9 +793,9 @@ or a sampled geometric mixture (e.g. $`\lambda`$-returns; see
 Section 10.4), because the target network already removes most of the
 instability that multi-step targets would reintroduce.
 
-*Implementation note.*  `--n_step` in `rl_dqn.py` enables $`n`$-step targets
-(Phase 3 hardening).  The `td_target` helper accepts an `n_step` argument
-and implements $`G_t^{(n)}`$ by first expanding the reward sequence.
+In practice several libraries expose $`n`$-step targets as a drop-in
+replacement for the one-step bootstrap; the implementation simply expands
+the reward sequence by $`n`$ steps and bootstraps on $`Q`$ at time $`t+n`$.
 
 ---
 
@@ -828,6 +820,109 @@ $`\varepsilon`$-greedy policy, yet learn the value of the *greedy* policy,
 because the update uses $`\max_{a'} Q(s_{t+1}, a')`$ and never the
 behaviour policy's next-action probabilities.
 
+### 5.2 Why It Converges: Stochastic Approximation
+
+**Setup.**  Write the update with explicit step size and index:
+
+$$
+\large
+Q_{t+1}(s, a)
+= Q_t(s, a) + \alpha_t(s, a)\,
+\Bigl[\, R_{t+1} + \gamma\, \max_{a'} Q_t(s', a') - Q_t(s, a) \,\Bigr],
+$$
+
+where $`(s, a, s')`$ is the transition sampled at step $`t`$ under the
+behaviour policy, and $`\alpha_t(s, a)`$ is a step size that is
+$`0`$ whenever the pair $`(s, a)`$ is not updated at step $`t`$.
+
+**Step 1: the update is a noisy fixed-point iteration.**  Define the
+*optimality operator* $`\mathcal{T}^{\ast}`$ on action-value functions by
+
+$$
+\large
+\bigl(\mathcal{T}^{\ast} Q\bigr)(s, a)
+= \sum_{s'} p(s' \mid s, a)\,
+  \Bigl[\, r(s, a, s') + \gamma\, \max_{a'} Q(s', a') \,\Bigr].
+$$
+
+This is the Bellman optimality equation's right-hand side: its fixed point
+is $`Q^{\ast}`$ (Section 3.3).  The sample in brackets is an *unbiased*
+estimate of $`(\mathcal{T}^{\ast} Q_t)(s, a)`$, because the transition is
+drawn from $`p(\cdot \mid s, a)`$ (the behaviour policy only decides *which*
+pair is visited; the conditional distribution of $`s'`$ given $`(s,a)`$ is
+the fixed environment kernel).  Write the noise explicitly:
+
+$$
+\large
+R_{t+1} + \gamma\, \max_{a'} Q_t(s', a') - Q_t(s, a)
+= \bigl(\mathcal{T}^{\ast} Q_t\bigr)(s, a) - Q_t(s, a) + w_t,
+$$
+
+with $`w_t`$ a zero-mean error conditional on the entire history up to
+$`t`$.  The update is therefore a **stochastic approximation** of the
+deterministic iteration $`Q \leftarrow (1 - \alpha) Q + \alpha
+\mathcal{T}^{\ast} Q`$.
+
+**Step 2: the deterministic iteration converges.**  The operator
+$`\mathcal{T}^{\ast}`$ is a $`\gamma`$-contraction in the supremum norm.
+The proof is the one from Section 3.4 with the key inequality
+
+$$
+\large
+\Bigl\lvert \max_a f(a) - \max_a g(a) \Bigr\rvert
+\;\le\; \max_a \bigl\lvert f(a) - g(a) \bigr\rvert
+\;\le\; \lVert f - g \rVert_\infty,
+$$
+
+which holds because both maxima lie between the two functions' pointwise
+range.  Hence, exactly as in Section 3.4,
+
+$$
+\large
+\bigl\lVert \mathcal{T}^{\ast} Q_1 - \mathcal{T}^{\ast} Q_2 \bigr\rVert_\infty
+\;\le\; \gamma\, \bigl\lVert Q_1 - Q_2 \bigr\rVert_\infty,
+$$
+
+so by Banach's theorem (Section 0.3) the deterministic iteration converges
+to $`Q^{\ast}`$ from any start, and the noise-free step
+$`Q \leftarrow (1-\alpha)Q + \alpha \mathcal{T}^{\ast} Q`$ does too (it is
+an affine contraction with the same modulus).
+
+**Step 3: the noise averages out (Robbins–Monro).**  The random
+algorithm perturbs the contracting iteration by a zero-mean noise at every
+step.  The classical conditions that make such perturbations vanish are the
+**Robbins–Monro step-size conditions**:
+
+$$
+\large
+\sum_{t=0}^{\infty} \alpha_t(s, a) = \infty,
+\qquad
+\sum_{t=0}^{\infty} \alpha_t(s, a)^2 < \infty
+\qquad \text{(for every } s, a \text{ visited infinitely often).}
+$$
+
+The first condition guarantees the algorithm does not stop improving; the
+second guarantees the total noise power is finite, so the cumulative
+perturbation $`\sum_t \alpha_t w_t`$ converges a.s. to a finite value
+(Kolmogorov's criterion for martingale differences applied to $`\alpha_t
+w_t`$).  Combining the geometric attraction of Step 2 with the vanishing
+perturbation yields the standard convergence theorem (Jaakkola, Jordan, and
+Singh 1994; Watkins and Dayan 1992; see Appendix C).
+
+**Theorem (Q-learning convergence).**  For a finite MDP, if
+$`\sum_t \alpha_t(s,a) = \infty`$ and $`\sum_t \alpha_t(s,a)^2 < \infty`$
+a.s. for every state–action pair visited infinitely often (e.g. with
+$`\varepsilon`$-greedy exploration, where every pair is visited i.o.), then
+$`Q_t \to Q^{\ast}`$ almost surely.
+
+**Why exploration matters here.**  The step-size conditions alone are not
+enough: the pair $`(s, a)`$ must actually be *visited* infinitely often for
+its estimate to keep being updated.  This is exactly what
+$`\varepsilon`$-greedy (or any policy with $`\varepsilon > 0`$) guarantees,
+and it is the mathematical reason RL separates *behaviour* policy from
+*target* policy: the behaviour policy must cover all actions, while the
+target policy is greedy.
+
 **Why the max is not cheating (the exploration question).**  If we always
 act greedily with respect to a not-yet-accurate $`Q`$, we may lock in a
 suboptimal action forever: *exploitation without exploration*.  The standard
@@ -838,40 +933,16 @@ the *data-generating* policy is $`\varepsilon`$-greedy.  Deep RL anneals
 $`\varepsilon`$ from ~1.0 to a small floor (0.05) so that early exploration
 is broad and later behaviour concentrates on the learned policy.
 
-### 5.2 Convergence (the theorem that justifies everything)
-
-**Theorem (Watkins & Dayan 1992; Jaakkola, Jordan & Singh 1994).**  Let
-$`Q_t`$ be produced by Q-learning with a tabular representation, under a
-behaviour policy that visits every state–action pair infinitely often
-(*asymptotic exploration*), with step sizes satisfying the Robbins–Monro
-conditions
-
-$$
-\large
-\sum_t \alpha_t = \infty, \qquad \sum_t \alpha_t^2 < \infty.
-$$
-
-Then $`Q_t \to Q^{\ast}`$ with probability 1.
-
-The proof (Appendix C, [2]) works by viewing Q-learning as stochastic
-approximation of the Bellman optimality operator, whose $`\gamma`$-
-contraction property (Section 3.4, extended to the max operator) gives a
-unique fixed point $`Q^{\ast}`$, and whose stochastic errors are averaged out by
-the step-size conditions.  The key obstruction in the deep case (Part 3)
-is exactly that a neural network breaks the *contraction* (its update is no
-longer a contraction), which is why deep Q-learning needs replay and target
-networks to recover *approximate* stability.
+The key obstruction in the deep case (Part 3) is exactly that a neural
+network breaks the *contraction* (its update is no longer a contraction),
+which is why deep Q-learning needs replay and target networks to recover
+*approximate* stability — the stochastic-approximation guarantee above does
+not survive function approximation unchanged.
 
 **Tabular Q-learning is not the destination.**  Real tasks have state spaces
 far too large for tables.  Part 3 replaces $`Q(s,a)`$ with
 $`Q_\theta(s,a)`$, a neural network with parameters $`\theta`$, and turns
 the scalar update above into a regression loss.
-
-*Implementation note.*  The tabular derivation here is not dead code: the
-toy `FakeEnv` used in `tests/test_rl_method.py` is literally a tabular
-problem on which the DQN *method* must reproduce Q-learning behaviour, which
-is how the whole stack (pipeline, trainer, method, loss) is validated
-end-to-end without a real environment.
 
 ---
 
@@ -887,18 +958,16 @@ function $`Q_\theta(s, a)`$ — a neural network with weights $`\theta`$
 (a **Q-network**).  The update in Section 5.1 becomes a *regression step*:
 move $`Q_\theta`$ toward the TD target on each sampled transition.
 
-The Q-network in `genml_kit` (`models/rl/qnetwork.py`, registry name
-`rl/qnet`) is a small composite module:
+A Q-network is a small composite module:
 
-- a **backbone** — either the model registry's headless encoder
-  (`load_model(args.model, num_labels=0, ...)`) for image observations, or a
-  plain MLP for vector observations (`--obs_dim`); and
-- a **Q head** — a linear layer `backbone_dim -> n_actions`, or a **dueling**
-  head `(value + advantage streams)` (Section 8).
+- a **backbone** — an encoder (for image observations) or a plain MLP
+  (for vector observations); and
+- a **Q head** — a linear layer `backbone_dim -> n_actions`, or a
+  **dueling** head `(value + advantage streams)` (Section 8).
 
-Its `forward(s)` returns the vector of action values $`Q_\theta(s, \cdot) \in
-\mathbb{R}^{|\mathcal{A}|}`$, so `argmax_a Q_\theta(s, a)` is one `.argmax()`
-call.
+Its `forward(s)` returns the vector of action values
+$`Q_\theta(s, \cdot) \in \mathbb{R}^{|\mathcal{A}|}`$, so
+`argmax_a Q_\theta(s, a)` is one `.argmax()` call.
 
 ### 6.2 The DQN Loss
 
@@ -942,24 +1011,13 @@ visited states changes.  Replay decouples *learning* from *acting*: the
 learner sees a mixture of old and new experience, which keeps early
 discoveries from being forgotten (reduces *catastrophic interference*).
 
-**The replay buffer as a `Dataset`.**  `genml_kit` stores transitions in a
-fixed-capacity circular buffer (`datasets/replay_buffer.py`) and exposes it
-through `torch.utils.data.DataLoader` exactly like any other dataset.  The
-buffer:
-
-- keeps arrays/tensors for `obs, action, reward, next_obs, done`;
-- `__len__ = min(filled, capacity)`;
-- `__getitem__(idx)` returns the dict
-  `{"obs", "action", "reward", "next_obs", "done"}` so `default_collate` (or
-  a thin transition collate) produces the tensor mini-batch;
-- is seeded via `utils.seed` (`--seed`) so sampling is reproducible.
-
-Uniform sampling is the Phase-1 policy; **prioritized experience replay**
-(Schaul et al. 2015, [5]) samples with probability proportional to
-$`|\delta_i|^\alpha`$, the magnitude of the TD error, and corrects the
-induced bias with importance-sampling weights
-$`w_i \propto (N \cdot P(i))^{-\beta}`$.  Phase 3 adds this via the existing
-`WeightedRandomSampler` infrastructure rather than new machinery.
+In practice the buffer is a fixed-capacity circular store of transition
+tuples $`(s, a, r, s', d)`$, sampled uniformly at random
+(**experience replay**).  Following **prioritized experience replay**
+(Schaul et al. 2015, [5]), a common refinement samples with probability
+proportional to $`|\delta_i|^\alpha`$, the magnitude of the TD error, and
+corrects the induced bias with importance-sampling weights
+$`w_i \propto (N \cdot P(i))^{-\beta}`$.
 
 ### 6.4 Target Networks: The Stationarity Fix
 
@@ -987,28 +1045,24 @@ of the *contraction* property that made tabular Q-learning converge
 point the learner can chase.
 
 > **Why deepcopy, not a second optimizer.**  The target net is a structural
-> *copy* of the online net, not a separately trained model.  In `build_model`,
-> `DQNMethod` creates it with
-> `target = copy.deepcopy(online); target.requires_grad_(False)` — the exact
-> pattern `BYOL`/`DINO` use for their EMA "teacher" networks.  The target
-> parameters live inside the same `nn.Module` under a `target.*` prefix, so
-> `model.state_dict()` contains both and the checkpoint machinery
-> (Section 17) needs zero changes.
+> *copy* of the online net, not a separately trained model: create it once as
+> `copy.deepcopy(online)` and freeze it (`requires_grad_(False)`).  Its
+> parameters are typically stored alongside the online ones (e.g. under a
+> `target.*` prefix), so one state dict carries both.
 
 ### 6.5 Two Target-Update Schedules
 
-- **Hard update.**  Every $`C`$ steps ($`C`$ = `--target_update_freq`),
-  copy $`\theta \to \theta^-`$.  Simple, and what the original DQN paper
-  used ($`C = 10^4`$ steps).
+- **Hard update.**  Every $`C`$ steps, copy $`\theta \to \theta^-`$.
+  Simple, and what the original DQN paper used ($`C = 10^4`$ steps).
 - **Soft (Polyak) update.**  Every step,
   $`\theta^- \;\leftarrow\; \tau\, \theta + (1 - \tau)\, \theta^-`$
   with small $`\tau`$ (e.g. $`0.005`$).  Smooth, and standard in modern
   actor-critic methods (SAC, TD3).  Because it is a convex combination,
-  and $`\theta^-`$ and $`\theta`$ share the same parameter space, the moving
-  average stays a valid Q-function if the online one is.
+  and $`\theta^-`$ and $`\theta`$ share the same parameter space, the
+  moving average stays a valid Q-function if the online one is.
 
-Both are supported: `--target_update_freq C` selects hard; `--tau` with
-`--target_update_freq 0` selects soft Polyak every microbatch.
+Both schedules appear in practice: hard updates pick a frequency $`C`$;
+soft updates run every step.
 
 ### 6.6 Exploration: The $`\varepsilon`$-Greedy Schedule
 
@@ -1016,7 +1070,7 @@ The behaviour policy acts greedily with probability
 $`1 - \varepsilon_t`$ and uniformly at random with probability
 $`\varepsilon_t`$.  DQN anneals $`\varepsilon`$ linearly from
 $`\varepsilon_{\text{start}}`$ (usually 1.0) to $`\varepsilon_{\text{end}}`$
-(usually 0.05) over `--epsilon_decay_steps` global steps:
+(usually 0.05) over a fixed number of steps $`T_{\text{decay}}`$:
 
 $$
 \large
@@ -1025,9 +1079,8 @@ $$
   \max\!\Bigl(0,\; 1 - \tfrac{t}{T_{\text{decay}}}\Bigr).
 $$
 
-The schedule is **method state** (it depends on `global_step`), serialized
-by `get_checkpoint_state` so a resumed run continues the annealing instead
-of restarting it (Section 17).
+The schedule depends on the global step count; a resumed run continues the
+annealing instead of restarting it.
 
 ---
 
@@ -1083,10 +1136,10 @@ largely cancelled (the estimator whose max is taken — $`Q_{\theta^-}`$ — is
 evaluated at a point chosen by the other network, breaking the
 "max of noisy" structure).
 
-*Implementation note.*  `td_target(...)` takes `double_q=True` (default).
-The unit tests `test_rl_losses.py` assert that with `double_q=True` the
-selected index comes from `Q_theta` and the value from `Q_theta_minus` —
-i.e. the two networks cannot be accidentally swapped.
+In code, the two networks are conventionally distinguishable: the target
+lives behind a `double_q` flag that selects the index with the *online*
+network and evaluates it with the *target* network — ensuring the two
+cannot be accidentally swapped.
 
 ---
 
@@ -1126,8 +1179,9 @@ $$
 
 But this decomposition is **not identifiable**: adding a constant $`c(s)`$
 to all advantages and subtracting it from $`V`$ leaves $`Q`$ unchanged.
-The standard fix forces the advantages to sum to zero by subtracting their
-*mean*:
+The model can represent the same $`Q`$ with infinitely many parameter
+pairs.  The standard fix forces the advantages to sum to zero by subtracting
+their *mean*:
 
 $$
 \large
@@ -1135,11 +1189,36 @@ Q_\theta(s, a)
 = V_\eta(s) + A_\psi(s, a) - \frac{1}{|\mathcal{A}|} \sum_{a'} A_\psi(s, a').
 $$
 
-**Claim.**  With the mean-subtracted form, $`\max_a Q_\theta(s,a) =
-V_\eta(s) + \max_a \tilde{A}_\psi(s,a)`$ where
-$`\tilde{A}_\psi = A_\psi - \mathrm{mean}(A_\psi)`$, and the network retains
-full expressive power (any true $`Q`$ can be represented) while removing
-the $`(V, A)`$ redundancy.
+**Claim.**  The mean-subtracted form makes the decomposition identifiable
+(no redundancy), retains full expressive power, and satisfies the identity
+$`\max_a Q_\theta(s,a) = V_\eta(s) + \max_a \tilde{A}_\psi(s,a)`$ with
+$`\tilde{A}_\psi = A_\psi - \mathrm{mean}(A_\psi)`$.
+
+**Proof.**  Write $`\bar{A}(s) = \frac{1}{|\mathcal{A}|} \sum_{a'}
+A_\psi(s,a')`$ and define the effective advantage
+$`\tilde{A}_\psi(s,a) = A_\psi(s,a) - \bar{A}(s)`$.  By construction
+$`\sum_a \tilde{A}_\psi(s,a) = \sum_a A_\psi(s,a) - |\mathcal{A}|
+\bar{A}(s) = 0`$, matching the zero-mean property of true advantages
+(Section 8.1) and pinning down $`V_\eta`$ uniquely: averaging $`Q_\theta`$
+over $`a`$ gives
+$`\frac{1}{|\mathcal{A}|} \sum_a Q_\theta(s,a) = V_\eta(s)`$.
+
+For the max identity, add and subtract the mean inside the max:
+
+$$
+\large
+\begin{aligned}
+\max_a Q_\theta(s, a)
+&= V_\eta(s) + \max_a \bigl[ A_\psi(s,a) - \bar{A}(s) \bigr] \\
+&= V_\eta(s) + \max_a \tilde{A}_\psi(s,a).
+\end{aligned}
+$$
+
+Finally, full expressiveness: given any true $`Q^{\ast}`$, set
+$`V_\eta(s) = \max_a Q^{\ast}(s,a)`$ and
+$`A_\psi(s,a) = Q^{\ast}(s,a) - \max_{a'} Q^{\ast}(s,a')`$.  Then
+$`A_\psi \le 0`$ and $`\max_a A_\psi(s,a) = 0`$, so the mean-subtracted sum
+reproduces $`Q^{\ast}`$ exactly.  QED
 
 **Why it helps sample efficiency.**  States where the *relative* value of
 actions is unimportant (long corridors in a maze, straight road sections)
@@ -1149,10 +1228,8 @@ the advantage stream only refines what differs across actions.  Ablations
 in [7] show improved stability and faster learning, especially in
 action-sparse regimes.
 
-*Implementation note.*  `models/rl/qnetwork.py` exposes plain
-(`rl/qnet`) and dueling (`rl/qnet_dueling`) heads; DQNMethod selects with
-`--dueling`.  The mean-subtraction term above is applied inside the head so
-the network always outputs well-defined action values.
+In code the mean-subtraction term is applied inside the head so the
+network always outputs well-defined action values.
 
 ---
 
@@ -1413,10 +1490,9 @@ the $`\lambda`$-return interpolates for values (Section 4.5).  PPO uses
 $`\lambda \approx 0.95`$ and estimates the advantage by *bootstrapping the
 critic once per rollout, then summing with weights $`(\gamma\lambda)^k`$.
 
-*Implementation note.*  `losses/rl.py` (Phase 2) implements GAE with the
-recurrent form
-$`A_t = \delta_t + \gamma \lambda (1-d_t)\, A_{t+1}`$ computed backwards
-from the end of a rollout, which is the numerically stable version of the
+In code this is computed with the *recurrent* form
+$`A_t = \delta_t + \gamma \lambda (1-d_t)\, A_{t+1}`$ evaluated backwards
+from the end of a rollout — the numerically stable version of the
 infinite sum above.
 
 ---
@@ -1455,9 +1531,10 @@ L^{\pi}(\theta)
 \right],
 $$
 
-which is a first-order (in the policy) approximation of the true $`J(\theta)`$
-$`J(\theta)`$: at $`\theta = \theta_{\text{old}}`$ the ratio is $`1`$, so the
-surrogate and its gradient agree with the true objective to first order.
+which is a first-order (in the policy) approximation of the true objective
+$`J(\theta)`$: at $`\theta = \theta_{\text{old}}`$ the ratio is $`1`$, so
+the surrogate and its gradient agree with the true objective to first
+order.
 The importance-weight appears because the expectation is over old-policy
 trajectories but we want to evaluate the new policy — the same
 score-function/change-of-measure idea as Section 9.2.
@@ -1523,10 +1600,9 @@ which is maximized by the uniform policy — the natural complement to the
 greedy signal: it keeps probability mass spread while the value signal
 concentrates it.
 
-*Implementation note.*  The Phase-2 `PPOMethod` builds rollouts
-(on-policy `IterableDataset`), computes GAE advantages with the critic,
-then runs multiple SGD epochs over the same rollouts with the clipped
-surrogate (Section 11.3), value loss, and entropy bonus from `losses/rl.py`.
+In practice PPO collects rollouts, computes GAE advantages with the critic,
+then runs several SGD epochs over the *same* rollouts with the clipped
+surrogate (Section 11.3), a value loss, and an entropy bonus.
 
 ---
 
@@ -1730,19 +1806,37 @@ $$
 Substituting $`\log \pi^{\ast}(a \mid s) = Q_\psi(s,a)/\alpha - \log Z(s)`$ (where
 $`Z(s)`$ is the normalizer, constant in $`\phi`$), dropping the constant,
 and multiplying by $`\alpha`$ yields exactly $`\mathcal{L}_\pi`$.  The
-expectation is over the *policy's own* samples, which is why the
-reparameterization trick is needed to obtain low-variance gradients (see
-below).
+expectation is over the *policy's own* samples: differentiating it requires
+a gradient of an expectation under the distribution being optimised, which
+is exactly what the reparameterization trick provides.
 
-**Why the reparameterization trick.**  We need to differentiate
-$`\mathbb{E}_{a \sim \pi_\phi}[f(a)]`$ wrt $`\phi`$.  Writing the action as
-a deterministic function of the state and a noise variable,
-$`a = f_\phi(s, \xi)`$ with $`\xi \sim \mathcal{N}(0,I)`$, the expectation
-becomes $`\mathbb{E}_\xi[f(f_\phi(s,\xi))]`$, whose gradient flows through
-$`f_\phi`$ (which is differentiable) rather than through the sampling
-distribution (which is not).  This is the same score-free trick that makes
-the whole loss a standard SGD problem — no high-variance score-function
-estimator (Section 9.2) needed.
+**Derivation (reparameterized gradient).**  Write the action as a
+deterministic function of the state and a noise variable,
+$`a = f_\phi(s, \xi)`$ with $`\xi \sim \mathcal{N}(0,I)`$, where $`f_\phi`$
+is fixed and differentiable in $`\phi`$.  Because the law of $`\xi`$ does
+not depend on $`\phi`$, the expectation is over a fixed distribution, so by
+differentiating under the integral,
+
+$$
+\large
+\nabla_\phi\,
+\mathbb{E}_{a \sim \pi_\phi}[\, f(a) \,]
+= \nabla_\phi\, \mathbb{E}_\xi[\, f(f_\phi(s, \xi)) \,]
+= \mathbb{E}_\xi\!\left[\, \nabla_\phi f(f_\phi(s, \xi)) \,\right].
+$$
+
+Contrast the score-function estimator of Section 9.2:
+$`\nabla_\phi \mathbb{E}_{\pi_\phi}[f] = \mathbb{E}_{\pi_\phi}[\, f\,
+\nabla_\phi \log \pi_\phi \,]`$.  Both estimators are unbiased.  The score
+estimator multiplies $`f(a)`$ by the score
+$`\nabla_\phi \log \pi_\phi(a \mid s)`$, whose magnitude varies strongly
+from action to action, inflating the variance of any Monte-Carlo average;
+the reparameterized estimator differentiates $`f`$ along the smooth path
+$`f_\phi`$ instead, so each sample contributes the gradient of the
+objective itself.  This is the standard score-free trick that makes the
+whole loss a plain SGD problem — no high-variance score-function estimator
+needed — and it is exactly why SAC parameterizes the policy as
+$`f_\phi(s, \xi)`$.
 
 ### 13.4 The Adaptive Temperature
 
@@ -1765,194 +1859,9 @@ when entropy is below target and down when above — an automatic
 exploration/exploitation balance.  This is why SAC typically needs no
 hand-tuned $`\varepsilon`$ schedule (unlike DQN, Section 6.6).
 
-*Implementation note.*  `SACMethod` (Phase 2) implements all four losses —
-critic (twin soft Q), actor (KL), temperature (dual), and the target-critic
-Polyak update — as separate optimization groups or a single joint loss,
-following the `losses/rl.py` module.  The off-policy data flow and replay
-cadence are inherited from the DQN path (Part 6), only the *content* of the
-`train_step` differs.
-
----
-
-# Part 6 — Wiring RL Into `genml_kit`
-
-## 14. The RL Data Contract
-
-### 14.1 `DataBlob` and `LossOutput`
-
-Everything in Parts 1–5 arrives at the training loop through the same two
-contracts the rest of `genml_kit` uses (Section 2.1):
-
-- `DataBlob(data, meta)` — the unit of data a pipeline yields;
-- `LossOutput(loss, metrics)` — what a method's `train_step` returns.
-
-For off-policy RL (DQN, SAC), one `DataBlob` is a batch of transitions
-sampled from the replay buffer:
-
-```
-data = (obs, action, reward, next_obs, done)      # tensors, shape (B, ...)
-meta = {"step_type": "replay"}                    # reserved for prioritization
-```
-
-For on-policy RL (PPO), one `DataBlob` is a batch of rollout steps:
-
-```
-data = obs
-meta = {"actions_with_logp", "advantages", "returns", ...}
-```
-
-The loop stays branchless: it moves the blob with `pipeline.to_device(...)`
-and hands it to `method.train_step(...)`.  The method knows the layout; the
-loop does not need to.
-
-### 14.2 `to_device` Semantics
-
-`to_device` moves the tensor fields (obs, next_obs, rewards, dones) to the
-training device; non-tensor meta (ints such as action indices, or weights)
-stays wherever it is.  This mirrors the `vo_pair` pipeline, which already
-keeps `range_bin` ints on CPU in its meta.
-
-### 14.3 Why RL Still Fits The "Epoch" Abstraction
-
-`BaseTrainer.run()` iterates epochs; `RLTrainer.train_epoch` defines what
-*one epoch* means for RL: a fixed budget of environment steps and learning
-steps (Section 16).  The outer machinery (checkpoint saver, signal handling,
-best-metric cycle, monitors) therefore works unchanged — RL is, from the
-driver's point of view, just another data source whose "epoch" happens to
-include acting in an environment.
-
----
-
-## 15. The Replay Buffer As A Dataset
-
-### 15.1 Data Layout And Sampling
-
-The replay buffer (`datasets/replay_buffer.py`) is a fixed-capacity,
-array-backed circular store of transitions.  It is a
-`torch.utils.data.Dataset` whose `__len__` grows from 0 to capacity and whose
-`__getitem__(idx)` returns
-
-```
-{"obs": obs_i, "action": action_i, "reward": reward_i,
- "next_obs": next_obs_i, "done": done_i}
-```
-
-so that a standard `DataLoader` collates a mini-batch.  This is the *same
-pattern* as `DatasetEnsemble` (dict-returning datasets and
-`default_collate`) — the RL pipeline introduces no new data-loading concept.
-
-### 15.2 Why A Buffer, Mathematically
-
-Section 6.3 gave the three pathologies of online learning (correlation,
-non-stationary target, policy–data feedback) and explained how replay fixes
-them.  The buffer is the *memory* that makes the DQN/SAC loss (Sections 6.2
-and 13.2) a well-posed optimization problem: the learner's mini-batches are
-i.i.d. samples from the buffer's approximate stationary distribution over
-transitions, breaking temporal correlation and decoupling learning from the
-current policy's data distribution.
-
-### 15.3 Uniform vs. Prioritized Sampling
-
-Phase 1 samples uniformly.  **Prioritized experience replay** (Section 6.3,
-[5]) samples transition $`i`$ with probability
-$`P(i) \propto |\delta_i|^\alpha`$ (TD-error magnitude, exponent
-$`\alpha`$), and corrects the sampling bias with importance weights
-$`w_i = (N \cdot P(i))^{-\beta} / \max_j w_j`$.  This concentrates learning
-on the transitions with the largest Bellman residual — the ones that carry
-the most gradient information.  `genml_kit` implements it in Phase 3 by
-reusing the existing `WeightedRandomSampler` (probabilities from the TD
-errors) rather than writing a bespoke sampler.
-
----
-
-## 16. The RL Trainer And The Learning Cadence
-
-### 16.1 The `RLTrainer` Override
-
-`RLTrainer(BaseTrainer)` overrides exactly two methods:
-
-- **`train_epoch`** — owns the *cadence*: warmup env steps, then a loop of
-  (act, push to replay, sample batch, learn step, target update);
-- **`validate`** — runs `method.evaluate(...)` as greedy policy rollouts
-  (there is no static validation set; the environment *is* the evaluator).
-
-Everything else — `run()` (signals, saver, epoch loop, monitors,
-best-metric cycle), `optimization`, AMP/grad-accum primitives — is inherited
-verbatim from `BaseTrainer`.
-
-### 16.2 The Cadence: Warmup → Act → Learn → Target
-
-One `train_epoch` consists of:
-
-1. **Warmup** — step the environment for `--warmup_steps` transitions using
-   a random (or `--epsilon_start`) policy, to fill the buffer before the
-   first learning step (deep Q-learning diverges from an empty buffer
-   because every mini-batch would be tiny/correlated).
-2. **Learn loop** — for `--learn_steps_per_epoch` steps:
-   - every `--train_freq` steps: act in the env (epsilon-greedy for DQN,
-     policy-sampled for SAC), push the transition to the replay buffer;
-   - sample one mini-batch from the buffer and call
-     `method.train_step(model, blob, global_step)` → `LossOutput`;
-   - apply the standard microbatch backward/step (Section 16.3);
-   - every `--target_update_freq` steps (or every step with `--tau`,
-     soft): `method.update_target(model, global_step)`.
-3. Return the average loss (for logging), exactly like the base loop.
-
-### 16.3 The Shared Microbatch Primitive
-
-The backward/step sequence — `loss / grad_accum`, backward under AMP,
-`scaler.step` + `scaler.update` or plain `optimizer.step`, `zero_grad`,
-`monitor.step` — is identical between the static-image loop and the RL loop.
-To avoid duplication, `BaseTrainer` exposes a protected helper
-`_apply_grad(loss, scaler, amp_dtype)` (behavior-preserving refactor, D10 in
-the plan); both `train_epoch` implementations call it.  This keeps AMP and
-grad-accum semantics in exactly one place.
-
-### 16.4 Why The Cadence Lives In The Trainer, Not The Method
-
-A method's `train_step` must stay a *pure* learning step (testable in
-isolation, no env side effects).  The cadence — *when* to act, *how often*
-to learn, *when* to sync the target — is environment-dependent orchestration,
-which belongs to the data-owning trainer.  This mirrors how `vo_pair`
-datasets generate pairs on the fly while the method only consumes them.
-
----
-
-## 17. Metrics And Checkpointing For RL
-
-### 17.1 `eval_return` As The Best-Checkpoint Metric
-
-The RL methods set `METRIC_KEY = "eval_return"`, `METRIC_MINIMIZE = False`.
-`BaseTrainer`'s best-checkpoint cycle then stores `best_eval_return` in the
-checkpoint automatically, and `has_metric_improved` (maximizing) comes for
-free from `METRIC_MINIMIZE`.  `evaluate` runs `--eval_episodes` greedy
-rollouts and returns the mean return; averaging over episodes smooths the
-stochastic-env noise that would otherwise make the best-metric cycle
-thrash.
-
-### 17.2 What Must Be In The Checkpoint
-
-The checkpoint already contains `model.state_dict()` (both online and
-target networks, via the `target.*` prefix) and the optimizer/scheduler/AMP
-state.  The method adds, via `get_checkpoint_state`:
-
-```
-{"method": "dqn", "epsilon": current_epsilon,
- "eps_start": ..., "eps_end": ..., "eps_decay_steps": ...}
-```
-
-so that a resumed run continues the exploration schedule rather than
-restarting it.  Replay-buffer contents are *not* serialized in Phase 1
-(resuming from a fresh buffer with the same epsilon schedule is standard and
-cheap); Phase 3 adds optional buffer-metadata (size/mean reward) as an
-additive key.
-
-### 17.3 Restoring
-
-`load_checkpoint_state` restores the schedule scalars.  The target network
-parameters come back automatically through the state dict — no
-architecture-specific resume code, exactly like BYOL/DINO's student+teacher
-checkpoints.
+In practice SAC implements all four losses — critic (twin soft Q),
+actor (KL), temperature (dual), and the target-critic Polyak update —
+as separate optimization groups or a single joint loss.
 
 ---
 
@@ -2006,8 +1915,7 @@ section where it first appears.
 
 **B.1 Missing `done` masking.**  Forgetting the $`(1-d)`$ factor in the TD
 target (Sections 4.4, 6.2) lets the value of terminal states bootstrap into
-non-existent future reward — the most common RL correctness bug.  Pinned by
-`test_td_target_done_masking`.
+non-existent future reward — the most common RL correctness bug.
 
 **B.2 Overestimation from the `max`.**  Section 7.1 proves the upward bias;
 Section 7.2 gives the Double-DQN fix.  Watch for value metrics creeping
@@ -2029,21 +1937,24 @@ use short rollouts + multiple epochs (Section 11.4) instead.
 
 **B.6 Pathological exploration schedule.**  Epsilon decaying too fast (DQN)
 or temperature collapsing (SAC) locks in premature exploitation
-(Sections 6.6, 13.4).  The schedule is method state and must be checkpointed
-(Section 17.2).
+(Sections 6.6, 13.4).  A resumed run should continue the schedule from the
+checkpointed step, not restart it.
 
-**B.7 `train_step` with env side effects.**  Violating the purity rule
-(Section 16.4) breaks unit tests and makes the method untestable in
-isolation; env stepping belongs in the pipeline/trainer.
+**B.7 Learning step with env side effects.**  The learning update must be a
+pure function of a batch of transitions.  If it also steps the environment,
+the update is no longer testable in isolation and the same experience is
+used twice (once to learn, once to drive the env), corrupting the i.i.d.
+assumption behind the loss.
 
-**B.7.1 Replay sampling from an empty buffer.**  Warmup exists for this
-reason (Section 16.2); sampling before `warmup_steps` raises a clear error
-instead of silently returning tiny/correlated batches.
+**B.7.1 Replay sampling from an empty buffer.**  Sampling before the buffer
+is warm (filled with enough random experience) returns tiny/correlated
+batches; practical systems warm the buffer first and raise a clear error if
+a batch is requested too early.
 
 **B.8 Rewards not normalized.**  Large reward scales destabilize value
-learning (a large $`\gamma`$ compounds them; Section 2.4).  Add
-normalization/clipping in the env (outside `genml_kit`) or via the pipeline's
-reward transform; document it in the env contract.
+learning (a large $`\gamma`$ compounds them; Section 2.4).  Normalize or
+clip rewards inside the environment's reward transform, and document it in
+the environment contract.
 
 **B.9 Unstable critic early on.**  The critic (actors' baseline) is wrong
 early; GAE with $`\lambda`$ interpolation (Section 10.2) and value clipping
@@ -2078,7 +1989,7 @@ entry is a public, checkable source.
   learning*, Nature 518, 2015.  §6 (DQN, replay, target network).
   URL: https://www.nature.com/articles/nature14236
 - [5] T. Schaul, J. Quan, I. Antonoglou, D. Silver, *Prioritized Experience
-  Replay*, ICLR 2016.  §6.3 (prioritized replay) and §15.3.
+  Replay*, ICLR 2016.  §6.3 (prioritized replay).
   URL: https://arxiv.org/abs/1511.05952
 - [6] H. van Hasselt, *Double Q-learning*, NeurIPS 2010.  §7 (maximization
   bias).
@@ -2122,27 +2033,7 @@ entry is a public, checkable source.
 
 **Software documentation**
 
-- Gymnasium API reference — `gym.Env` (reset/step/close), the env protocol
-  of §6.3's `RLPipeline`.
+- Gymnasium API reference — `gym.Env` (reset/step/close), the standard
+  environment protocol used throughout this document.
 - PyTorch docs — `torch.utils.data.DataLoader`, `torch.amp.GradScaler`,
   `torch.nn.utils.clip_grad_norm_` (PPO value clipping/optimization).
-
----
-
-# Appendix D: Math Rendering Reference
-
-The Markdown + KaTeX rendering rules for this document (inline math,
-display math, escaping, operators, pitfalls) are centralized in
-[`docs/MARKDOWN_LATEX.txt`](docs/MARKDOWN_LATEX.txt).
-
----
-
-*Reviewed against: `train.py`, `trainer.py`, `optim_factory.py`,
-`checkpointing.py`, `pipelines/{base,images,vo_pair,registry}.py`,
-`methods/{base,classification,vo_pair,dino,byol,ijepa,simmim,supcon}.py`,
-`losses/*.py`, `models/{registry,byol,dino}.py`, `datasets/{ensemble,vo_pairs,
-field_dataset,balanced_sampler,weighted_sampler,image_folder,retry}.py`,
-`utils/{args,cli,attr,script,seed,signal,logging,gpu,table,label,image_dump}.py`,
-`tests/{test_trainer,test_checkpointing,test_cli_help,test_byol,test_vo_pairs}.py`,
-`README.md`, `vo/README.md`, `docs/MARKDOWN_LATEX.txt` (Markdown + KaTeX
-rendering conventions), `pyproject.toml`, `.style.yapf`, `ci.yml`.*
