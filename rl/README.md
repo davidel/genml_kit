@@ -578,7 +578,7 @@ $$
 
 $`n = 1`$ is TD; $`n = \infty`$ is MC (until termination).  Larger $`n`$
 is less biased but more variable.  Deep RL defaults to $`n = 1`$ with a
-target network (Part 3) for stability, and occasionally uses $`n = 2`-3`$
+target network (Part 3) for stability, and occasionally uses $`n = 2`$-3
 or a sampled geometric mixture (e.g. $`\lambda`$-returns; see
 Section 10.4), because the target network already removes most of the
 instability that multi-step targets would reintroduce.
