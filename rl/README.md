@@ -1318,9 +1318,9 @@ surrogate (Section 11.3), value loss, and entropy bonus from `losses/rl.py`.
 
 ### 12.1 The Maximum-Entropy Objective
 
-Classic RL maximizes expected return $`\sum \mathbb{E}[r]`.  **Maximum
-entropy RL** (Ziebart et al. 2008; Haarnoja et al. 2017, [12]) augments the
-return with the policy's entropy at every visited state:
+Classic RL maximizes expected return $`\sum \mathbb{E}[r]`.
+**Maximum entropy RL** (Ziebart et al. 2008; Haarnoja et al. 2017, [12])
+augments the return with the policy's entropy at every visited state:
 
 $$
 \large
