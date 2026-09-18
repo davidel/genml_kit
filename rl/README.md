@@ -1141,7 +1141,7 @@ $$
 
 **Generalized Advantage Estimation** (Schulman et al. 2016, [9]) is the
 exponentially weighted average of all $`k`$-step advantages, with weight
-$`(1 - \lambda)\, \lambda^{k-1}``$ for a parameter $`\lambda \in [0,1]`$:
+$`(1 - \lambda)\, \lambda^{k-1}`$ for a parameter $`\lambda \in [0,1]`$:
 
 $$
 \large
