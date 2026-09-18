@@ -54,6 +54,7 @@ code implements is derived here.
 
 ## Contents
 
+- [0. The Mathematical Toolkit](#0-the-mathematical-toolkit)
 - **Part 1 — The Problem: Sequential Decisions Under Uncertainty**
   - [1. What Problem Are We Solving?](#1-what-problem-are-we-solving)
   - [2. The Markov Decision Process, Taught From Scratch](#2-the-markov-decision-process-taught-from-scratch)
@@ -82,6 +83,208 @@ code implements is derived here.
   - [Appendix B: Failure Modes And Shortcuts](#appendix-b-failure-modes-and-shortcuts)
   - [Appendix C: Reading List](#appendix-c-reading-list)
   - [Appendix D: Math Rendering Reference](#appendix-d-math-rendering-reference)
+
+---
+
+## 0. The Mathematical Toolkit
+
+This chapter collects, with proofs, the few analytic tools the rest of the
+document uses repeatedly.  A reader fluent in these can read the derivations
+in Parts 1–5 line by line; a reader who has not seen them should work through
+this chapter once, slowly.
+
+### 0.1 The Law of Total Expectation
+
+**Theorem (law of total expectation).**  Let $`X`$ be a random variable and
+$`Y`$ a random variable (or vector).  If $`\mathbb{E}[|X|] < \infty`$, then
+
+$$
+\large
+\mathbb{E}[X] = \mathbb{E}\!\left[\, \mathbb{E}[X \mid Y] \,\right].
+$$
+
+**Proof.**  Take the case where $`Y`$ is discrete with probability mass
+$`p_Y(y)`$.  By the definition of conditional expectation,
+
+$$
+\large
+\mathbb{E}[X \mid Y = y] = \sum_x x\, p(x \mid y),
+\qquad
+p(x \mid y) = \frac{p(x, y)}{p_Y(y)}.
+$$
+
+Rearranging the double sum,
+
+$$
+\large
+\begin{aligned}
+\mathbb{E}\!\left[\, \mathbb{E}[X \mid Y] \,\right]
+&= \sum_y p_Y(y) \sum_x x\, p(x \mid y) \\
+&= \sum_x x \sum_y p_Y(y)\, p(x \mid y)
+ = \sum_x x \sum_y p(x, y)
+ = \sum_x x\, p_X(x)
+ = \mathbb{E}[X].
+\end{aligned}
+$$
+
+The continuous case is identical with sums replaced by integrals.  QED
+
+**How we use it.**  The Bellman derivation (Section 3.2) conditions on the
+state $`S_t = s`$, averages the next transition, and then *re-conditions* the
+future return on $`S_{t+1} = s'`$; the law of total expectation is what makes
+that double conditioning legitimate.
+
+### 0.2 The Score-Function Lemma (Log-Derivative Trick)
+
+**Theorem (score-function lemma).**  Let $`x \mapsto p_\theta(x)`$ be a
+probability density (or mass) function parameterised by $`\theta`$, and let
+$`f(x)`$ be any function with finite expectation under $`p_\theta`$.  Then,
+provided the interchange of integral and derivative is justified (dominated
+convergence),
+
+$$
+\large
+\nabla_\theta\, \mathbb{E}_{p_\theta}[f(x)]
+= \mathbb{E}_{p_\theta}\!\left[\, f(x)\, \nabla_\theta \log p_\theta(x) \,\right].
+$$
+
+**Proof.**  Differentiate under the integral sign and expand the logarithm:
+
+$$
+\large
+\begin{aligned}
+\nabla_\theta\, \mathbb{E}_{p_\theta}[f(x)]
+&= \nabla_\theta \int f(x)\, p_\theta(x)\, dx
+ = \int f(x)\, \nabla_\theta p_\theta(x)\, dx \\
+&= \int f(x)\, p_\theta(x)\, \nabla_\theta \log p_\theta(x)\, dx
+ = \mathbb{E}_{p_\theta}\!\left[\, f(x)\, \nabla_\theta \log p_\theta(x) \,\right].
+\end{aligned}
+$$
+
+The third equality uses $`\nabla_\theta \log p = (\nabla_\theta p) / p`$
+(valid wherever $`p > 0`$; the standard regularity conditions exclude
+atoms).  QED
+
+**How we use it.**  It is the entire engine of the policy-gradient theorem
+(Section 9): the distribution we sample from is the one we differentiate
+through, and the lemma converts "differentiate an expectation over
+trajectories" into "multiply the return by the score of the policy".
+
+### 0.3 Banach's Fixed-Point Theorem
+
+**Theorem (Banach fixed-point theorem).**  Let $`X`$ be a complete normed
+space (a Banach space), and let $`\mathcal{T} : X \to X`$ be a *contraction*:
+there exists $`\gamma \in [0, 1)`$ with
+
+$$
+\large
+\left\lVert \mathcal{T} x - \mathcal{T} y \right\rVert
+\;\le\; \gamma\, \left\lVert x - y \right\rVert
+\qquad \forall\, x, y \in X.
+$$
+
+Then $`\mathcal{T}`$ has a **unique fixed point** $`x^{\ast} = \mathcal{T}
+x^{\ast}`$; moreover, for every starting point $`x_0 \in X`$, the iterates
+$`x_{k+1} = \mathcal{T} x_k`$ converge to it geometrically:
+
+$$
+\large
+\left\lVert x_k - x^{\ast} \right\rVert
+\;\le\; \gamma^k\, \left\lVert x_0 - x^{\ast} \right\rVert.
+$$
+
+**Proof.**  *Existence by construction.*  Pick any $`x_0`$ and iterate.
+Repeated application of the contraction inequality gives
+$`\lVert x_{k+1} - x_k \rVert \le \gamma^k \lVert x_1 - x_0 \rVert`$.  For
+$`m > n`$, the triangle inequality telescopes:
+
+$$
+\large
+\left\lVert x_m - x_n \right\rVert
+\;\le\; \sum_{j=n}^{m-1} \left\lVert x_{j+1} - x_j \right\rVert
+\;\le\; \frac{\gamma^n}{1 - \gamma}\, \left\lVert x_1 - x_0 \right\rVert,
+$$
+
+which tends to $`0`$ as $`n \to \infty`$ because $`\gamma^n \to 0`$.  Hence
+$`(x_k)`$ is a Cauchy sequence; completeness gives a limit $`x^{\ast}`$.
+Continuity of $`\mathcal{T}`$ (contractions are Lipschitz) lets us pass to
+the limit in $`x_{k+1} = \mathcal{T} x_k`$:
+
+$$
+\large
+x^{\ast} = \lim_{k \to \infty} x_{k+1}
+= \lim_{k \to \infty} \mathcal{T} x_k
+= \mathcal{T} \lim_{k \to \infty} x_k
+= \mathcal{T} x^{\ast}.
+$$
+
+*Uniqueness.*  If $`x^{\ast}`$ and $`y^{\ast}`$ were both fixed points, then
+
+$$
+\large
+\left\lVert x^{\ast} - y^{\ast} \right\rVert
+= \left\lVert \mathcal{T} x^{\ast} - \mathcal{T} y^{\ast} \right\rVert
+\;\le\; \gamma\, \left\lVert x^{\ast} - y^{\ast} \right\rVert.
+$$
+
+Since $`\gamma < 1`$, the only possibility is $`\lVert x^{\ast} - y^{\ast}
+\rVert = 0`$, i.e. $`x^{\ast} = y^{\ast}`$.  The geometric rate follows by
+applying the contraction to the pair $`(x_k, x^{\ast})`$ repeatedly.  QED
+
+**How we use it.**  Section 3.4 shows the Bellman operator is a contraction;
+this theorem then delivers existence and uniqueness of the value function in
+one line, without constructing it.  Section 12.2 reuses the identical
+argument for the soft Bellman operator.
+
+### 0.4 The Maximum-Entropy (KL-Duality) Result
+
+**Lemma.**  Fix a function $`Q(a)`$ over a finite action set and a
+temperature $`\alpha > 0`$.  Among all probability distributions $`\pi`$
+over actions, the Gibbs distribution
+
+$$
+\large
+\pi^{\ast}(a) \;=\; \frac{\exp\!\left( Q(a) / \alpha \right)}
+{\sum_{a'} \exp\!\left( Q(a') / \alpha \right)}
+$$
+
+is the unique maximizer of the entropy-regularized objective
+
+$$
+\large
+J(\pi) = \mathbb{E}_{a \sim \pi}\!\left[\, Q(a) - \alpha \log \pi(a) \,\right].
+$$
+
+**Proof.**  The objective is concave in $`\pi`$: the term
+$`\mathbb{E}_\pi[Q]`$ is linear in $`\pi`$, and the entropy
+$`- \sum_a \pi(a) \log \pi(a)`$ is concave, so any stationary point is a
+global maximum.  Maximize subject to the simplex constraint
+$`\sum_a \pi(a) = 1`$ with a Lagrange multiplier $`\lambda`$:
+
+$$
+\large
+\mathcal{L}(\pi, \lambda) =
+    \sum_a \pi(a)\, Q(a)
+    - \alpha \sum_a \pi(a) \log \pi(a)
+    + \lambda \Bigl( 1 - \sum_a \pi(a) \Bigr).
+$$
+
+Set the derivative with respect to each $`\pi(a)`$ to zero:
+
+$$
+\large
+\frac{\partial \mathcal{L}}{\partial \pi(a)}
+= Q(a) - \alpha\bigl( \log \pi(a) + 1 \bigr) - \lambda = 0,
+\qquad
+\pi(a) = \exp\!\left( \frac{Q(a) - \lambda - \alpha}{\alpha} \right).
+$$
+
+The normalization constant absorbs $`\lambda + \alpha`$, which gives the
+Gibbs form.  Concavity makes this stationary point the unique maximizer.
+QED
+
+**How we use it.**  Section 12.4 derives the optimal soft policy by applying
+this lemma with $`Q = Q_{\text{soft}}^{\ast}`$ at every state.
 
 ---
 
@@ -423,10 +626,10 @@ The first inequality is the triangle inequality; the second replaces each
 absolute value by the global sup-norm; the final equality uses that the
 double sum of probabilities equals 1.
 
-**Consequences (Banach fixed-point theorem).**  Because
-$`\gamma < 1`$, $`\mathcal{T}^\pi`$ is a contraction on a complete metric
-space, so it has a **unique fixed point**, and iteration from any starting
-$`V_0`$ converges to it at a geometric rate:
+**Consequences (Banach fixed-point theorem, proved in Section 0.3).**
+Because $`\gamma < 1`$, $`\mathcal{T}^\pi`$ is a contraction on a complete
+metric space, so by Banach's theorem it has a **unique fixed point**, and
+iteration from any starting $`V_0`$ converges to it at a geometric rate:
 
 $$
 \large
@@ -555,9 +758,24 @@ $$
 \text{TD target} \;=\; R_{t+1} + \gamma\\, (1 - d_t)\\, V(s_{t+1}).
 $$
 
-**Proof sketch.**  By definition $`V(\text{terminal}) = 0`$ (no future
-reward), so $`(1 - d_t) V(s_{t+1})`$ is exactly $`V(s_{t+1})`$ when the
-transition is non-terminal and $`0`$ when terminal.
+**Proof.**  By definition of a terminal state, $`V(\text{terminal}) = 0`$:
+no future reward accrues from it, and the process stops, so the expected
+discounted continuation is $`0`$.  The indicator is $`d_t = 1`$ exactly
+when $`S_{t+1}`$ is terminal and $`0`$ otherwise.  Hence, in every case,
+
+$$
+\large
+(1 - d_t)\\, V(s_{t+1})
+= \begin{cases}
+    V(s_{t+1}), & S_{t+1} \text{ non-terminal},\\
+    0,          & S_{t+1} \text{ terminal},
+  \end{cases}
+$$
+
+which is precisely the value of the continuation used by the TD target:
+when the episode ends there is no next state to bootstrap from, so the
+target must reduce to the observed reward $`R_{t+1}`$ alone, exactly as
+the formula $`R_{t+1} + \gamma (1 - d_t) V(s_{t+1})`$ does.  QED
 
 *Implementation note.*  Every target builder in `losses/rl.py` takes a
 `dones` tensor and multiplies the bootstrap term by `1 - dones` *before*
@@ -1380,8 +1598,10 @@ $$
 which is the *soft analogue* of the classic Bellman expectation equation
 (Section 3.2) with the reward augmented by the entropy bonus.  The soft
 Bellman operator is still a $`\gamma`$-contraction in the sup-norm — the
-proof is identical to Section 3.4 since the entropy term is a deterministic
-function of $`s'`$ and adds no randomness to the contraction argument.
+proof is identical to Section 3.4 (and the fixed-point consequences follow
+from the Banach theorem proved in Section 0.3) since the entropy term is a
+deterministic function of $`s'`$ and adds no randomness to the contraction
+argument.
 
 ### 12.4 The Optimal Soft Policy and "Softmax" Form
 
@@ -1395,13 +1615,34 @@ $$
 \exp\!\left( \frac{1}{\alpha}\, Q_{\text{soft}}^{\ast}(s, a) \right).
 $$
 
-**Proof sketch.**  At each state $`s`$, the soft V as a function of the
-policy is $`\mathbb{E}_{a \sim \pi}[Q(s,a) - \alpha \log \pi(a \mid s)]`$ —
-a linear functional of $`\pi`$ minus an entropy term, whose unique maximizer
-over the simplex is the Gibbs distribution above (this is the classic
-maximum-entropy / KL-duality result: the entropy-regularized linear
-objective over a simplex is optimized by the exponential family; see [12]
-for the full derivation and Appendix C for the reference).
+**Proof.**  At each state $`s`$, the soft value as a function of the policy
+is
+
+$$
+\large
+V_{\text{soft}}^{\pi}(s) =
+    \mathbb{E}_{a \sim \pi}\!\left[\, Q_{\text{soft}}^{\pi}(s, a) - \alpha \log \pi(a \mid s)
+    \,\right].
+$$
+
+This is exactly the entropy-regularized objective of Lemma 0.4 with
+$`Q(a) = Q_{\text{soft}}^{\pi}(s, a)`$ acting on the finite action set at
+state $`s`$.  By that lemma, the unique maximizer over the action simplex
+is the Gibbs distribution
+
+$$
+\large
+\pi^{\ast}(a \mid s) \;=\; \frac{\exp\!\left( Q_{\text{soft}}^{\pi}(s,a) /
+\alpha \right)}{\sum_{a'} \exp\!\left( Q_{\text{soft}}^{\pi}(s,a') / \alpha
+\right)}.
+$$
+
+Writing $`\pi^{\ast}`$ as the *improvement* of $`\pi`$, this holds for any
+$`\pi`$, in particular for the optimal $`\pi^{\ast}`$ itself; substituting
+$`Q_{\text{soft}}^{\ast}`$ for $`Q_{\text{soft}}^{\pi}`$ in the argument
+gives the claimed form.  The Lagrange-multiplier derivation (concavity,
+first-order condition, normalization) is carried out in full in Lemma 0.4.
+QED
 
 **Consequence.**  In maximum-entropy RL, the *optimal* policy is stochastic,
 proportional to exponentiated Q — never a hard arg-max.  This is the deep
