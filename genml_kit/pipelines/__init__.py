@@ -16,7 +16,7 @@ from genml_kit.pipelines.registry import (
 
 
 def _register_builtins():
-  from genml_kit.pipelines import images, vo_pair  # noqa: F401
+  from genml_kit.pipelines import images, rl, vo_pair  # noqa: F401
 
 
 _register_builtins()

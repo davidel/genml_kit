@@ -33,6 +33,7 @@ from genml_kit.training.train_compat import (
 from genml_kit.training.trainer import (  # noqa: F401 (compat export)
     BaseTrainer, TrainingResult,
 )
+from genml_kit.training.rl_trainer import RLTrainer
 from genml_kit.utils.args import (
     add_checkpoint_args,
     add_logging_args,
@@ -422,9 +423,11 @@ def main(argv=None):
   method.load_checkpoint_state(model, ckpt_extra.get("method_state", {}), args)
 
   optimization = build_optimization(args, model, device, ckpt_extra, states_to_load)
+  train_loader = getattr(pipeline, "train_loader", None)
   global_step = ckpt_extra.get(
       "global_step",
-      start_epoch * (len(pipeline.train_loader) // args.grad_accum_steps),
+      start_epoch * (len(train_loader) // args.grad_accum_steps)
+      if train_loader is not None else 0,
   )
   # Drop the reference to the full checkpoint extras dict so the potentially
   # large optimizer/scheduler/scaler state can be GC'd before the trainer is
@@ -432,7 +435,9 @@ def main(argv=None):
   del ckpt_extra
 
   writer = open_writer(log_dir=args.log_dir)
-  trainer = BaseTrainer(
+  # Select trainer class: RL pipelines use RLTrainer (no DataLoader).
+  trainer_cls = RLTrainer if getattr(pipeline, "NAME", "") == "rl" else BaseTrainer
+  trainer = trainer_cls(
       args=args,
       model=model,
       method=method,
