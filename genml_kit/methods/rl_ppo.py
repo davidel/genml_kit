@@ -24,10 +24,6 @@ class PPOMethod(Method):
   METRIC_MINIMIZE = False
   NEEDS_LABELS = False
 
-  # ------------------------------------------------------------------
-  # CLI args
-  # ------------------------------------------------------------------
-
   @classmethod
   def add_args(cls, parser):
     group = parser.add_argument_group("ppo method")
@@ -98,10 +94,6 @@ class PPOMethod(Method):
         help="Use continuous action space.",
     )
 
-  # ------------------------------------------------------------------
-  # Lifecycle
-  # ------------------------------------------------------------------
-
   def wire_data(self, args, pipeline):
     self.n_actions = pipeline.n_actions
     self._pipeline = pipeline
@@ -132,10 +124,6 @@ class PPOMethod(Method):
     model = self._apply_model_extras(args, model, device)
     return model
 
-  # ------------------------------------------------------------------
-  # Exploration (for rollout collection)
-  # ------------------------------------------------------------------
-
   def act(self, model, obs, *, deterministic=False):
     """Select an action during rollout collection.
 
@@ -159,10 +147,6 @@ class PPOMethod(Method):
   def update_target(self, model, global_step):
     """PPO does not use target networks — no-op."""
     pass
-
-  # ------------------------------------------------------------------
-  # Learning
-  # ------------------------------------------------------------------
 
   def train_step(self, model, blob, global_step, *, labels=None):
     """PPO clipped surrogate loss.
@@ -214,10 +198,6 @@ class PPOMethod(Method):
     }
     return LossOutput(loss=loss, metrics=metrics)
 
-  # ------------------------------------------------------------------
-  # Evaluation
-  # ------------------------------------------------------------------
-
   def evaluate(self, model, pipeline, num_episodes, max_steps=10_000):
     """Run evaluation episodes and return mean return."""
     total_return = 0.0
@@ -245,10 +225,6 @@ class PPOMethod(Method):
 
   def has_metric_improved(self, new_metric, best_metric):
     return new_metric > best_metric
-
-  # ------------------------------------------------------------------
-  # Checkpoint state
-  # ------------------------------------------------------------------
 
   def get_checkpoint_state(self, model, args):
     return {
