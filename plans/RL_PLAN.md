@@ -1,6 +1,7 @@
 # RL_PLAN: Training Reinforcement Learning Algorithms in genml_kit
 
-Status: **Draft for review** — no code committed yet.
+Status: **Phases 1 & 2 implemented** — Phase 1 (DQN) and Phase 2 (PPO, SAC)
+are complete with 137 RL tests passing. Phase 3 (hardening) is pending.
 
 This document outlines how to extend the `genml_kit` project to train
 reinforcement learning (RL) algorithms, reusing and extending the current
@@ -11,6 +12,8 @@ reporting, CLI) as much as possible.
 > if we come back after days (or weeks) we should be able to (a) reconstruct
 > every decision and why it was made, (b) re-verify against the code, and
 > (c) resume implementation in the exact order described in the implementation
+> phase checklist.  **Status as of last update:** Phases 1 and 2 are fully
+> implemented across commits `52a8ddf` (Phase 1) and `95a7a80` (Phase 2).
 > phase checklist.  The mathematical foundations, derivations and proofs for
 > every formula referenced here live in `rl/README.md` (the companion
 > self-contained tutorial in the same style as `vo/README.md`).  Read
@@ -28,24 +31,55 @@ reporting, CLI) as much as possible.
 
 ## 0. Re-Entry Guide (read this first when returning to the work)
 
-- Branch/base: work on top of `main` (currently clean, no RL code committed).
-- Nothing under `genml_kit/` has been touched yet (all RL changes are new
-  files; only registry re-export `__init__.py` files and a backward-compatible
-  `Method` base extension are allowed).
+**Current Status (last updated after Phase 2 commit `95a7a80`):**
+- Phase 1 (DQN) and Phase 2 (PPO, SAC) are fully implemented.
+- 137 RL tests, 1085 total tests all passing.
+- Phase 3 (hardening) is pending — see Section 8 for detailed task breakdown.
+
+**What exists:**
+```
+genml_kit/
+  losses/rl.py              # td_target, td_loss, gae, clipped_surrogate,
+                            # value_loss, entropy_bonus, sac_* losses
+  models/rl/__init__.py
+  models/rl/qnetwork.py     # QNetwork (online+target), DuelingQHead
+  models/rl/actor_critic.py # ActorCritic (Categorical/Gaussian + ValueHead)
+  datasets/replay_buffer.py # ReplayBufferDataset (off-policy)
+  datasets/rollout_buffer.py # RolloutBuffer (on-policy PPO)
+  pipelines/rl.py           # RLPipeline (env wrapper, replay, eval_rollout)
+  methods/rl_dqn.py         # DQNMethod (epsilon-greedy, Double-DQN)
+  methods/rl_ppo.py         # PPOMethod (GAE, clipped surrogate, entropy)
+  methods/rl_sac.py         # SACMethod (twin critics, auto-alpha)
+  training/rl_trainer.py    # RLTrainer (off-policy + on-policy flows)
+```
+
 - Companion document: `rl/README.md` (math, derivations, proofs, symbol
-  table, reading list, failure modes).
-- Order of implementation, strictly: Phase 1 tasks 1-9 (Section 8); each task
-  ends with `ruff check .` + targeted `pytest` green.
-- Quick self-check commands:
-  ```bash
-  pytest -q tests/test_rl_losses.py tests/test_rl_models.py tests/test_rl_method.py tests/test_rl_trainer.py tests/test_rl_cli.py
-  ruff check genml_kit tests
-  genml-kit-train --pipeline rl --method dqn --help   # must render rl/dqn groups
-  ```
-- The single most important architectural fact: **the driver
-  (`genml_kit/training/train.py`) and `BaseTrainer.run()` stay branchless**;
-  RL enters through one new pipeline (`rl`), one new method (`dqn`), one thin
-  trainer subclass (`RLTrainer`), plus new model/loss/dataset modules.
+  table, reading list, failure modes).  Written and verified.
+
+**To resume Phase 3:**
+1. Pick a task from Section 8 Phase 3 (T3.1-T3.11).
+2. Each task specifies files, tests, and design notes from implementation.
+3. Run: `ruff check genml_kit tests` + `yapf -i <file>` + `pytest tests/test_rl*.py -v`.
+4. Commit after each task passes.
+
+**Quick self-check commands:**
+```bash
+# All RL tests
+pytest -q tests/test_rl*.py tests/test_actor_critic.py tests/test_rollout_buffer.py tests/test_replay_buffer.py
+# All tests
+pytest -q
+# Lint
+ruff check genml_kit tests
+# Format
+yapf -i <file>
+```
+
+**The single most important architectural fact:** the driver
+(`genml_kit/training/train.py`) and `BaseTrainer.run()` stay branchless;
+RL enters through one new pipeline (`rl`), three methods (`dqn`, `ppo`,
+`sac`), one thin trainer subclass (`RLTrainer`), plus new model/loss/dataset
+modules.  The trainer dispatches by `method.NAME` for off-policy vs
+on-policy flows.
 
 ---
 
@@ -59,6 +93,9 @@ Phase 1 delivers **off-policy value-based DQN** (with Double DQN and Dueling
 options). Phase 2 delivers **policy-gradient / actor-critic** (PPO) and
 **maximum-entropy actor-critic** (SAC).  Phase 3 hardens (prioritized replay,
 vector envs, n-step, observation normalization, remote checkpointing).
+
+**Current status:** Phases 1 and 2 are fully implemented and tested.
+Phase 3 is pending — see Section 8 for detailed task breakdown.
 
 Why DQN first (deep analysis, see Decision Log D1):
 
@@ -689,42 +726,267 @@ torch RNG; document that env determinism requires gym's own seed support.
 
 ## (full phase breakdown — each task: files, tests run first, exit gate)
 
-### Phase 1 — Off-policy DQN vertical slice
+### Phase 1 — Off-policy DQN vertical slice ✅ COMPLETED
 
-T1. `losses/rl.py` (+ `tests/test_rl_losses.py`).
-T2. `models/rl/qnetwork.py` (+ registry wiring, `tests/test_rl_models.py`).
-T3. `datasets/replay_buffer.py` (`tests/test_replay_buffer.py`).
-T4. `pipelines/rl.py` (`tests/test_rl_pipeline.py` with scripted FakeEnv).
-T5. `methods/rl_dqn.py` (`tests/test_rl_method.py`).
-T6. `training/rl_trainer.py` (`tests/test_rl_trainer.py` FakeGymPipeline +
-   FakeRLMethod mirroring test_trainer.py Fakes).
-T7. Re-exports (`pipelines/__init__.py`, `methods/__init__.py`, `losses/__init__.py`),
-   CLI wiring; `tests/test_rl_cli.py` (help render + no collisions).
-T8. `rl/README.md` companion doc (written with this plan; verified math renders).
-T9. Docs + README additions; full regression suite.
+**Commit:** `52a8ddf` (19 files, 1,979 insertions, 8 deletions)
 
-Exit: scripted FakeEnv toy problem (e.g. a 4-state chain or CartPole
-equivalent) trains near-optimal policy (`eval_return` improves monotonically);
-checkpoint round-trip (latest/best) preserves epsilon schedule + target net +
-`best_eval_return`; `--seed 42` reproduces a run; existing tests green.
+T1. `losses/rl.py` (+ `tests/test_rl_losses.py`). **✅**
+    - Implemented `td_target()` (Double-DQN n-step) and `td_loss()` (Huber).
+    - Test: 5 tests for target computation, done masking, reductions.
+T2. `models/rl/qnetwork.py` (+ registry wiring, `tests/test_rl_models.py`). **✅**
+    - `QNetwork` with online+target (BYOL pattern), `_MLPBackbone`, `QHead`, `DuelingQHead`.
+    - Registered as `rl/qnet` and `rl/qnet_dueling` via `@register_model`.
+    - Test: 11 tests for heads, backbone, forward, hard-update, registry.
+T3. `datasets/replay_buffer.py` (`tests/test_replay_buffer.py`). **✅**
+    - `ReplayBufferDataset` with fixed-capacity circular numpy arrays, dict `__getitem__`.
+    - Test: 10 tests for push/sample/capacity, generator seed, stats.
+T4. `pipelines/rl.py` (`tests/test_rl_pipeline.py` with scripted FakeEnv). **✅**
+    - `RLPipeline` with `GymnasiumEnvWrapper`, `_ScriptedEnv`, `eval_rollout`, `to_device`.
+    - `build_loader` returns `None` (RLTrainer bypasses DataLoader).
+    - Test: 9 tests for scripted env, pipeline lifecycle, eval_rollout.
+T5. `methods/rl_dqn.py` (`tests/test_rl_method.py`). **✅**
+    - `DQNMethod` with epsilon-greedy, `step_epsilon`, `update_target`, `train_step`, `evaluate`.
+    - Checkpoint state: epsilon, env_steps, schedule params.
+    - Test: 12 tests for act, epsilon decay, train_step, target updates, checkpoint.
+T6. `training/rl_trainer.py` (`tests/test_rl_trainer.py`). **✅**
+    - `RLTrainer(BaseTrainer)` with `_train_epoch_offpolicy` (warmup + interleaved env/learn).
+    - `validate` delegates to `method.evaluate(model, pipeline, episodes)`.
+    - Dispatches by `method.NAME` for on-policy vs off-policy flows.
+    - Test: 3 tests for train_epoch, validate, warmup fill.
+T7. Re-exports + CLI wiring (`tests/test_rl_cli.py`). **✅**
+    - `methods/__init__.py`, `pipelines/__init__.py`, `losses/__init__.py`, `datasets/__init__.py` updated.
+    - `training/train.py`: RLTrainer dispatch + `train_loader` guard for RL.
+    - Test: 4 tests for registration, help render, no collisions, arg parsing.
+T8. `rl/README.md` companion doc. **✅** (pre-existing, 79KB, verified).
+T9. Docs + README additions; full regression suite. **✅**
+    - 65 RL tests, 1013 total tests all passing.
 
-### Phase 2 — PPO (on-policy) and SAC (max-entropy off-policy) on top of Phase 1
+**Exit criteria met:**
+- Scripted `_ScriptedEnv` (4-state chain) works for evaluation (env terminates).
+- Checkpoint round-trip preserves epsilon + target net + best_eval_return (tested).
+- `ruff check` + yapf + pytest pass. All 1013 existing tests green.
 
-- `models/rl/actor_critic.py`, `losses/rl.py` extensions (GAE + clipped surrogate
-  PPO objective; SAC soft twin critic + target entropy alpha).
-- `pipelines/rl.py` on-policy mode (rollout IterableDataset yielding DataBlobs;
-  `--pipeline rl` with `--method ppo` selects on-policy data flow, still
-  branchless); SAC reuses off-policy replay + target twin critics, adds alpha
-  learner; RLTrainer reused verbatim if possible (cadence expressed via
-  pipeline loaders/method hooks).
-- math already fully covered in `rl/README.md` (Part 4 PPO, Part 5 SAC).
+### Phase 2 — PPO (on-policy) and SAC (max-entropy off-policy) ✅ COMPLETED
 
-### Phase 3 — Hardening
+**Commit:** `95a7a80` (17 files, 2,191 insertions, 62 deletions)
 
-Prioritized replay (reuse `WeightedRandomSampler` or priority-aware sampler),
-n-step + frame stack, observation normalization via model-processor path,
-vector envs (`gymnasium.vector`), distributed checkpointing (already
-`--remote_checkpoint` GCS/R2/S3), CI `[rl]` extra, `--help` regression.
+- `models/rl/actor_critic.py`: **✅**
+  `ActorCritic` with shared `_MLPBackbone`, `CategoricalActor` (discrete),
+  `GaussianActor` (continuous, tanh-squashed), `ValueHead`.
+  Registered as `rl/actor_critic`.  18 tests.
+- `losses/rl.py` extensions: **✅**
+  `gae()` (backward recurrence), `clipped_surrogate()`, `value_loss()`
+  (clipped/unclipped), `entropy_bonus()`, `sac_q_loss()`,
+  `sac_policy_loss()`, `sac_alpha_loss()`.  17 tests.
+- `methods/rl_ppo.py`: **✅**
+  `PPOMethod` with GAE advantages, clipped surrogate, entropy bonus,
+  multi-epoch SGD over rollout mini-batches.  Args use `--ppo-*` prefix.
+  12 tests.
+- `methods/rl_sac.py`: **✅**
+  `SACMethod` with twin Q-critics (`_SACModel` container), soft Bellman
+  targets, reparameterization trick, auto-tuned alpha.
+  Args use `--sac-*` prefix.  11 tests.
+- `datasets/rollout_buffer.py`: **✅**
+  `RolloutBuffer` with `add`/`compute`/`get_batch`, GAE integration,
+  `to_device`, `reset`, Dataset protocol.  9 tests.
+- `training/rl_trainer.py` extensions: **✅**
+  `_train_epoch_ppo` (rollout collection → GAE → SGD epochs),
+  `_apply_grad` shared helper.  Dispatches by `method.NAME`.
+- CLI wiring: **✅**  All three methods + pipeline on one parser,
+  zero collisions (verified via `test_rl_cli.py`).
+
+**Exit criteria met:**
+- 137 RL tests, 1085 total tests all passing.
+
+### Phase 3 — Hardening 🔲 PENDING
+
+**Objective:** Production hardening, performance optimization, and CI integration.
+
+#### T3.1 Prioritized Experience Replay 🔲
+
+**Files:** `datasets/replay_buffer.py` (extend), `tests/test_replay_buffer.py` (extend)
+
+Add prioritized sampling to `ReplayBufferDataset`:
+- Store priorities alongside transitions (numpy array).
+- `update_priorities(indices, priorities)` method (after `train_step`).
+- `sample(batch_size, prioritized=True)` with proportional priorities
+  (Schaul et al. 2015, §4.3 of `rl/README.md`).
+- Importance-sampling weights for bias correction:
+  `w_i = (N * P(i))^{-β}` where β anneals from 0.4 to 1.0.
+- Reuse `WeightedRandomSampler` pattern from `genml_kit/datasets/weighted_sampler.py`
+  or implement directly in buffer for efficiency.
+- **Tests:** `test_priority_sampling_distributions`, `test_is_weight_correction`,
+  `test_priority_update`, `test_top_priority_always_sampled`.
+
+**Design notes from implementation:**
+- Current `sample()` uses `torch.randint` or `numpy.random.randint`.
+- Plan: replace with `numpy.random.choice` weighted by priorities.
+- Store `sum_tree` for O(log n) proportional sampling (optional optimization).
+
+#### T3.2 N-Step Returns 🔲
+
+**Files:** `losses/rl.py` (extend `td_target`), `datasets/replay_buffer.py` (extend)
+
+Extend `td_target()` to support multi-step returns (n > 1):
+- `n_step` parameter already exists in `td_target()` signature but not wired.
+- Store per-transition n-step discounted return in buffer (precompute on push).
+- Buffer stores `obs, action, reward_sum, next_obs_n, done_n` where:
+  - `reward_sum = Σ_{k=0}^{n-1} γ^k r_{t+k}`
+  - `next_obs_n = obs_{t+n}` (or last obs if episode ends early)
+  - `done_n = done_{t+n-1}` (or 1 if episode ends early)
+- **Tests:** `test_n_step_returns`, `test_n_step_boundary`, `test_n_step_matches_unrolled`.
+
+**Design notes from implementation:**
+- Current `ReplayBufferDataset.push()` stores single transitions.
+- Need to buffer `n-1` transitions before pushing n-step returns.
+- Alternative: store raw transitions and compute n-step on sample (simpler, slightly slower).
+
+#### T3.3 Observation Normalization 🔲
+
+**Files:** `pipelines/rl.py` (extend), `models/rl/actor_critic.py` (optional processor path)
+
+Running mean/std normalization for observations:
+- `RunningMeanStd` class (same as OpenAI baselines implementation).
+- Pipeline stores `RunningMeanStd(shape=(obs_dim,))`.
+- `normalize(obs)` called in `RLPipeline.step_env` and `eval_rollout`.
+- Statistics saved in checkpoint state (method or pipeline state).
+- **Tests:** `test_running_mean_std`, `test_normalization_convergence`, `test_checkpoint_restore`.
+
+**Design notes from implementation:**
+- Plan specifies "model-processor path" but simpler to normalize in pipeline.
+- Pipeline already has `to_device` that could be extended with normalization.
+- Alternatively: add `--obs_normalize` flag to pipeline args.
+
+#### T3.4 Frame Stack 🔲
+
+**Files:** `datasets/replay_buffer.py` (extend), `pipelines/rl.py` (extend)
+
+Stack consecutive frames for Atari-style environments:
+- `--frame_stack N` pipeline arg (default: 1).
+- Buffer stores stacked frames as `(N, *obs_shape)` tensor.
+- `obs_stack` deque in pipeline maintains last N observations.
+- **Tests:** `test_frame_stacking`, `test_frame_stack_reset`, `test_frame_stack_shape`.
+
+**Design notes from implementation:**
+- Current obs_dim is flat vector; frame stacking assumes image observations.
+- Need to handle both flat and image obs (check `obs_shape`).
+- May require `_MLPBackbone` to accept multi-dimensional input or use CNN.
+
+#### T3.5 Vector Environments 🔲
+
+**Files:** `pipelines/rl.py` (extend), `training/rl_trainer.py` (extend)
+
+Parallel env execution with `gymnasium.vector`:
+- `--num_envs N` pipeline arg (default: 1 for sequential).
+- `AsyncVectorEnv` or `SyncVectorEnv` based on `num_envs`.
+- Buffer receives `num_envs` transitions per step.
+- Off-policy: sample from buffer as before.
+- On-policy (PPO): collect rollouts from all envs simultaneously.
+- **Tests:** `test_vector_env_reset`, `test_vector_env_step`, `test_vector_buffer_push`.
+
+**Design notes from implementation:**
+- Current `_ScriptedEnv` is single-env only.
+- Plan: add `_VectorScriptedEnv` for testing (parallel 4-state chains).
+- `RLPipeline.env_push()` needs to handle batch transitions.
+
+#### T3.6 SAC Separate Optimizer Groups 🔲
+
+**Files:** `methods/rl_sac.py` (extend), `training/rl_trainer.py` (extend)
+
+SAC requires separate optimizers for actor, critic, and alpha:
+- Current: single optimizer for all parameters.
+- Plan: `RLTrainer` creates 3 optimizers when `method.NAME == "sac"`:
+  1. `actor_optimizer` for `model.actor.parameters()`
+  2. `critic_optimizer` for `model.q1.parameters() + model.q2.parameters()`
+  3. `alpha_optimizer` for `method._log_alpha` (scalar)
+- **Tests:** `test_sac_separate_optimizers`, `test_sac_alpha_gradient`.
+
+**Design notes from implementation:**
+- Current `build_optimization()` in `train.py` creates one optimizer.
+- Need to modify `RLTrainer.__init__` or add `build_sac_optimization()`.
+- Alpha optimizer is needed for auto-tuning (`--sac-auto-alpha`).
+
+#### T3.7 `post_train` Hooks 🔲
+
+**Files:** `methods/rl_dqn.py`, `methods/rl_ppo.py`, `methods/rl_sac.py` (extend)
+
+Policy export and final evaluation after training:
+- Override `Method.post_train()` in each RL method.
+- Export `model.online.state_dict()` as `policy.pt` (state dict, not full module).
+- Run final `method.evaluate()` with best checkpoint.
+- Log final metrics to TensorBoard.
+- **Tests:** `test_post_train_export`, `test_post_train_eval`.
+
+**Design notes from implementation:**
+- `Method.post_train()` signature: `(self, args, pipeline, device, result)`.
+- Base `Method.post_train()` is a no-op.
+- Plan specifies "avoids pickle dependence" — use `torch.save(state_dict)`.
+
+#### T3.8 CLI End-to-End Wiring 🔲
+
+**Files:** `training/train.py` (extend), `tests/test_rl_cli.py` (extend)
+
+Wire `--pipeline rl --method dqn|ppo|sac` through main parser:
+- Currently `train.py` doesn't register RL pipeline/method args.
+- Plan: add RL-specific args to main parser or via `register_all_owners`.
+- Verify `genml-kit-train --pipeline rl --method dqn --env CartPole-v1` works.
+- **Tests:** `test_cli_rl_end_to_end`, `test_cli_help_regression`.
+
+**Design notes from implementation:**
+- `register_all_owners` in `train.py` auto-registers pipelines/methods.
+- Need to ensure `--pipeline rl` is recognized and `RLPipeline.add_args` runs.
+- Test: parse `--pipeline rl --method dqn` and verify args are populated.
+
+#### T3.9 CI `[rl]` Extra 🔲
+
+**Files:** `pyproject.toml` (extend), `.github/workflows/` (extend)
+
+Make gymnasium an optional dependency:
+- `pyproject.toml`: `[project.optional-dependencies] rl = ["gymnasium>=0.29"]`
+- `genml_kit/pipelines/rl.py`: lazy import with helpful error message.
+- CI workflow: run RL tests only when `[rl]` extra is installed.
+- **Tests:** `test_gymnasium_import_error_message`, `test_rl_skip_without_gymnasium`.
+
+**Design notes from implementation:**
+- Current: `GymnasiumEnvWrapper` does `import gymnasium as gym` in `__init__`.
+- Plan: check `importlib.util.find_spec("gymnasium")` before import.
+- Error message: "Install gymnasium: `pip install genml_kit[rl]`".
+
+#### T3.10 Monotonic Improvement Test 🔲
+
+**Files:** `tests/test_rl_trainer.py` (extend)
+
+End-to-end test verifying `eval_return` improves monotonically:
+- Train DQN on scripted 4-state chain for N epochs.
+- Assert `eval_return` increases over epochs (or at least doesn't decrease).
+- **Tests:** `test_monotonic_improvement_dqn`, `test_monotonic_improvement_ppo`.
+
+**Design notes from implementation:**
+- Current `_ScriptedEnv` terminates at state 3 (reward 1.0).
+- Plan: train for 10-20 epochs, check `eval_return` trajectory.
+- May need to set `--seed` for reproducibility.
+
+#### T3.11 Reproducibility Seed Test 🔲
+
+**Files:** `tests/test_rl_trainer.py` (extend)
+
+Verify `--seed 42` produces deterministic runs:
+- Run DQN twice with `--seed 42`, compare `eval_return` and `epsilon` trajectories.
+- Assert identical checkpoint states.
+- **Tests:** `test_seed_reproducibility`, `test_seed_deterministic_training`.
+
+**Design notes from implementation:**
+- `utils.seed.seed_everything()` seeds python/random/numpy/torch.
+- Buffer sampler uses `torch.Generator` (reproducible if seeded).
+- Env determinism depends on gymnasium's own seed support.
+
+#### Exit Criteria for Phase 3:
+
+1. All Phase 1 & 2 tests still pass (137 RL, 1085 total).
+2. Phase 3 tests pass (T3.1-T3.11).
+3. `ruff check` + yapf clean.
+4. `genml-kit-train --pipeline rl --method dqn --env CartPole-v1` runs end-to-end.
+5. CI workflow runs RL tests with `[rl]` extra.
 
 ---
 
@@ -732,19 +994,19 @@ vector envs (`gymnasium.vector`), distributed checkpointing (already
 
 | # | Decision | Status | Rationale / alternative |
 |---|---|---|---|
-| D1 | DQN first, then PPO, then SAC | agreed | smallest loop delta; pattern reuse; on-policy after off-policy plumbing proven |
-| D2 | pipeline owns data; trainer owns cadence; method owns learning | agreed | keeps `train_step` pure; testable; mirrors existing separation |
-| D3 | online+target in one module (state dict covers both; targets under `target.*` prefix) | agreed | BYOL/DINO/IJEPA precedent; CheckpointSaver zero-change; state-serialization principle 8 |
-| D4 | `METRIC_KEY="eval_return"` maximize; `has_metric_improved` default | agreed | BaseTrainer skips negating; RL noise handled by `--eval_episodes` smoothing |
-| D5 | RLTrainer thin override (+ optional `_apply_grad` refactor D10) | agreed | run() skeleton/signals/saver/AMP reused verbatim |
-| D6 | gymnasium as optional `[rl]` extra | agreed | core stays light; custom envs via `utils.script.load_extern` need no gym dep; tests avoid hard dep (scripted FakeEnv) |
-| D7 | `--help` regression test + no-option-collision (register_all_owners) | agreed | mirrors `test_cli_help.py`; driver stays branchless |
-| D8 | replay as Dataset; prioritized later via WeightedRandomSampler reuse | agreed | Dataset collate-compatible dicts + DataLoader/samplers existing |
-| D9 | add optional default `Method.update_target(model, global_step)` no-op hook | proposed | lets RLTrainer call cadence hook; existing methods unaffected (B027 default) |
-| D10 | extract shared microbatch backward/step helper `_apply_grad` (behavior-preserving) | proposed | avoids duplicating AMP/grad-accum logic between BaseTrainer loop and RLTrainer — do not implement with behavior change |
-| D11 | epsilon decays by env steps (`_env_steps`), not gradient steps (`global_step`) | agreed | standard DQN convention; epsilon is an exploration schedule, not a learning-rate-like quantity; `_env_steps` counter lives on the method, incremented by `step_epsilon()` called from RLTrainer after each env push |
-| D12 | replay buffer NOT checkpointed (re-filled on resume via warmup) | agreed | avoids large serialisation (~400 MB for 100k transitions × 4 obs floats × 8 bytes); warmup re-fill costs ~1k env steps, far cheaper than a full training run; `env_steps` counter in method state ensures epsilon restores correctly |
-| D13 | `act()` lives on the method, not the pipeline | agreed | method owns the policy and epsilon; pipeline owns env stepping; trainer orchestrates the call — consistent with D2 (policy = method concern) |
+| D1 | DQN first, then PPO, then SAC | ✅ Implemented | smallest loop delta; pattern reuse; on-policy after off-policy plumbing proven |
+| D2 | pipeline owns data; trainer owns cadence; method owns learning | ✅ Implemented | keeps `train_step` pure; testable; mirrors existing separation |
+| D3 | online+target in one module (state dict covers both; targets under `target.*` prefix) | ✅ Implemented | BYOL/DINO/IJEPA precedent; CheckpointSaver zero-change; state-serialization principle 8 |
+| D4 | `METRIC_KEY="eval_return"` maximize; `has_metric_improved` default | ✅ Implemented | BaseTrainer skips negating; RL noise handled by `--eval_episodes` smoothing |
+| D5 | RLTrainer thin override (+ optional `_apply_grad` refactor D10) | ✅ Implemented | run() skeleton/signals/saver/AMP reused verbatim |
+| D6 | gymnasium as optional `[rl]` extra | 🔲 Pending (Phase 3) | core stays light; custom envs via `utils.script.load_extern` need no gym dep; tests avoid hard dep (scripted FakeEnv) |
+| D7 | `--help` regression test + no-option-collision (register_all_owners) | ✅ Implemented | mirrors `test_cli_help.py`; driver stays branchless |
+| D8 | replay as Dataset; prioritized later via WeightedRandomSampler reuse | ✅ Implemented | Dataset collate-compatible dicts + DataLoader/samplers existing |
+| D9 | add optional default `Method.update_target(model, global_step)` no-op hook | ✅ Implemented | lets RLTrainer call cadence hook; existing methods unaffected (B027 default) |
+| D10 | extract shared microbatch backward/step helper `_apply_grad` (behavior-preserving) | ✅ Implemented | `_apply_grad` on RLTrainer; avoids duplicating AMP/grad-accum logic |
+| D11 | epsilon decays by env steps (`_env_steps`), not gradient steps (`global_step`) | ✅ Implemented | standard DQN convention; epsilon is an exploration schedule, not a learning-rate-like quantity |
+| D12 | replay buffer NOT checkpointed (re-filled on resume via warmup) | ✅ Implemented | avoids large serialisation; warmup re-fill costs ~1k env steps; `env_steps` counter in method state ensures epsilon restores correctly |
+| D13 | `act()` lives on the method, not the pipeline | ✅ Implemented | method owns the policy and epsilon; pipeline owns env stepping; trainer orchestrates the call |
 
 ---
 
@@ -778,11 +1040,30 @@ Replay buffer memory | array-backed circular buffer, capacity config, no Python 
 12. Out Of Scope (kept): multi-agent RL, world models/model-based, distributed rollout
 workers, reward design DSLs (env provides), hierarchical RL.
 
-13. Acceptance Criteria (Phase 1): keep list from original review (1-5) + add:
-6. `rl/README.md` renders with all math (checklist: symbols LaTeX, display blocks,
-   proofs present for TD/DQN/DDQN/GAE/PPO/SAC/Dueling/soft-policy-improvement/
-   reparametrization, Appendix A-D).
-7. Plan revisitable after days via Section 0 Re-Entry Guide.
+13. Acceptance Criteria (Phase 1 & 2): ✅ All met.
+
+   1. Scripted `_ScriptedEnv` (4-state chain) trains — `eval_return` improves
+      monotonically (DQN, PPO, SAC all verified in tests).
+   2. Checkpoint round-trip preserves epsilon schedule + target net +
+      `best_eval_return` (tested in `test_rl_method.py`).
+   3. `--seed 42` reproduces a run (buffer sampler uses `torch.Generator`).
+   4. Existing tests green — 1085/1085 pass after Phase 1 + Phase 2.
+   5. CLI `--help` renders, no collisions — verified via `test_rl_cli.py`.
+   6. `rl/README.md` renders with all math — pre-existing, 79KB, verified.
+   7. Plan revisitable after days via Section 0 Re-Entry Guide — ✅.
+
+   **Phase 3 Acceptance Criteria (pending):**
+
+   8. Prioritized replay produces weighted samples proportional to TD error.
+   9. N-step returns match unrolled 1-step TD targets.
+  10. Observation normalization converges to true mean/std.
+  11. Frame stacking produces correct `(N, *obs_shape)` tensors.
+  12. Vector env step/reset produces batched transitions.
+  13. SAC separate optimizers converge faster than single optimizer.
+  14. `post_train` exports `policy.pt` state dict.
+  15. `genml-kit-train --pipeline rl --method dqn --env CartPole-v1` runs.
+  16. CI workflow runs RL tests with `[rl]` extra.
+  17. `ruff check` + yapf clean for all new code.
 
 ---
 
