@@ -31,10 +31,6 @@ class SACMethod(Method):
   METRIC_MINIMIZE = False
   NEEDS_LABELS = False
 
-  # ------------------------------------------------------------------
-  # CLI args
-  # ------------------------------------------------------------------
-
   @classmethod
   def add_args(cls, parser):
     group = parser.add_argument_group("sac method")
@@ -92,10 +88,6 @@ class SACMethod(Method):
         default=3e-4,
         help="Alpha learning rate (default: 3e-4).",
     )
-
-  # ------------------------------------------------------------------
-  # Lifecycle
-  # ------------------------------------------------------------------
 
   def wire_data(self, args, pipeline):
     self._pipeline = pipeline
@@ -177,10 +169,6 @@ class SACMethod(Method):
   def _get_alpha(self):
     return self._log_alpha.exp().item()
 
-  # ------------------------------------------------------------------
-  # Exploration
-  # ------------------------------------------------------------------
-
   def act(self, model, obs, *, deterministic=False):
     """SAC acts by sampling from the squashed Gaussian policy."""
     obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
@@ -202,10 +190,6 @@ class SACMethod(Method):
         pt.data.mul_(1.0 - self._tau).add_(p.data, alpha=self._tau)
       for p, pt in zip(model.q2.parameters(), model.q2_target.parameters()):
         pt.data.mul_(1.0 - self._tau).add_(p.data, alpha=self._tau)
-
-  # ------------------------------------------------------------------
-  # Learning
-  # ------------------------------------------------------------------
 
   def train_step(self, model, blob, global_step, *, labels=None):
     """SAC update: twin critic loss + policy loss + alpha loss."""
@@ -267,10 +251,6 @@ class SACMethod(Method):
     }
     return LossOutput(loss=loss, metrics=metrics)
 
-  # ------------------------------------------------------------------
-  # Evaluation
-  # ------------------------------------------------------------------
-
   def evaluate(self, model, pipeline, num_episodes, max_steps=10_000):
     """Run evaluation episodes and return mean return."""
     total_return = 0.0
@@ -292,10 +272,6 @@ class SACMethod(Method):
 
   def has_metric_improved(self, new_metric, best_metric):
     return new_metric > best_metric
-
-  # ------------------------------------------------------------------
-  # Checkpoint state
-  # ------------------------------------------------------------------
 
   def get_checkpoint_state(self, model, args):
     return {
