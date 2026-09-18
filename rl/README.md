@@ -1208,8 +1208,8 @@ infinite sum above.
 ### 11.1 Why "Small Policy Steps"
 
 If the policy gradient step is large, the new policy $`\pi_{\theta'}`$ can
-move far from the old $`\pi_\theta`$ — and the *advantage estimates were
-computed under $`\pi_\theta`$*, so they become stale.  The TRPO objective
+move far from the old $`\pi_\theta`$ — and the advantage estimates were
+computed under $`\pi_\theta`$, so they become stale.  The TRPO objective
 (Schulman et al. 2015, [10]) enforces a hard constraint on the KL divergence
 between successive policies; PPO (Schulman et al. 2017, [11]) replaces the
 hard constraint with a clipped objective that is cheap and well-behaved
