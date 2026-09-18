@@ -287,15 +287,54 @@ On-policy (Phase 2): `data = obs`, `meta = {"actions_with_logp", "advantages",
   custom optimizers/processors/TTA).
 - API to the trainer:
   ```
-  self.act(obs, epsilon_or_greedy) -> action     # epsilon-greedy via method policy? No:
-  self.step_env(action) -> transition             # env stepping only here
-  self.push(transition)
-  self.reset_env()
-  self.eval_rollout(policy_fn, episodes) -> {"eval_return": float, ...}
+  self.step_env(action) -> (obs, reward, done, info)   # env step only
+  self.push(transition)                                  # push to buffer
+  self.reset_env() -> obs                                # reset env
+  self.replay_buffer                                     # public attribute
+  self.eval_rollout(action_fn, episodes) -> {"eval_return": float,
+      "eval_steps": int}
   ```
   Decision D2: the pipeline owns *data* (env + replay); the trainer owns
-  *cadence*; the method owns *learning* (the policy/epsilon live in the
-  method and are passed in as callables where needed).
+  *cadence*; the method owns *learning* and *acting* (policy, epsilon).
+
+  **Build loader:** `build_loader` is called by the driver to satisfy the
+  `Method` lifecycle, but `RLPipeline` returns `None` for both train and
+  val loaders.  `RLTrainer.train_epoch` bypasses the DataLoader entirely
+  and samples directly from `self.replay_buffer.sample(batch_size)`.
+  (A DataLoader cannot iterate a buffer that is mutated during training.)
+
+  **To device:** `RLPipeline.to_device(blob, device)` must handle
+  `TransitionBatch` namedtuples — move `obs`, `action`, `next_obs` to
+  `device`; move `reward` to `device` as `float32`; move `done` to
+  `device` as `float32`.
+
+  **Transition types** (defined in `genml_kit/pipelines/rl.py`):
+
+  ```python
+  Transition = collections.namedtuple(
+      "Transition", ["obs", "action", "reward", "next_obs", "done"])
+  # Individual transition with scalar values; used by push().
+
+  TransitionBatch = collections.namedtuple(
+      "TransitionBatch", ["obs", "action", "reward", "next_obs", "done"])
+  # Batched transition with Tensor fields; used by train_step().
+
+  def _transitions_collate(batch):
+      """List[dict] -> TransitionBatch (Tensor namedtuple)."""
+      return TransitionBatch(
+          obs=torch.stack([b["obs"] for b in batch]),
+          action=torch.tensor([b["action"] for b in batch]),
+          reward=torch.tensor([b["reward"] for b in batch],
+                              dtype=torch.float32),
+          next_obs=torch.stack([b["next_obs"] for b in batch]),
+          done=torch.tensor([b["done"] for b in batch],
+                            dtype=torch.float32),
+      )
+  ```
+  `ReplayBufferDataset.__getitem__` returns a `dict` with keys
+  `"obs"`, `"action"`, `"reward"`, `"next_obs"`, `"done"`.
+  The collate function stacks them into the `TransitionBatch` namedtuple
+  that `DQNMethod.train_step` unpacks.
 
 ### 6.4 Models: `models/rl/qnetwork.py`
 
@@ -312,6 +351,46 @@ On-policy (Phase 2): `data = obs`, `meta = {"actions_with_logp", "advantages",
 - Target net: same class `deepcopy` with `requires_grad_(False)` created in
   `build_model` (BYOL pattern); parameters live in the model state dict under
   `target.*` so CheckpointSaver covers them with zero changes.
+
+**Module structure (implementer must follow exactly):**
+
+```python
+@register_model("rl/qnet")
+class QNetwork(nn.Module):
+  """Composite online+target Q-network.  State dict contains both nets."""
+
+  def __init__(self, obs_dim, n_actions, hidden=128, dueling=False):
+    super().__init__()
+    self.online = _QModule(obs_dim, n_actions, hidden, dueling)
+    self.target = copy.deepcopy(self.online)
+    self.target.requires_grad_(False)
+
+  def forward(self, obs):
+    """Default forward = online net (the gradient path)."""
+    return self.online(obs)
+```
+
+```python
+class _QModule(nn.Module):
+  def __init__(self, obs_dim, n_actions, hidden, dueling):
+    super().__init__()
+    self.net = nn.Sequential(
+        nn.Linear(obs_dim, hidden), nn.ReLU(),
+        nn.Linear(hidden, hidden), nn.ReLU())
+    self.head = (DuelingQHead(hidden, n_actions) if dueling
+                 else QHead(hidden, n_actions))
+
+  def forward(self, obs):
+    return self.head(self.net(obs))
+```
+
+- `model.online(obs)` → online Q-values (gradient path).
+- `model.target(obs)` → frozen target Q-values (no grad).
+- `model(obs)` → `self.online(obs)` (same as above; for `loss.backward()`).
+- State dict keys: `"online.net.0.weight"`, `"target.net.0.weight"`, …
+  Resume / `CheckpointSaver` picks these up automatically (D3).
+- `@register_model("rl/qnet_dueling")` registers the same class with
+  `dueling=True` as default; `--dueling` flag is an alternative route.
 
 Phase 2: `ActorCritic(nn.Module)` — policy head (softmax/gaussian) + value
 head(s) + log-prob helper.
@@ -348,39 +427,110 @@ All pure-torch, batched, reduction-aware (mirrors `losses/focal.py`):
   `--replay_alpha` (Phase 3), `--n_step` (>=1, Phase 3), `--eval_episodes`,
   `--post_train_eval` (bool; export policy via post_train).
 - `build_model(args, device)`:
-  1. `self._epsilon = args.epsilon_start`; store start/end/decay.
-  2. `model = load_model("rl/qnet", device=device, obs_dim=..., n_actions=..., dueling=args.dueling)`.
-  3. `model = self._apply_model_extras(args, model, device)`.
-  4. Create target: `model.target = copy.deepcopy(model.online); requires_grad_(False)`
-     (or a composite `QNetwork` holding online+target; choose composite so
-     state dict includes both, D3).
+  1. `self._epsilon = args.epsilon_start`; store `eps_start`, `eps_end`,
+     `decay_steps` (= `args.epsilon_decay_steps`).
+  2. `self._env_steps = 0` (counter; incremented by `step_epsilon()`).
+  3. `self.n_actions = args.n_actions` (stored for `act()` and
+     RLTrainer warmup random sampling).
+  4. `self._target_update_freq = args.target_update_freq`; `self._tau = args.tau`
+     (stored for `update_target()`).
+  5. `model = load_model("rl/qnet", device=device, obs_dim=..., n_actions=..., dueling=args.dueling)`.
+     (`QNetwork.__init__` creates `self.online` + `self.target` internally;
+     no manual deepcopy needed here.)
+  6. `model = self._apply_model_extras(args, model, device)`.
+
+- `act(model, obs, *, deterministic=False) -> int | Tensor`:
+  **Called by the trainer, not inside `train_step`.**
+  1. `with torch.no_grad(): q = model.online(obs.unsqueeze(0))` (1,D).
+  2. If `deterministic`: `return q.argmax(-1).item()`.
+  3. Else: with probability `self._epsilon` return
+     `torch.randint(0, n_actions, (1,)).item()` (random action);
+     otherwise `return q.argmax(-1).item()`.
+  Returns a Python `int` for gymnasium `env.action_space`.
+
+- `step_epsilon()`: **Called by RLTrainer after each env step** (not inside
+  `train_step` — env stepping never inside train_step, §11 decision D11).
+  ```python
+  self._env_steps += 1
+  # Linear schedule (most common in DQN literature):
+  self._epsilon = max(
+      self._eps_end,
+      self._eps_start * (1.0 - self._env_steps / self._decay_steps))
+  ```
+  `env_steps` (not `global_step`) is the correct counter because epsilon
+  decays with *environment interactions*, not gradient updates.
+
 - `train_step(model, blob, global_step, *, labels=None)`:
-  1. Unpack `(obs, action, reward, next_obs, done)` from `blob.data`
-     (`blob.meta` available if needed, but RL transitions carry all
-     fields in `blob.data`).
+  **Pure learning — no env interaction, no epsilon mutation.**
+  1. Unpack `(obs, action, reward, next_obs, done)` from `blob.data`.
   2. `q = model.online(obs).gather(1, action.unsqueeze(1))` (B,1).
-  3. `target = td_target(...)` with online/target nets; `loss = td_loss(q, target)`.
-  3b. Optional entropy/metric extras; `q_mean`, `q_max`, `epsilon`.
-  3c. `self._epsilon = max(eps_end, eps_start * decay ** global_step)`
-      (or linear schedule).
+  3. `target = td_target(reward, next_obs, done, model.online,
+     model.target, gamma)` — or with `double_q=args.ddqn` per §6.5.
+     `loss = td_loss(q, target, reduction="mean")`.
   4. `return LossOutput(loss=loss, metrics={"td_loss": loss.detach(),
-     "q_mean": q.detach().mean(), "epsilon": self._epsilon})`
+     "q_mean": q.detach().mean(), "epsilon": self._epsilon})`.
+
 - `get_checkpoint_state(model, args)`:
-  `{"method": "dqn", "epsilon": self._epsilon, "eps_start": ...,
-   "eps_end": ..., "eps_decay_steps": ...}`; target-net params already in
-  state dict under `model.online.*`/`model.target.*` (whatever the composite
-  layout — ensure online+target under prefixes; D3 documents the exact keys).
-- `load_checkpoint_state(model, state, args)`: restore epsilon + schedule;
-  nothing else (target in state dict).
-- `evaluate(model, env_pipeline, num_episodes)` (RLTrainer passes an env
-  runner or an "eval loader" wrapper): greedy rollouts, returns `{"eval_return", "eval_steps"}`.
+  `{"method": "dqn", "epsilon": self._epsilon,
+   "env_steps": self._env_steps, "eps_start": ..., "eps_end": ...,
+   "decay_steps": ...}`.  Target-net params are already in the model
+  state dict under `model.target.*` (D3); no extra serialisation needed.
+
+- `load_checkpoint_state(model, state, args)`: restore `_epsilon`,
+  `_env_steps`, `_eps_start`, `_eps_end`, `_decay_steps` from `state`;
+  target-net params restored via normal model state dict path.
+
+- `evaluate(model, pipeline, num_episodes)`:
+  **RLTrainer.validate calls this directly**, passing the `RLPipeline`
+  (not a DataLoader).  Implementation:
+  ```python
+  total_return, total_steps = 0.0, 0
+  for _ in range(num_episodes):
+      obs = pipeline.reset_env()
+      episode_return, done = 0.0, False
+      while not done:
+          action = self.act(model, obs, deterministic=True)
+          obs, reward, done, _ = pipeline.step_env(action)
+          episode_return += reward
+          total_steps += 1
+      total_return += episode_return
+  return {"eval_return": total_return / num_episodes,
+          "eval_steps": total_steps}
+  ```
+  The method handles env interaction here because evaluation is a
+  method-level concern (the method knows what "good" means).
+
 - `has_metric_improved` default from `METRIC_MINIMIZE=False` (max).
-- `post_train(args, pipeline, device, result)`: optional final
-  `evaluate(...)`; export trained policy (`torch.save(model.online)`) —
-  mirrors classification's XGBoost post_train stage.
-- `on_epoch_end(model, epoch, writer)` optional (used for hard target sync if
-  cadence by epoch rather than step; default owner: trainer calls
-  `method.update_target(model, global_step)` — see 6.7/`update_target`).
+
+- `post_train(args, pipeline, device, result)`:
+  1. Run final `self.evaluate(model, pipeline, self._eval_episodes)`.
+  2. Export: `torch.save(model.online.state_dict(), "policy.pt")`
+     (state_dict, not full module — avoids pickle dependence).
+  3. Log final metrics to TensorBoard writer if present.
+
+- `update_target(model, global_step)`:
+  **Called by RLTrainer after every gradient step** (see §6.7).
+  Implementation depends on `--target_update_freq` and `--tau`:
+
+  ```python
+  def update_target(self, model, global_step):
+    if self._target_update_freq > 0:
+      # Hard sync: copy online → target every N steps
+      if global_step % self._target_update_freq == 0:
+        model.target.load_state_dict(model.online.state_dict())
+    else:
+      # Soft Polyak: blend target toward online every step
+      with torch.no_grad():
+        for p, tp in zip(model.online.parameters(),
+                         model.target.parameters()):
+          tp.data.mul_(1.0 - self._tau).add_(p.data, alpha=self._tau)
+  ```
+
+  Hard sync (`target_update_freq > 0`) is the Phase 1 default.
+  Soft Polyak (`tau > 0`, `target_update_freq == 0`) is Phase 2/SAC.
+
+- `on_epoch_end(model, epoch, writer)` optional (used for momentum ramp in
+  DINO/BYOL; DQN does not use it — cadence is by step, not epoch).
 
 Optional base addition (D9): `Method.update_target(model, global_step) # noqa: B027 -> None`
 (the no-op default).  DQNMethod overrides per its cadence arg.  RLTrainer
@@ -389,22 +539,71 @@ unchanged.
 
 ### 6.7 RLTrainer (`training/rl_trainer.py`)
 
-`class RLTrainer(BaseTrainer)` — thin override, ~80-120 lines:
+`class RLTrainer(BaseTrainer)` — thin override, ~100-150 lines:
 
-```
+**`train_epoch` — full control flow (implementer follows this exactly):**
+
+```python
 def train_epoch(self, epoch, saver, step, monitor):
   set_train_mode(self.model, "train")
-  # 1. WARMUP: env steps until replay filled >= warmup_steps
-  # 2. LEARN LOOP: for learn_step_in_epoch in range(self.args.learn_steps_per_epoch):
-  #      every args.train_freq: env.step and push transition
-  #      sample batch -> blob -> to_device -> train_step (same as base's
-  #        microbatch path: LossOutput -> grad = loss/accum -> backward
-  #        -> scaler.step/optimizer.step -> zero_grad -> monitor.step) (shared helper D10)
-  #      step += 1
-  #      method.update_target(self.model, global_step=step)
-  # 3. return avg_loss, new_step
+  method = self.method
+  pipeline = self.pipeline
+  buffer = pipeline.replay_buffer
+  env_act = method.act                  # bound method for acting
+  env_step_fn = pipeline.step_env
+  env_push = pipeline.push
+  env_reset = pipeline.reset_env
+  total_loss, batches = 0.0, 0
+
+  # --- Phase 1: warmup — fill replay buffer with random transitions ---
+  obs = getattr(self, "_warmup_obs", None)   # resume mid-episode
+  if obs is None:
+    obs = env_reset()
+  while len(buffer) < self.args.warmup_steps:
+    action = torch.randint(0, method.n_actions, (1,)).item()  # uniform random
+    next_obs, reward, done, _ = env_step_fn(action)
+    env_push(Transition(obs, action, reward, next_obs, float(done)))
+    obs = next_obs if not done else env_reset()
+  self._warmup_obs = obs                      # save for next epoch
+
+  # --- Phase 2: learn loop — interleaved acting + learning ---
+  for learn_step in range(1, self.args.learn_steps_per_epoch + 1):
+    # Acting: every train_freq learn-steps, take one env step
+    if learn_step % self.args.train_freq == 0:
+      action = env_act(self.model, obs)       # epsilon-greedy
+      next_obs, reward, done, _ = env_step_fn(action)
+      env_push(Transition(obs, action, reward, next_obs, float(done)))
+      method.step_epsilon()                   # decay epsilon (env step counter)
+      obs = next_obs if not done else env_reset()
+
+    # Learning: sample one batch, do one gradient step
+    batch = buffer.sample(self.args.batch_size)
+    blob = pipeline.to_device(batch, self.device)
+    loss_out = method.train_step(self.model, blob, step)
+
+    # Gradient step (shared with BaseTrainer via D10 helper)
+    self._apply_grad(loss_out.loss, self.optimization.scaler,
+                     getattr(self.args, "amp_dtype", None))
+    step += 1
+    method.update_target(self.model, global_step=step)
+
+    total_loss += loss_out.loss.item()
+    batches += 1
+
+  avg_loss = total_loss / max(batches, 1)
+  if self.writer is not None:
+    self.writer.add_scalar("train/loss", avg_loss, epoch)
+    self.writer.add_scalar("epsilon", method._epsilon, epoch)
+  return avg_loss, step
+```
+
+**`validate`:**
+
+```python
 def validate(self):
-  return self.method.evaluate(self.model, self.pipeline, self.args.eval_episodes)   # policy eval on env
+  """Policy evaluation on env (not DataLoader)."""
+  return self.method.evaluate(
+      self.model, self.pipeline, self.args.eval_episodes)
 ```
 
 Reuses from base: `run()` (signals, saver, epoch loop, `_init_grad_monitor`,
@@ -413,12 +612,20 @@ Reuses from base: `run()` (signals, saver, epoch loop, `_init_grad_monitor`,
 amp_dtype)` protected helper from `BaseTrainer` (a safe, behavior-preserving
 refactor) so both loops share the microbatch backward/step primitives.
 
-Cadence summary (all configurable, defaults typical DQN values):
-`warmup_steps=1000`, `train_freq=4`, `target_update_freq=500` (hard sync) or
-`tau=0.005` (soft polyak every microbatch), `learn_steps_per_epoch` derived
-(Phase 1 default: 1 learn epoch corresponds to `total_learn_steps =
-max(1, round(train_freq * train_loader_len_per_epoch))` or a simple
-`--learn_steps_per_epoch`; document exact default in CLI spec below).
+**Cadence summary** (all configurable via CLI, defaults typical DQN values):
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `warmup_steps` | 1000 | Random transitions before learning starts |
+| `train_freq` | 4 | Take env action every N learn-steps |
+| `learn_steps_per_epoch` | 1000 | Gradient updates per epoch (fixed) |
+| `target_update_freq` | 500 | Hard-sync target every N learn-steps (if > 0) |
+| `tau` | 0.005 | Soft Polyak coeff (used if target_update_freq == 0) |
+
+`learn_steps_per_epoch` is a **fixed CLI arg** (not derived from buffer
+size), so the number of env steps per epoch is
+`learn_steps_per_epoch * train_freq`.  This decouples epoch length from
+replay buffer size and keeps epochs reproducible.
 
 ### 6.8 CLI spec (Phase 1)
 
@@ -448,10 +655,29 @@ Checkpoint dict (additive, all existing keys untouched):
   restored by resume path unchanged.
 - `best_eval_return` under `best_eval_return` (metric-key cycle via
   `METRIC_KEY`); the loop never negates (`has_metric_improved`).
-- `method.get_checkpoint_state()` -> `method`, `epsilon`, schedule fields,
-  optional replay stats (`filled`, mean reward etc.) Phase 3, and `tau`.
+- `method.get_checkpoint_state()` -> `{"method": "dqn", "epsilon": ...,
+  "env_steps": ..., "eps_start": ..., "eps_end": ..., "decay_steps": ...}`
+  (Phase 3 adds `tau`, replay stats).
 - State flags (`--state_load`) reuse `restore_training_state` unchanged for
   opt/sched/amp.
+
+**Resume flow for RL (important — must match the plan exactly):**
+1. `model.load_state_dict(ckpt["model"])` restores online + target nets.
+2. `method.load_checkpoint_state(model, ckpt["method_state"], args)` restores
+   `_epsilon`, `_env_steps`, and schedule params — the buffer begins empty
+   (replay is not checkpointed), so the warmup phase re-fills it.
+3. Optimizer / scheduler / scaler restored by `restore_training_state`
+   (existing path, unchanged).
+4. `start_epoch` and `global_step` restored from the checkpoint via
+   `parse_state_flags` (existing path, unchanged).
+5. The replay buffer is empty after resume; the warmup phase in
+   `train_epoch` re-fills it automatically before learning resumes.
+
+**Replay buffer is intentionally NOT checkpointed.** Reasons: (a) buffers
+are large (100k+ transitions); (b) re-filling costs ~1k env steps, far
+less than a full training run; (c) avoids serialisation complexity and
+cloud-storage costs.  The `env_steps` counter in the method state ensures
+epsilon is restored correctly even though the buffer was lost.
 
 Reproducibility: `--seed 42` seeds python/random/numpy/torch (existing
 `utils.seed`), `env_seed` seeds the env, the replay sampler generator, and
@@ -516,6 +742,9 @@ vector envs (`gymnasium.vector`), distributed checkpointing (already
 | D8 | replay as Dataset; prioritized later via WeightedRandomSampler reuse | agreed | Dataset collate-compatible dicts + DataLoader/samplers existing |
 | D9 | add optional default `Method.update_target(model, global_step)` no-op hook | proposed | lets RLTrainer call cadence hook; existing methods unaffected (B027 default) |
 | D10 | extract shared microbatch backward/step helper `_apply_grad` (behavior-preserving) | proposed | avoids duplicating AMP/grad-accum logic between BaseTrainer loop and RLTrainer — do not implement with behavior change |
+| D11 | epsilon decays by env steps (`_env_steps`), not gradient steps (`global_step`) | agreed | standard DQN convention; epsilon is an exploration schedule, not a learning-rate-like quantity; `_env_steps` counter lives on the method, incremented by `step_epsilon()` called from RLTrainer after each env push |
+| D12 | replay buffer NOT checkpointed (re-filled on resume via warmup) | agreed | avoids large serialisation (~400 MB for 100k transitions × 4 obs floats × 8 bytes); warmup re-fill costs ~1k env steps, far cheaper than a full training run; `env_steps` counter in method state ensures epsilon restores correctly |
+| D13 | `act()` lives on the method, not the pipeline | agreed | method owns the policy and epsilon; pipeline owns env stepping; trainer orchestrates the call — consistent with D2 (policy = method concern) |
 
 ---
 
