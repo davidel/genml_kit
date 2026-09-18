@@ -12,10 +12,12 @@ from genml_kit.datasets.replay_buffer import (
     ReplayBufferDataset,
     Transition,
 )
+from genml_kit.datasets.rollout_buffer import RolloutBuffer
 
 __all__ = [
     "DatasetEnsemble",
     "HFDatasetProxy",
     "ReplayBufferDataset",
+    "RolloutBuffer",
     "Transition",
 ]

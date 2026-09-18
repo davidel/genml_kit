@@ -11,6 +11,7 @@ import logging
 import torch
 
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+from genml_kit.datasets.rollout_buffer import RolloutBuffer
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import register_pipeline
@@ -83,7 +84,14 @@ class _ScriptedEnv:
 
   def step(self, action):
     self._step_count += 1
-    if action == 0 and self._state < 3:
+    import numpy as np
+    if hasattr(action, "__len__"):
+      act_val = int(np.asarray(action).flat[0])
+    elif hasattr(action, "item"):
+      act_val = int(action.item())
+    else:
+      act_val = int(action)
+    if act_val == 0 and self._state < 3:
       self._state += 1
     reward = 1.0 if self._state == 3 else 0.0
     done = self._state == 3 or self._step_count >= self._max_episode_length
@@ -210,6 +218,15 @@ class RLPipeline(DataPipeline):
         obs_dim=obs_dim,
         capacity=getattr(args, "replay_capacity", 100_000),
     )
+
+    # On-policy rollout buffer (used by PPO; ignored by DQN/SAC).
+    self.rollout_buffer = RolloutBuffer(
+        obs_dim=obs_dim,
+        rollout_len=getattr(args, "rollout_len", 2048),
+        action_dim=None,  # discrete by default
+        device="cpu",
+    )
+
     logging.info(
         "RLPipeline: obs_dim=%d, n_actions=%d, buffer_capacity=%d",
         obs_dim,
