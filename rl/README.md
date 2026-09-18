@@ -210,7 +210,7 @@ mathematical and one economic:
 
 $$
 \large
-|G_t| \;\le\; \sum_{k=0}^{\infty} \gamma^k R_{\max}
+\lvert G_t \rvert \;\le\; \sum_{k=0}^{\infty} \gamma^k R_{\max}
 = \frac{R_{\max}}{1 - \gamma} < \infty.
 $$
 
@@ -294,7 +294,7 @@ V^{\pi}(s) = \sum_{a} \pi(a \mid s)\\, Q^{\pi}(s, a).
 $$
 
 The **optimal** value functions are the pointwise maxima over policies:
-$`V^*(s) = \max_\pi V^\pi(s)`$, $`Q^*(s,a) = \max_\pi Q^\pi(s,a)`$.
+$`V^{\ast}(s) = \max_\pi V^\pi(s)`$, $`Q^{\ast}(s,a) = \max_\pi Q^\pi(s,a)`$.
 
 ### 3.2 The Bellman Equation for $`V^\pi`$
 
@@ -346,11 +346,11 @@ The optimal value functions satisfy the **Bellman optimality equations**:
 
 $$
 \large
-V^*(s) = \max_{a} \sum_{s'} p(s' \mid s, a)\,
-          \Bigl[ r(s, a, s') + \gamma\\, V^*(s') \Bigr],
+V^{\ast}(s) = \max_{a} \sum_{s'} p(s' \mid s, a)\,
+          \Bigl[ r(s, a, s') + \gamma\\, V^{\ast}(s') \Bigr],
 \qquad
-Q^*(s, a) = \sum_{s'} p(s' \mid s, a)\,
-             \Bigl[ r(s, a, s') + \gamma\\, \max_{a'} Q^*(s', a') \Bigr].
+Q^{\ast}(s, a) = \sum_{s'} p(s' \mid s, a)\,
+             \Bigl[ r(s, a, s') + \gamma\\, \max_{a'} Q^{\ast}(s', a') \Bigr].
 $$
 
 **Why the max is legitimate (greedy improvement argument).**  Define the
@@ -361,24 +361,24 @@ $$
 \pi_g(s) \in \arg\max_{a} Q(s, a).
 $$
 
-If $`Q = Q^*`$, acting greedily and then following $`\pi^*`$ afterwards
+If $`Q = Q^{\ast}`$, acting greedily and then following $`\pi^{\ast}`$ afterwards
 yields, by definition of the max,
 
 $$
 \large
-Q^*(s, \pi_g(s)) = \max_a Q^*(s, a) \ge Q^*(s, \pi^*(s)),
+Q^{\ast}(s, \pi_g(s)) = \max_a Q^{\ast}(s, a) \ge Q^{\ast}(s, \pi^{\ast}(s)),
 $$
 
-so the greedy policy is at least as good as $`\pi^*`$, hence optimal.  The
+so the greedy policy is at least as good as $`\pi^{\ast}`$, hence optimal.  The
 optimal policy is *deterministic*: in every state, a best action exists and
 the others are never strictly needed.  This justifies value-based methods
 that represent only $`Q`$ and read off $`\pi(s) = \arg\max_a Q(s,a)`$.
 
 > **Sanity check.**  In a grid world where the exit is one step right, the
-> Bellman optimality equation says the bonus $`V^*`$ propagates one cell per
-> iteration of the *backward* recursion.  For the exit cell $`V^*(e) =
+> Bellman optimality equation says the bonus $`V^{\ast}`$ propagates one cell per
+> iteration of the *backward* recursion.  For the exit cell $`V^{\ast}(e) =
 > r_e + \gamma \cdot 0`$, for the cell left of it
-> $`V^* = r + \gamma V^*(e)`$, and so on.  This “three-line” reading of the
+> $`V^{\ast} = r + \gamma V^{\ast}(e)`$, and so on.  This “three-line” reading of the
 > equation is the whole intuition behind dynamic programming AND behind
 > Q-learning (Part 2).
 
@@ -633,12 +633,12 @@ $$
 \sum_t \alpha_t = \infty, \qquad \sum_t \alpha_t^2 < \infty.
 $$
 
-Then $`Q_t \to Q^*`$ with probability 1.
+Then $`Q_t \to Q^{\ast}`$ with probability 1.
 
 The proof (Appendix C, [2]) works by viewing Q-learning as stochastic
 approximation of the Bellman optimality operator, whose $`\gamma`$-
 contraction property (Section 3.4, extended to the max operator) gives a
-unique fixed point $`Q^*`$, and whose stochastic errors are averaged out by
+unique fixed point $`Q^{\ast}`$, and whose stochastic errors are averaged out by
 the step-size conditions.  The key obstruction in the deep case (Part 3)
 is exactly that a neural network breaks the *contraction* (its update is no
 longer a contraction), which is why deep Q-learning needs replay and target
@@ -803,8 +803,7 @@ $`\varepsilon_{\text{start}}`$ (usually 1.0) to $`\varepsilon_{\text{end}}`$
 $$
 \large
 \varepsilon_t
-= \varepsilon_{\text{end}}
-+ \bigl(\varepsilon_{\text{start}} - \varepsilon_{\text{end}}\bigr)\,
+= \varepsilon_{\text{end}} + \bigl(\varepsilon_{\text{start}} - \varepsilon_{\text{end}}\bigr)\,
   \max\!\Bigl(0,\; 1 - \tfrac{t}{T_{\text{decay}}}\Bigr).
 $$
 
@@ -834,10 +833,10 @@ with strict inequality whenever the $`X_i`$ are not perfectly correlated and
 have positive variance.
 
 **Proof.**  For any realization, $`\max_i X_i \ge X_j`$ for every $`j`$.
-In particular $`\max_i X_i \ge X_{j^*}`$ where $`j^* = \arg\max_i \mu_i`$.
-Take expectations: $`\mathbb{E}[\max_i X_i] \ge \mathbb{E}[X_{j^*}] =
-\mu_{j^*} = \max_i \mu_i`$.  Equality holds only if the realized max is
-always achieved by $`j^*`$ — false with positive variance, since then some
+In particular $`\max_i X_i \ge X_{j^{\ast}}`$ where $`j^{\ast} = \arg\max_i \mu_i`$.
+Take expectations: $`\mathbb{E}[\max_i X_i] \ge \mathbb{E}[X_{j^{\ast}}] =
+\mu_{j^{\ast}} = \max_i \mu_i`$.  Equality holds only if the realized max is
+always achieved by $`j^{\ast}`$ — false with positive variance, since then some
 other $`X_j`$ occasionally exceeds it.  Hence the strict upward bias.
 
 In Q-learning the noise is the estimation error of $`Q_{\theta^-}`$
@@ -859,8 +858,8 @@ y_i^{\text{Double}}
 $$
 
 The **online** network selects the best action at $`s'`$:
-$`a^* = \arg\max_{a'} Q_\theta(s', a')`$.  The **target** network then
-*evaluates* that chosen action: $`Q_{\theta^-}(s', a^*)`$.  Selection and
+$`a^{\ast} = \arg\max_{a'} Q_\theta(s', a')`$.  The **target** network then
+*evaluates* that chosen action: $`Q_{\theta^-}(s', a^{\ast})`$.  Selection and
 evaluation use different weights, so the upward max bias of Section 7.1 is
 largely cancelled (the estimator whose max is taken — $`Q_{\theta^-}`$ — is
 evaluated at a point chosen by the other network, breaking the
@@ -915,8 +914,7 @@ The standard fix forces the advantages to sum to zero by subtracting their
 $$
 \large
 Q_\theta(s, a)
-= V_\eta(s) + A_\psi(s, a)
- - \frac{1}{|\mathcal{A}|} \sum_{a'} A_\psi(s, a').
+= V_\eta(s) + A_\psi(s, a) - \frac{1}{|\mathcal{A}|} \sum_{a'} A_\psi(s, a').
 $$
 
 **Claim.**  With the mean-subtracted form, $`\max_a Q_\theta(s,a) =
@@ -1033,8 +1031,7 @@ $$
 \large
 \begin{aligned}
 \nabla_\theta \log p_\theta(\tau)
-&= \nabla_\theta \Bigl[ \log p(S_0) + \sum_{t \ge 0} \log \pi_\theta(A_t \mid S_t)
-   + \sum_{t \ge 0} \log p(S_{t+1} \mid S_t, A_t) \Bigr] \\
+&= \nabla_\theta \Bigl[ \log p(S_0) + \sum_{t \ge 0} \log \pi_\theta(A_t \mid S_t) + \sum_{t \ge 0} \log p(S_{t+1} \mid S_t, A_t) \Bigr] \\
 &= \sum_{t \ge 0} \nabla_\theta \log \pi_\theta(A_t \mid S_t).
 \end{aligned}
 $$
@@ -1139,8 +1136,7 @@ advantage estimates.  Define the $`k`$-step TD error:
 $$
 \large
 \delta_t^{(k)}
-= -V_\phi(s_t) + R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{k-1} R_{t+k}
-  + \gamma^k V_\phi(s_{t+k}).
+= -V_\phi(s_t) + R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{k-1} R_{t+k} + \gamma^k V_\phi(s_{t+k}).
 $$
 
 **Generalized Advantage Estimation** (Schulman et al. 2016, [9]) is the
@@ -1292,9 +1288,7 @@ The complete PPO loss adds a value-function loss and an entropy bonus:
 $$
 \large
 L^{\text{PPO}}(\theta) = \mathbb{E}_t\!\left[
-  L^{\text{CLIP}}(\theta)
-  - c_1\\, L^{\text{VF}}(\theta)
-  + c_2\\, H(\pi_\theta)(s_t)
+  L^{\text{CLIP}}(\theta) - c_1\\, L^{\text{VF}}(\theta) + c_2\\, H(\pi_\theta)(s_t)
 \right],
 $$
 
@@ -1353,8 +1347,7 @@ Q_{\text{soft}}^{\pi}(s, a)
 = r(s, a) + \gamma\\, \mathbb{E}_{s' \sim p}\!\left[ V_{\text{soft}}^{\pi}(s') \right],
 \qquad
 V_{\text{soft}}^{\pi}(s)
-= \mathbb{E}_{a \sim \pi}\!\left[ Q_{\text{soft}}^{\pi}(s, a)
-  - \alpha\\, \log \pi(a \mid s) \right].
+= \mathbb{E}_{a \sim \pi}\!\left[ Q_{\text{soft}}^{\pi}(s, a) - \alpha\\, \log \pi(a \mid s) \right].
 $$
 
 The term $`-\alpha \log \pi(a \mid s)`$ is the *entropy bonus in expectation*:
@@ -1397,9 +1390,9 @@ soft value satisfies
 
 $$
 \large
-\pi^*_{\text{soft}}(a \mid s)
+\pi^{\ast}_{\text{soft}}(a \mid s)
 \;\propto\;
-\exp\!\left( \frac{1}{\alpha}\, Q_{\text{soft}}^{*}(s, a) \right).
+\exp\!\left( \frac{1}{\alpha}\, Q_{\text{soft}}^{\ast}(s, a) \right).
 $$
 
 **Proof sketch.**  At each state $`s`$, the soft V as a function of the
@@ -1449,9 +1442,8 @@ $$
 \qquad
 y = r + \gamma (1-d)\,
 \Bigl[
-  \min_{j=1,2} Q_{\bar\psi_j}(s', \tilde{a}')
-  - \alpha\\, \log \pi_\phi(\tilde{a}' \mid s')
-\Bigr],
+  \min_{j=1,2} Q_{\bar\psi_j}(s', \tilde{a}') - \alpha\\, \log \pi_\phi(\tilde{a}' \mid s')
+  \Bigr],
 $$
 
 where $`\tilde{a}' \sim \pi_\phi(\cdot \mid s')`$ is a *freshly
@@ -1483,18 +1475,18 @@ $$
 $$
 
 **Derivation.**  The soft-optimal (Gibbs) policy at state $`s`$ is
-$`\pi^* \propto \exp(Q_\psi(s, \cdot)/\alpha)`$ (Section 12.4).  Minimizing
-$`\mathrm{KL}(\pi_\phi \,\|\, \pi^*)`$ over $`\pi_\phi`$:
+$`\pi^{\ast} \propto \exp(Q_\psi(s, \cdot)/\alpha)`$ (Section 12.4).  Minimizing
+$`\mathrm{KL}(\pi_\phi \,\|\, \pi^{\ast})`$ over $`\pi_\phi`$:
 
 $$
 \large
-\mathrm{KL}(\pi_\phi \,\|\, \pi^*)
+\mathrm{KL}(\pi_\phi \,\|\, \pi^{\ast})
 = \mathbb{E}_{a \sim \pi_\phi}\!\left[
-  \log \pi_\phi(a \mid s) - \log \pi^*(a \mid s)
+  \log \pi_\phi(a \mid s) - \log \pi^{\ast}(a \mid s)
 \right].
 $$
 
-Substituting $`\log \pi^*(a \mid s) = Q_\psi(s,a)/\alpha - \log Z(s)`$ (where
+Substituting $`\log \pi^{\ast}(a \mid s) = Q_\psi(s,a)/\alpha - \log Z(s)`$ (where
 $`Z(s)`$ is the normalizer, constant in $`\phi`$), dropping the constant,
 and multiplying by $`\alpha`$ yields exactly $`\mathcal{L}_\pi`$.  The
 expectation is over the *policy's own* samples, which is why the
@@ -1741,7 +1733,7 @@ section where it first appears.
 | $`\Pr_\pi, \mathbb{E}_\pi`$ | probability/expectation under $`\pi`$ | §2.3 |
 | $`G_t`$ | return from time $`t`$ | §2.4 |
 | $`V^{\pi}(s), Q^{\pi}(s,a)`$ | state-/action-value of $`\pi`$ | §3.1 |
-| $`V^*, Q^*`$ | optimal value functions | §3.1 |
+| $`V^{\ast}, Q^{\ast}`$ | optimal value functions | §3.1 |
 | $`\mathcal{T}^\pi`$ | Bellman (evaluation) operator | §3.4 |
 | $`\lVert \cdot \rVert_\infty`$ | sup-norm | §3.4 |
 | $`\alpha`$ | learning rate (or step size); SAC temperature | §4.2, §12.1 |
