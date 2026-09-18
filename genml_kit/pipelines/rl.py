@@ -16,10 +16,6 @@ from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import register_pipeline
 
-# ---------------------------------------------------------------------------
-# Lightweight Gymnasium wrapper
-# ---------------------------------------------------------------------------
-
 
 class GymnasiumEnvWrapper:
   """Thin adapter around a Gymnasium ``Env`` with numpy-array observations.
@@ -106,11 +102,6 @@ class _ScriptedEnv:
     return obs.numpy()
 
 
-# ---------------------------------------------------------------------------
-# Pipeline
-# ---------------------------------------------------------------------------
-
-
 @register_pipeline
 class RLPipeline(DataPipeline):
   """RL data pipeline: environment + replay buffer + eval rollout."""
@@ -183,10 +174,6 @@ class RLPipeline(DataPipeline):
   def build_val_loader(self, args, **kwargs):
     """Return ``None`` — validation is done via ``eval_rollout``."""
     return None
-
-  # ------------------------------------------------------------------
-  # Environment helpers
-  # ------------------------------------------------------------------
 
   def init_env(self, args):
     """Build (and cache) the environment and replay buffer.
@@ -267,10 +254,6 @@ class RLPipeline(DataPipeline):
   def buffer(self):
     return self.replay_buffer
 
-  # ------------------------------------------------------------------
-  # Eval rollout
-  # ------------------------------------------------------------------
-
   def eval_rollout(self, action_fn, num_episodes=5):
     """Run *num_episodes* episodes using *action_fn(obs) -> action*.
 
@@ -298,10 +281,6 @@ class RLPipeline(DataPipeline):
         "eval_return": total_return / num_episodes,
         "eval_steps": total_steps,
     }
-
-  # ------------------------------------------------------------------
-  # Device transfer
-  # ------------------------------------------------------------------
 
   def to_device(self, blob, device):
     """Move a ``TransitionBatch`` dict (or ``DataBlob``) to *device*.
@@ -333,10 +312,6 @@ class RLPipeline(DataPipeline):
     if isinstance(blob, DataBlob):
       return DataBlob(data=data, meta=meta)
     return data
-
-  # ------------------------------------------------------------------
-  # Scripted-env factory (for unit testing without gymnasium)
-  # ------------------------------------------------------------------
 
   @classmethod
   def _make_scripted_env(cls, obs_dim=4):
