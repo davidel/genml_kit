@@ -1,0 +1,425 @@
+================================================================================
+ GITHUB MARKDOWN + LATEX (KATEX) RENDERING RULES
+ Reference for genml_kit documentation (README.md files, tutorials)
+================================================================================
+
+WHY THIS FILE EXISTS
+--------------------
+In September 2026 we wasted many hours fixing GitHub math-rendering
+breakage in rl/README.md (and burned several commits doing it).  Every
+single failure had the SAME root cause, and none of them were "real"
+LaTeX errors:
+
+        GITHUB RUNS MARKDOWN FIRST, KATEX SECOND.
+
+GitHub does NOT hand raw $`...`$ or $$...$$ content straight to KaTeX.
+The Markdown parser runs first and applies its OWN syntax rules (emphasis,
+bold, list markers, table pipes, headings, backtick code spans, backslash
+escapes) to the text BEFORE the math renderer sees anything.  Any byte
+pattern that Markdown can interpret near a math delimiter can:
+
+    (a) eat part of the math content  -> KaTeX error like
+        "Missing open brace for superscript", or
+    (b) break the math block detection entirely -> GitHub emits the
+        RAW TEXT (you literally see "$...$" or "$$...$$" in the page).
+
+Symptom (b) is the one that looks the worst: whole formulas appear as
+plain text on GitHub while the same file looks perfect in a local editor.
+
+This file records every failure mode we hit, the exact byte patterns
+that trigger it, and the exact fix.  Follow the ABSOLUTE RULES section
+and run the VERIFICATION SCRIPTS section before committing any
+documentation containing math.
+
+The canonical working reference is vo/README.md (102 display-math blocks,
+renders correctly on GitHub).  Its Appendix D is authoritative.
+
+--------------------------------------------------------------------------------
+1.  INLINE MATH: THE ONLY SUPPORTED FORM
+--------------------------------------------------------------------------------
+
+ALWAYS use the GitHub dollar-backtick form.  There is exactly ONE
+correct byte pattern:
+
+        `$CONTENT`$        (backtick, dollar, content, backtick, dollar)
+
+Examples that are correct:
+
+        $`gamma`$
+        $`Q_\theta(s,a)`$
+        $`V^{\ast}(s)`$
+        $`n = 1`$
+
+NEVER use:
+        $CONTENT$            bare dollar form (not rendered as math)
+        \(CONTENT\)          LaTeX inline form (not rendered)
+        ``$CONTENT`$         extra backtick anywhere (breaks the span)
+
+The backtick wrapper is what shields underscores, asterisks and braces
+from the Markdown layer.  Without the backticks, _x_ becomes italics,
+* becomes emphasis, { } becomes invisible.
+
+--------------------------------------------------------------------------------
+2.  DISPLAY MATH: THE ONLY SUPPORTED FORM
+--------------------------------------------------------------------------------
+
+ALWAYS use the GitHub fenced form.  $$ must be on its OWN line, with
+nothing before or after:
+
+        $$
+        \large
+        <math content>
+        $$
+
+Conventions that are required or strongly recommended:
+
+  - The line right after the opening $$ is the \large directive.
+  - A blank line must precede the opening $$ and follow the closing $$.
+  - No blank line INSIDE the block.
+  - Every line inside the block must not begin with a Markdown-special
+    character (see section 4).  This is the single most common bug.
+  - \begin{aligned} is allowed for multi-line derivations (rows end
+    with \\ and use &= alignment).  \begin{cases}, \begin{bmatrix},
+    \begin{pmatrix} are fine.  (vo/README.md uses bmatrix heavily.)
+
+--------------------------------------------------------------------------------
+3.  SYNTAX THAT MUST NEVER APPEAR ON GITHUB - QUICK HIT LIST
+--------------------------------------------------------------------------------
+
+Below is the complete list of hazards we hit, the symptom, and the fix.
+Details for each are in sections 4-9.
+
+  HAZARD                            SYMPTOM              FIX
+  -------------------------------   ------------------   ---------------------------------
+  V^* / Q^* / ^* / ^{*}             KaTeX "Missing        use ^{\ast}
+                                      open brace"
+  bare * as multiply in math        content eaten        use \cdot or \times
+  line starts with + - * | # >      whole $$ block       reflow so the operator is
+  1. inside a $$ block                shown as raw text   NOT at line start; for |..|
+                                                          use \lvert..\rvert
+  emphasis *...* straddling a        raw text around      remove the emphasis or move
+  math span ($`..`$)                   the span             it fully outside the math
+  bold **...** opening right after    raw text            reflow so **...** lives on
+  a math-close at end of line                              one line (start bold on a
+                                                          fresh line)
+  ``$  (double backtick before $)    span never closes,   single backtick only:
+                                       raw text            $`...`$
+  stray trailing `$ with no opener   raw text            delete the orphan
+  \,  single backslash thin space    KaTeX sees ","      write \\, (double backslash)
+  \\  single backslash row break     rows collapse      write \\\\ (in bmatrix etc.)
+  \operatorname                      not supported       use \mathrm{clip} etc.
+  raw unicode math symbols           varies              use \pi \theta \gamma \to \le
+
+--------------------------------------------------------------------------------
+4.  HAZARD:  THE ASTERISK  *  (emphasis)  -- HIT 1
+--------------------------------------------------------------------------------
+
+GitHub's Markdown emphasis parser consumes * characters even INSIDE
+math.  A realistic example that broke in rl/README.md:
+
+        $`V^*(s) = \max_a ...`$
+
+The * in V^* was eaten as an emphasis delimiter, so KaTeX received
+
+        V^(s)
+
+and reported  "Missing open brace for superscript"  (the ( after ^ was
+interpreted as the start of a braced group).
+
+FIX:  never use a raw * as a superscript or a multiplication sign in
+math.  Use:
+
+        ^{\ast}      instead of   ^*    or  ^{*}
+        \cdot        instead of   *     (multiplication)
+        \times       instead of   *     (multiplication, when preferred)
+
+A scan for the regex  \^\*  on any README must return ZERO matches.
+
+--------------------------------------------------------------------------------
+5.  HAZARD:  MARKDOWN LINE-START MARKERS INSIDE $$ BLOCKS  -- HIT 2
+--------------------------------------------------------------------------------
+
+Inside a $$ display block, ANY line whose first non-space characters
+look like a Markdown block construct can make GitHub's math-block
+detection fail, and the entire block is dumped as raw text.
+
+Forbidden line starts (0-3 leading spaces are STILL dangerous; CommonMark
+allows up to 3 spaces of indent for list markers):
+
+        +   (followed by space)     list marker
+        -   (followed by space)     list marker
+        *   (followed by space)     list marker
+        |                            table pipe
+        #                            heading
+        >                            blockquote
+        1.  2.  etc. (digit-dot-space)   ordered list
+
+Concrete failures in rl/README.md:
+
+  - epsilon-greedy schedule had a continuation line starting with:
+        + \bigl(\varepsilon_{start} - \varepsilon_{end}\bigr)\,
+    -> whole formula shown as raw text.
+
+  - an advantage-function line started with:
+         - \frac{1}{|\mathcal{A}|} ...
+    -> same.
+
+  - a return-bound block started its math with:
+        |G_t| \;\le\; ...
+    -> the pipe was the hazard.  Fixed with \lvert G_t \rvert.
+
+  - PPO surrogate, soft-value, SAC-Q and log-derivative blocks each had
+    continuation lines starting with  +  or  - .
+
+FIX:  reflow the math so that no line inside $$ begins with any of the
+forbidden characters.  Two equivalent techniques:
+
+  1) Join the line so the + / - / | is no longer at line start.
+     In display math a newline is just whitespace, so joining lines
+     does not change the rendered formula at all.  Example:
+
+        before:   = \varepsilon_{end}
+                  + \bigl(\varepsilon_{start} - \varepsilon_{end}\bigr)\,
+                  \max\!\Bigl(0,\; 1 - \tfrac{t}{T_{decay}}\Bigr).
+
+        after:    = \varepsilon_{end} + \bigl(...
+                  \max\!\Bigl(0,\; 1 - \tfrac{t}{T_{decay}}\Bigr).
+
+  2) For a line that must START with an absolute value, replace
+     the pipe delimiters with \lvert ... \rvert :
+
+        before:   |G_t| \;\le\; \sum ...
+        after:    \lvert G_t \rvert \;\le\; \sum ...
+
+     (\lvert and \rvert render identically to | | in KaTeX.)
+
+NOTE: a 4-space indent on a continuation line inside $$ is SAFE (we
+proved this: the block containing the Bellman optimality equations kept
+its indentation and reached KaTeX - it only failed because of the *
+issue above).  Do not "fix" 4-space indents; the earlier Bellman
+equations blocks with aligned indentation render fine.  Just avoid
+introducing NEW lines that start with + - * | # > or 1.
+
+--------------------------------------------------------------------------------
+6.  HAZARD:  MALFORMED DELIMITERS  (stray / doubled backticks)  -- HIT 3
+--------------------------------------------------------------------------------
+
+Every inline math span needs EXACTLY one backtick on each side of the
+dollar.  We introduced two bugs of this class by careless editing:
+
+  (a) Double backtick before the closing dollar:
+        $`(1 - \lambda)\, \lambda^{k-1}``$
+      The span is never properly closed, GitHub shows raw text.
+      FIX:  $`(1 - \lambda)\, \lambda^{k-1}`$
+
+  (b) Stray trailing `` `$ `` with no matching opener:
+        ...uses $`n = 2`-3`$
+      The span $`n = 2` is fine; the trailing `$ is an orphan.
+      FIX:  ...uses $`n = 2`$-3
+      (close the span after 2, keep the "-3" as plain text).
+
+RULE:  count the occurrences of the two-character sequence  `$  in a
+file.  For every real math span it appears exactly twice (open + close).
+The count must be EVEN.  The only legitimately unpaired occurrence is a
+literal code-form description of the fence itself, e.g.  `$$...$$`  when
+a document explains the syntax (that one contains a `$ with no partner).
+
+--------------------------------------------------------------------------------
+7.  HAZARD:  EMPHASIS / BOLD CROSSING A MATH SPAN OR A LINE BOUNDARY   -- HITS 4-5
+--------------------------------------------------------------------------------
+
+(a) SINGLE-ASTERISK EMPHASIS must NEVER straddle an inline math span.
+
+    BROKEN (this is what broke in rl/README.md section 11.1):
+
+        ...and the *advantage estimates were computed under $`\pi_\theta`$*,
+        so they become stale.
+
+    The * opened BEFORE the math span and closed immediately AFTER the
+    closing backtick-dollar.  GitHub cannot interleave emphasis
+    delimiters with the backtick-delimited math span, so the text around
+    it rendered raw.
+
+    FIX: remove the emphasis, or move it so it does not cross the span:
+        ...and the advantage estimates were computed under $`\pi_\theta`$, 
+        so they become stale.
+
+    Safe pattern (from vo/README.md): emphasize a WORD, then math, then
+    emphasize another word:
+        *full* return $`G_t`$ with a *one-step* target      <- OK
+
+(b) BOLD **...** must not OPEN on a line that ends right after a
+    math-close, when the bold closes on the NEXT line.
+
+    BROKEN (rl/README.md section 12.1):
+
+        Classic RL maximizes expected return $`\sum \mathbb{E}[r]`.  **Maximum
+        entropy RL** (Ziebart ...)
+
+    FIX: reflow so the bold lives entirely on one line, starting it on a
+    fresh line after the math-close:
+        Classic RL maximizes expected return $`\sum \mathbb{E}[r]`.
+        **Maximum entropy RL** (Ziebart ...)
+
+    We verified vo/README.md has 35 lines ending with a math-close, and
+    ZERO of them are followed by a **-starting next line.  Follow that.
+
+Scan rules: a file must contain ZERO occurrences of the patterns
+        `$*        (math-close immediately followed by asterisk)
+        *`$        (asterisk immediately before math-open)
+   and ZERO lines ending in  `$  whose next line starts with  **  or  *.
+
+--------------------------------------------------------------------------------
+8.  HAZARD:  BACKSLASH ESCAPING  (thin spaces and row breaks)   -- HIT 6
+--------------------------------------------------------------------------------
+
+Markdown's escape processing eats ONE level of backslashes before KaTeX
+sees the content.
+
+  - Thin space:  to get a KaTeX thin space \, you must write TWO
+    backslashes in the file:
+        \\,          (in the file)  ->  \,  (seen by KaTeX)
+    A single  \,  in the file becomes a plain comma by the time KaTeX
+    sees it.  rl/README.md and vo/README.md both state this convention.
+
+  - Matrix/array row breaks: to get a KaTeX \\ row break you must write
+    FOUR backslashes in the file:
+        \\\\         (in the file)  ->  \\  (seen by KaTeX)
+    With fewer, every bmatrix row collapses onto one line.
+
+  - A "\\" followed by "n" (e.g. \n) must never appear literally inside
+    a real math block; it is only used in prose when DESCRIBING the
+    fence syntax, e.g.  `$$\n\large\n...\n$$`  inside backticks.
+
+--------------------------------------------------------------------------------
+9.  HAZARD:  NAMED OPERATORS AND UNICODE
+--------------------------------------------------------------------------------
+
+  - GitHub's renderer does NOT support \operatorname.  Use upright
+    \mathrm{...} for multi-letter operator names:
+        \mathrm{clip}, \mathrm{KL}, \arg\max, \max, \mathbb{E}
+
+  - All math symbols must be LaTeX, never raw unicode, in math position:
+        \pi  NOT  the pi character
+        \theta  NOT  theta character
+        \gamma  NOT  gamma character
+        \to  NOT  an arrow character
+        \le  NOT  <= or a unicode <=
+    Prose may use normal unicode punctuation (em-dash, section sign,
+    ellipsis) exactly as vo/README.md does.
+
+--------------------------------------------------------------------------------
+10.  ABSOLUTE RULES - CHECKLIST BEFORE COMMITTING DOCS WITH MATH
+--------------------------------------------------------------------------------
+
+[ ] every inline math span is exactly  `$...`$   (one backtick each side)
+[ ] zero occurrences of the regex   \^\*        (no ^* or ^{* anywhere)
+[ ] zero bare * used as multiplication inside math (use \cdot / \times)
+[ ] inside every $$ block, no line starts (after 0-3 spaces) with
+    +  -  *  |  #  >  or  digit.
+[ ] absolute values at the start of a display line use \lvert \rvert
+[ ] \large is the first content line of every display block
+[ ] no blank line inside any $$ block
+[ ] emphasis and bold never straddle a math span; bold never starts on a
+    line right after a math-close
+[ ] thin spaces written \\,  (double backslash); row breaks \\\\ in arrays
+[ ] named operators use \mathrm (never \operatorname)
+[ ] no raw unicode math symbols
+[ ] symbol table + formulas verified by running the verification
+    scripts below on the file(s)
+
+--------------------------------------------------------------------------------
+11.  VERIFICATION SCRIPTS  (run before committing; Python 3)
+--------------------------------------------------------------------------------
+
+Copy the file path into FILE below and run.
+
+    import re
+    text = open(FILE, encoding='utf-8').read()
+    lines = text.split('\n')
+    ok = True
+
+    # 1. no ^* or ^{*}
+    hits = re.findall(r'\^\*', text)
+    ok &= not hits; print('^* count:', len(hits))
+
+    # 2. no dangerous delimiter adjacencies:
+    #    `$*   (math-close immediately followed by asterisk) and
+    #    *`$   (asterisk immediately before math-open)
+    for pat in [r'`\$\*', r'\*`\$']:
+        hits = list(re.finditer(pat, text))
+        ok &= not hits
+        print('pattern', pat, 'count:', len(hits))
+        for m in hits:
+            print('  line', text.count('\n', 0, m.start()) + 1,
+                  repr(text[max(0, m.start()-30):m.end()+30]))
+
+    # 2b. no double backtick before a dollar (``$): that is the GAE bug
+    hits = list(re.finditer(r'``\$', text))
+    ok &= not hits
+    print('double-backtick-before-dollar (``$) count:', len(hits))
+    for m in hits:
+        print('  line', text.count('\n', 0, m.start()) + 1,
+              repr(text[max(0, m.start()-30):m.end()+30]))
+
+    # 3. no line inside a $$ block starts with a markdown marker
+    blocks = re.finditer(r'\$\$\n(.*?)\n\$\$', text, re.S)
+    bad = 0
+    for i, m in enumerate(blocks):
+        for ln in m.group(1).split('\n'):
+            if re.match(r'^ {0,3}([+\-*|#>]|\d+\.\s)', ln):
+                bad += 1
+                print('BLOCK', i, 'bad line:', repr(ln))
+    ok &= bad == 0
+    print('display-block line-start hazards:', bad)
+
+    # 4. even number of `$ markers (excluding literal fence-description
+    #    lines containing `$$\n...\n$$` in prose, which are intentional)
+    filtered = '\n'.join(l for l in lines if '`$$' not in l and '$$`' not in l)
+    count = filtered.count('`$')
+    ok &= count % 2 == 0
+    print('`$ marker count (excluding fence-description lines):', count,
+          '-> balanced' if count % 2 == 0 else '-> ODD!')
+
+    # 5. no line ending in math-close followed by ** or * on next line
+    bad5 = 0
+    for a, b in zip(lines, lines[1:]):
+        if a.rstrip().endswith('`$') and b.lstrip().startswith(('**', '*')):
+            bad5 += 1
+            print('math-close then emphasis next line:', repr(a), '||', repr(b))
+    ok &= bad5 == 0
+    print('math-close-then-emphasis line breaks:', bad5)
+
+    # 6. thin spaces: inside math spans, allow only \\, (two backslashes)
+    bad6 = 0
+    for m in re.finditer(r'`\$[^`]*`\$', text):
+        body = m.group(0)
+        for mm in re.finditer(r'(?<!\\)\\,', body):
+            bad6 += 1
+    ok &= bad6 == 0
+    print('single-backslash thin-space violations inside spans:', bad6)
+
+    print('ALL CLEAN' if ok else 'PROBLEMS REMAIN')
+
+--------------------------------------------------------------------------------
+12.  COMMIT HISTORY - THE RECORD OF WHAT BROKE (so we never repeat it)
+--------------------------------------------------------------------------------
+
+  a117727  fix: make display-math blocks GitHub-render safe
+           (^* -> ^{\ast} everywhere; line-start + - | inside $$ reflowed)
+  b2cfb67  fix: repair malformed inline-math delimiter in GAE definition
+           (double backtick ``$ -> single backtick `$)
+  43fe4d6  fix: remove stray backtick-dollar closing an inline-math span
+           ($`n = 2`-3`$  ->  $`n = 2`$-3 ; orphan `$ deleted)
+  afd2961  fix: stop emphasis markers from crossing an inline-math span
+           (*...math...* straddling -> emphasis removed)
+  47c2912  fix: keep bold delimiters off math-adjacent line boundaries
+           (math-close then ** on next line -> bold reflowed to one line)
+
+MORAL: with the checklist in section 10 and the scripts in section 11,
+ALL of those commits become unnecessary.  Run them on the file BEFORE
+the first commit, not after the user reports the third broken formula.
+
+================================================================================
+END OF REFERENCE
+================================================================================
