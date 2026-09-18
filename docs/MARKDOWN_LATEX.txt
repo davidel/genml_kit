@@ -1,17 +1,10 @@
 ================================================================================
  GITHUB MARKDOWN + LATEX (KATEX) RENDERING RULES
- Reference for genml_kit documentation (README.md files, tutorials)
+ A Global Reference (not tied to any one project)
 ================================================================================
 
 WHY THIS FILE EXISTS
 --------------------
-In September 2026 we wasted many hours fixing GitHub math-rendering
-breakage in rl/README.md (and burned several commits doing it).  Every
-single failure had the SAME root cause, and none of them were "real"
-LaTeX errors:
-
-        GITHUB RUNS MARKDOWN FIRST, KATEX SECOND.
-
 GitHub does NOT hand raw $`...`$ or $$...$$ content straight to KaTeX.
 The Markdown parser runs first and applies its OWN syntax rules (emphasis,
 bold, list markers, table pipes, headings, backtick code spans, backslash
@@ -26,13 +19,10 @@ pattern that Markdown can interpret near a math delimiter can:
 Symptom (b) is the one that looks the worst: whole formulas appear as
 plain text on GitHub while the same file looks perfect in a local editor.
 
-This file records every failure mode we hit, the exact byte patterns
-that trigger it, and the exact fix.  Follow the ABSOLUTE RULES section
-and run the VERIFICATION SCRIPTS section before committing any
-documentation containing math.
-
-The canonical working reference is vo/README.md (102 display-math blocks,
-renders correctly on GitHub).  Its Appendix D is authoritative.
+This document records every failure mode, the exact byte patterns that
+trigger it, and the exact fix.  Follow the ABSOLUTE RULES section (10)
+and run the VERIFICATION SCRIPTS section (11) before committing or
+publishing any documentation that contains math.
 
 --------------------------------------------------------------------------------
 1.  INLINE MATH: THE ONLY SUPPORTED FORM
@@ -80,13 +70,13 @@ Conventions that are required or strongly recommended:
     character (see section 4).  This is the single most common bug.
   - \begin{aligned} is allowed for multi-line derivations (rows end
     with \\ and use &= alignment).  \begin{cases}, \begin{bmatrix},
-    \begin{pmatrix} are fine.  (vo/README.md uses bmatrix heavily.)
+    \begin{pmatrix} are fine.
 
 --------------------------------------------------------------------------------
 3.  SYNTAX THAT MUST NEVER APPEAR ON GITHUB - QUICK HIT LIST
 --------------------------------------------------------------------------------
 
-Below is the complete list of hazards we hit, the symptom, and the fix.
+Below is the complete list of hazards, the symptom, and the fix.
 Details for each are in sections 4-9.
 
   HAZARD                            SYMPTOM              FIX
@@ -111,11 +101,11 @@ Details for each are in sections 4-9.
   raw unicode math symbols           varies              use \pi \theta \gamma \to \le
 
 --------------------------------------------------------------------------------
-4.  HAZARD:  THE ASTERISK  *  (emphasis)  -- HIT 1
+4.  HAZARD:  THE ASTERISK  *  (emphasis)
 --------------------------------------------------------------------------------
 
 GitHub's Markdown emphasis parser consumes * characters even INSIDE
-math.  A realistic example that broke in rl/README.md:
+math.  A realistic example of the failure:
 
         $`V^*(s) = \max_a ...`$
 
@@ -133,10 +123,11 @@ math.  Use:
         \cdot        instead of   *     (multiplication)
         \times       instead of   *     (multiplication, when preferred)
 
-A scan for the regex  \^\*  on any README must return ZERO matches.
+A scan for the regex  \^\*  on any markdown file must return ZERO
+matches.
 
 --------------------------------------------------------------------------------
-5.  HAZARD:  MARKDOWN LINE-START MARKERS INSIDE $$ BLOCKS  -- HIT 2
+5.  HAZARD:  MARKDOWN LINE-START MARKERS INSIDE $$ BLOCKS
 --------------------------------------------------------------------------------
 
 Inside a $$ display block, ANY line whose first non-space characters
@@ -154,21 +145,21 @@ allows up to 3 spaces of indent for list markers):
         >                            blockquote
         1.  2.  etc. (digit-dot-space)   ordered list
 
-Concrete failures in rl/README.md:
+Concrete failure examples:
 
-  - epsilon-greedy schedule had a continuation line starting with:
+  - a continuation line starting with:
         + \bigl(\varepsilon_{start} - \varepsilon_{end}\bigr)\,
     -> whole formula shown as raw text.
 
-  - an advantage-function line started with:
+  - a line starting with:
          - \frac{1}{|\mathcal{A}|} ...
     -> same.
 
-  - a return-bound block started its math with:
+  - a block starting its math with a pipe:
         |G_t| \;\le\; ...
     -> the pipe was the hazard.  Fixed with \lvert G_t \rvert.
 
-  - PPO surrogate, soft-value, SAC-Q and log-derivative blocks each had
+  - surrogate, soft-value and log-derivative style blocks each had
     continuation lines starting with  +  or  - .
 
 FIX:  reflow the math so that no line inside $$ begins with any of the
@@ -193,19 +184,19 @@ forbidden characters.  Two equivalent techniques:
 
      (\lvert and \rvert render identically to | | in KaTeX.)
 
-NOTE: a 4-space indent on a continuation line inside $$ is SAFE (we
-proved this: the block containing the Bellman optimality equations kept
-its indentation and reached KaTeX - it only failed because of the *
-issue above).  Do not "fix" 4-space indents; the earlier Bellman
-equations blocks with aligned indentation render fine.  Just avoid
-introducing NEW lines that start with + - * | # > or 1.
+NOTE: a 4-space indent on a continuation line inside $$ is SAFE (a
+block containing a length-three alignment kept its indentation and
+reached KaTeX - it only failed because of the * issue above).  Do not
+"fix" 4-space indents; aligned-derivation blocks with indentation
+render fine.  Just avoid introducing NEW lines that start with
++  -  *  |  #  >  or 1.
 
 --------------------------------------------------------------------------------
-6.  HAZARD:  MALFORMED DELIMITERS  (stray / doubled backticks)  -- HIT 3
+6.  HAZARD:  MALFORMED DELIMITERS  (stray / doubled backticks)
 --------------------------------------------------------------------------------
 
 Every inline math span needs EXACTLY one backtick on each side of the
-dollar.  We introduced two bugs of this class by careless editing:
+dollar.  There are two common bugs of this class:
 
   (a) Double backtick before the closing dollar:
         $`(1 - \lambda)\, \lambda^{k-1}``$
@@ -225,12 +216,12 @@ literal code-form description of the fence itself, e.g.  `$$...$$`  when
 a document explains the syntax (that one contains a `$ with no partner).
 
 --------------------------------------------------------------------------------
-7.  HAZARD:  EMPHASIS / BOLD CROSSING A MATH SPAN OR A LINE BOUNDARY   -- HITS 4-5
+7.  HAZARD:  EMPHASIS / BOLD CROSSING A MATH SPAN OR A LINE BOUNDARY
 --------------------------------------------------------------------------------
 
 (a) SINGLE-ASTERISK EMPHASIS must NEVER straddle an inline math span.
 
-    BROKEN (this is what broke in rl/README.md section 11.1):
+    BROKEN:
 
         ...and the *advantage estimates were computed under $`\pi_\theta`$*,
         so they become stale.
@@ -244,14 +235,14 @@ a document explains the syntax (that one contains a `$ with no partner).
         ...and the advantage estimates were computed under $`\pi_\theta`$, 
         so they become stale.
 
-    Safe pattern (from vo/README.md): emphasize a WORD, then math, then
-    emphasize another word:
+    Safe pattern: emphasize a WORD, then math, then emphasize another
+    word:
         *full* return $`G_t`$ with a *one-step* target      <- OK
 
 (b) BOLD **...** must not OPEN on a line that ends right after a
     math-close, when the bold closes on the NEXT line.
 
-    BROKEN (rl/README.md section 12.1):
+    BROKEN:
 
         Classic RL maximizes expected return $`\sum \mathbb{E}[r]`.  **Maximum
         entropy RL** (Ziebart ...)
@@ -261,8 +252,8 @@ a document explains the syntax (that one contains a `$ with no partner).
         Classic RL maximizes expected return $`\sum \mathbb{E}[r]`.
         **Maximum entropy RL** (Ziebart ...)
 
-    We verified vo/README.md has 35 lines ending with a math-close, and
-    ZERO of them are followed by a **-starting next line.  Follow that.
+    A well-rendered document contains ZERO math-close-then-emphasis
+    line breaks.  Follow that.
 
 Scan rules: a file must contain ZERO occurrences of the patterns
         `$*        (math-close immediately followed by asterisk)
@@ -270,7 +261,7 @@ Scan rules: a file must contain ZERO occurrences of the patterns
    and ZERO lines ending in  `$  whose next line starts with  **  or  *.
 
 --------------------------------------------------------------------------------
-8.  HAZARD:  BACKSLASH ESCAPING  (thin spaces and row breaks)   -- HIT 6
+8.  HAZARD:  BACKSLASH ESCAPING  (thin spaces and row breaks)
 --------------------------------------------------------------------------------
 
 Markdown's escape processing eats ONE level of backslashes before KaTeX
@@ -280,7 +271,8 @@ sees the content.
     backslashes in the file:
         \\,          (in the file)  ->  \,  (seen by KaTeX)
     A single  \,  in the file becomes a plain comma by the time KaTeX
-    sees it.  rl/README.md and vo/README.md both state this convention.
+    sees it.  This is the documented GitHub-flavored Markdown
+    convention.
 
   - Matrix/array row breaks: to get a KaTeX \\ row break you must write
     FOUR backslashes in the file:
@@ -306,7 +298,7 @@ sees the content.
         \to  NOT  an arrow character
         \le  NOT  <= or a unicode <=
     Prose may use normal unicode punctuation (em-dash, section sign,
-    ellipsis) exactly as vo/README.md does.
+    ellipsis, etc.).
 
 --------------------------------------------------------------------------------
 10.  ABSOLUTE RULES - CHECKLIST BEFORE COMMITTING DOCS WITH MATH
@@ -354,7 +346,7 @@ Copy the file path into FILE below and run.
             print('  line', text.count('\n', 0, m.start()) + 1,
                   repr(text[max(0, m.start()-30):m.end()+30]))
 
-    # 2b. no double backtick before a dollar (``$): that is the GAE bug
+    # 2b. no double backtick before a dollar (``$)
     hits = list(re.finditer(r'``\$', text))
     ok &= not hits
     print('double-backtick-before-dollar (``$) count:', len(hits))
@@ -402,23 +394,23 @@ Copy the file path into FILE below and run.
     print('ALL CLEAN' if ok else 'PROBLEMS REMAIN')
 
 --------------------------------------------------------------------------------
-12.  COMMIT HISTORY - THE RECORD OF WHAT BROKE (so we never repeat it)
+12.  CLOSING NOTE
 --------------------------------------------------------------------------------
 
-  a117727  fix: make display-math blocks GitHub-render safe
-           (^* -> ^{\ast} everywhere; line-start + - | inside $$ reflowed)
-  b2cfb67  fix: repair malformed inline-math delimiter in GAE definition
-           (double backtick ``$ -> single backtick `$)
-  43fe4d6  fix: remove stray backtick-dollar closing an inline-math span
-           ($`n = 2`-3`$  ->  $`n = 2`$-3 ; orphan `$ deleted)
-  afd2961  fix: stop emphasis markers from crossing an inline-math span
-           (*...math...* straddling -> emphasis removed)
-  47c2912  fix: keep bold delimiters off math-adjacent line boundaries
-           (math-close then ** on next line -> bold reflowed to one line)
+If ANY item on the checklist in section 10 fails, or ANY check in the
+scripts in section 11 reports a problem, fix the file BEFORE you commit
+or publish it.
 
-MORAL: with the checklist in section 10 and the scripts in section 11,
-ALL of those commits become unnecessary.  Run them on the file BEFORE
-the first commit, not after the user reports the third broken formula.
+The two symptoms to recognize:
+  - a KaTeX error message ("Missing open brace ...", "Unknown
+    operator ...") means Markdown already mangled the math content;
+    inspect the bytes around the offending span.
+  - raw "$...$" / "$$...$$" text visible in the rendered page means
+    math-block detection failed; look for line-start markers,
+    malformed backticks, or emphasis/bold crossing span boundaries.
+
+With the checklist and the scripts, none of these problems should ever
+reach a reviewer again.
 
 ================================================================================
 END OF REFERENCE
