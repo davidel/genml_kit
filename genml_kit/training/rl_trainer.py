@@ -31,6 +31,11 @@ class RLTrainer(BaseTrainer):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self._warmup_obs = None
+    # Allow method to build custom optimization (e.g., SAC three optimizers)
+    custom_opt = self.method.build_optimization(
+        self.args, self.model, self.device, {}, {})
+    if custom_opt is not None:
+      self.optimization = custom_opt
 
   def train_epoch(self, epoch, saver, step, monitor):
     """One training epoch.
@@ -59,7 +64,7 @@ class RLTrainer(BaseTrainer):
     device = self.device
     args = self.args
     batch_size = getattr(args, "batch_size", 64)
-    scaler = self.optimization.scaler
+    scaler = getattr(self.optimization, "scaler", None)
     amp_dtype = getattr(args, "amp_dtype", None)
 
     # Initialise environment (no-op after first epoch).
@@ -133,13 +138,13 @@ class RLTrainer(BaseTrainer):
   # ------------------------------------------------------------------
 
   def _train_epoch_ppo(self, epoch, saver, step, monitor):
-    """On-policy: collect rollout → compute GAE → SGD epochs."""
+    """On-policy: collect rollout \u2192 compute GAE \u2192 SGD epochs."""
     method = self.method
     model = self.model
     pipeline = self.pipeline
     device = self.device
     args = self.args
-    scaler = self.optimization.scaler
+    scaler = getattr(self.optimization, "scaler", None)
     amp_dtype = getattr(args, "amp_dtype", None)
 
     # Initialise environment (no-op after first epoch).
@@ -236,15 +241,22 @@ class RLTrainer(BaseTrainer):
   # ------------------------------------------------------------------
 
   def _apply_grad(self, loss, scaler, amp_dtype):
-    """Backward + optimizer step (shared by all RL flows)."""
-    self.optimization.optimizer.zero_grad(set_to_none=True)
-    if scaler is not None:
-      scaler.scale(loss).backward()
-      scaler.step(self.optimization.optimizer)
-      scaler.update()
+    """Backward + optimizer step (shared by all RL flows).
+
+    If the method provides a custom ``apply_grad``, delegate to it.
+    This enables multi-optimizer patterns (e.g., SAC).
+    """
+    if hasattr(self.method, "apply_grad"):
+      self.method.apply_grad(loss, scaler, amp_dtype, self.optimization)
     else:
-      loss.backward()
-      self.optimization.optimizer.step()
+      self.optimization.optimizer.zero_grad(set_to_none=True)
+      if scaler is not None:
+        scaler.scale(loss).backward()
+        scaler.step(self.optimization.optimizer)
+        scaler.update()
+      else:
+        loss.backward()
+        self.optimization.optimizer.step()
 
   def validate(self):
     """Policy evaluation on the environment (not a DataLoader).

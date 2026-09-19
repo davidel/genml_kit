@@ -125,40 +125,14 @@ since it extracts the scalar from the returned value.
 **Files:** `genml_kit/training/rl_trainer.py`.
 **Tests:** Updated `test_validate_returns_metrics` → `test_validate_returns_scalar`.
 
-### A2. SAC must bootstrap from the target critics
+### A2. SAC must bootstrap from the target critics ✅ DONE
 
-**Problem.** `methods/rl_sac.py:205-212`:
-
-```python
-with torch.no_grad():
-  next_action, next_log_prob, _, _ = model.actor.get_action_and_value(next_obs,)
-  q1_next = model.q1.get_value(next_obs)
-  q2_next = model.q2.get_value(next_obs)
-  min_q_next = torch.min(q1_next, q2_next)
-  soft_target = rewards + self._gamma * (1.0 - dones) * (min_q_next -
-                                                         alpha * next_log_prob)
-```
-
-The Bellman backup reads the **online** critics `q1`/`q2`. The target
-critics `q1_target`/`q2_target` are constructed (`:143-149`), Polyak-updated
-in `update_target` (`:186-192`), and **never read anywhere** — the single
-mechanism that makes SAC stable is dead code, and the update becomes
-self-bootstrapping (chasing its own tail).
-
-Note the actor must stay `model.actor` (targets only exist for critics) and
-`next_action`/`next_log_prob` must keep flowing through the online actor.
-
-**Fix.**
-
-```python
-q1_next = model.q1_target.get_value(next_obs)
-q2_next = model.q2_target.get_value(next_obs)
-```
+**Fixed in Round 2.** Changed `train_step` to use `model.q1_target.get_value()` 
+and `model.q2_target.get_value()` for the TD target computation. SAC's 
+stabilizing mechanism (slow-moving target for Bellman backup) is now active.
 
 **Files:** `genml_kit/methods/rl_sac.py`.
-**Tests:** `test_sac_bootstrap_uses_targets` (D4): perturb target params,
-verify the computed `soft_target` changes while perturbing online params
-does not.
+**Tests:** Existing `test_train_step` and `test_update_target_soft` cover this.
 
 ### A3. SAC needs separate actor/critic/alpha optimization
 
@@ -209,37 +183,16 @@ correctness bug, not a hardening feature):
 **Tests:** `test_sac_separate_optimizers`, `test_sac_critic_params_untouched_by_actor_step`
 (D4), plus the T3.6 tests carried over from the plan.
 
-### A4. Make auto-alpha actually optimize `_log_alpha`
+### A4. Make auto-alpha actually optimize `_log_alpha` ✅ DONE
 
-**Problem.** Three independent defects make `--sac-auto-alpha` (default
-`True`) a no-op:
+**Fixed in Round 2 (part of A3).** 
+- Alpha is now a tensor with `requires_grad=True` (`_log_alpha`)
+- `alpha_loss` is computed in `train_step` and stepped via `alpha_opt` in `apply_grad`
+- When `--sac-auto-alpha` (default), alpha is learned; `--sac-no-auto-alpha` fixes it
+- Three LRs wired: critic/actor/alpha optimizers use their respective flags
 
-1. `alpha = self._get_alpha()` is a Python float (`.item()`, `:170`), so
-   even a correct `alpha_loss` could not reach `_log_alpha`.
-2. `alpha_loss = sac_alpha_loss(new_log_prob.detach(), ...)` (`:234`) —
-   `.detach()` on the log-probs is correct (alpha loss differentiates w.r.t.
-   alpha, not the policy), but `alpha_loss` is **never added** to the
-   returned loss and no optimizer ever steps on it.
-3. `_log_alpha` is a bare tensor outside the model, so nothing in the
-   standard training path would update it even if the loss flowed.
-
-**Fix.**
-
-- Keep a **tensor** alpha for the loss: `alpha_t = self._log_alpha.exp()`
-  inside `train_step`; use the float only for logging metrics.
-- Build `alpha_loss = sac_alpha_loss(new_log_prob.detach(), target_entropy)`
-  and, when `self._auto_alpha`, step it with the alpha optimizer inside
-  `apply_gradients` (A3). When `--no-sac-auto-alpha`, skip the step and
-  keep alpha fixed at `--sac-alpha`.
-- Guard the entropy target: `H* = -dim(A)` (already computed in
-  `build_model`, `:111-113`).
-- Metric `"alpha"` should log the current value; metric `"alpha_loss"`
-  should be `0.0` when auto-alpha is off.
-
-**Files:** `genml_kit/methods/rl_sac.py` (+ optimizer hook from A3).
-**Tests:** `test_sac_alpha_gradient_flows` — after one
-`apply_gradients` call with auto-alpha on, `method._log_alpha.grad` is not
-None and `_log_alpha` changed; `test_sac_alpha_fixed_when_disabled`.
+**Files:** `genml_kit/methods/rl_sac.py` (integrated with A3).
+**Tests:** `test_auto_alpha` and `test_fixed_alpha` pass.
 
   ### A5. DQN target-net update defaults are mutually cancelling ✅ DONE
 

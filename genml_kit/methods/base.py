@@ -105,6 +105,21 @@ class Method(abc.ABC):
       return new_metric < best_metric
     return new_metric > best_metric
 
+  def build_optimization(self, args, model, device, ckpt_extra, states_to_load):
+    """Optional hook to build custom optimizers.
+
+    Override this for methods that need multiple optimizers (e.g., SAC).
+    If not overridden, the trainer uses the single optimizer from
+    ``build_optimization`` in ``optim_factory.py``.
+
+    Returns:
+      An ``Optimization`` namedtuple (optimizer, scheduler, scaler) or a
+      custom object with the same interface. The trainer's ``_apply_grad``
+      will call ``optimizer.zero_grad()``, ``loss.backward()``,
+      ``optimizer.step()`` on the returned optimizer.
+    """
+    return None  # Use default from optim_factory
+
   @classmethod  # noqa: B027
   def add_args(cls, parser):
     """Add this method's CLI flags.  Class method (no-op by default)."""

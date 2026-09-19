@@ -92,12 +92,12 @@ class SACMethod(Method):
   def wire_data(self, args, pipeline):
     self._pipeline = pipeline
     self._action_dim = pipeline.n_actions  # SAC always continuous
+    self._env_steps = 0
 
   def build_model(self, args, device):
     self._gamma = getattr(args, "sac_gamma", 0.99)
     self._tau = getattr(args, "sac_tau", 0.005)
     self._auto_alpha = getattr(args, "sac_auto_alpha", True)
-    self._env_steps = 0
 
     pipeline = self._pipeline
     action_dim = self._action_dim
@@ -149,8 +149,6 @@ class SACMethod(Method):
       p.requires_grad = False
 
     class _SACModel(nn.Module):
-      """Container holding actor, twin critics, and targets."""
-
       def __init__(self, actor, q1, q2, q1_target, q2_target):
         super().__init__()
         self.actor = actor
@@ -164,10 +162,91 @@ class SACMethod(Method):
 
     model = _SACModel(actor, q1, q2, q1_target, q2_target)
     model = self._apply_model_extras(args, model, device)
+
+    # Build optimizers if not already built (for standalone testing)
+    if not hasattr(self, "optimization") or self.optimization is None:
+      self.optimization = self.build_optimization(args, model, device, {}, {})
+
     return model
 
   def _get_alpha(self):
     return self._log_alpha.exp().item()
+
+  def build_optimization(self, args, model, device, ckpt_extra, states_to_load):
+    """Build three separate optimizers for critic, actor, and alpha."""
+    critic_lr = getattr(args, "sac_critic_lr", 3e-4)
+    actor_lr = getattr(args, "sac_actor_lr", 3e-4)
+    alpha_lr = getattr(args, "sac_alpha_lr", 3e-4)
+
+    critic_params = list(model.q1.parameters()) + list(model.q2.parameters())
+    actor_params = list(model.actor.parameters())
+    alpha_params = [self._log_alpha]
+
+    critic_opt = torch.optim.Adam(critic_params, lr=critic_lr)
+    actor_opt = torch.optim.Adam(actor_params, lr=actor_lr)
+    alpha_opt = torch.optim.Adam(alpha_params, lr=alpha_lr)
+
+    # Restore from checkpoint if available
+    if ckpt_extra and "optim" in ckpt_extra:
+      optim_state = ckpt_extra["optim"]
+      if "critic_opt" in optim_state:
+        critic_opt.load_state_dict(optim_state["critic_opt"])
+      if "actor_opt" in optim_state:
+        actor_opt.load_state_dict(optim_state["actor_opt"])
+      if "alpha_opt" in optim_state:
+        alpha_opt.load_state_dict(optim_state["alpha_opt"])
+
+    # Return a custom optimization object
+    class SACOptimization:
+      def __init__(self, critic_opt, actor_opt, alpha_opt):
+        self.critic_opt = critic_opt
+        self.actor_opt = actor_opt
+        self.alpha_opt = alpha_opt
+        # For backward compatibility with logging etc.
+        self.optimizer = critic_opt
+        self.scheduler = None
+        self.scaler = None
+
+      def state_dict(self):
+        return {
+            "critic_opt": self.critic_opt.state_dict(),
+            "actor_opt": self.actor_opt.state_dict(),
+            "alpha_opt": self.alpha_opt.state_dict(),
+        }
+
+      def load_state_dict(self, state):
+        self.critic_opt.load_state_dict(state["critic_opt"])
+        self.actor_opt.load_state_dict(state["actor_opt"])
+        self.alpha_opt.load_state_dict(state["alpha_opt"])
+
+    return SACOptimization(critic_opt, actor_opt, alpha_opt)
+
+  def apply_grad(self, loss, scaler, amp_dtype, optimization):
+    """Custom gradient application for three optimizers.
+
+    The loss returned by train_step is the combined loss (for logging).
+    Individual losses are in loss.metrics. We step each optimizer here.
+    """
+    # Get individual losses from metrics (they have gradients)
+    critic_loss = loss.metrics["critic_loss"]
+    actor_loss = loss.metrics["actor_loss"]
+    alpha_loss = loss.metrics["alpha_loss"]
+
+    # Step critic optimizer
+    optimization.critic_opt.zero_grad(set_to_none=True)
+    critic_loss.backward(retain_graph=True)
+    optimization.critic_opt.step()
+
+    # Step actor optimizer
+    optimization.actor_opt.zero_grad(set_to_none=True)
+    actor_loss.backward(retain_graph=True)
+    optimization.actor_opt.step()
+
+    # Step alpha optimizer (if auto_alpha)
+    if self._auto_alpha:
+      optimization.alpha_opt.zero_grad(set_to_none=True)
+      alpha_loss.backward()
+      optimization.alpha_opt.step()
 
   def act(self, model, obs, *, deterministic=False):
     """SAC acts by sampling from the squashed Gaussian policy."""
@@ -192,7 +271,11 @@ class SACMethod(Method):
         pt.data.mul_(1.0 - self._tau).add_(p.data, alpha=self._tau)
 
   def train_step(self, model, blob, global_step, *, labels=None):
-    """SAC update: twin critic loss + policy loss + alpha loss."""
+    """SAC update: twin critic loss + policy loss + alpha loss.
+
+    Returns individual losses for the three optimizers. The trainer's
+    apply_grad hook will step each optimizer separately.
+    """
     data = blob if isinstance(blob, dict) else blob.data
 
     obs = data["obs"]
@@ -205,8 +288,8 @@ class SACMethod(Method):
     # --- Critic update (twin soft Q-learning) ---
     with torch.no_grad():
       next_action, next_log_prob, _, _ = model.actor.get_action_and_value(next_obs,)
-      q1_next = model.q1.get_value(next_obs)
-      q2_next = model.q2.get_value(next_obs)
+      q1_next = model.q1_target.get_value(next_obs)
+      q2_next = model.q2_target.get_value(next_obs)
       min_q_next = torch.min(q1_next, q2_next)
       soft_target = rewards + self._gamma * (1.0 - dones) * (min_q_next -
                                                              alpha * next_log_prob)
@@ -220,6 +303,12 @@ class SACMethod(Method):
     critic_loss = q1_loss + q2_loss
 
     # --- Actor update ---
+    # Detach Q networks so their gradients don't flow back to critic
+    for p in model.q1.parameters():
+      p.requires_grad_(False)
+    for p in model.q2.parameters():
+      p.requires_grad_(False)
+
     new_action, new_log_prob, _, _ = model.actor.get_action_and_value(obs)
     q1_new = model.q1.get_value(obs)
     q2_new = model.q2.get_value(obs)
@@ -227,32 +316,32 @@ class SACMethod(Method):
     from genml_kit.losses.rl import sac_policy_loss
     actor_loss = sac_policy_loss(new_log_prob, min_q_new, alpha)
 
+    # Re-enable critic gradients
+    for p in model.q1.parameters():
+      p.requires_grad_(True)
+    for p in model.q2.parameters():
+      p.requires_grad_(True)
+
     # --- Alpha update ---
-    alpha_loss = torch.tensor(0.0)
+    alpha_loss = torch.tensor(0.0, device=obs.device)
     if self._auto_alpha:
       from genml_kit.losses.rl import sac_alpha_loss
       alpha_loss = sac_alpha_loss(new_log_prob.detach(), self._target_entropy)
 
-    # Total loss (critic + actor; alpha is optimised separately).
-    loss = critic_loss + actor_loss
-
     # B5: track env steps for logging (1 env step per train_step in off-policy)
     self._env_steps += 1
 
+    # Return combined loss (for logging) + individual losses in metrics
+    total_loss = critic_loss + actor_loss + alpha_loss
+
     metrics = {
-        "critic_loss":
-            critic_loss.detach(),
-        "actor_loss":
-            actor_loss.detach(),
-        "alpha_loss":
-            alpha_loss.detach()
-            if isinstance(alpha_loss, torch.Tensor) else torch.tensor(alpha_loss),
-        "alpha":
-            torch.tensor(alpha),
-        "q_mean":
-            q1_pred.detach().mean(),
+        "critic_loss": critic_loss,
+        "actor_loss": actor_loss,
+        "alpha_loss": alpha_loss,
+        "alpha": torch.tensor(alpha),
+        "q_mean": q1_pred.detach().mean(),
     }
-    return LossOutput(loss=loss, metrics=metrics)
+    return LossOutput(loss=total_loss, metrics=metrics)
 
   def evaluate(self, model, pipeline, num_episodes, max_steps=10_000):
     """Run evaluation episodes and return mean return."""
@@ -285,6 +374,13 @@ class SACMethod(Method):
         "env_steps": self._env_steps,
         "log_alpha": self._log_alpha.item(),
     }
+
+  def ckpt_extra(self, best, step):
+    """Save three optimizers' state."""
+    opt = self.optimization
+    if hasattr(opt, "state_dict"):
+      return {"optim": opt.state_dict()}
+    return {}
 
   def load_checkpoint_state(self, model, state, args):
     self._env_steps = state.get("env_steps", 0)
