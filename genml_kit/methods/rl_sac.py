@@ -255,7 +255,7 @@ class SACMethod(Method):
     critic_loss = q1_loss + q2_loss
 
     # --- Actor update ---
-    # Detach Q networks so their gradients don't flow back to critic
+    # Detach Q networks so their gradients don't flow back to critic.
     for p in model.q1.net.parameters():
       p.requires_grad_(False)
     for p in model.q2.net.parameters():
@@ -268,7 +268,7 @@ class SACMethod(Method):
     from genml_kit.losses.rl import sac_policy_loss
     actor_loss = sac_policy_loss(new_log_prob, min_q_new, alpha)
 
-    # Re-enable critic gradients
+    # Re-enable critic gradients.
     for p in model.q1.parameters():
       p.requires_grad_(True)
     for p in model.q2.parameters():
