@@ -1,6 +1,7 @@
 """Tests for RLTrainer (warmup + interleaved env/learn loop)."""
 
 import argparse
+import contextlib
 import tempfile
 from collections import namedtuple
 
@@ -14,6 +15,13 @@ from genml_kit.training.rl_trainer import RLTrainer
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 
 Optimization = namedtuple("Optimization", ["optimizer", "scheduler", "scaler"])
+
+
+@contextlib.contextmanager
+def _temp_checkpoint_dir():
+  """Create a temporary checkpoint directory that's auto-cleaned."""
+  with tempfile.TemporaryDirectory() as tmpdir:
+    yield tmpdir
 
 
 class FakeRLMethod(DQNMethod):
@@ -54,6 +62,13 @@ class FakeRLPipeline(RLPipeline):
     self.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=100)
 
 
+@contextlib.contextmanager
+def _temp_checkpoint_dir():
+  """Create a temporary checkpoint directory that's auto-cleaned."""
+  with tempfile.TemporaryDirectory() as tmpdir:
+    yield tmpdir
+
+
 def _make_args(**overrides):
   defaults = dict(
       batch_size=4,
@@ -61,7 +76,7 @@ def _make_args(**overrides):
       warmup_steps=8,
       steps_per_epoch=5,
       eval_episodes=1,
-      checkpoint=str(tempfile.mkdtemp()),
+      checkpoint=None,  # Set via context manager
       save_every=0,
       log_dir=None,
       log_interval=100,
@@ -102,36 +117,71 @@ def _build_trainer(**args_overrides):
       scheduler=None,
       scaler=None,
   )
-  return RLTrainer(
-      args=args,
-      model=model,
-      method=method,
-      pipeline=pipeline,
-      optimization=optimization,
-      device=torch.device("cpu"),
-      writer=None,
-      start_epoch=0,
-      best_metric=float("-inf"),
-      global_step=0,
-  ), pipeline
+  # Trainer will be created inside _temp_checkpoint_dir context
+  return model, optimization, method, pipeline, args
 
 
 class TestRLTrainer:
 
   def test_train_epoch_runs(self):
-    trainer, _ = _build_trainer()
-    avg_loss, new_step = trainer.train_epoch(0, None, step=0, monitor=None)
-    assert avg_loss >= 0.0
-    assert new_step > 0
+    with _temp_checkpoint_dir() as checkpoint_dir:
+      model, optimization, method, pipeline, args = _build_trainer(
+      )
+      args.checkpoint = checkpoint_dir
+      trainer = RLTrainer(
+          args=args,
+          model=model,
+          method=method,
+          pipeline=pipeline,
+          optimization=optimization,
+          device=torch.device("cpu"),
+          writer=None,
+          start_epoch=0,
+          best_metric=float("-inf"),
+          global_step=0,
+      )
+      avg_loss, new_step = trainer.train_epoch(0, None, step=0, monitor=None)
+      assert avg_loss >= 0.0
+      assert new_step > 0
 
   def test_validate_returns_metrics(self):
-    trainer, pipeline = _build_trainer()
-    pipeline.init_env(trainer.args)
-    eval_return = trainer.validate()
-    assert isinstance(eval_return, float)
-    assert eval_return >= 0.0
+    with _temp_checkpoint_dir() as checkpoint_dir:
+      model, optimization, method, pipeline, args = _build_trainer(
+      )
+      args.checkpoint = checkpoint_dir
+      trainer = RLTrainer(
+          args=args,
+          model=model,
+          method=method,
+          pipeline=pipeline,
+          optimization=optimization,
+          device=torch.device("cpu"),
+          writer=None,
+          start_epoch=0,
+          best_metric=float("-inf"),
+          global_step=0,
+      )
+      pipeline.init_env(trainer.args)
+      eval_return = trainer.validate()
+      assert isinstance(eval_return, float)
+      assert eval_return >= 0.0
 
   def test_warmup_fills_buffer(self):
-    trainer, pipeline = _build_trainer(warmup_steps=8, steps_per_epoch=3)
-    trainer.train_epoch(0, None, step=0, monitor=None)
-    assert len(pipeline.replay_buffer) >= 8
+    with _temp_checkpoint_dir() as checkpoint_dir:
+      model, optimization, method, pipeline, args = _build_trainer(
+          warmup_steps=8, steps_per_epoch=3)
+      args.checkpoint = checkpoint_dir
+      trainer = RLTrainer(
+          args=args,
+          model=model,
+          method=method,
+          pipeline=pipeline,
+          optimization=optimization,
+          device=torch.device("cpu"),
+          writer=None,
+          start_epoch=0,
+          best_metric=float("-inf"),
+          global_step=0,
+      )
+      trainer.train_epoch(0, None, step=0, monitor=None)
+      assert len(pipeline.replay_buffer) >= 8

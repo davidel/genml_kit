@@ -97,7 +97,7 @@ pending, **F** = packaging/CI.
 | E1-E11 | E | Plan Phase-3 tasks T3.1-T3.11, re-scoped (see §8) | various |
 | F1 | F | `gymnasium` missing from `pyproject.toml` extras; `all` extra does not include it (see §9) | `pyproject.toml` |
 
-### ✅ Completed in Round 1 (this PR)
+### ✅ Completed in Round 1
 
 | ID | Phase | Summary | Status |
 |----|-------|---------|--------|
@@ -107,8 +107,24 @@ pending, **F** = packaging/CI.
 | **A6** | A | `SAVE_FROZEN = True` on `RLTrainer` for target net checkpointing | ✅ DONE |
 | **B1** | B | `evaluate()` per-episode step budget (all 3 methods) | ✅ DONE |
 | **B2** | B | `validate()` saves/restores `np.random` state (RNG isolation) | ✅ DONE |
-| **B5** | B | `_env_steps` tracking for SAC (in `train_step`) and PPO (in trainer) | ✅ DONE |
-| **C1** | C | `has_metric_improved(new, best)` signature consistency (all 3 methods) | ✅ DONE |
+| **B5** | B | `_env_steps` tracking on `RLTrainer` and methods | ✅ DONE |
+| **C1** | C | `has_metric_improved(new, best)` signature enforced | ✅ DONE |
+
+### ✅ Completed in Round 2
+
+| ID | Phase | Summary | Status |
+|----|-------|---------|--------|
+| **A2** | A | SAC bootstraps from target critics (`q1_target`/`q2_target`) | ✅ DONE |
+| **A3** | A | SAC three-optimizer architecture (`critic`/`actor`/`alpha`) | ✅ DONE |
+| **A4** | A | Auto-alpha works (`alpha_loss` stepped via `alpha_opt`) | ✅ DONE |
+
+### ✅ Completed in Round 3
+
+| ID | Phase | Summary | Status |
+|----|-------|---------|--------|
+| **A7** | A | PPO per-step bootstrap (rejects scalar, collects `V(s_{t+1})` per step) | ✅ DONE |
+| **A8** | A | PPO continuous logprob re-eval on raw (pre-tanh) actions | ✅ DONE |
+| **A9** | A | Continuous action spaces supported (`action_space` Box, SAC `wire_data`) | ✅ DONE |
 | | | `train.py`: call `pipeline.init_env()` before `wire_data()` for RL | ✅ DONE |
 
 ---
@@ -230,155 +246,32 @@ One scalar is passed to `RolloutBuffer.set_next_values`
 `self.next_values.copy_(torch.as_tensor(...).reshape(-1)[:rollout_len])` —
 a length-1 tensor broadcasts into **all** `rollout_len` slots
 (`tests/test_rollout_buffer.py:48` passes a length-4 list, which is what the
-API expects). So `δ_t = r_t + γ·V(s_T)·(1−d_t) − V(s_t)` uses the final
-state's value everywhere instead of `V(s_{t+1})`. Every advantage except the
-last one is silently wrong, and PPO's clipped-surrogate trains on garbage.
+        ### A7. PPO advantage computation uses a single scalar bootstrap value for the entire rollout ✅ DONE (Round 3)
 
-**Fix (two coordinated changes).**
+        **Fixed in Round 3.** `RolloutBuffer.set_next_values` now rejects scalars and
+        requires per-step `V(s_{t+1})` tensor. `RLTrainer._train_epoch_ppo` collects
+        per-step bootstrap values during rollout collection.
 
-1. `RolloutBuffer.set_next_values` must fail loudly on a scalar:
+        ### A8. PPO continuous actions: re-evaluate log-prob at the raw (pre-tanh) action ✅ DONE (Round 3)
 
-```python
-tensor = torch.as_tensor(next_values, dtype=torch.float32).reshape(-1)
-if tensor.numel() != self.rollout_len:
-  fatal(f"set_next_values expects {self.rollout_len} values, "
-        f"got {tensor.numel()}", ValueError)
-self.next_values.copy_(tensor)
-```
+        **Fixed in Round 3.** Raw (pre-tanh) actions are now stored in
+        `RolloutBuffer.raw_actions` and re-evaluated during PPO update epochs.
+        `ActorCritic.get_action_and_value` returns `(action, raw_action, log_prob,
+        entropy, value)`.
 
-   Keep the existing zero-padding convention documented in the docstring
-   ("next_values must already be zero at episode boundaries") — the caller
-   owns that now.
+        ### A9. Continuous action spaces must be first-class ✅ DONE (Round 3)
 
-2. The trainer computes the real per-step values:
+        **Fixed in Round 3.** `RLPipeline.init_env` now branches on `action_space`
+        type (`Discrete` vs `Box`), exposes `action_space`, `action_type`, and
+        `action_dim`. `SACMethod.wire_data` reads `action_dim` from
+        `pipeline.action_space.shape`. `_ScriptedEnv` supports `continuous=True`
+        with `gymnasium.spaces.Box`.
 
-```python
-next_obs_all = torch.cat(
-    [torch.as_tensor(o, dtype=torch.float32).unsqueeze(0)
-     for o in self._ppo_next_obs], dim=0)
-next_obs_all = next_obs_all * (1.0 - rollout.dones).unsqueeze(1)
-with torch.no_grad():
-  next_vals = model.get_value(next_obs_all)
-rollout.set_next_values(next_vals)
-```
+        ---
 
-   `self._ppo_next_obs` is a list appended in the collection loop (parallel
-   to `rollout.add`), and the multiplication zeroes the bootstrap exactly at
-   `done` transitions (GAE's `non_terminal` factor also guards this, so the
-   zeroing is belt-and-braces for the last step of the rollout). This
-   requires buffering next-observations during collection — same loop, one
-   extra list, negligible cost.
+        ## 4. Phase B — High-severity fixes (metrics, bookkeeping, logging)
 
-**Files:** `genml_kit/datasets/rollout_buffer.py`,
-`genml_kit/training/rl_trainer.py`.
-**Tests:** extend `tests/test_rollout_buffer.py` with
-`test_set_next_values_rejects_scalar`; new trainer-level test
-`test_ppo_advantages_use_per_step_bootstrap` (D4) that hand-computes GAE on
-a scripted rollout and compares against `rollout.advantages`.
-
-### A8. PPO continuous actions: re-evaluate log-prob at the raw (pre-tanh) action
-
-**Problem.** In `ActorCritic.get_action_and_value`
-(`models/rl/actor_critic.py:262-288`) the sampling branch is correct:
-
-```python
-raw = dist.rsample()
-squashed = torch.tanh(raw)
-log_prob = dist.log_prob(raw).sum(dim=-1)
-log_prob -= torch.log(1.0 - squashed.pow(2) + 1e-6).sum(dim=-1)
-```
-
-but the re-evaluation branch (used by PPO update epochs on *stored*
-actions) feeds the **squashed** action into the Gaussian density:
-
-```python
-# action is tanh-squashed; re-evaluate log_prob with correction.
-log_prob = dist.log_prob(action).sum(dim=-1)
-log_prob -= torch.log(1.0 - torch.tanh(action).pow(2) + 1e-6).sum(dim=-1)
-```
-
-`dist.log_prob` must be evaluated at the pre-tanh value; applying `tanh` to
-an already-squashed action is meaningless. Consequence: continuous PPO
-computes wrong importance ratios in every update epoch.
-
-**Fix options (choose 1, recommended: (a)).**
-
-- (a) Store the raw pre-tanh action in the rollout and re-evaluate from it.
-  Changes: `PPOMethod.act` returns `(action, raw_action, log_prob, value)`;
-  `RolloutBuffer` gains a `raw_actions` tensor (float, same shape as
-  `actions`); `get_action_and_value` gains a `raw_action=` kwarg used by the
-  re-evaluation branch. PPO's env-facing action remains the squashed one.
-- (b) Invert the squash numerically (`atanh`) — numerically unstable at the
-  ±1 boundary, needs epsilon clamping everywhere; rejected.
-
-Add a one-line comment in `get_action_and_value` stating the invariant:
-*"for continuous actions, log_prob is always computed at the raw
-pre-tanh value; squashed actions are only for the environment."*
-
-**Files:** `genml_kit/models/rl/actor_critic.py`,
-`genml_kit/methods/rl_ppo.py`, `genml_kit/datasets/rollout_buffer.py`,
-`genml_kit/training/rl_trainer.py` (mini-batch dict must carry the new key).
-**Tests:** `test_ppo_logprob_roundtrip` (D4): sample an action, re-evaluate
-through the update path, assert equality with the sampling-time log-prob
-(within float tolerance).
-
-### A9. Continuous action spaces must be first-class
-
-**Problem.** `RLPipeline.init_env` only supports discrete envs:
-
-- `self._n_actions = int(self.env.action_space.n)`
-  (`pipelines/rl.py:202`) — raises `AttributeError` on a `Box` action
-  space (Pendulum, MuJoCo, anything continuous).
-- `RolloutBuffer(..., action_dim=None, # discrete by default`) is
-  hard-coded (`pipelines/rl.py:210-215`).
-- SAC (`--method sac`) is continuous-only, so with the `[rl]` extra
-  installed and a real gym env, SAC cannot run at all.
-
-**Fix.**
-
-1. In `init_env`, branch on the space type:
-
-```python
-action_space = self.env.action_space
-if hasattr(action_space, "n"):
-  self._action_type = "discrete"
-  self._n_actions = int(action_space.n)
-  self._action_dim = None
-elif hasattr(action_space, "shape") and action_space.shape is not None:
-  self._action_type = "continuous"
-  self._action_dim = int(torch.tensor(action_space.shape).prod())
-  self._n_actions = None
-else:
-  fatal(f"Unsupported action space: {action_space!r}", ValueError)
-```
-
-   Expose `action_type` / `action_dim` properties alongside
-   `obs_dim`/`n_actions` (`n_actions` may be `None` for continuous).
-2. Size the rollout buffer correctly: `action_dim=self._action_dim` when
-   continuous, `None` when discrete (`RolloutBuffer` already handles both —
-   it allocates `zeros(rollout_len, action_dim)` for float vs
-   `zeros(rollout_len, dtype=long)` for discrete).
-3. Guard the pipeline/method pairing early and clearly: in
-   `SACMethod.wire_data`, `fatal("SAC requires a continuous action space",
-   ValueError)` if `pipeline.action_type != "continuous"`; in
-   `DQNMethod.wire_data`, the inverse for `n_actions is None`. Same pairing
-   check for PPO vs its `--ppo-continuous` flag (fail when the flag and the
-   env disagree instead of letting shapes explode later).
-4. Action plumbing already tolerates numpy arrays (`step_env` passes
-   through; `_ScriptedEnv` coerces via `int(np.asarray(action).flat[0])`) —
-   verify with a continuous scripted env (D6).
-
-**Files:** `genml_kit/pipelines/rl.py`, `genml_kit/methods/rl_sac.py`,
-`rl_dqn.py`, `rl_ppo.py`, `genml_kit/datasets/rollout_buffer.py` (no change
-expected, only tests).
-**Tests:** `test_pipeline_continuous_action_space` (D6): a scripted
-continuous env trains one SAC step end-to-end without gym.
-
----
-
-## 4. Phase B — High-severity fixes (metrics, bookkeeping, logging)
-
-### B1. `evaluate()`: per-episode step budget ✅ DONE
+        ### B1. `evaluate()`: per-episode step budget ✅ DONE
 
 **Fixed in Round 1.** All three methods (`rl_dqn.py`, `rl_sac.py`, `rl_ppo.py`)
 now use a per-episode `episode_steps` counter instead of shared `total_steps`.
