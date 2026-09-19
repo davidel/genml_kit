@@ -57,57 +57,51 @@ class RLTrainer(BaseTrainer):
 
   def _train_epoch_offpolicy(self, epoch, saver, step, monitor):
     """Off-policy: warmup fill + interleaved acting + learning."""
-    method = self.method
-    model = self.model
-    pipeline = self.pipeline
-    buffer = pipeline.replay_buffer
-    device = self.device
-    args = self.args
-    batch_size = getattr(args, "batch_size", 64)
+    batch_size = getattr(self.args, "batch_size", 64)
     scaler = getattr(self.optimization, "scaler", None)
-    amp_dtype = getattr(args, "amp_dtype", None)
+    amp_dtype = getattr(self.args, "amp_dtype", None)
 
     # Initialise environment (no-op after first epoch).
-    pipeline.init_env(args)
+    self.pipeline.init_env(self.args)
 
     # Phase 1: warmup fill.
     obs = self._warmup_obs
     if obs is None:
-      obs = pipeline.reset_env()
-    while len(buffer) < args.warmup_steps:
-      action = torch.randint(0, method.n_actions, (1,)).item()
-      next_obs, reward, done, _ = pipeline.step_env(action)
-      buffer.push(obs, action, reward, next_obs, float(done))
-      obs = next_obs if not done else pipeline.reset_env()
+      obs = self.pipeline.reset_env()
+    while len(self.pipeline.replay_buffer) < self.args.warmup_steps:
+      action = torch.randint(0, self.method.n_actions, (1,)).item()
+      next_obs, reward, done, _ = self.pipeline.step_env(action)
+      self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done))
+      obs = next_obs if not done else self.pipeline.reset_env()
     self._warmup_obs = obs
 
     # Phase 2: interleaved acting + learning.
     total_loss = 0.0
     batches = 0
 
-    for _step in range(args.steps_per_epoch):
+    for _step in range(self.args.steps_per_epoch):
       # Act.
-      action = method.act(model, obs, deterministic=False)
-      next_obs, reward, done, _ = pipeline.step_env(action)
-      buffer.push(obs, action, reward, next_obs, float(done))
-      method.step_epsilon()
+      action = self.method.act(self.model, obs, deterministic=False)
+      next_obs, reward, done, _ = self.pipeline.step_env(action)
+      self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done))
+      self.method.step_epsilon()
 
-      obs = next_obs if not done else pipeline.reset_env()
+      obs = next_obs if not done else self.pipeline.reset_env()
 
       # Learn.
-      batch = buffer.sample(batch_size)
-      batch = pipeline.to_device(batch, device)
+      batch = self.pipeline.replay_buffer.sample(batch_size)
+      batch = self.pipeline.to_device(batch, self.device)
 
       with torch.amp.autocast(
           "cuda",
           dtype=amp_dtype,
-          enabled=(amp_dtype is not None and device.type == "cuda"),
+          enabled=(amp_dtype is not None and self.device.type == "cuda"),
       ):
-        loss_out = method.train_step(model, batch, step)
+        loss_out = self.method.train_step(self.model, batch, step)
 
       self._apply_grad(loss_out.loss, scaler, amp_dtype)
       step += 1
-      method.update_target(model, global_step=step)
+      self.method.update_target(self.model, global_step=step)
 
       total_loss += loss_out.loss.item()
       batches += 1
@@ -118,18 +112,18 @@ class RLTrainer(BaseTrainer):
     avg_loss = total_loss / max(batches, 1)
     if self.writer is not None:
       self.writer.add_scalar("train/loss", avg_loss, epoch)
-      if hasattr(method, "_epsilon"):
-        self.writer.add_scalar("epsilon", method._epsilon, epoch)
-      if hasattr(method, "_get_alpha"):
-        self.writer.add_scalar("alpha", method._get_alpha(), epoch)
-      self.writer.add_scalar("env_steps", method._env_steps, epoch)
+      if hasattr(self.method, "_epsilon"):
+        self.writer.add_scalar("epsilon", self.method._epsilon, epoch)
+      if hasattr(self.method, "_get_alpha"):
+        self.writer.add_scalar("alpha", self.method._get_alpha(), epoch)
+      self.writer.add_scalar("env_steps", self.method._env_steps, epoch)
 
     logging.info(
         "epoch=%d  avg_loss=%.4f  env_steps=%d  buffer_size=%d",
         epoch,
         avg_loss,
-        method._env_steps,
-        len(buffer),
+        self.method._env_steps,
+        len(self.pipeline.replay_buffer),
     )
     return avg_loss, step
 
@@ -139,30 +133,25 @@ class RLTrainer(BaseTrainer):
 
   def _train_epoch_ppo(self, epoch, saver, step, monitor):
     """On-policy: collect rollout \u2192 compute GAE \u2192 SGD epochs."""
-    method = self.method
-    model = self.model
-    pipeline = self.pipeline
-    device = self.device
-    args = self.args
     scaler = getattr(self.optimization, "scaler", None)
-    amp_dtype = getattr(args, "amp_dtype", None)
+    amp_dtype = getattr(self.args, "amp_dtype", None)
 
     # Initialise environment (no-op after first epoch).
-    pipeline.init_env(args)
+    self.pipeline.init_env(self.args)
 
-    rollout = pipeline.rollout_buffer
+    rollout = self.pipeline.rollout_buffer
     rollout_len = rollout.rollout_len
     obs = getattr(self, "_ppo_obs", None)
 
     # Phase 1: collect rollout.
     rollout.reset()
-    obs = pipeline.reset_env() if obs is None else obs
+    obs = self.pipeline.reset_env() if obs is None else obs
     episode_count = 0
     total_reward = 0.0
 
     for _ in range(rollout_len):
-      action, log_prob, value = method.act(model, obs, deterministic=False)
-      next_obs, reward, done, _ = pipeline.step_env(action)
+      action, log_prob, value = self.method.act(self.model, obs, deterministic=False)
+      next_obs, reward, done, _ = self.pipeline.step_env(action)
       rollout.add(obs, action, log_prob, reward, value, float(done))
 
       total_reward += reward
@@ -171,27 +160,27 @@ class RLTrainer(BaseTrainer):
       if done:
         total_reward = 0.0
         episode_count += 1
-        obs = pipeline.reset_env()
+        obs = self.pipeline.reset_env()
 
     # Bootstrap value for GAE.
     with torch.no_grad():
       obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
-      next_val = model.get_value(obs_t).item()
+      next_val = self.model.get_value(obs_t).item()
     rollout.set_next_values(next_val)
-    rollout.compute(gamma=method._gamma, lam=method._lam)
-    rollout.to(device)
+    rollout.compute(gamma=self.method._gamma, lam=self.method._lam)
+    rollout.to(self.device)
 
     self._ppo_obs = obs
 
     # B5: track env steps collected in this rollout
-    method._env_steps += rollout_len
+    self.method._env_steps += rollout_len
 
     # Phase 2: multiple SGD epochs over the rollout.
     total_loss = 0.0
     batches = 0
-    mini_batch_size = method._mini_batch_size
+    mini_batch_size = self.method._mini_batch_size
 
-    for _ppo_epoch in range(method._ppo_epochs):
+    for _ppo_epoch in range(self.method._ppo_epochs):
       rollout_indices = torch.randperm(rollout_len)
       for start in range(0, rollout_len, mini_batch_size):
         end = min(start + mini_batch_size, rollout_len)
@@ -201,14 +190,14 @@ class RLTrainer(BaseTrainer):
             for k, v in rollout.__dict__.items()
             if isinstance(v, torch.Tensor) and v.shape[0] == rollout_len
         }
-        batch = pipeline.to_device(batch, device)
+        batch = self.pipeline.to_device(batch, self.device)
 
         with torch.amp.autocast(
             "cuda",
             dtype=amp_dtype,
-            enabled=(amp_dtype is not None and device.type == "cuda"),
+            enabled=(amp_dtype is not None and self.device.type == "cuda"),
         ):
-          loss_out = method.train_step(model, batch, step)
+          loss_out = self.method.train_step(self.model, batch, step)
 
         self._apply_grad(loss_out.loss, scaler, amp_dtype)
         step += 1
@@ -222,7 +211,7 @@ class RLTrainer(BaseTrainer):
     avg_loss = total_loss / max(batches, 1)
     if self.writer is not None:
       self.writer.add_scalar("train/loss", avg_loss, epoch)
-      self.writer.add_scalar("env_steps", method._env_steps, epoch)
+      self.writer.add_scalar("env_steps", self.method._env_steps, epoch)
       for k in ("pg_loss", "value_loss", "entropy", "ratio_mean"):
         if k in loss_out.metrics:
           self.writer.add_scalar(f"ppo/{k}", loss_out.metrics[k], epoch)
@@ -231,7 +220,7 @@ class RLTrainer(BaseTrainer):
         "epoch=%d  avg_loss=%.4f  env_steps=%d  episodes=%d",
         epoch,
         avg_loss,
-        method._env_steps,
+        self.method._env_steps,
         episode_count,
     )
     return avg_loss, step

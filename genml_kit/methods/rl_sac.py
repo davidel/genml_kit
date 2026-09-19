@@ -99,9 +99,6 @@ class SACMethod(Method):
     self._tau = getattr(args, "sac_tau", 0.005)
     self._auto_alpha = getattr(args, "sac_auto_alpha", True)
 
-    pipeline = self._pipeline
-    action_dim = self._action_dim
-
     # Temperature alpha.
     self._log_alpha = torch.tensor(
         math.log(getattr(args, "sac_alpha", 0.2)),
@@ -110,14 +107,14 @@ class SACMethod(Method):
     )
     self._target_entropy = getattr(args, "sac_target_entropy", None)
     if self._target_entropy is None:
-      self._target_entropy = -float(action_dim)
+      self._target_entropy = -float(self._action_dim)
 
     # Actor (policy).
     actor = load_model(
         "rl/actor_critic",
         num_labels=0,
-        obs_dim=pipeline.obs_dim,
-        action_dim=action_dim,
+        obs_dim=self._pipeline.obs_dim,
+        action_dim=self._action_dim,
         discrete=False,
         device=device,
     )
@@ -126,16 +123,16 @@ class SACMethod(Method):
     q1 = load_model(
         "rl/actor_critic",
         num_labels=0,
-        obs_dim=pipeline.obs_dim,
-        action_dim=action_dim,
+        obs_dim=self._pipeline.obs_dim,
+        action_dim=self._action_dim,
         discrete=False,
         device=device,
     )
     q2 = load_model(
         "rl/actor_critic",
         num_labels=0,
-        obs_dim=pipeline.obs_dim,
-        action_dim=action_dim,
+        obs_dim=self._pipeline.obs_dim,
+        action_dim=self._action_dim,
         discrete=False,
         device=device,
     )

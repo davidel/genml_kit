@@ -106,12 +106,11 @@ class DQNMethod(Method):
     self._gamma = getattr(args, "gamma", 0.99)
     self._ddqn = getattr(args, "ddqn", True)
 
-    pipeline = self._pipeline
     # Model.
     model = load_model(
         "rl/qnet_dueling" if getattr(args, "dueling", False) else "rl/qnet",
         num_labels=0,
-        obs_dim=pipeline.obs_dim,
+        obs_dim=self._pipeline.obs_dim,
         n_actions=self.n_actions,
         device=device,
     )

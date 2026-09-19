@@ -111,11 +111,10 @@ class PPOMethod(Method):
     self._vf_clip_eps = getattr(args, "ppo_vf_clip_eps", None)
     self._env_steps = 0
 
-    pipeline = self._pipeline
     model = load_model(
         "rl/actor_critic",
         num_labels=0,
-        obs_dim=pipeline.obs_dim,
+        obs_dim=self._pipeline.obs_dim,
         n_actions=self.n_actions if self._discrete else None,
         action_dim=self._action_dim if not self._discrete else None,
         discrete=self._discrete,
