@@ -207,16 +207,17 @@ class RLPipeline(DataPipeline):
 
     Called once at the start of training by ``RLTrainer``.
     """
+    from genml_kit.utils.logging import fatal
+    from genml_kit.utils.script import extern_call
+
     if self.env is not None:
       return
 
     if getattr(args, "env_script", None):
-      from genml_kit.utils.script import extern_call
       self.env = extern_call(args.env_script, "make_env")
     else:
       self.env = GymnasiumEnvWrapper(args.env_id)
 
-    from genml_kit.utils.logging import fatal
     obs_dim = getattr(args, "obs_dim", None)
     if obs_dim is None:
       # Try to infer from observation space.
@@ -224,7 +225,7 @@ class RLPipeline(DataPipeline):
       if hasattr(obs_space, "shape"):
         obs_dim = int(torch.tensor(obs_space.shape).prod())
       else:
-        # Fatal: cannot infer obs_dim from this observation space
+        # Fatal: cannot infer obs_dim from this observation space.
         fatal(
             f"Cannot infer obs_dim from observation space {obs_space!r}; "
             "pass --obs_dim explicitly", ValueError)

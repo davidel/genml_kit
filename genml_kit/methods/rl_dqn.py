@@ -130,7 +130,8 @@ class DQNMethod(Method):
     """
     obs_t = torch.as_tensor(obs, dtype=torch.float32)
     with torch.no_grad():
-      q = model.online(obs_t.unsqueeze(0))  # (1, n_actions)
+      # (1, n_actions)
+      q = model.online(obs_t.unsqueeze(0))
 
     if deterministic:
       return q.argmax(dim=-1).item()

@@ -163,7 +163,8 @@ class PPOMethod(Method):
     data = blob if isinstance(blob, dict) else blob.data
 
     obs = data["obs"]
-    actions = data["action"]  # squashed actions (for value reference)
+    # Squashed actions (for value reference).
+    actions = data["action"]
     old_log_probs = data["log_prob"]
     advantages = data["advantage"]
     returns = data["return"]

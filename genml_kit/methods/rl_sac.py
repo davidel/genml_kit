@@ -88,11 +88,12 @@ class SACMethod(Method):
 
   def wire_data(self, args, pipeline):
     self._pipeline = pipeline
-    # Get action dimension from pipeline's action_space for continuous support
+    # Get action dimension from pipeline's action_space for continuous support.
     if hasattr(pipeline, 'action_space') and hasattr(pipeline.action_space, 'shape'):
       self._action_dim = pipeline.action_space.shape[0]
     else:
-      self._action_dim = pipeline.n_actions  # Fallback for discrete
+      # Fallback for discrete.
+      self._action_dim = pipeline.n_actions
     self._env_steps = 0
 
   def build_model(self, args, device):
