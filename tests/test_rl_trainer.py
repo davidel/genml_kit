@@ -1,7 +1,6 @@
 """Tests for RLTrainer (warmup + interleaved env/learn loop)."""
 
 import argparse
-import contextlib
 import tempfile
 from collections import namedtuple
 
@@ -15,13 +14,6 @@ from genml_kit.training.rl_trainer import RLTrainer
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 
 Optimization = namedtuple("Optimization", ["optimizer", "scheduler", "scaler"])
-
-
-@contextlib.contextmanager
-def _temp_checkpoint_dir():
-  """Create a temporary checkpoint directory that's auto-cleaned."""
-  with tempfile.TemporaryDirectory() as tmpdir:
-    yield tmpdir
 
 
 class FakeRLMethod(DQNMethod):
@@ -60,13 +52,6 @@ class FakeRLPipeline(RLPipeline):
     self._obs_dim = 4
     self._n_actions = 2
     self.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=100)
-
-
-@contextlib.contextmanager
-def _temp_checkpoint_dir():
-  """Create a temporary checkpoint directory that's auto-cleaned."""
-  with tempfile.TemporaryDirectory() as tmpdir:
-    yield tmpdir
 
 
 def _make_args(**overrides):
@@ -124,7 +109,7 @@ def _build_trainer(**args_overrides):
 class TestRLTrainer:
 
   def test_train_epoch_runs(self):
-    with _temp_checkpoint_dir() as checkpoint_dir:
+    with tempfile.TemporaryDirectory() as checkpoint_dir:
       model, optimization, method, pipeline, args = _build_trainer(
       )
       args.checkpoint = checkpoint_dir
@@ -145,7 +130,7 @@ class TestRLTrainer:
       assert new_step > 0
 
   def test_validate_returns_metrics(self):
-    with _temp_checkpoint_dir() as checkpoint_dir:
+    with tempfile.TemporaryDirectory() as checkpoint_dir:
       model, optimization, method, pipeline, args = _build_trainer(
       )
       args.checkpoint = checkpoint_dir
@@ -167,7 +152,7 @@ class TestRLTrainer:
       assert eval_return >= 0.0
 
   def test_warmup_fills_buffer(self):
-    with _temp_checkpoint_dir() as checkpoint_dir:
+    with tempfile.TemporaryDirectory() as checkpoint_dir:
       model, optimization, method, pipeline, args = _build_trainer(
           warmup_steps=8, steps_per_epoch=3)
       args.checkpoint = checkpoint_dir
