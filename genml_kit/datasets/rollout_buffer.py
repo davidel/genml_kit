@@ -34,6 +34,9 @@ class RolloutBuffer(Dataset):
     self.obs = torch.zeros(rollout_len, obs_dim)
     self.actions = (torch.zeros(rollout_len, action_dim) if action_dim is not None else
                     torch.zeros(rollout_len, dtype=torch.long))
+    self.raw_actions = (
+        torch.zeros(rollout_len, action_dim) if action_dim is not None else None
+    )  # Store pre-tanh actions for continuous
     self.log_probs = torch.zeros(rollout_len)
     self.rewards = torch.zeros(rollout_len)
     self.values = torch.zeros(rollout_len)
@@ -45,16 +48,22 @@ class RolloutBuffer(Dataset):
     self._ptr = 0
     self._filled = False
 
-  def add(self, obs, action, log_prob, reward, value, done):
+  def add(self, obs, action, log_prob, reward, value, done, raw_action=None):
     """Store a single timestep at the current pointer.
 
     All arguments are plain Python scalars or numpy values.
+
+    Args:
+        raw_action: Optional raw (pre-tanh) action for continuous spaces.
+                    Ignored for discrete.
     """
     if self._ptr >= self.rollout_len:
       raise RuntimeError(f"RolloutBuffer overflow: ptr={self._ptr}, "
                          f"capacity={self.rollout_len}")
     self.obs[self._ptr] = torch.as_tensor(obs, dtype=torch.float32)
     self.actions[self._ptr] = torch.as_tensor(action)
+    if self.raw_actions is not None and raw_action is not None:
+      self.raw_actions[self._ptr] = torch.as_tensor(raw_action)
     self.log_probs[self._ptr] = float(log_prob)
     self.rewards[self._ptr] = float(reward)
     self.values[self._ptr] = float(value)
@@ -64,12 +73,21 @@ class RolloutBuffer(Dataset):
   def set_next_values(self, next_values):
     """Set bootstrap value estimates for the rollout's final states.
 
-    ``next_values`` should be ``V(s_{T})`` computed at the *end* of
-    the rollout (before the next observation is consumed).
+    ``next_values`` should be a tensor of shape (rollout_len,) containing
+    V(s_{t+1}) for each step t in the rollout.
+
+    Args:
+        next_values: Tensor of shape (rollout_len,) with per-step bootstrap values.
+                     Scalar broadcasting is no longer supported.
     """
-    self.next_values.copy_(
-        torch.as_tensor(next_values,
-                        dtype=torch.float32).reshape(-1)[:self.rollout_len])
+    if isinstance(next_values, (int, float)):
+      raise ValueError(
+          "set_next_values no longer accepts scalars. "
+          "Pass a tensor/array of shape (rollout_len,) with per-step bootstrap values.")
+    next_values = torch.as_tensor(next_values, dtype=torch.float32).flatten()
+    assert next_values.numel() == self.rollout_len, (
+        f"next_values must have {self.rollout_len} elements, got {next_values.numel()}")
+    self.next_values.copy_(next_values)
 
   def compute(self, gamma, lam):
     """Compute GAE advantages and discounted returns.
@@ -97,7 +115,7 @@ class RolloutBuffer(Dataset):
 
   def __getitem__(self, idx):
     """Return a single timestep as a dict (DataLoader-compatible)."""
-    return {
+    item = {
         "obs": self.obs[idx],
         "action": self.actions[idx],
         "log_prob": self.log_probs[idx],
@@ -105,11 +123,16 @@ class RolloutBuffer(Dataset):
         "return": self.returns[idx],
         "value": self.values[idx],
     }
+    if self.raw_actions is not None:
+      item["raw_action"] = self.raw_actions[idx]
+    return item
 
   def to(self, device):
     """Move all tensors to *device* (in-place)."""
     self.obs = self.obs.to(device)
     self.actions = self.actions.to(device)
+    if self.raw_actions is not None:
+      self.raw_actions = self.raw_actions.to(device)
     self.log_probs = self.log_probs.to(device)
     self.rewards = self.rewards.to(device)
     self.values = self.values.to(device)

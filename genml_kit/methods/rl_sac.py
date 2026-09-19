@@ -91,7 +91,11 @@ class SACMethod(Method):
 
   def wire_data(self, args, pipeline):
     self._pipeline = pipeline
-    self._action_dim = pipeline.n_actions  # SAC always continuous
+    # Get action dimension from pipeline's action_space for continuous support
+    if hasattr(pipeline, 'action_space') and hasattr(pipeline.action_space, 'shape'):
+      self._action_dim = pipeline.action_space.shape[0]
+    else:
+      self._action_dim = pipeline.n_actions  # Fallback for discrete
     self._env_steps = 0
 
   def build_model(self, args, device):
@@ -249,7 +253,7 @@ class SACMethod(Method):
     """SAC acts by sampling from the squashed Gaussian policy."""
     obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
     with torch.no_grad():
-      action, _, _, _ = model.actor.get_action_and_value(
+      action, _, _, _, _ = model.actor.get_action_and_value(
           obs_t,
           deterministic=deterministic,
       )
@@ -284,7 +288,7 @@ class SACMethod(Method):
 
     # --- Critic update (twin soft Q-learning) ---
     with torch.no_grad():
-      next_action, next_log_prob, _, _ = model.actor.get_action_and_value(next_obs,)
+      next_action, _, next_log_prob, _, _ = model.actor.get_action_and_value(next_obs,)
       q1_next = model.q1_target.get_value(next_obs)
       q2_next = model.q2_target.get_value(next_obs)
       min_q_next = torch.min(q1_next, q2_next)
@@ -306,7 +310,7 @@ class SACMethod(Method):
     for p in model.q2.parameters():
       p.requires_grad_(False)
 
-    new_action, new_log_prob, _, _ = model.actor.get_action_and_value(obs)
+    new_action, _, new_log_prob, _, _ = model.actor.get_action_and_value(obs)
     q1_new = model.q1.get_value(obs)
     q2_new = model.q2.get_value(obs)
     min_q_new = torch.min(q1_new, q2_new)

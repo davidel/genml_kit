@@ -90,8 +90,9 @@ class TestActorCritic:
   def test_discrete_get_action_and_value(self):
     ac = ActorCritic(obs_dim=4, n_actions=3, discrete=True)
     obs = torch.randn(8, 4)
-    action, log_prob, entropy, value = ac.get_action_and_value(obs)
+    action, raw_action, log_prob, entropy, value = ac.get_action_and_value(obs)
     assert action.shape == (8,)
+    assert raw_action is None  # discrete
     assert log_prob.shape == (8,)
     assert value.shape == (8,)
 
@@ -99,7 +100,7 @@ class TestActorCritic:
     ac = ActorCritic(obs_dim=4, n_actions=3, discrete=True)
     obs = torch.randn(8, 4)
     action = torch.randint(0, 3, (8,))
-    _, log_prob, entropy, value = ac.get_action_and_value(obs, action=action)
+    _, _, log_prob, entropy, value = ac.get_action_and_value(obs, action=action)
     assert log_prob.shape == (8,)
 
   def test_continuous_forward(self):
@@ -111,8 +112,9 @@ class TestActorCritic:
   def test_continuous_get_action_and_value(self):
     ac = ActorCritic(obs_dim=4, action_dim=2, discrete=False)
     obs = torch.randn(8, 4)
-    action, log_prob, entropy, value = ac.get_action_and_value(obs)
+    action, raw_action, log_prob, entropy, value = ac.get_action_and_value(obs)
     assert action.shape == (8, 2)
+    assert raw_action.shape == (8, 2)  # raw action same shape as action
     assert log_prob.shape == (8,)
     assert value.shape == (8,)
 

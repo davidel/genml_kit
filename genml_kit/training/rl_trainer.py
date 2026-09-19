@@ -32,8 +32,8 @@ class RLTrainer(BaseTrainer):
     super().__init__(*args, **kwargs)
     self._warmup_obs = None
     # Allow method to build custom optimization (e.g., SAC three optimizers)
-    custom_opt = self.method.build_optimization(
-        self.args, self.model, self.device, {}, {})
+    custom_opt = self.method.build_optimization(self.args, self.model, self.device, {},
+                                                {})
     if custom_opt is not None:
       self.optimization = custom_opt
 
@@ -149,10 +149,20 @@ class RLTrainer(BaseTrainer):
     episode_count = 0
     total_reward = 0.0
 
-    for _ in range(rollout_len):
-      action, log_prob, value = self.method.act(self.model, obs, deterministic=False)
+    # Collect per-step bootstrap values V(s_{t+1}) during rollout.
+    next_values = torch.zeros(rollout_len, dtype=torch.float32)
+
+    for i in range(rollout_len):
+      action, log_prob, value, raw_action = self.method.act(self.model,
+                                                            obs,
+                                                            deterministic=False)
       next_obs, reward, done, _ = self.pipeline.step_env(action)
-      rollout.add(obs, action, log_prob, reward, value, float(done))
+      rollout.add(obs, action, log_prob, reward, value, float(done), raw_action)
+
+      # Compute V(s_{t+1}) for GAE bootstrap at this step.
+      with torch.no_grad():
+        next_obs_t = torch.as_tensor(next_obs, dtype=torch.float32).unsqueeze(0)
+        next_values[i] = self.model.get_value(next_obs_t).item()
 
       total_reward += reward
       obs = next_obs
@@ -162,11 +172,8 @@ class RLTrainer(BaseTrainer):
         episode_count += 1
         obs = self.pipeline.reset_env()
 
-    # Bootstrap value for GAE.
-    with torch.no_grad():
-      obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
-      next_val = self.model.get_value(obs_t).item()
-    rollout.set_next_values(next_val)
+    # Bootstrap values for GAE (per-step, not a single scalar).
+    rollout.set_next_values(next_values)
     rollout.compute(gamma=self.method._gamma, lam=self.method._lam)
     rollout.to(self.device)
 

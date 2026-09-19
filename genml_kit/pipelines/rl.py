@@ -61,17 +61,26 @@ class _ScriptedEnv:
   to prevent infinite loops with untrained policies.
   """
 
-  def __init__(self, obs_dim=4, max_episode_length=100):
+  def __init__(self, obs_dim=4, max_episode_length=10, continuous=False, action_dim=2):
     self.obs_dim = obs_dim
     self._state = 0
     self._step_count = 0
     self._max_episode_length = max_episode_length
+    self._continuous = continuous
+    self._action_dim = action_dim
     self.observation_space = type("S", (), {
         "shape": (obs_dim,),
     })()
-    self.action_space = type("A", (), {
-        "n": 2,
-    })()
+    if continuous:
+      import gymnasium as gym
+      import numpy as np
+      self.action_space = gym.spaces.Box(
+          low=-1.0, high=1.0, shape=(action_dim,), dtype=np.float32
+      )
+    else:
+      self.action_space = type("A", (), {
+          "n": 2,
+      })()
 
   def reset(self):
     self._state = 0
@@ -81,14 +90,23 @@ class _ScriptedEnv:
   def step(self, action):
     self._step_count += 1
     import numpy as np
-    if hasattr(action, "__len__"):
-      act_val = int(np.asarray(action).flat[0])
-    elif hasattr(action, "item"):
-      act_val = int(action.item())
+    if self._continuous:
+      # Continuous action: accept array, use first element for logic
+      if hasattr(action, "__len__"):
+        act_val = float(np.asarray(action).flat[0])
+      elif hasattr(action, "item"):
+        act_val = float(action.item())
+      else:
+        act_val = float(action)
     else:
-      act_val = int(action)
-    if act_val == 0 and self._state < 3:
-      self._state += 1
+      if hasattr(action, "__len__"):
+        act_val = int(np.asarray(action).flat[0])
+      elif hasattr(action, "item"):
+        act_val = int(action.item())
+      else:
+        act_val = int(action)
+      if act_val == 0 and self._state < 3:
+        self._state += 1
     reward = 1.0 if self._state == 3 else 0.0
     done = self._state == 3 or self._step_count >= self._max_episode_length
     return self._obs(), reward, done, {}
@@ -199,7 +217,21 @@ class RLPipeline(DataPipeline):
         obs_dim = 4  # fallback
         logging.warning("Could not infer obs_dim; defaulting to %d", obs_dim)
     self._obs_dim = obs_dim
-    self._n_actions = int(self.env.action_space.n)
+
+    # Expose action_space for continuous support (A9)
+    self.action_space = self.env.action_space
+
+    # Handle discrete vs continuous action space
+    if hasattr(self.env.action_space, 'n'):
+      self._n_actions = int(self.env.action_space.n)
+      self._action_dim = None
+    elif hasattr(self.env.action_space, 'shape'):
+      self._n_actions = None
+      self._action_dim = int(self.env.action_space.shape[0])
+    else:
+      # Fallback
+      self._n_actions = 2
+      self._action_dim = 2
 
     self.replay_buffer = ReplayBufferDataset(
         obs_dim=obs_dim,
@@ -210,7 +242,7 @@ class RLPipeline(DataPipeline):
     self.rollout_buffer = RolloutBuffer(
         obs_dim=obs_dim,
         rollout_len=getattr(args, "rollout_len", 2048),
-        action_dim=None,  # discrete by default
+        action_dim=self._action_dim,
         device="cpu",
     )
 
@@ -314,6 +346,6 @@ class RLPipeline(DataPipeline):
     return data
 
   @classmethod
-  def _make_scripted_env(cls, obs_dim=4):
+  def _make_scripted_env(cls, obs_dim=4, continuous=False, action_dim=2):
     """Return a ``_ScriptedEnv`` for unit testing."""
-    return _ScriptedEnv(obs_dim=obs_dim)
+    return _ScriptedEnv(obs_dim=obs_dim, continuous=continuous, action_dim=action_dim)

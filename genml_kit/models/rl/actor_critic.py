@@ -240,19 +240,26 @@ class ActorCritic(nn.Module):
     If *action* is provided, evaluates ``log_prob(action)`` instead of
     sampling (used for PPO update epochs on stored actions).
 
+    For continuous actions, the *action* argument must be the **raw
+    (pre-tanh)** action, because the distribution is defined over raw
+    actions. The returned ``action`` is always the squashed action (for
+    environment stepping), but during update we re-evaluate on raw.
+
     Args:
         obs:           (B, obs_dim) observation tensor.
         action:        Optional (B,) int64 (discrete) or
-                       (B, action_dim) float (continuous).  If ``None``,
-                       a new action is sampled.
+                       (B, action_dim) float (continuous, RAW pre-tanh).
+                       If ``None``, a new action is sampled.
         deterministic: If ``True``, return the mode instead of a sample.
 
     Returns:
-        action:   (B,) int64 (discrete) or (B, action_dim) float
-                  (continuous, tanh-squashed to [-1, 1]).
-        log_prob: (B,) log π(a|s).
-        entropy:  (B,) policy entropy.
-        value:    (B,) V(s).
+        action:       (B,) int64 (discrete) or (B, action_dim) float
+                      (continuous, tanh-squashed to [-1, 1]) for env.
+        raw_action:   (B, action_dim) float (continuous, RAW pre-tanh).
+                      None for discrete. Used for storing in rollout.
+        log_prob:     (B,) log \u03c0(a|s).
+        entropy:      (B,) policy entropy.
+        value:        (B,) V(s).
     """
     # obs: (B, obs_dim)
     h = self.backbone(obs)  # (B, hidden_dims[-1])
@@ -264,19 +271,25 @@ class ActorCritic(nn.Module):
         # action: (B,) int64
         log_prob = dist.log_prob(action)  # (B,)
         entropy = dist.entropy()  # (B,)
+        raw_action = None
+        # action is already the squashed/discrete action
       else:
-        # action is tanh-squashed; re-evaluate log_prob with correction.
-        # action: (B, action_dim)
+        # action is RAW (pre-tanh); re-evaluate log_prob with tanh correction.
+        # action: (B, action_dim) -- raw action from rollout buffer
         log_prob = dist.log_prob(action).sum(dim=-1)  # (B,)
         log_prob -= torch.log(1.0 - torch.tanh(action).pow(2) + 1e-6).sum(
             dim=-1)  # (B,)
         entropy = dist.entropy().sum(dim=-1)  # (B,)
+        # For re-evaluation, the squashed action is tanh(raw_action)
+        raw_action = action
+        action = torch.tanh(action)
     else:
       if self.discrete:
         sampled = dist.sample()  # (B,) int64
         log_prob = dist.log_prob(sampled)  # (B,)
         entropy = dist.entropy()  # (B,)
         action = sampled
+        raw_action = None
       else:
         raw = dist.rsample()  # (B, action_dim) unbounded
         squashed = torch.tanh(raw)  # (B, action_dim) in [-1, 1]
@@ -284,8 +297,9 @@ class ActorCritic(nn.Module):
         log_prob -= torch.log(1.0 - squashed.pow(2) + 1e-6).sum(dim=-1)  # (B,)
         entropy = dist.entropy().sum(dim=-1)  # (B,)
         action = squashed
+        raw_action = raw
 
-    return action, log_prob, entropy, value
+    return action, raw_action, log_prob, entropy, value
 
 
 @register_model("rl/actor_critic")

@@ -72,10 +72,11 @@ class TestPPOMethod:
   def test_act_returns_valid(self):
     _, method, model = _make_pipeline_and_method()
     obs = torch.randn(4)
-    action, log_prob, value = method.act(model, obs, deterministic=True)
+    action, log_prob, value, raw_action = method.act(model, obs, deterministic=True)
     assert action in (0, 1)
     assert isinstance(log_prob, float)
     assert isinstance(value, float)
+    assert raw_action is None  # discrete
 
   def test_train_step(self):
     _, method, model = _make_pipeline_and_method()
@@ -155,6 +156,7 @@ class TestPPOMethod:
     method._discrete = False
     model = method.build_model(args, device=torch.device("cpu"))
 
-    action, log_prob, value = method.act(model, torch.randn(4))
+    action, log_prob, value, raw_action = method.act(model, torch.randn(4))
     assert action.shape == (2,)
+    assert raw_action.shape == (2,)
     assert isinstance(log_prob, float)

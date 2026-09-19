@@ -128,19 +128,26 @@ class PPOMethod(Method):
 
     Called by the trainer during rollout gathering (D11: env stepping
     never inside ``train_step``).
+
+    Returns:
+        action:     Squashed action for environment (numpy).
+        log_prob:   Log probability of the action.
+        value:      Value estimate.
+        raw_action: Raw (pre-tanh) action for continuous, None for discrete.
     """
     obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
     with torch.no_grad():
-      action, log_prob, _, value = model.get_action_and_value(
+      action, raw_action, log_prob, _, value = model.get_action_and_value(
           obs_t,
           deterministic=deterministic,
       )
     if self._discrete:
-      return action.item(), log_prob.item(), value.item()
+      return action.item(), log_prob.item(), value.item(), None
     return (
         action.squeeze(0).numpy(),
         log_prob.item(),
         value.item(),
+        raw_action.squeeze(0).numpy(),
     )
 
   def update_target(self, model, global_step):
@@ -157,7 +164,7 @@ class PPOMethod(Method):
     data = blob if isinstance(blob, dict) else blob.data
 
     obs = data["obs"]
-    actions = data["action"]
+    actions = data["action"]  # squashed actions (for value reference)
     old_log_probs = data["log_prob"]
     advantages = data["advantage"]
     returns = data["return"]
@@ -165,9 +172,13 @@ class PPOMethod(Method):
     # Normalize advantages.
     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-    _, new_log_probs, entropy, new_values = model.get_action_and_value(
+    # For continuous: re-evaluate log_prob on RAW (pre-tanh) actions
+    # because the distribution is defined over raw actions.
+    eval_action = data.get("raw_action", actions)
+
+    _, _, new_log_probs, entropy, new_values = model.get_action_and_value(
         obs,
-        action=actions,
+        action=eval_action,
     )
 
     # Policy loss (clipped surrogate).
@@ -209,7 +220,7 @@ class PPOMethod(Method):
       while not done and episode_steps < max_steps:
         obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
         with torch.no_grad():
-          action, _, _, _ = model.get_action_and_value(
+          action, _, _, _, _ = model.get_action_and_value(
               obs_t,
               deterministic=True,
           )

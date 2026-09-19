@@ -55,7 +55,7 @@ class TestRolloutBuffer:
   def test_getitem_dict(self):
     buf = RolloutBuffer(obs_dim=2, rollout_len=4)
     buf.add(obs=[1, 2], action=1, log_prob=-0.3, reward=0.5, value=0.1, done=False)
-    buf.set_next_values([0.0])
+    buf.set_next_values([0.0, 0.0, 0.0, 0.0])  # Per-step bootstrap values
     buf.compute(gamma=0.99, lam=0.95)
     item = buf[0]
     assert isinstance(item, dict)
