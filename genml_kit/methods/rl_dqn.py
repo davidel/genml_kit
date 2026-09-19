@@ -21,7 +21,6 @@ class DQNMethod(Method):
 
   NAME = "dqn"
   METRIC_KEY = "eval_return"
-  METRIC_MINIMIZE = False  # higher return is better
   NEEDS_LABELS = False
 
   @classmethod
@@ -83,6 +82,12 @@ class DQNMethod(Method):
               "Polyak with --tau). Default 1 = update every step for "
               "stable training."),
     )
+    group.add_argument(
+        "--n_step",
+        type=int,
+        default=1,
+        help="Number of lookahead steps for n-step TD target (default: 1).",
+    )
 
   def wire_data(self, args, pipeline):
     """Read n_actions from the pipeline (set after env init)."""
@@ -105,6 +110,7 @@ class DQNMethod(Method):
     # Q-learning hyper-params.
     self._gamma = getattr(args, "gamma", 0.99)
     self._ddqn = getattr(args, "ddqn", True)
+    self._n_step = getattr(args, "n_step", 1)
 
     # Model.
     model = load_model(
@@ -179,6 +185,7 @@ class DQNMethod(Method):
         model.target,
         gamma=self._gamma,
         double_q=self._ddqn,
+        n_step=self._n_step,
     )
 
     # TD loss.
@@ -189,6 +196,7 @@ class DQNMethod(Method):
         "td_loss": loss.detach(),
         "q_mean": q.detach().mean(),
         "epsilon": self._epsilon,
+        "env_steps": self._env_steps,
     }
     return LossOutput(loss=loss, metrics=metrics)
 

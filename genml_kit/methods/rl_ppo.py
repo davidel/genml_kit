@@ -21,7 +21,6 @@ class PPOMethod(Method):
 
   NAME = "ppo"
   METRIC_KEY = "eval_return"
-  METRIC_MINIMIZE = False
   NEEDS_LABELS = False
 
   @classmethod

@@ -73,6 +73,7 @@ class RLTrainer(BaseTrainer):
       next_obs, reward, done, _ = self.pipeline.step_env(action)
       self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done))
       obs = next_obs if not done else self.pipeline.reset_env()
+      self.method.step_epsilon()
     self._warmup_obs = obs
 
     # Phase 2: interleaved acting + learning.

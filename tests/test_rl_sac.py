@@ -88,14 +88,14 @@ class TestSACMethod:
   def test_update_target_soft(self):
     _, method, model = _make_pipeline_and_method()
     with torch.no_grad():
-      for p in model.q1.parameters():
+      for p in model.q1.net.parameters():
         p.add_(1.0)
-    old_q1_target = [p.clone() for p in model.q1_target.parameters()]
+    old_q1_target = [p.clone() for p in model.q1.target.parameters()]
     method.update_target(model, global_step=1)
     for p_old, p_online, p_target in zip(
         old_q1_target,
-        model.q1.parameters(),
-        model.q1_target.parameters(),
+        model.q1.net.parameters(),
+        model.q1.target.parameters(),
     ):
       expected = (1.0 - method._tau) * p_old + method._tau * p_online
       assert torch.allclose(p_target.data, expected, atol=1e-5)

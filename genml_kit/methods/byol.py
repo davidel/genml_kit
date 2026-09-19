@@ -31,9 +31,9 @@ class BYOLMethod(Method):
                        default=256,
                        help="Projection head output dimension.")
     group.add_argument("--byol_proj_hidden",
-                      type=int,
-                      default=2048,
-                      help="Projection head hidden dimension.")
+                       type=int,
+                       default=2048,
+                       help="Projection head hidden dimension.")
     group.add_argument("--byol_predictor_hidden",
                        type=int,
                        default=2048,

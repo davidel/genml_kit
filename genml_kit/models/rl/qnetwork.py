@@ -132,6 +132,19 @@ class QNetwork(nn.Module):
     # -> head:     (B, n_actions)
     return self.online(obs)
 
+  def get_value(self, obs, action):
+    """Get Q(s, a) for specific actions (used by SAC).
+
+    Args:
+        obs: (B, obs_dim) observation tensor.
+        action: (B,) action indices.
+
+    Returns:
+        (B,) Q-values for the given actions.
+    """
+    q_values = self.online(obs)  # (B, n_actions)
+    return q_values.gather(1, action.unsqueeze(1)).squeeze(1)
+
   @torch.no_grad()
   def hard_update(self):
     """Hard-copy online parameters to the target network."""

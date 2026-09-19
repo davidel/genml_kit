@@ -17,16 +17,8 @@ from genml_kit.methods.registry import (
 def _register_builtins():
   # Import built-in methods to trigger registration.
   from genml_kit.methods import (  # noqa: F401
-    byol,
-    classification,
-    dino,
-    ijepa,
-    rl_dqn,
-    rl_ppo,
-    rl_sac,
-    simmim,
-    supcon,
-    vo_pair,
+      byol, classification, dino, ijepa, rl_dqn, rl_ppo, rl_sac, simmim, supcon,
+      vo_pair,
   )
 
 

@@ -113,7 +113,11 @@ class ReplayBufferDataset(Dataset):
     return self._size
 
   def __getitem__(self, idx):
-    """Return a single transition as a dict (DataLoader-compatible)."""
+    """Return a single transition as a dict (DataLoader-compatible).
+
+    Note: The returned arrays are numpy views; DataLoader collation
+    converts them to tensors via ``default_collate``.
+    """
     return {
         "obs": self.obs[idx],
         "action": self.action[idx],

@@ -10,16 +10,14 @@ interface for maximum-entropy off-policy RL with:
 All math references ``rl/README.md`` Part 5 and §12–13.
 """
 
-import copy
 import math
 
 import torch
-import torch.nn as nn
 
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import register_method
-from genml_kit.models.registry import load_model
 from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.models.rl.sac_model import SACModel
 
 
 @register_method
@@ -28,7 +26,6 @@ class SACMethod(Method):
 
   NAME = "sac"
   METRIC_KEY = "eval_return"
-  METRIC_MINIMIZE = False
   NEEDS_LABELS = False
 
   @classmethod
@@ -113,60 +110,13 @@ class SACMethod(Method):
     if self._target_entropy is None:
       self._target_entropy = -float(self._action_dim)
 
-    # Actor (policy).
-    actor = load_model(
-        "rl/actor_critic",
-        num_labels=0,
+    # Build SAC model container (actor + twin critics + targets).
+    model = SACModel.build(
         obs_dim=self._pipeline.obs_dim,
         action_dim=self._action_dim,
-        discrete=False,
-        device=device,
-    )
-
-    # Twin Q-critics (online + target copies).
-    q1 = load_model(
-        "rl/actor_critic",
-        num_labels=0,
-        obs_dim=self._pipeline.obs_dim,
-        action_dim=self._action_dim,
-        discrete=False,
-        device=device,
-    )
-    q2 = load_model(
-        "rl/actor_critic",
-        num_labels=0,
-        obs_dim=self._pipeline.obs_dim,
-        action_dim=self._action_dim,
-        discrete=False,
-        device=device,
-    )
-
-    # Targets are frozen deep-copies.
-    q1_target = copy.deepcopy(q1)
-    q2_target = copy.deepcopy(q2)
-    for p in q1_target.parameters():
-      p.requires_grad = False
-    for p in q2_target.parameters():
-      p.requires_grad = False
-
-    class _SACModel(nn.Module):
-      def __init__(self, actor, q1, q2, q1_target, q2_target):
-        super().__init__()
-        self.actor = actor
-        self.q1 = q1
-        self.q2 = q2
-        self.q1_target = q1_target
-        self.q2_target = q2_target
-
-      def forward(self, obs):
-        raise NotImplementedError
-
-    model = _SACModel(actor, q1, q2, q1_target, q2_target)
-    model = self._apply_model_extras(args, model, device)
-
-    # Build optimizers if not already built (for standalone testing)
-    if not hasattr(self, "optimization") or self.optimization is None:
-      self.optimization = self.build_optimization(args, model, device, {}, {})
+        hidden_dim=256,
+    ).to(device)
+    return model
 
     return model
 
@@ -199,6 +149,7 @@ class SACMethod(Method):
 
     # Return a custom optimization object
     class SACOptimization:
+
       def __init__(self, critic_opt, actor_opt, alpha_opt):
         self.critic_opt = critic_opt
         self.actor_opt = actor_opt
@@ -253,6 +204,7 @@ class SACMethod(Method):
     """SAC acts by sampling from the squashed Gaussian policy."""
     obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
     with torch.no_grad():
+      # model.actor is ActorCritic, which has get_action_and_value
       action, _, _, _, _ = model.actor.get_action_and_value(
           obs_t,
           deterministic=deterministic,
@@ -265,11 +217,7 @@ class SACMethod(Method):
 
   def update_target(self, model, global_step):
     """Soft Polyak update for both target Q-critics."""
-    with torch.no_grad():
-      for p, pt in zip(model.q1.parameters(), model.q1_target.parameters()):
-        pt.data.mul_(1.0 - self._tau).add_(p.data, alpha=self._tau)
-      for p, pt in zip(model.q2.parameters(), model.q2_target.parameters()):
-        pt.data.mul_(1.0 - self._tau).add_(p.data, alpha=self._tau)
+    model.soft_update(self._tau)
 
   def train_step(self, model, blob, global_step, *, labels=None):
     """SAC update: twin critic loss + policy loss + alpha loss.
@@ -288,16 +236,18 @@ class SACMethod(Method):
 
     # --- Critic update (twin soft Q-learning) ---
     with torch.no_grad():
-      next_action, _, next_log_prob, _, _ = model.actor.get_action_and_value(next_obs,)
-      q1_next = model.q1_target.get_value(next_obs)
-      q2_next = model.q2_target.get_value(next_obs)
+      next_action, _, next_log_prob, _, _ = model.actor.get_action_and_value(next_obs)
+      # Target networks are plain Sequential modules; call forward directly
+      q1_next = model.q1.target(torch.cat([next_obs, next_action], dim=-1)).squeeze(-1)
+      q2_next = model.q2.target(torch.cat([next_obs, next_action], dim=-1)).squeeze(-1)
       min_q_next = torch.min(q1_next, q2_next)
       soft_target = rewards + self._gamma * (1.0 - dones) * (min_q_next -
                                                              alpha * next_log_prob)
 
     # Twin Q losses.
-    q1_pred = model.q1.get_value(obs)
-    q2_pred = model.q2.get_value(obs)
+    action = data["action"]
+    q1_pred = model.q1.get_value(obs, action)
+    q2_pred = model.q2.get_value(obs, action)
     from genml_kit.losses.rl import sac_q_loss
     q1_loss = sac_q_loss(q1_pred, soft_target)
     q2_loss = sac_q_loss(q2_pred, soft_target)
@@ -305,14 +255,14 @@ class SACMethod(Method):
 
     # --- Actor update ---
     # Detach Q networks so their gradients don't flow back to critic
-    for p in model.q1.parameters():
+    for p in model.q1.net.parameters():
       p.requires_grad_(False)
-    for p in model.q2.parameters():
+    for p in model.q2.net.parameters():
       p.requires_grad_(False)
 
     new_action, _, new_log_prob, _, _ = model.actor.get_action_and_value(obs)
-    q1_new = model.q1.get_value(obs)
-    q2_new = model.q2.get_value(obs)
+    q1_new = model.q1.get_value(obs, new_action)
+    q2_new = model.q2.get_value(obs, new_action)
     min_q_new = torch.min(q1_new, q2_new)
     from genml_kit.losses.rl import sac_policy_loss
     actor_loss = sac_policy_loss(new_log_prob, min_q_new, alpha)

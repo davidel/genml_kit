@@ -74,9 +74,10 @@ class _ScriptedEnv:
     if continuous:
       import gymnasium as gym
       import numpy as np
-      self.action_space = gym.spaces.Box(
-          low=-1.0, high=1.0, shape=(action_dim,), dtype=np.float32
-      )
+      self.action_space = gym.spaces.Box(low=-1.0,
+                                         high=1.0,
+                                         shape=(action_dim,),
+                                         dtype=np.float32)
     else:
       self.action_space = type("A", (), {
           "n": 2,
@@ -137,49 +138,57 @@ class RLPipeline(DataPipeline):
   def add_args(cls, parser):
     group = parser.add_argument_group("rl pipeline")
     group.add_argument(
-        "--env_id",
+        "--env-id",
+        dest="env_id",
         type=str,
         default="CartPole-v1",
         help="Gymnasium environment id (default: CartPole-v1).",
     )
     group.add_argument(
-        "--obs_dim",
+        "--obs-dim",
+        dest="obs_dim",
         type=int,
         default=None,
         help="Observation dimensionality (inferred from env if omitted).",
     )
     group.add_argument(
-        "--env_script",
+        "--env-script",
+        dest="env_script",
         type=str,
         default=None,
         help="Python file/URL defining a ``make_env`` factory.",
     )
     group.add_argument(
-        "--warmup_steps",
+        "--warmup-steps",
+        dest="warmup_steps",
         type=int,
         default=1000,
         help="Random-action steps before learning starts.",
     )
     group.add_argument(
-        "--replay_capacity",
+        "--replay-capacity",
+        dest="replay_capacity",
         type=int,
         default=100_000,
         help="Maximum transitions in the replay buffer.",
     )
     group.add_argument(
-        "--eval_episodes",
+        "--eval-episodes",
+        dest="eval_episodes",
         type=int,
         default=5,
         help="Number of episodes for policy evaluation.",
     )
     group.add_argument(
-        "--env_seed",
+        "--env-seed",
+        dest="env_seed",
         type=int,
         default=None,
         help="Environment RNG seed.",
     )
     group.add_argument(
-        "--steps_per_epoch",
+        "--steps-per-epoch",
+        dest="steps_per_epoch",
         type=int,
         default=1000,
         help="Environment steps per training epoch (default: 1000).",
@@ -190,7 +199,7 @@ class RLPipeline(DataPipeline):
     return None
 
   def build_val_loader(self, args, **kwargs):
-    """Return ``None`` — validation is done via ``eval_rollout``."""
+    """Return ``None`` — validation is done via the method's ``evaluate``."""
     return None
 
   def init_env(self, args):
@@ -207,6 +216,7 @@ class RLPipeline(DataPipeline):
     else:
       self.env = GymnasiumEnvWrapper(args.env_id)
 
+    from genml_kit.utils.logging import fatal
     obs_dim = getattr(args, "obs_dim", None)
     if obs_dim is None:
       # Try to infer from observation space.
@@ -214,8 +224,10 @@ class RLPipeline(DataPipeline):
       if hasattr(obs_space, "shape"):
         obs_dim = int(torch.tensor(obs_space.shape).prod())
       else:
-        obs_dim = 4  # fallback
-        logging.warning("Could not infer obs_dim; defaulting to %d", obs_dim)
+        # Fatal: cannot infer obs_dim from this observation space
+        fatal(
+            f"Cannot infer obs_dim from observation space {obs_space!r}; "
+            "pass --obs_dim explicitly", ValueError)
     self._obs_dim = obs_dim
 
     # Expose action_space for continuous support (A9)
@@ -285,34 +297,6 @@ class RLPipeline(DataPipeline):
   @property
   def buffer(self):
     return self.replay_buffer
-
-  def eval_rollout(self, action_fn, num_episodes=5):
-    """Run *num_episodes* episodes using *action_fn(obs) -> action*.
-
-    Args:
-        action_fn:     Callable mapping a numpy obs to an int action.
-        num_episodes:  Number of evaluation episodes.
-
-    Returns:
-        dict with keys ``eval_return`` (mean episode return) and
-        ``eval_steps`` (total environment steps).
-    """
-    total_return = 0.0
-    total_steps = 0
-    for _ in range(num_episodes):
-      obs = self.reset_env()
-      episode_return = 0.0
-      done = False
-      while not done:
-        action = action_fn(obs)
-        obs, reward, done, _ = self.step_env(action)
-        episode_return += reward
-        total_steps += 1
-      total_return += episode_return
-    return {
-        "eval_return": total_return / num_episodes,
-        "eval_steps": total_steps,
-    }
 
   def to_device(self, blob, device):
     """Move a ``TransitionBatch`` dict (or ``DataBlob``) to *device*.

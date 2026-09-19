@@ -31,9 +31,9 @@ def compute_class_weights(train_dataset, num_labels, label_column="label"):
   import numpy as np
 
   if label_column not in train_dataset.column_names:
-    fatal(f"Label column '{label_column}' not in dataset; cannot compute "
-          f"class weights (columns={train_dataset.column_names}).",
-          ValueError)
+    fatal(
+        f"Label column '{label_column}' not in dataset; cannot compute "
+        f"class weights (columns={train_dataset.column_names}).", ValueError)
   labels = train_dataset[label_column]
   if not labels:
     fatal(

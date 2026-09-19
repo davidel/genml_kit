@@ -148,12 +148,14 @@ class RolloutBuffer(Dataset):
     self._ptr = 0
     self._filled = False
 
-  def get_batch(self, batch_size, generator=None):
+  def sample(self, batch_size, generator=None):
     """Sample a random mini-batch from the computed rollout.
 
     Returns a dict of tensors suitable for PPO ``train_step``.
     """
-    n = self.rollout_len
+    n = len(self)
+    if n == 0:
+      raise ValueError("RolloutBuffer is empty")
     if generator is not None:
       idx = torch.randint(n, (batch_size,), generator=generator)
     else:
@@ -166,6 +168,9 @@ class RolloutBuffer(Dataset):
         "return": self.returns[idx],
         "value": self.values[idx],
     }
+
+  # Alias for backward compatibility
+  get_batch = sample
 
   @property
   def ptr(self):

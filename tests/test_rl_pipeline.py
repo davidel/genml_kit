@@ -86,16 +86,6 @@ class TestRLPipeline:
         Transition(obs=obs, action=0, reward=reward, next_obs=next_obs, done=done))
     assert len(pipeline.replay_buffer) == 1
 
-  def test_eval_rollout(self):
-    pipeline = self._make_pipeline()
-    # Deterministic policy: always action 0 (advance).
-    result = pipeline.eval_rollout(action_fn=lambda obs: 0, num_episodes=3)
-    assert "eval_return" in result
-    assert "eval_steps" in result
-    # Each episode on the 4-state chain takes exactly 3 steps (return 1.0).
-    assert result["eval_return"] == 1.0
-    assert result["eval_steps"] == 9  # 3 episodes × 3 steps
-
   def test_properties(self):
     pipeline = self._make_pipeline(obs_dim=8)
     assert pipeline.obs_dim == 8

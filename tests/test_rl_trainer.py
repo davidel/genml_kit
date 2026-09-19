@@ -36,6 +36,7 @@ class FakeRLMethod(DQNMethod):
     self._ddqn = True
     self._tau = 1.0
     self._target_update_freq = 0
+    self._n_step = 1
     self._pipeline = None
     return QNetwork(obs_dim=4, n_actions=2)
 

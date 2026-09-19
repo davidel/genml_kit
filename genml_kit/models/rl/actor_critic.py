@@ -147,6 +147,39 @@ class GaussianActor(nn.Module):
         dim=-1)  # (B,) squashing correction
     return squashed, log_prob
 
+  def get_action_and_value(self, obs, backbone=None, action=None, deterministic=False):
+    """Full forward: policy sample + value estimate (for SAC).
+
+    Args:
+        obs:           (B, obs_dim) observation tensor (if backbone provided)
+                       or (B, hidden_dim) pre-computed features (if backbone is None).
+        backbone:      Optional backbone module (for computing hidden features).
+                       If None, obs is assumed to be pre-computed features.
+        action:        Optional (B, action_dim) float (RAW pre-tanh).
+                       If None, a new action is sampled.
+        deterministic: If True, return the mode instead of a sample.
+
+    Returns:
+        action:       (B, action_dim) tanh-squashed action.
+        raw_action:   (B, action_dim) raw (pre-tanh) action.
+        log_prob:     (B,) log π(a|s) accounting for tanh squashing.
+        entropy:      (B,) entropy of the policy.
+        value:        (B,) value estimate (None for standalone actor).
+    """
+    h = backbone(obs) if backbone is not None else obs
+    dist = self.forward(h)
+    if action is None:
+      raw_action = dist.mean if deterministic else dist.rsample()
+    else:
+      raw_action = action
+    squashed = torch.tanh(raw_action)
+    log_prob = dist.log_prob(raw_action).sum(dim=-1)
+    log_prob -= torch.log(1.0 - squashed.pow(2) + 1e-6).sum(dim=-1)
+    entropy = dist.entropy().sum(dim=-1)
+    # Value is computed by the critic head, not the actor
+    value = None
+    return squashed, raw_action, log_prob, entropy, value
+
 
 class ValueHead(nn.Module):
   """Single linear layer: hidden → scalar value."""
@@ -257,7 +290,7 @@ class ActorCritic(nn.Module):
                       (continuous, tanh-squashed to [-1, 1]) for env.
         raw_action:   (B, action_dim) float (continuous, RAW pre-tanh).
                       None for discrete. Used for storing in rollout.
-        log_prob:     (B,) log \u03c0(a|s).
+        log_prob:     (B,) log π(a|s).
         entropy:      (B,) policy entropy.
         value:        (B,) V(s).
     """
@@ -266,23 +299,20 @@ class ActorCritic(nn.Module):
     dist = self.actor(h)  # Categorical or Normal distribution
     value = self.critic(h)  # (B,)
 
+    raw_action = None
     if action is not None:
       if self.discrete:
         # action: (B,) int64
         log_prob = dist.log_prob(action)  # (B,)
         entropy = dist.entropy()  # (B,)
-        raw_action = None
-        # action is already the squashed/discrete action
       else:
         # action is RAW (pre-tanh); re-evaluate log_prob with tanh correction.
         # action: (B, action_dim) -- raw action from rollout buffer
+        raw_action = action
         log_prob = dist.log_prob(action).sum(dim=-1)  # (B,)
         log_prob -= torch.log(1.0 - torch.tanh(action).pow(2) + 1e-6).sum(
             dim=-1)  # (B,)
         entropy = dist.entropy().sum(dim=-1)  # (B,)
-        # For re-evaluation, the squashed action is tanh(raw_action)
-        raw_action = action
-        action = torch.tanh(action)
     else:
       if self.discrete:
         sampled = dist.sample()  # (B,) int64
