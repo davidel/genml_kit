@@ -25,6 +25,9 @@ class RLTrainer(BaseTrainer):
   based on ``method.NAME``.
   """
 
+  # A6: save frozen params (target nets) so resume restores them identically
+  SAVE_FROZEN = True
+
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self._warmup_obs = None
@@ -175,6 +178,9 @@ class RLTrainer(BaseTrainer):
 
     self._ppo_obs = obs
 
+    # B5: track env steps collected in this rollout
+    method._env_steps += rollout_len
+
     # Phase 2: multiple SGD epochs over the rollout.
     total_loss = 0.0
     batches = 0
@@ -241,12 +247,25 @@ class RLTrainer(BaseTrainer):
       self.optimization.optimizer.step()
 
   def validate(self):
-    """Policy evaluation on the environment (not a DataLoader)."""
+    """Policy evaluation on the environment (not a DataLoader).
+
+    Returns:
+      Scalar eval_return (float) for checkpoint selection.
+    """
     env_seed = getattr(self.args, "env_seed", None)
+    # Isolate RNG state to avoid corrupting training sampling (B2).
     if env_seed is not None:
+      old_state = np.random.get_state()
       np.random.seed(env_seed)
-    return self.method.evaluate(
-        self.model,
-        self.pipeline,
-        getattr(self.args, "eval_episodes", 5),
-    )
+    else:
+      old_state = None
+    try:
+      metrics = self.method.evaluate(
+          self.model,
+          self.pipeline,
+          getattr(self.args, "eval_episodes", 5),
+      )
+      return float(metrics["eval_return"])
+    finally:
+      if old_state is not None:
+        np.random.set_state(old_state)

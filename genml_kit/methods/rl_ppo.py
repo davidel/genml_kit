@@ -206,7 +206,8 @@ class PPOMethod(Method):
       obs = pipeline.reset_env()
       episode_return = 0.0
       done = False
-      while not done and total_steps < max_steps:
+      episode_steps = 0
+      while not done and episode_steps < max_steps:
         obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
         with torch.no_grad():
           action, _, _, _ = model.get_action_and_value(
@@ -216,6 +217,7 @@ class PPOMethod(Method):
         act_val = action.item() if self._discrete else action.squeeze(0).numpy()
         obs, reward, done, _ = pipeline.step_env(act_val)
         episode_return += reward
+        episode_steps += 1
         total_steps += 1
       total_return += episode_return
     return {
@@ -224,6 +226,7 @@ class PPOMethod(Method):
     }
 
   def has_metric_improved(self, new_metric, best_metric):
+    """Higher eval_return is better."""
     return new_metric > best_metric
 
   def get_checkpoint_state(self, model, args):

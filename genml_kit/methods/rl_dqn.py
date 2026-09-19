@@ -78,9 +78,10 @@ class DQNMethod(Method):
     group.add_argument(
         "--target_update_freq",
         type=int,
-        default=0,
+        default=1,
         help=("Hard target-net sync every N env steps (0 = use soft "
-              "Polyak with --tau)."),
+              "Polyak with --tau). Default 1 = update every step for "
+              "stable training."),
     )
 
   def wire_data(self, args, pipeline):
@@ -202,7 +203,7 @@ class DQNMethod(Method):
         model:       QNetwork with ``.online`` sub-module.
         pipeline:    ``RLPipeline`` providing ``reset_env`` / ``step_env``.
         num_episodes: Number of evaluation episodes.
-        max_steps:   Hard cap on total environment steps to prevent
+        max_steps:   Hard cap on environment steps PER EPISODE to prevent
                      infinite loops with untrained policies.
     """
     total_return = 0.0
@@ -211,10 +212,12 @@ class DQNMethod(Method):
       obs = pipeline.reset_env()
       episode_return = 0.0
       done = False
-      while not done and total_steps < max_steps:
+      episode_steps = 0
+      while not done and episode_steps < max_steps:
         action = self.act(model, obs, deterministic=True)
         obs, reward, done, _ = pipeline.step_env(action)
         episode_return += reward
+        episode_steps += 1
         total_steps += 1
       total_return += episode_return
     return {

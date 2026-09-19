@@ -127,9 +127,9 @@ class TestRLTrainer:
   def test_validate_returns_metrics(self):
     trainer, pipeline = _build_trainer()
     pipeline.init_env(trainer.args)
-    metrics = trainer.validate()
-    assert "eval_return" in metrics
-    assert metrics["eval_return"] >= 0.0
+    eval_return = trainer.validate()
+    assert isinstance(eval_return, float)
+    assert eval_return >= 0.0
 
   def test_warmup_fills_buffer(self):
     trainer, pipeline = _build_trainer(warmup_steps=8, steps_per_epoch=3)

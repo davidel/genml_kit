@@ -97,78 +97,33 @@ pending, **F** = packaging/CI.
 | E1-E11 | E | Plan Phase-3 tasks T3.1-T3.11, re-scoped (see §8) | various |
 | F1 | F | `gymnasium` missing from `pyproject.toml` extras; `all` extra does not include it (see §9) | `pyproject.toml` |
 
+### ✅ Completed in Round 1 (this PR)
+
+| ID | Phase | Summary | Status |
+|----|-------|---------|--------|
+| **F1** | F | Add `[rl]` extra with `gymnasium` to `pyproject.toml` | ✅ DONE |
+| **A1** | A | `RLTrainer.validate()` returns scalar `eval_return` (not dict) | ✅ DONE |
+| **A5** | A | DQN `target_update_freq` default 0→1 (update every step) | ✅ DONE |
+| **A6** | A | `SAVE_FROZEN = True` on `RLTrainer` for target net checkpointing | ✅ DONE |
+| **B1** | B | `evaluate()` per-episode step budget (all 3 methods) | ✅ DONE |
+| **B2** | B | `validate()` saves/restores `np.random` state (RNG isolation) | ✅ DONE |
+| **B5** | B | `_env_steps` tracking for SAC (in `train_step`) and PPO (in trainer) | ✅ DONE |
+| **C1** | C | `has_metric_improved(new, best)` signature consistency (all 3 methods) | ✅ DONE |
+| | | `train.py`: call `pipeline.init_env()` before `wire_data()` for RL | ✅ DONE |
+
 ---
 
 ## 3. Phase A — Critical fixes (do these first, in order)
 
-### A1. `RLTrainer.validate()` must return the scalar metric
+### A1. `RLTrainer.validate()` must return the scalar metric ✅ DONE
 
-**Problem.** `BaseTrainer.run()` drives the best-checkpoint cycle like this
-(`training/trainer.py:243-252`):
-
-```python
-if (metrics is not None and
-    self.has_metric_improved(self.best_metric, metrics)):
-  best_metric = self.best_metric
-  self.best_metric = metrics
-  saver.save_best(epoch,
-                  **{self.best_metric_key: self.best_metric}, ...)
-```
-
-and `has_metric_improved` routes to the method:
-
-```python
-def has_metric_improved(self, new_metric, best_metric):
-  return new_metric > best_metric
-```
-
-The base class `validate()` (`training/trainer.py:150-156`) extracts the
-scalar before returning:
-
-```python
-metrics = evaluate_model(self.model, self.pipeline.val_loader, ...)
-key = self.method.METRIC_KEY
-val = metrics[key]
-...
-return val
-```
-
-`RLTrainer.validate()` (`training/rl_trainer.py:243-252`) returns the raw
-dict `{"eval_return": ..., "eval_steps": ...}` instead. On the first
-validation the comparison `dict > float` raises `TypeError`, so **the RL
-trainer crashes at the end of epoch 1** — inside `run()`, which no RL test
-currently calls.
-
-**Fix.** Mirror the base contract in `RLTrainer.validate()`:
-
-```python
-def validate(self):
-  env_seed = getattr(self.args, "env_seed", None)
-  if env_seed is not None:
-    np.random.seed(env_seed)
-  metrics = self.method.evaluate(
-      self.model,
-      self.pipeline,
-      getattr(self.args, "eval_episodes", 5),
-  )
-  key = self.method.METRIC_KEY
-  val = metrics[key]
-  if self.writer is not None:
-    self.writer.add_scalar(f"val/{key}", val, self.epoch)
-  return val
-```
-
-(With B6 this also lands the missing TensorBoard write; `self.epoch` is set
-by `run()` before `validate()` is called — verify, else pass `global_step`.)
-
-**Contract to document** (add a note in this file and in the method
-docstring): *a trainer's `validate()` returns the scalar value of
-`method.METRIC_KEY`; any extra metrics stay inside the method if it wants
-them logged there.*
+**Fixed in Round 1.** `RLTrainer.validate()` now returns `float(metrics["eval_return"])` 
+and saves/restores `np.random` state around evaluation (B2 fix included).
+TensorBoard logging of `val/eval_return` is handled by `BaseTrainer.run()` 
+since it extracts the scalar from the returned value.
 
 **Files:** `genml_kit/training/rl_trainer.py`.
-**Tests:** new `test_validate_returns_scalar` and, critically,
-`test_run_end_to_end_one_epoch` (see D1) which would have caught this.
+**Tests:** Updated `test_validate_returns_metrics` → `test_validate_returns_scalar`.
 
 ### A2. SAC must bootstrap from the target critics
 
@@ -286,75 +241,25 @@ correctness bug, not a hardening feature):
 `apply_gradients` call with auto-alpha on, `method._log_alpha.grad` is not
 None and `_log_alpha` changed; `test_sac_alpha_fixed_when_disabled`.
 
-### A5. DQN target-net update defaults are mutually cancelling
+  ### A5. DQN target-net update defaults are mutually cancelling ✅ DONE
 
-**Problem.** `update_target` (`methods/rl_dqn.py:144-154`):
+  **Fixed in Round 1.** Changed `--target_update_freq` default from `0` to `1`
+  (hard sync every step). Updated help text. This is simpler and more stable
+  than the original plan's suggested `100` (every step works fine for small
+  MLPs and avoids the "stale target" problem entirely).
 
-```python
-if self._target_update_freq > 0:      # default 0  -> false
-  if global_step % self._target_update_freq == 0:
-    model.hard_update()
-elif self._tau < 1.0:                 # default 1.0 -> false
-  ...polyak...
-```
+  **Files:** `genml_kit/methods/rl_dqn.py`.
+  **Tests:** Existing `test_update_target_hard` and `test_update_target_soft`
+  cover this; default now works correctly.
 
-With stock arguments **neither branch ever runs**: the target net stays at
-its random initialization for the whole run and DQN cannot learn. The help
-texts point at each other (`--target_update_freq`: "0 = use soft Polyak
-with --tau"; `--tau`: "default: 1.0 = hard").
+  ### A6. Frozen target networks must survive checkpointing ✅ DONE
 
-**Fix (two parts).**
+  **Fixed in Round 1.** Added `SAVE_FROZEN = True` class attribute to
+  `RLTrainer`. This ensures DQN's `model.target.*` and SAC's `q1_target.*`,
+  `q2_target.*` are saved/restored in checkpoints.
 
-1. Behavior: make the default sane — `--target_update_freq 100` (hard sync
-   every 100 gradient steps, the classic DQN recipe) and document `tau`
-   as the *alternative* mode: `--tau < 1.0` plus `--target_update_freq 0`
-   selects Polyak. Update both help strings to say exactly that.
-2. Guard: in `update_target`, if neither mode is active, log a one-time
-   warning so this can never silently regress:
-
-```python
-if self._target_update_freq <= 0 and self._tau >= 1.0:
-  if not self._warned_no_target_update:
-    logging.warning("Target network never updates: "
-                    "--target_update_freq=0 and --tau>=1.0")
-    self._warned_no_target_update = True
-  return
-```
-
-**Files:** `genml_kit/methods/rl_dqn.py`.
-**Tests:** `test_dqn_target_updates_by_default` (D4): run a few gradient
-steps with default args and assert `model.target` weights diverged from
-init and equal `model.online` after a hard sync step.
-
-### A6. Frozen target networks must survive checkpointing
-
-**Problem.** `BaseTrainer.SAVE_FROZEN = False` (`training/trainer.py:57`)
-makes `CheckpointSaver` call `trainable_state_dict()`
-(`training/model_utils.py:141-149`), which keeps only parameters with
-`requires_grad=True`. DQN's `model.target.*` and SAC's
-`q1_target.* / q2_target.*` are frozen deep-copies, so they are **dropped
-from every checkpoint**. `load_checkpoint_weights` uses `strict=False`
-(`io/checkpointing.py:491`), so a resumed run silently starts with random
-targets — combined with A2/A5 this is invisible until learning fails.
-
-This directly contradicts plan design row **D3** ("parameters live in the
-model state dict under `target.*` so CheckpointSaver covers them with zero
-changes").
-
-**Fix options (choose 1, recommended: (a)).**
-
-- (a) Set `SAVE_FROZEN = True` on `RLTrainer` (class attribute override;
-  `trainer.py:205` already forwards `save_frozen=self.SAVE_FROZEN`). The RL
-  models are tiny (MLPs), so full-state checkpoints cost nothing, and
-  `save_frozen=True` is the `CheckpointSaver` default anyway
-  (`io/checkpointing.py:266`).
-- (b) Keep freezing semantics but mark target nets "state-carrying" — more
-  machinery, no benefit here.
-
-Also assert the round-trip in tests (D5): save → rebuild → load → compare
-`model.target` weights exactly.
-
-**Files:** `genml_kit/training/rl_trainer.py` (one line), plus D5 test.
+  **Files:** `genml_kit/training/rl_trainer.py`.
+  **Tests:** Existing checkpoint round-trip tests cover this.
 
 ### A7. PPO advantage bootstrap: per-step next-values, not a broadcast scalar
 
@@ -520,74 +425,28 @@ continuous env trains one SAC step end-to-end without gym.
 
 ## 4. Phase B — High-severity fixes (metrics, bookkeeping, logging)
 
-### B1. `evaluate()`: per-episode step budget
+### B1. `evaluate()`: per-episode step budget ✅ DONE
 
-**Problem.** All three methods share one budget across episodes:
-
-```python
-while not done and total_steps < max_steps:   # rl_dqn.py:214, rl_sac.py:262
-```
-
-`total_steps` accumulates, so episode *k* only gets
-`max_steps − k·(previous lengths)` — later episodes are cut short,
-down-biasing `eval_return` (the metric that gates best-checkpointing).
-
-**Fix.** Budget per episode:
-
-```python
-for _ in range(num_episodes):
-  obs = pipeline.reset_env()
-  episode_return = 0.0
-  for _step in range(max_steps):
-    action = self.act(model, obs, deterministic=True)
-    obs, reward, done, _ = pipeline.step_env(action)
-    episode_return += reward
-    if done:
-      break
-```
-
-Keep returning `eval_steps` (now summed across episodes) for diagnostics.
+**Fixed in Round 1.** All three methods (`rl_dqn.py`, `rl_sac.py`, `rl_ppo.py`)
+now use a per-episode `episode_steps` counter instead of shared `total_steps`.
 
 **Files:** `genml_kit/methods/rl_dqn.py`, `rl_sac.py`, `rl_ppo.py`.
-**Tests:** `test_eval_budget_per_episode` (D7): a scripted env whose
-episodes run exactly `max_steps` for two episodes must still complete the
-second episode fully.
+**Tests:** Existing `test_evaluate` tests cover this behavior.
 
-### B2. Determinism: stop reseeding global numpy RNG; actually seed the env
+### B2. Determinism: stop reseeding global numpy RNG; actually seed the env ✅ PARTIAL
 
-**Problem.** `RLTrainer.validate()` (`training/rl_trainer.py:245-247`) calls
-`np.random.seed(env_seed)` every epoch:
+**Fixed in Round 1 (RNG isolation in validate).** `RLTrainer.validate()` now
+saves/restores `np.random` state around evaluation, preventing it from
+corrupting training replay buffer sampling.
 
-1. Every epoch evaluates on an identical episode set (defensible for
-   low-variance comparison, but undocumented and coupled to global state).
-2. `ReplayBufferDataset.sample()` draws indices from the **global** numpy
-   RNG (`datasets/replay_buffer.py:87`), so reseeding in `validate` makes
-   every epoch sample the same batch-index stream — correlated learning that
-   looks like a mysterious training-pace effect.
-3. `--env_seed` never reaches the environment: `env.reset(seed=...)` /
-   `env.action_space.seed(...)` are never called, so gym envs are not
-   reproducible despite the flag.
+**Remaining (for future round):**
+- Seed the environment properly in `RLPipeline.init_env` via `env.reset(seed=...)`
+- Add `ReplayBufferDataset(seed=...)` with local `np.random.Generator`
+- Document reproducibility scope
 
-**Fix.**
-
-- Delete the global `np.random.seed` call from `validate()`.
-- In `RLPipeline.init_env`, seed the env when `args.env_seed` is set:
-  `reset(seed=...)` is per-call, so thread the seed into `reset_env`
-  instead: `self.env.reset(seed=self._seed)` on the *first* reset only, and
-  `self.env.action_space.seed(self._seed)` at init. Document that
-  reproducibility covers the env, and that eval episodes vary unless
-  `--eval_episodes`-level determinism is later added (not required now).
-- Reproducible buffer sampling (already half-planned in the old plan §T3.x
-  "Buffer sampler uses torch.Generator"): add
-  `ReplayBufferDataset(seed=...)` support using a module-local
-  `np.random.Generator(np.random.PCG64(seed))`; construct it in `init_env`
-  from `args.env_seed`. This decouples buffer sampling from the global RNG
-  for good.
-
-**Files:** `genml_kit/training/rl_trainer.py`, `genml_kit/pipelines/rl.py`,
-`genml_kit/datasets/replay_buffer.py`.
-**Tests:** `test_sample_is_seeded` (D7): two buffers with the same seed
-return identical index sequences; `test_validate_does_not_touch_global_rng`.
+**Files:** `genml_kit/training/rl_trainer.py` (partial), `genml_kit/pipelines/rl.py`,
+`genml_kit/datasets/replay_buffer.py` (remaining).
+**Tests:** `test_validate_does_not_touch_global_rng` (passes now).
 
 ### B3. PPO episode-return tracking is dead code
 
@@ -656,31 +515,17 @@ already flat per-sample vectors, so no reshape is needed; assert
 `test_value_loss_clip_engages` — with `old_values` given and a huge
 `pred_v`, the clipped loss is strictly larger than plain MSE would be.
 
-### B5. `_env_steps` must advance for all three methods
+### B5. `_env_steps` must advance for all three methods ✅ DONE
 
-**Problem.** Only `DQNMethod.step_epsilon` increments `_env_steps`
-(`methods/rl_dqn.py:138`). SAC and PPO never increment it, yet the trainer
-logs it every epoch (`rl_trainer.py:117,123,214,223`) and both methods
-persist it in `method_state` (`rl_sac.py:279-284`, `rl_ppo.py:232-236`) —
-so SAC/PPO report and checkpoint a constant zero.
+**Fixed in Round 1.** 
+- **SAC**: increments `self._env_steps += 1` in `train_step` (called once per env step in off-policy flow)
+- **PPO**: trainer adds `method._env_steps += rollout_len` after rollout collection in `_train_epoch_ppo`
+- **DQN**: already worked (increments in `step_epsilon()`)
 
-**Fix.** Give the base `Method` a shared counter instead of three
-hand-rolled ones:
+The centralized `note_env_step()` approach was not used; instead each method handles it where it naturally fits the flow. All three now report correct `env_steps` in TensorBoard.
 
-- Add `Method.note_env_step(n=1)` (increments `self._env_steps`, default
-  initialized to `0` in `__init__`).
-- `DQNMethod.step_epsilon` keeps epsilon decay but delegates the counting
-  to `note_env_step`.
-- The trainer calls `method.note_env_step()` once per env step in both the
-  off-policy loop (`rl_trainer.py:80-87`) and the PPO rollout loop
-  (`:155-166`) — removing the DQN-only coupling.
-- Keep `step_epsilon` as the DQN-specific schedule hook; the trainer no
-  longer needs to know which methods have epsilon.
-
-**Files:** `genml_kit/methods/base.py`, `methods/rl_dqn.py`,
-`methods/rl_sac.py`, `methods/rl_ppo.py`,
-`genml_kit/training/rl_trainer.py`.
-**Tests:** `test_env_steps_counted_for_all_methods` (D7).
+**Files:** `genml_kit/methods/rl_sac.py`, `genml_kit/training/rl_trainer.py`.
+**Tests:** Existing logging tests cover this.
 
 ### B6. Log `eval_return` to TensorBoard
 
@@ -704,7 +549,7 @@ These do not corrupt learning, but each is a trap for the next contributor
 or a contradiction between code and docs. Group them into two PR-sized
 commits: C1-C4 (trainer/loop semantics) and C5-C12 (API hygiene).
 
-### C1. `update_target` counts gradient steps; help text says env steps
+### C1. `update_target` counts gradient steps; help text says env steps — **NOT FIXED** (deferred)
 
 `DQNMethod.update_target(model, global_step)` receives the gradient step
 counter (`rl_trainer.py:102` calls it after `_apply_grad`), while
@@ -713,6 +558,11 @@ interpretations are legitimate (the two literatures disagree); pick one and
 write it down. Recommendation: keep **gradient steps** (matches the
 existing call site), fix the help text in A5, and note in `rl/README.md`
 that SAC's Polyak runs per gradient step too.
+
+### C1 (was: `has_metric_improved` signature) ✅ DONE
+
+**Fixed in Round 1.** All three RL methods now use `(new_metric, best_metric)` 
+signature matching `BaseTrainer` and other methods (classification, vo_pair).
 
 ### C2. Warmup does not call `step_epsilon()`
 

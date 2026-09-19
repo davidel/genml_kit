@@ -408,6 +408,9 @@ def main(argv=None):
   method.prepare_transforms(args, device)
   pipeline.build_loader(args, mode="train", method=method)
   pipeline.build_loader(args, mode="val", method=method)
+  # RL pipelines need environment initialized before wire_data reads n_actions/obs_dim
+  if getattr(pipeline, "NAME", "") == "rl":
+    pipeline.init_env(args)
   method.wire_data(args, pipeline)
   model = method.build_model(args, device)
   method.load_checkpoint_state(model, {}, args)
@@ -426,8 +429,8 @@ def main(argv=None):
   train_loader = getattr(pipeline, "train_loader", None)
   global_step = ckpt_extra.get(
       "global_step",
-      start_epoch * (len(train_loader) // args.grad_accum_steps)
-      if train_loader is not None else 0,
+      start_epoch *
+      (len(train_loader) // args.grad_accum_steps) if train_loader is not None else 0,
   )
   # Drop the reference to the full checkpoint extras dict so the potentially
   # large optimizer/scheduler/scaler state can be GC'd before the trainer is

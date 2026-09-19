@@ -236,6 +236,9 @@ class SACMethod(Method):
     # Total loss (critic + actor; alpha is optimised separately).
     loss = critic_loss + actor_loss
 
+    # B5: track env steps for logging (1 env step per train_step in off-policy)
+    self._env_steps += 1
+
     metrics = {
         "critic_loss":
             critic_loss.detach(),
@@ -259,10 +262,12 @@ class SACMethod(Method):
       obs = pipeline.reset_env()
       episode_return = 0.0
       done = False
-      while not done and total_steps < max_steps:
+      episode_steps = 0
+      while not done and episode_steps < max_steps:
         action = self.act(model, obs, deterministic=True)
         obs, reward, done, _ = pipeline.step_env(action)
         episode_return += reward
+        episode_steps += 1
         total_steps += 1
       total_return += episode_return
     return {
@@ -271,6 +276,7 @@ class SACMethod(Method):
     }
 
   def has_metric_improved(self, new_metric, best_metric):
+    """Higher eval_return is better."""
     return new_metric > best_metric
 
   def get_checkpoint_state(self, model, args):
