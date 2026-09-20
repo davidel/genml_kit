@@ -243,19 +243,23 @@ Old underscore names kept as `dest` aliases.
 **Fixed in Round 4.** PPO checkpoints `env_steps`. DQN/SAC already checkpointed
 `_epsilon`/`_env_steps` and `log_alpha`.
 
-### C13. `train.py` hardcodes trainer selection by pipeline NAME
+### ✅ C13. `train.py` hardcodes trainer selection by pipeline NAME
 **Problem.** `train.py:467` has `trainer_cls = RLTrainer if getattr(pipeline, "NAME", "") == "rl" else BaseTrainer`. This couples the driver to a specific pipeline implementation detail (`NAME == "rl"`). Adding a new RL pipeline variant would require modifying `train.py`.
 
 **Fix.** Add `get_trainer_class()` classmethod to `Method` base class (returns `BaseTrainer` by default). RL methods override to return `RLTrainer`. In `train.py`, call `trainer_cls = method.get_trainer_class()`.
 
 **Files:** `methods/base.py`, `methods/rl_dqn.py`, `methods/rl_ppo.py`, `methods/rl_sac.py`, `training/train.py`.
 
-### C14. `DataPipeline` lacks no-op `init_env()`; `train.py` uses `hasattr(pipeline, "NAME")` guard
+**Status: COMPLETED in Round 5.** Added `Method.get_trainer_class()` classmethod (default `BaseTrainer`), overridden in all three RL methods. Removed `RLTrainer` import from `train.py`, now calls `method.get_trainer_class()`.
+
+### ✅ C14. `DataPipeline` lacks no-op `init_env()`; `train.py` uses `hasattr(pipeline, "NAME")` guard
 **Problem.** `train.py:470` has `if getattr(pipeline, "NAME", "") == "rl": pipeline.init_env(args)`. This again couples driver to pipeline implementation. All pipelines should have a no-op `init_env(args)` that `RLPipeline` overrides.
 
 **Fix.** Add `def init_env(self, args): pass` to `DataPipeline` base class. In `train.py`, call `pipeline.init_env(args)` unconditionally.
 
 **Files:** `pipelines/base.py`, `pipelines/rl.py`, `training/train.py`.
+
+**Status: COMPLETED in Round 5.** Added `init_env(self, args): pass` to `DataPipeline` base class. Removed the NAME guard in `train.py`, now calls `pipeline.init_env(args)` unconditionally.
 
 ---
 
@@ -417,5 +421,6 @@ Suggested commit subjects:
   required for reproducibility (E11).
 - **C3/E2 pairing.** Old plan shipped n-step API with no producer; review
   either removes it or lands E2 — dead APIs not kept.
-- **Test-count honesty.** Old plan's "137 RL tests" is stale (actual 106);
+- **Test-count honesty.** Old plan's \"137 RL tests\" is stale (actual 106);
   exit criteria now refer to the suite, not memorized numbers.
+- **Trainer/pipeline coupling (C13/C14).** Driver hardcoded `pipeline.NAME == "rl"` in two places; proper fix is `Method.get_trainer_class()` and `DataPipeline.init_env()` no-op.
