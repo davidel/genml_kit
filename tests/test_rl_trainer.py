@@ -1080,3 +1080,136 @@ class TestPrioritizedExperienceReplay:
     assert 'mean_priority' not in stats
     assert 'max_priority' not in stats
     assert 'beta' not in stats
+
+
+class TestObservationNormalization:
+  """Test observation normalization with RunningMeanStd in RLPipeline."""
+
+  def test_running_mean_std_basic(self):
+    """Test RunningMeanStd computes correct statistics."""
+    from genml_kit.pipelines.rl import RunningMeanStd
+
+    rms = RunningMeanStd(shape=(4,))
+
+    # Add some data
+    data1 = np.array([[1.0, 2.0, 3.0, 4.0], [2.0, 3.0, 4.0, 5.0]], dtype=np.float32)
+    rms.update(data1)
+
+    # With epsilon initialization, values are slightly biased
+    assert np.allclose(rms.mean, [1.5, 2.5, 3.5, 4.5], rtol=1e-2)
+    assert np.allclose(rms.var, [0.25, 0.25, 0.25, 0.25], rtol=1e-2)
+    assert abs(rms.count - 2.0001) < 1e-6
+
+    # Add more data
+    data2 = np.array([[3.0, 4.0, 5.0, 6.0]], dtype=np.float32)
+    rms.update(data2)
+
+    assert np.allclose(rms.mean, [2.0, 3.0, 4.0, 5.0], rtol=1e-2)
+    assert np.allclose(rms.var, [2 / 3, 2 / 3, 2 / 3, 2 / 3], rtol=1e-2)
+    assert abs(rms.count - 3.0001) < 1e-6
+
+  def test_running_mean_std_normalize(self):
+    """Test normalization produces zero mean, unit variance."""
+    from genml_kit.pipelines.rl import RunningMeanStd
+
+    rms = RunningMeanStd(shape=(2,))
+
+    data = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float32)
+    rms.update(data)
+
+    normalized = rms.normalize(data)
+
+    # Should have mean ~0 (small floating point error with epsilon)
+    assert np.allclose(np.mean(normalized, axis=0), [0.0, 0.0], atol=1e-4)
+    # Due to epsilon initialization, variance is slightly biased
+    assert np.allclose(np.std(normalized, axis=0), [1.0, 1.0], atol=1e-1)
+
+  def test_running_mean_std_clip(self):
+    """Test clipping of normalized values."""
+    from genml_kit.pipelines.rl import RunningMeanStd
+
+    rms = RunningMeanStd(shape=(1,))
+
+    data = np.array([[0.0], [1.0], [2.0]], dtype=np.float32)
+    rms.update(data)
+
+    # Test with extreme values
+    extreme = np.array([[-100.0], [100.0]], dtype=np.float32)
+    normalized = rms.normalize(extreme, clip=3.0)
+
+    assert np.all(normalized <= 3.0)
+    assert np.all(normalized >= -3.0)
+
+  def test_running_mean_std_state_dict(self):
+    """Test state dict save/load."""
+    from genml_kit.pipelines.rl import RunningMeanStd
+
+    rms = RunningMeanStd(shape=(3,))
+    data = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+    rms.update(data)
+
+    state = rms.state_dict()
+
+    # Create new RMS and load
+    rms2 = RunningMeanStd(shape=(3,))
+    rms2.load_state_dict(state)
+
+    assert np.allclose(rms2.mean, rms.mean)
+    assert np.allclose(rms2.var, rms.var)
+    assert abs(rms2.count - rms.count) < 1e-10
+
+    # Verify normalization still works
+    normalized = rms2.normalize(data)
+    # With float64->float32 conversion, mean might have small errors
+    assert np.allclose(np.mean(normalized, axis=0), [0.0, 0.0, 0.0], atol=2e-4)
+
+  def test_pipeline_obs_normalize_disabled(self):
+    """Test pipeline works normally when obs_normalize is False."""
+    from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    pipeline = RLPipeline()
+    pipeline.env = _ScriptedEnv(obs_dim=4)
+    pipeline._obs_dim = 4
+    pipeline._n_actions = 2
+    pipeline._obs_normalize = False
+    pipeline._obs_norm_clip = 10.0
+    pipeline.obs_rms = None
+    pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=100)
+
+    obs = pipeline.reset_env()
+    # Should return raw observation
+    assert obs.shape == (4,)
+    assert not hasattr(pipeline, 'obs_rms') or pipeline.obs_rms is None
+
+    next_obs, reward, done, info = pipeline.step_env(0)
+    assert next_obs.shape == (4,)
+
+  def test_pipeline_obs_normalize_enabled(self):
+    """Test pipeline normalizes observations when enabled."""
+    from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    pipeline = RLPipeline()
+    pipeline.env = _ScriptedEnv(obs_dim=4)
+    pipeline._obs_dim = 4
+    pipeline._n_actions = 2
+    pipeline._obs_normalize = True
+    pipeline._obs_norm_clip = 10.0
+    from genml_kit.pipelines.rl import RunningMeanStd
+    pipeline.obs_rms = RunningMeanStd(shape=(4,))
+    pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=100)
+
+    obs = pipeline.reset_env()
+    # Should return normalized observation (first obs has no statistics yet)
+    # After first reset, RMS has 1 sample, so normalization = (x - mean) / sqrt(var + eps)
+    # With 1 sample, var = 0, so normalized = (x - x) / sqrt(eps) = 0
+    assert obs.shape == (4,)
+
+    # After a few steps, statistics should accumulate
+    for _ in range(5):
+      next_obs, reward, done, info = pipeline.step_env(0)
+      assert next_obs.shape == (4,)
+
+    # RMS should have been updated
+    assert pipeline.obs_rms.count > 1

@@ -1,6 +1,6 @@
 """RL data pipeline: environment wrapper + replay buffer + eval rollout.
 
-Phase 1 of ``plans/RL_PLAN.md`` (\u00a76.3).  The pipeline owns the
+Phase 1 of ``plans/RL_PLAN.md`` (§6.3).  The pipeline owns the
 **data side** of RL training: the Gymnasium environment, the replay
 buffer, and the evaluation-rollout helper.  ``build_loader`` returns
 ``None`` (the ``RLTrainer`` samples directly from the buffer).
@@ -16,6 +16,87 @@ from genml_kit.datasets.rollout_buffer import RolloutBuffer
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import register_pipeline
+
+
+class RunningMeanStd:
+  """Running mean and standard deviation for observation normalization.
+
+  Uses Welford's online algorithm for numerical stability.
+  Based on OpenAI baselines implementation.
+
+  Args:
+      shape: Shape of the data (excluding batch dimension).
+      epsilon: Small constant for numerical stability.
+  """
+
+  def __init__(self, shape, epsilon=1e-4):
+    self.shape = shape
+    self.epsilon = epsilon
+    self.mean = np.zeros(shape, dtype=np.float64)
+    self.var = np.ones(shape, dtype=np.float64)
+    self.count = epsilon
+
+  def update(self, x):
+    """Update running statistics with a batch of data.
+
+    Args:
+        x: Batch of observations with shape (batch_size, *shape).
+    """
+    x = np.asarray(x, dtype=np.float64)
+    batch_mean = np.mean(x, axis=0)
+    batch_var = np.var(x, axis=0)
+    batch_count = x.shape[0]
+    self._update_from_moments(batch_mean, batch_var, batch_count)
+
+  def _update_from_moments(self, batch_mean, batch_var, batch_count):
+    """Welford's online update from batch moments."""
+    delta = batch_mean - self.mean
+    tot_count = self.count + batch_count
+
+    new_mean = self.mean + delta * batch_count / tot_count
+    m_a = self.var * self.count
+    m_b = batch_var * batch_count
+    m_2 = m_a + m_b + delta**2 * self.count * batch_count / tot_count
+    new_var = m_2 / tot_count
+
+    self.mean = new_mean
+    self.var = new_var
+    self.count = tot_count
+
+  def normalize(self, x, clip=None):
+    """Normalize observations using running statistics.
+
+    Args:
+        x: Observations with shape (..., *shape).
+        clip: Optional value to clip normalized observations to [-clip, clip].
+
+    Returns:
+        Normalized observations.
+    """
+    x = np.asarray(x, dtype=np.float32)
+    normalized = (x - self.mean.astype(
+        np.float32)) / np.sqrt(self.var.astype(np.float32) + self.epsilon)
+    if clip is not None:
+      normalized = np.clip(normalized, -clip, clip)
+    return normalized
+
+  def state_dict(self):
+    """Return state dict for checkpointing."""
+    return {
+        "mean": self.mean.copy(),
+        "var": self.var.copy(),
+        "count": self.count,
+        "epsilon": self.epsilon,
+        "shape": self.shape,
+    }
+
+  def load_state_dict(self, state):
+    """Load state dict from checkpoint."""
+    self.mean = state["mean"].astype(np.float64)
+    self.var = state["var"].astype(np.float64)
+    self.count = state["count"]
+    self.epsilon = state.get("epsilon", 1e-4)
+    self.shape = state.get("shape", self.shape)
 
 
 class GymnasiumEnvWrapper:
@@ -134,6 +215,10 @@ class RLPipeline(DataPipeline):
     self.replay_buffer = None
     self._obs_dim = None
     self._n_actions = None
+    # Observation normalization (E3) - defaults for test pipelines that bypass init_env
+    self._obs_normalize = False
+    self._obs_norm_clip = 10.0
+    self.obs_rms = None
 
   @classmethod
   def add_args(cls, parser):
@@ -228,6 +313,19 @@ class RLPipeline(DataPipeline):
         default=100000,
         help="Frames over which to anneal beta to 1.0 (default: 100000).",
     )
+    group.add_argument(
+        "--obs-normalize",
+        dest="obs_normalize",
+        action="store_true",
+        help="Enable observation normalization with RunningMeanStd.",
+    )
+    group.add_argument(
+        "--obs-norm-clip",
+        dest="obs_norm_clip",
+        type=float,
+        default=10.0,
+        help="Clip normalized observations to [-clip, clip] (default: 10.0).",
+    )
 
   def build_loader(self, args, **kwargs):
     """Return ``None`` — the RLTrainer samples from the buffer directly."""
@@ -315,23 +413,53 @@ class RLPipeline(DataPipeline):
         seed=buffer_seed,
     )
 
+    # Observation normalization (E3)
+    self._obs_normalize = getattr(args, "obs_normalize", False)
+    self._obs_norm_clip = getattr(args, "obs_norm_clip", 10.0)
+    if self._obs_normalize:
+      self.obs_rms = RunningMeanStd(shape=(obs_dim,))
+    else:
+      self.obs_rms = None
+
     logging.info(
-        "RLPipeline: obs_dim=%d, n_actions=%d, buffer_capacity=%d",
+        "RLPipeline: obs_dim=%d, n_actions=%d, buffer_capacity=%d, obs_normalize=%s",
         obs_dim,
         self._n_actions,
         self.replay_buffer.capacity,
+        self._obs_normalize,
     )
 
   def reset_env(self):
     """Reset the environment and return the initial observation tensor."""
-    return self.env.reset()
+    # Handle both old gym API (obs) and new gymnasium API (obs, info)
+    reset_result = self.env.reset()
+    if isinstance(reset_result, tuple):
+      obs = reset_result[0]
+    else:
+      obs = reset_result
+    if self._obs_normalize and self.obs_rms is not None:
+      self.obs_rms.update(obs[None, ...])  # Add batch dim for update
+      obs = self.obs_rms.normalize(obs, clip=self._obs_norm_clip)
+    return obs
 
   def step_env(self, action):
     """Execute *action* in the environment.
 
     Returns ``(next_obs, reward, done, info)`` as plain Python / numpy.
     """
-    return self.env.step(action)
+    # Handle both old gym API (obs, reward, done, info)
+    # and new gymnasium API (obs, reward, terminated, truncated, info)
+    step_result = self.env.step(action)
+    if len(step_result) == 5:
+      next_obs, reward, terminated, truncated, info = step_result
+      done = terminated or truncated
+    else:
+      next_obs, reward, done, info = step_result
+    if self._obs_normalize and self.obs_rms is not None:
+      # Update RMS with the new observation
+      self.obs_rms.update(next_obs[None, ...])
+      next_obs = self.obs_rms.normalize(next_obs, clip=self._obs_norm_clip)
+    return next_obs, reward, float(done), info
 
   def env_push(self, transition):
     """Push a single transition into the replay buffer."""
@@ -354,6 +482,17 @@ class RLPipeline(DataPipeline):
   @property
   def buffer(self):
     return self.replay_buffer
+
+  def get_checkpoint_state(self):
+    """Return observation normalization state for checkpointing."""
+    if self._obs_normalize and self.obs_rms is not None:
+      return {"obs_rms": self.obs_rms.state_dict()}
+    return {}
+
+  def load_checkpoint_state(self, state):
+    """Load observation normalization state from checkpoint."""
+    if self._obs_normalize and self.obs_rms is not None and "obs_rms" in state:
+      self.obs_rms.load_state_dict(state["obs_rms"])
 
   def to_device(self, blob, device):
     """Move a ``TransitionBatch`` dict (or ``DataBlob``) to *device*.

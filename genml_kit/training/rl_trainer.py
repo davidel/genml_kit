@@ -354,3 +354,15 @@ class RLTrainer(BaseTrainer):
     finally:
       if old_state is not None:
         np.random.set_state(old_state)
+
+  def saver_extra(self):
+    """Extra state attached to every checkpoint write (method state)."""
+    extra = {"method_state": self.method.get_checkpoint_state(self.model, self.args)}
+    # Include pipeline state (e.g., obs normalization RMS)
+    if hasattr(self.pipeline, 'get_checkpoint_state'):
+      extra.update(self.pipeline.get_checkpoint_state())
+    return extra
+
+  def ckpt_extra(self, best, step):
+    """Extra state attached to best-checkpoint and exit saves."""
+    return {}

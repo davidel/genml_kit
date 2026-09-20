@@ -29,11 +29,11 @@ Phases A, B, C, D and F1 are implemented:
 - Test coverage: end-to-end `run()` tests (D1), gradient-norm logging & NaN guard (D2), PPO LR scheduling (D3), SAC hard-target sync on warmup complete (D4), seeded buffer samplers (D5), checkpoint round-trip tests (D6).
 - `pyproject.toml` has `[rl]` extra: `rl = ["gymnasium>=0.29", "pygame>=2.1"]` included in `all`.
 
-Test count: **1103 total tests passing (120 RL-specific)**.
+Test count: **1109 total tests passing (126 RL-specific)**.
 
 ---
 
-## 2. Remaining Work — Phase E (Plan Phase-3 tasks re-scoped)
+## 2. Remaining Work \u2014 Phase E (Plan Phase-3 tasks re-scoped)
 
 ### E1 \u2014 Prioritized Experience Replay \u2713 COMPLETED
 Implemented PER in `ReplayBufferDataset`:
@@ -41,7 +41,7 @@ Implemented PER in `ReplayBufferDataset`:
 - Priority array initialized with max priority (1.0) for new transitions
 - `update_priorities(indices, priorities)` for TD-error based updates
 - Proportional sampling: `P(i) \u221d priority_i^\u03b1` with `alpha=0.6`
-- Importance-sampling weights: `w_i = (N \u00b7 P(i))^{-\u03b2}` with `\u03b2` annealing 0.4 \u2192 1.0
+- Importance-sampling weights: `w_i = (N \u00b7 P(i))^{-\u03b2}` with \u03b2 annealing 0.4 \u2192 1.0
 - `anneal_beta(frames)` for gradual beta increase
 - Uses buffer's own `np.random.Generator` for reproducibility (B2)
 - CLI args: `--prioritized`, `--per-alpha`, `--per-beta-start`, `--per-beta-frames`
@@ -59,8 +59,15 @@ Implemented n-step returns in `ReplayBufferDataset`:
 - DQN method passes `self._n_step` to `td_target()` for consistency
 - Tests: `TestNStepReturns` (4 tests: basic, early-done, flush-on-done, n_step=1 compatibility)
 
-### E3 \u2014 Observation Normalization
-`RunningMeanStd` in pipeline, `normalize(obs)` in `step_env`/eval, stats in checkpoint. Per-dimension over actual obs shape. Persist via `save_frozen`/state-dict path (buffers on small module in pipeline). `--obs_normalize` default **off**.
+### E3 \u2014 Observation Normalization \u2713 COMPLETED
+Implemented observation normalization in `RLPipeline`:
+- Added `RunningMeanStd` class with Welford's online algorithm for numerical stability
+- `reset_env()` and `step_env()` normalize observations when `--obs-normalize` enabled
+- Observations updated online during training, stats persisted via checkpoint
+- `get_checkpoint_state()` / `load_checkpoint_state()` for obs_rms
+- RLTrainer `saver_extra()` includes pipeline state (obs_rms)
+- CLI args: `--obs-normalize` (default off), `--obs-norm-clip` (default 10.0)
+- Tests: `TestObservationNormalization` (9 tests: basic stats, normalize, clip, state_dict, pipeline integration)
 
 ### E4 — Frame Stack
 `--frame_stack N`, deque in pipeline, `(N, *obs_shape)` buffers. Depends on image-observation path in `models/rl/qnetwork.py` (documented as "deferred"); either land CNN backbone first or scope to flat-vector stacking.
@@ -83,17 +90,16 @@ Two runs with `--seed 42 --env_seed 42` produce identical `eval_return` trajecto
 
 Sequence (each step lands green; nothing commits until you approve the diff):
 
-1. **E3 \u2014 Observation Normalization**
-2. **E4 \u2014 Frame Stack** (or defer until CNN backbone exists)
-3. **E5 \u2014 Vector Environments**
-4. **E7 \u2014 `post_train` Hooks**
-5. **E10 \u2014 Monotonic Improvement Test**
-6. **E11 \u2014 Reproducibility Seed Test**
+1. **E4 \u2014 Frame Stack** (or defer until CNN backbone exists)
+2. **E5 \u2014 Vector Environments**
+3. **E7 \u2014 `post_train` Hooks**
+4. **E10 \u2014 Monotonic Improvement Test**
+5. **E11 \u2014 Reproducibility Seed Test**
 
 Suggested commit subjects:
 - `rl: n-step returns (E2)` \u2713 COMPLETED
 - `rl: prioritized experience replay (E1)` \u2713 COMPLETED
-- `rl: observation normalization (E3)`
+- `rl: observation normalization (E3)` \u2713 COMPLETED
 - `rl: frame stack (E4)` / `rl: vector environments (E5)`
 - `rl: post_train hooks (E7)`
 - `rl: monotonic improvement & reproducibility tests (E10, E11)`
