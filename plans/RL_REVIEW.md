@@ -94,6 +94,8 @@ pending, **F** = packaging/CI.
 | C10 | C | Arg style inconsistent (`--env_id` vs `--sac-gamma`) | `pipelines/rl.py` |
 | C11 | C | `METRIC_MINIMIZE` declared, never read | `methods/rl_*` |
 | C12 | C | Resume: `_epsilon`/`_env_steps` restored independently; PPO `_ppo_obs` lost | `methods/rl_*`, `training/rl_trainer.py` |
+| C13 | C | `train.py` hardcodes trainer selection by pipeline NAME (`if getattr(pipeline, "NAME", "") == "rl"`); should be `Method.get_trainer_class()` | `training/train.py`, `methods/base.py`, `methods/rl_*` |
+| C14 | C | `DataPipeline` lacks no-op `init_env()`; `train.py` uses `hasattr(pipeline, "NAME")` guard; should be `pipeline.init_env(args)` unconditionally | `pipelines/base.py`, `pipelines/rl.py`, `training/train.py` |
 | D1-D7 | D | Test-coverage program (see §7) | `tests/` |
 | E1-E11 | E | Plan Phase-3 tasks T3.1-T3.11, re-scoped (see §8) | various |
 | F1 | F | `gymnasium` missing from `pyproject.toml` extras; `all` extra does not include it (see §9) | `pyproject.toml` |
@@ -237,9 +239,23 @@ Old underscore names kept as `dest` aliases.
 ### ✅ C11. Removed unused `METRIC_MINIMIZE`
 **Fixed in Round 4.** Deleted from all three RL methods.
 
-### ✅ C12. Resume state handling
+### \u2705 C12. Resume state handling
 **Fixed in Round 4.** PPO checkpoints `env_steps`. DQN/SAC already checkpointed
 `_epsilon`/`_env_steps` and `log_alpha`.
+
+### C13. `train.py` hardcodes trainer selection by pipeline NAME
+**Problem.** `train.py:467` has `trainer_cls = RLTrainer if getattr(pipeline, "NAME", "") == "rl" else BaseTrainer`. This couples the driver to a specific pipeline implementation detail (`NAME == "rl"`). Adding a new RL pipeline variant would require modifying `train.py`.
+
+**Fix.** Add `get_trainer_class()` classmethod to `Method` base class (returns `BaseTrainer` by default). RL methods override to return `RLTrainer`. In `train.py`, call `trainer_cls = method.get_trainer_class()`.
+
+**Files:** `methods/base.py`, `methods/rl_dqn.py`, `methods/rl_ppo.py`, `methods/rl_sac.py`, `training/train.py`.
+
+### C14. `DataPipeline` lacks no-op `init_env()`; `train.py` uses `hasattr(pipeline, "NAME")` guard
+**Problem.** `train.py:470` has `if getattr(pipeline, "NAME", "") == "rl": pipeline.init_env(args)`. This again couples driver to pipeline implementation. All pipelines should have a no-op `init_env(args)` that `RLPipeline` overrides.
+
+**Fix.** Add `def init_env(self, args): pass` to `DataPipeline` base class. In `train.py`, call `pipeline.init_env(args)` unconditionally.
+
+**Files:** `pipelines/base.py`, `pipelines/rl.py`, `training/train.py`.
 
 ---
 
