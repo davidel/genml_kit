@@ -29,14 +29,25 @@ Phases A, B, C, D and F1 are implemented:
 - Test coverage: end-to-end `run()` tests (D1), gradient-norm logging & NaN guard (D2), PPO LR scheduling (D3), SAC hard-target sync on warmup complete (D4), seeded buffer samplers (D5), checkpoint round-trip tests (D6).
 - `pyproject.toml` has `[rl]` extra: `rl = ["gymnasium>=0.29", "pygame>=2.1"]` included in `all`.
 
-Test count: **1094 total tests passing (111 RL-specific)**.
+Test count: **1103 total tests passing (120 RL-specific)**.
 
 ---
 
 ## 2. Remaining Work — Phase E (Plan Phase-3 tasks re-scoped)
 
-### E1 \u2014 Prioritized Experience Replay
-Buffer gains priority array, `update_priorities`, proportional sampling, IS weights `w_i = (N\u00b7P(i))^{-\u03b2}` with \u03b2 annealing 0.4 \u2192 1.0. Flat-array implementation first. Sampler must use buffer's own `np.random.Generator` (per B2). Tests: `test_priority_sampling_is_seeded` + original plan tests.
+### E1 \u2014 Prioritized Experience Replay \u2713 COMPLETED
+Implemented PER in `ReplayBufferDataset`:
+- Added `prioritized`, `alpha`, `beta_start`, `beta_frames` parameters
+- Priority array initialized with max priority (1.0) for new transitions
+- `update_priorities(indices, priorities)` for TD-error based updates
+- Proportional sampling: `P(i) \u221d priority_i^\u03b1` with `alpha=0.6`
+- Importance-sampling weights: `w_i = (N \u00b7 P(i))^{-\u03b2}` with `\u03b2` annealing 0.4 \u2192 1.0
+- `anneal_beta(frames)` for gradual beta increase
+- Uses buffer's own `np.random.Generator` for reproducibility (B2)
+- CLI args: `--prioritized`, `--per-alpha`, `--per-beta-start`, `--per-beta-frames`
+- RLTrainer calls `anneal_beta()` each step and `update_priorities()` with TD errors
+- DQN/SAC/PPO `train_step()` return `td_errors` in `LossOutput`
+- Tests: `TestPrioritizedExperienceReplay` (9 tests: init, push, update, sampling, IS weights, beta annealing, stats)
 
 ### E2 \u2014 N-Step Returns \u2713 COMPLETED
 Implemented n-step returns in `ReplayBufferDataset`:
@@ -72,17 +83,16 @@ Two runs with `--seed 42 --env_seed 42` produce identical `eval_return` trajecto
 
 Sequence (each step lands green; nothing commits until you approve the diff):
 
-1. **E1 \u2014 Prioritized Experience Replay**
-2. **E3 \u2014 Observation Normalization**
-3. **E4 \u2014 Frame Stack** (or defer until CNN backbone exists)
-5. **E5 — Vector Environments**
-6. **E7 — `post_train` Hooks**
-7. **E10 — Monotonic Improvement Test**
-8. **E11 — Reproducibility Seed Test**
+1. **E3 \u2014 Observation Normalization**
+2. **E4 \u2014 Frame Stack** (or defer until CNN backbone exists)
+3. **E5 \u2014 Vector Environments**
+4. **E7 \u2014 `post_train` Hooks**
+5. **E10 \u2014 Monotonic Improvement Test**
+6. **E11 \u2014 Reproducibility Seed Test**
 
 Suggested commit subjects:
 - `rl: n-step returns (E2)` \u2713 COMPLETED
-- `rl: prioritized experience replay (E1)`
+- `rl: prioritized experience replay (E1)` \u2713 COMPLETED
 - `rl: observation normalization (E3)`
 - `rl: frame stack (E4)` / `rl: vector environments (E5)`
 - `rl: post_train hooks (E7)`

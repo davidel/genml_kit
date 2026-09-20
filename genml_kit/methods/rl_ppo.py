@@ -209,13 +209,16 @@ class PPOMethod(Method):
     # Combined loss.
     loss = pg_loss + self._value_coef * v_loss - self._entropy_coef * ent
 
+    # For PER: use value function errors as TD errors
+    td_errors = (returns - new_values.detach()).abs()
+
     metrics = {
         "pg_loss": pg_loss.detach(),
         "value_loss": v_loss.detach(),
         "entropy": ent.detach(),
         "ratio_mean": ratio.detach().mean(),
     }
-    return LossOutput(loss=loss, metrics=metrics)
+    return LossOutput(loss=loss, metrics=metrics, td_errors=td_errors)
 
   def evaluate(self, model, pipeline, num_episodes, max_steps=10_000):
     """Run evaluation episodes and return mean return."""

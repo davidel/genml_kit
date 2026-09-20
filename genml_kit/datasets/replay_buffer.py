@@ -17,43 +17,58 @@ Transition = collections.namedtuple("Transition",
 class ReplayBufferDataset(Dataset):
   """Fixed-capacity circular replay buffer compatible with ``DataLoader``.
 
-    Internally stores numpy arrays for memory efficiency.  The
-    ``__getitem__`` protocol returns a plain ``dict`` (keys
-    ``obs``, ``action``, ``reward``, ``next_obs``, ``done``) so that
-    ``default_collate`` stacks them into the ``TransitionBatch`` namedtuple
-    consumed by ``DQNMethod.train_step`` / ``SACMethod.train_step``.
+  Internally stores numpy arrays for memory efficiency.  The
+  ``__getitem__`` protocol returns a plain ``dict`` (keys
+  ``obs``, ``action``, ``reward``, ``next_obs``, ``done``) so that
+  ``default_collate`` stacks them into the ``TransitionBatch`` namedtuple
+  consumed by ``DQNMethod.train_step`` / ``SACMethod.train_step``.
 
-    Supports n-step returns: when n_step > 1, the buffer stores
-    n-step accumulated reward, the observation after n steps, and
-    whether the episode terminated within those n steps.
+  Supports n-step returns: when n_step > 1, the buffer stores
+  n-step accumulated reward, the observation after n steps, and
+  whether the episode terminated within those n steps.
 
-    Args:
-        obs_dim:  Dimensionality of the observation vector.
-        capacity: Maximum number of transitions stored.
-        action_dim: Dimensionality of the action vector (default: 1 for discrete).
-        action_dtype: dtype for actions (default: int64 for discrete,
-            float32 for continuous).
-        n_step: Number of steps for n-step returns (default: 1).
-        gamma: Discount factor for n-step return computation
-            (default: 0.99).
-        seed: Random seed for reproducible sampling.
-    """
+  Supports Prioritized Experience Replay (PER): when prioritized=True,
+  transitions are sampled proportionally to their priority (TD error)
+  with importance-sampling weight correction.
 
-  def __init__(
-      self,
-      obs_dim,
-      capacity=100_000,
-      action_dim=1,
-      action_dtype=np.int64,
-      n_step=1,
-      gamma=0.99,
-      seed=None,
-  ):
+  Args:
+      obs_dim:  Dimensionality of the observation vector.
+      capacity: Maximum number of transitions stored.
+      action_dim: Dimensionality of the action vector (default: 1 for discrete).
+      action_dtype: dtype for actions (default: int64 for discrete,
+          float32 for continuous).
+      n_step: Number of steps for n-step returns (default: 1).
+      gamma: Discount factor for n-step return computation
+          (default: 0.99).
+      prioritized: Enable prioritized experience replay (default: False).
+      alpha: Priority exponent for PER (default: 0.6).
+      beta_start: Initial beta for IS weight annealing (default: 0.4).
+      beta_frames: Frames over which to anneal beta to 1.0 (default: 100000).
+      seed: Random seed for reproducible sampling.
+  """
+
+  def __init__(self,
+               obs_dim,
+               capacity=100_000,
+               action_dim=1,
+               action_dtype=np.int64,
+               n_step=1,
+               gamma=0.99,
+               prioritized=False,
+               alpha=0.6,
+               beta_start=0.4,
+               beta_frames=100_000,
+               seed=None):
     self.capacity = capacity
     self.obs_dim = obs_dim
     self.action_dim = action_dim
     self.n_step = n_step
     self.gamma = gamma
+    self.prioritized = prioritized
+    self.alpha = alpha
+    self.beta_start = beta_start
+    self.beta_frames = beta_frames
+    self._beta = beta_start
     self._pos = 0
     self._size = 0
 
@@ -70,6 +85,11 @@ class ReplayBufferDataset(Dataset):
     if n_step > 1:
       self._n_step_buffer = collections.deque(maxlen=n_step)
 
+    # Prioritized Experience Replay support
+    if prioritized:
+      self.priorities = np.zeros(capacity, dtype=np.float32)
+      self._max_priority = 1.0
+
     # D5: Independent RNG for reproducible sampling
     self._rng = np.random.default_rng(seed)
 
@@ -80,10 +100,10 @@ class ReplayBufferDataset(Dataset):
   def push(self, obs, action, reward, next_obs, done):
     """Add a single transition to the buffer.
 
-        All arguments are plain Python / numpy scalars or arrays.
-        When n_step > 1, transitions are first buffered and n-step returns
-        are computed when the buffer fills or the episode terminates.
-        """
+    All arguments are plain Python / numpy scalars or arrays.
+    When n_step > 1, transitions are first buffered and n-step returns
+    are computed when the buffer fills or the episode terminates.
+    """
     # Handle n-step returns
     if self.n_step > 1:
       self._n_step_buffer.append((obs, action, reward, next_obs, done))
@@ -112,6 +132,11 @@ class ReplayBufferDataset(Dataset):
     self.reward[self._pos] = reward
     self.next_obs[self._pos] = next_obs
     self.done[self._pos] = float(done)
+
+    # Initialize priority for new transition
+    if self.prioritized:
+      self.priorities[self._pos] = self._max_priority
+
     self._pos = (self._pos + 1) % self.capacity
     self._size = min(self._size + 1, self.capacity)
 
@@ -144,27 +169,44 @@ class ReplayBufferDataset(Dataset):
   def push_batch(self, transitions):
     """Add a batch of transitions.
 
-        Args:
-            transitions: An iterable of ``Transition`` namedtuples (or dicts
-                with the right keys).
-        """
+    Args:
+        transitions: An iterable of ``Transition`` namedtuples (or dicts
+            with the right keys).
+    """
     for t in transitions:
       if isinstance(t, Transition):
         self.push(t.obs, t.action, t.reward, t.next_obs, t.done)
       else:
         self.push(t["obs"], t["action"], t["reward"], t["next_obs"], t["done"])
 
+  def update_priorities(self, indices, priorities):
+    """Update priorities for sampled transitions (PER).
+
+    Args:
+        indices: Array of transition indices to update.
+        priorities: New priority values (absolute TD errors + epsilon).
+    """
+    if not self.prioritized:
+      return
+    priorities = np.asarray(priorities, dtype=np.float32)
+    self.priorities[indices] = priorities
+    self._max_priority = max(self._max_priority, float(np.max(priorities)))
+
   def sample(self, batch_size, generator=None):
     """Sample a batch of transitions.
 
-        Args:
-            batch_size:  Number of transitions to sample.
-            generator:   Optional ``torch.Generator`` for reproducibility.
+    Args:
+        batch_size:  Number of transitions to sample.
+        generator:   Optional ``torch.Generator`` for reproducibility.
 
-        Returns:
-            dict with keys ``obs``, ``action``, ``reward``, ``next_obs``,
-            ``done`` -- each a ``torch.Tensor``.
-        """
+    Returns:
+        dict with keys ``obs``, ``action``, ``reward``, ``next_obs``,
+        ``done`` -- each a ``torch.Tensor``. If prioritized, also includes
+        ``indices`` and ``weights`` for importance sampling correction.
+    """
+    if self.prioritized:
+      return self._sample_prioritized(batch_size)
+
     if generator is not None:
       indices = torch.randint(0, self._size, (batch_size,), generator=generator).numpy()
     else:
@@ -179,16 +221,69 @@ class ReplayBufferDataset(Dataset):
         "done": torch.from_numpy(self.done[indices]),
     }
 
+  def _sample_prioritized(self, batch_size):
+    """Sample transitions proportionally to priority^alpha with IS weights."""
+    # Get priorities for valid transitions
+    valid_priorities = self.priorities[:self._size]
+    probs = valid_priorities**self.alpha
+    probs_sum = probs.sum()
+    if probs_sum == 0:
+      # Fallback to uniform if all priorities are zero
+      probs = np.ones(self._size, dtype=np.float32) / self._size
+    else:
+      probs = probs / probs_sum
+
+    # Sample indices using buffer's RNG (B2: reproducible)
+    indices = self._rng.choice(self._size, size=batch_size, p=probs, replace=True)
+
+    # Compute importance-sampling weights: w_i = (N * P(i))^(-beta)
+    # Normalized by max weight for stability
+    weights = (self._size * probs[indices])**(-self._beta)
+    weights = weights / weights.max()
+
+    return {
+        "obs": torch.from_numpy(self.obs[indices]),
+        "action": torch.from_numpy(self.action[indices]),
+        "reward": torch.from_numpy(self.reward[indices]),
+        "next_obs": torch.from_numpy(self.next_obs[indices]),
+        "done": torch.from_numpy(self.done[indices]),
+        "indices": torch.from_numpy(indices.astype(np.int64)),
+        "weights": torch.from_numpy(weights.astype(np.float32)),
+    }
+
+  def anneal_beta(self, frames):
+    """Anneal beta from beta_start to 1.0 over beta_frames.
+
+    Args:
+        frames: Number of training frames/steps elapsed.
+    """
+    if not self.prioritized:
+      return
+    progress = min(frames / self.beta_frames, 1.0)
+    self._beta = self.beta_start + progress * (1.0 - self.beta_start)
+
+  @property
+  def beta(self):
+    """Current beta value for IS weight computation."""
+    return self._beta
+
   def stats(self):
     """Return diagnostic statistics about the buffer contents."""
     if self._size == 0:
       return {"size": 0, "fill_ratio": 0.0}
-    return {
+    stats = {
         "size": self._size,
         "capacity": self.capacity,
         "fill_ratio": self._size / self.capacity,
         "mean_reward": float(np.mean(self.reward[:self._size])),
     }
+    if self.prioritized:
+      stats.update({
+          "mean_priority": float(np.mean(self.priorities[:self._size])),
+          "max_priority": float(np.max(self.priorities[:self._size])),
+          "beta": self._beta,
+      })
+    return stats
 
   # ------------------------------------------------------------------
   # Dataset protocol
@@ -200,9 +295,9 @@ class ReplayBufferDataset(Dataset):
   def __getitem__(self, idx):
     """Return a single transition as a dict (DataLoader-compatible).
 
-        Note: The returned arrays are numpy views; DataLoader collation
-        converts them to tensors via ``default_collate``.
-        """
+    Note: The returned arrays are numpy views; DataLoader collation
+    converts them to tensors via ``default_collate``.
+    """
     return {
         "obs": self.obs[idx],
         "action": self.action[idx],

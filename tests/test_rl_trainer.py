@@ -896,3 +896,187 @@ class TestNStepReturns:
     assert buffer.done[0] == 0.0
     assert np.allclose(buffer.obs[0], obs0)
     assert np.allclose(buffer.next_obs[0], obs1)
+
+
+class TestPrioritizedExperienceReplay:
+  """Test Prioritized Experience Replay (PER) in ReplayBufferDataset."""
+
+  def test_per_initialization(self):
+    """Test PER buffer initializes with correct attributes."""
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    buffer = ReplayBufferDataset(obs_dim=4,
+                                 capacity=100,
+                                 prioritized=True,
+                                 alpha=0.6,
+                                 beta_start=0.4,
+                                 beta_frames=1000,
+                                 seed=42)
+
+    assert buffer.prioritized is True
+    assert buffer.alpha == 0.6
+    assert buffer.beta == 0.4
+    assert hasattr(buffer, 'priorities')
+    assert hasattr(buffer, '_max_priority')
+    assert buffer._max_priority == 1.0
+
+  def test_per_non_prioritized_initialization(self):
+    """Test non-PER buffer doesn't have priority arrays."""
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    buffer = ReplayBufferDataset(obs_dim=4, capacity=100, prioritized=False, seed=42)
+
+    assert buffer.prioritized is False
+    assert not hasattr(buffer, 'priorities')
+
+  def test_per_push_initializes_max_priority(self):
+    """Test new transitions get max priority."""
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    buffer = ReplayBufferDataset(obs_dim=4, capacity=100, prioritized=True, seed=42)
+
+    obs0 = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    obs1 = np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+
+    buffer.push(obs0, 0, 1.0, obs1, False)
+
+    assert buffer.priorities[0] == 1.0
+    assert buffer._max_priority == 1.0
+
+  def test_per_update_priorities(self):
+    """Test update_priorities modifies priority array."""
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    buffer = ReplayBufferDataset(obs_dim=4, capacity=100, prioritized=True, seed=42)
+
+    obs0 = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    obs1 = np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    obs2 = np.array([3.0, 4.0, 5.0, 6.0], dtype=np.float32)
+
+    buffer.push(obs0, 0, 1.0, obs1, False)
+    buffer.push(obs1, 1, 2.0, obs2, False)
+
+    # Update priorities
+    buffer.update_priorities(np.array([0, 1]), np.array([5.0, 10.0]))
+
+    assert buffer.priorities[0] == 5.0
+    assert buffer.priorities[1] == 10.0
+    assert buffer._max_priority == 10.0
+
+  def test_per_sampling_proportional(self):
+    """Test sampling is proportional to priority^alpha."""
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    buffer = ReplayBufferDataset(obs_dim=4,
+                                 capacity=100,
+                                 prioritized=True,
+                                 alpha=1.0,
+                                 beta_start=0.4,
+                                 seed=42)
+
+    obs0 = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    obs1 = np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    obs2 = np.array([3.0, 4.0, 5.0, 6.0], dtype=np.float32)
+    obs3 = np.array([4.0, 5.0, 6.0, 7.0], dtype=np.float32)
+
+    buffer.push(obs0, 0, 1.0, obs1, False)
+    buffer.push(obs1, 1, 2.0, obs2, False)
+    buffer.push(obs2, 2, 3.0, obs3, False)
+    buffer.push(obs3, 3, 4.0, obs0, False)
+
+    # Set extreme priorities: index 0 should be sampled most
+    buffer.update_priorities(np.array([0, 1, 2, 3]), np.array([100.0, 1.0, 1.0, 1.0]))
+
+    # Sample many times, index 0 should dominate
+    samples = buffer.sample(1000)
+    indices = samples['indices'].numpy()
+
+    # Index 0 should appear ~100/103 = 97% of the time
+    count_0 = np.sum(indices == 0)
+    assert count_0 > 800  # Allow some variance
+
+  def test_per_importance_sampling_weights(self):
+    """Test IS weights are computed correctly."""
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    buffer = ReplayBufferDataset(obs_dim=4,
+                                 capacity=100,
+                                 prioritized=True,
+                                 alpha=0.6,
+                                 beta_start=0.5,
+                                 seed=42)
+
+    obs0 = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    obs1 = np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+
+    buffer.push(obs0, 0, 1.0, obs1, False)
+    buffer.push(obs1, 1, 2.0, obs0, False)
+
+    # Uniform priorities, beta=0.5
+    buffer.update_priorities(np.array([0, 1]), np.array([1.0, 1.0]))
+
+    sample = buffer.sample(2)
+    weights = sample['weights'].numpy()
+
+    # With uniform priorities and beta=0.5, weights should be 1.0
+    assert np.allclose(weights, 1.0, atol=1e-4)
+
+  def test_per_beta_annealing(self):
+    """Test beta anneals from beta_start to 1.0 over beta_frames."""
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    buffer = ReplayBufferDataset(obs_dim=4,
+                                 capacity=100,
+                                 prioritized=True,
+                                 beta_start=0.4,
+                                 beta_frames=1000,
+                                 seed=42)
+
+    assert buffer.beta == 0.4
+
+    buffer.anneal_beta(500)  # Halfway
+    assert buffer.beta == pytest.approx(0.7, rel=1e-3)
+
+    buffer.anneal_beta(1000)  # Full
+    assert buffer.beta == pytest.approx(1.0, rel=1e-3)
+
+    buffer.anneal_beta(2000)  # Beyond
+    assert buffer.beta == 1.0
+
+  def test_per_stats_includes_priority_info(self):
+    """Test stats() includes priority statistics."""
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    buffer = ReplayBufferDataset(obs_dim=4, capacity=100, prioritized=True, seed=42)
+
+    obs0 = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    obs1 = np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+
+    buffer.push(obs0, 0, 1.0, obs1, False)
+    buffer.push(obs1, 1, 2.0, obs0, False)
+
+    stats = buffer.stats()
+
+    assert 'mean_priority' in stats
+    assert 'max_priority' in stats
+    assert 'beta' in stats
+    assert stats['mean_priority'] == 1.0
+    assert stats['max_priority'] == 1.0
+    assert stats['beta'] == 0.4
+
+  def test_per_non_prioritized_no_priority_stats(self):
+    """Test non-PER buffer stats don't include priority info."""
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    buffer = ReplayBufferDataset(obs_dim=4, capacity=100, prioritized=False, seed=42)
+
+    obs0 = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    obs1 = np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+
+    buffer.push(obs0, 0, 1.0, obs1, False)
+
+    stats = buffer.stats()
+
+    assert 'mean_priority' not in stats
+    assert 'max_priority' not in stats
+    assert 'beta' not in stats

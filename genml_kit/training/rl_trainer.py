@@ -122,6 +122,9 @@ class RLTrainer(BaseTrainer):
 
       # Learn.
       batch = self.pipeline.replay_buffer.sample(batch_size)
+      # Anneal beta for PER
+      if hasattr(self.pipeline.replay_buffer, 'anneal_beta'):
+        self.pipeline.replay_buffer.anneal_beta(self.method._env_steps)
       batch = self.pipeline.to_device(batch, self.device)
 
       with torch.amp.autocast(
@@ -135,6 +138,15 @@ class RLTrainer(BaseTrainer):
       if torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any():
         logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
         continue
+
+      # PER: Update priorities if supported
+      if hasattr(self.pipeline.replay_buffer, 'update_priorities') and \
+         hasattr(loss_out, 'td_errors') and loss_out.td_errors is not None:
+        indices = batch.get('indices')
+        if indices is not None:
+          td_errors = loss_out.td_errors.detach().cpu().numpy()
+          new_priorities = np.abs(td_errors) + 1e-6
+          self.pipeline.replay_buffer.update_priorities(indices.numpy(), new_priorities)
 
       self._apply_grad(loss_out, scaler, amp_dtype)
 

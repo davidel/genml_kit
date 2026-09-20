@@ -201,6 +201,33 @@ class RLPipeline(DataPipeline):
         default=1,
         help="Number of steps for n-step returns (default: 1).",
     )
+    group.add_argument(
+        "--prioritized",
+        dest="prioritized",
+        action="store_true",
+        help="Enable prioritized experience replay (PER).",
+    )
+    group.add_argument(
+        "--per-alpha",
+        dest="per_alpha",
+        type=float,
+        default=0.6,
+        help="Priority exponent for PER (default: 0.6).",
+    )
+    group.add_argument(
+        "--per-beta-start",
+        dest="per_beta_start",
+        type=float,
+        default=0.4,
+        help="Initial beta for IS weight annealing (default: 0.4).",
+    )
+    group.add_argument(
+        "--per-beta-frames",
+        dest="per_beta_frames",
+        type=int,
+        default=100000,
+        help="Frames over which to anneal beta to 1.0 (default: 100000).",
+    )
 
   def build_loader(self, args, **kwargs):
     """Return ``None`` — the RLTrainer samples from the buffer directly."""
@@ -272,6 +299,10 @@ class RLPipeline(DataPipeline):
         action_dtype=action_dtype,
         n_step=getattr(args, "n_step", 1),
         gamma=getattr(args, "gamma", 0.99),
+        prioritized=getattr(args, "prioritized", False),
+        alpha=getattr(args, "per_alpha", 0.6),
+        beta_start=getattr(args, "per_beta_start", 0.4),
+        beta_frames=getattr(args, "per_beta_frames", 100_000),
         seed=buffer_seed,
     )
 

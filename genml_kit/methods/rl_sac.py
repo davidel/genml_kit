@@ -298,9 +298,9 @@ class SACMethod(Method):
       from genml_kit.losses.rl import sac_alpha_loss
 
       alpha = self._get_alpha()
-      # Use the same log_prob from actor update to ensure proper gradient flow
-      # The alpha loss is -alpha * (log_prob + target_entropy), which needs gradients w.r.t. alpha only
-      # We detach log_prob to avoid backprop through the policy network
+      # Use same log_prob from actor update for gradient flow
+      # Alpha loss: -alpha * (log_prob + target_entropy), needs grads w.r.t. alpha only
+      # Detach log_prob to avoid backprop through policy network
       alpha_loss = sac_alpha_loss(new_log_prob.detach(), self._target_entropy, alpha)
 
     # B5: track env steps for logging (1 env step per train_step in off-policy)
@@ -309,6 +309,9 @@ class SACMethod(Method):
     # Return combined loss (for logging) + individual losses in metrics
     total_loss = critic_loss + actor_loss + alpha_loss
 
+    # For PER: use critic TD errors (average of twin critics)
+    td_errors = (q1_pred - soft_target.detach() + q2_pred - soft_target.detach()) * 0.5
+
     metrics = {
         "critic_loss": critic_loss,
         "actor_loss": actor_loss,
@@ -316,8 +319,7 @@ class SACMethod(Method):
         "alpha": alpha.detach(),
         "q_mean": q1_pred.detach().mean(),
     }
-    return LossOutput(loss=total_loss, metrics=metrics)
-    return LossOutput(loss=total_loss, metrics=metrics)
+    return LossOutput(loss=total_loss, metrics=metrics, td_errors=td_errors)
 
   def evaluate(self, model, pipeline, num_episodes, max_steps=10_000):
     """Run evaluation episodes and return mean return."""

@@ -14,6 +14,8 @@ DataBlob = collections.namedtuple("DataBlob", ["data", "meta"])
 
 # What method.train_step returns.  loss is the (already averaged-across-the-batch),
 # UNSCALED objective; metrics is dict[str, torch.Tensor] for logging.
-LossOutput = collections.namedtuple("LossOutput", ["loss", "metrics"])
+# For PER: td_errors (optional) contains per-sample TD errors for priority updates.
+LossOutput = collections.namedtuple("LossOutput", ["loss", "metrics", "td_errors"],
+                                     defaults=[None])
 
 __all__ = ["DataBlob", "LossOutput"]

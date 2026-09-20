@@ -199,6 +199,8 @@ class DQNMethod(Method):
     # TD loss.
     from genml_kit.losses.rl import td_loss
 
+    # Compute per-sample TD errors for PER priority updates
+    td_errors = q - target.detach()
     loss = td_loss(q, target, reduction="mean")
 
     metrics = {
@@ -207,7 +209,7 @@ class DQNMethod(Method):
         "epsilon": self._epsilon,
         "env_steps": self._env_steps,
     }
-    return LossOutput(loss=loss, metrics=metrics)
+    return LossOutput(loss=loss, metrics=metrics, td_errors=td_errors)
 
   def evaluate(self, model, pipeline, num_episodes, max_steps=10_000):
     """Run evaluation episodes and return mean return.
