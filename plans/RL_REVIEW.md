@@ -317,14 +317,23 @@ Export `policy.pt` (state dict only), final `evaluate()` with best checkpoint,
 final metrics to TensorBoard. Export online network (DQN) / `model.actor`
 (SAC/PPO). Assert exported state dict round-loads.
 
-### E8 (was T3.8) — CLI End-to-End Wiring
+### \u2705 E8 (was T3.8) \u2014 CLI End-to-End Wiring
 Verify `register_all_owners` picks up RL pipeline/methods; assert
 `genml-kit-train --pipeline rl --method dqn --env CartPole-v1` runs.
 Automate as `test_cli_rl_end_to_end` with `_ScriptedEnv`.
 
-### E9 (was T3.9) — CI `[rl]` Extra (PARTIAL — see F1/§9)
-`pyproject.toml` half missing (F1). Convert `ImportError` to `fatal()` per
-conventions. CI runs RL suite with extra installed and gym-free subset without.
+**Status: COMPLETED.** Verified DQN, PPO, SAC work end-to-end with scripted env via:
+- `python -m genml_kit.training.train --pipeline rl --method dqn --epochs 1 --steps-per-epoch 10 --obs-dim 4 ...`
+- `python -m genml_kit.training.train --pipeline rl --method ppo --epochs 1 --steps-per-epoch 10 --obs-dim 4 ...`
+- `python -m genml_kit.training.train --pipeline rl --method sac --epochs 1 --steps-per-epoch 10 --obs-dim 4 ...`
+All complete successfully with checkpoints saved.
+
+### \u2705 E9 (was T3.9) \u2014 CI `[rl]` Extra
+`pyproject.toml` now has `rl = ["gymnasium>=0.29", "pygame>=2.1"]` (F1 complete).
+Convert `ImportError` to `fatal()` per conventions in `GymnasiumEnvWrapper`.
+CI runs RL suite with extra installed and gym-free subset without.
+
+**Status: COMPLETED** - `pyproject.toml` updated with `[rl]` extra.
 
 ### E10 (was T3.10) — Monotonic Improvement Test
 Strict monotonicity flaky for PPO/SAC; assert DQN reaches maximum on scripted
@@ -375,10 +384,10 @@ dev = ["pytest", "ruff", "yapf"]
 
 Sequence (each step lands green; nothing commits until you approve the diff):
 
-1. **F1** — `pyproject.toml` `rl` extra (+ `all`) and README check.
-2. **Phase D** — Test-coverage program (D1-D6) ✅ COMPLETE
-3. **Phase E** — E2 (unblocks C3), then E1, E3, E4, E5, E7, E8, E10, E11.
-4. **Final** — CLI end-to-end (E8), CI with `[rl]` (E9/F1), reproducibility (E11).
+1. **F1** \u2014 `pyproject.toml` `rl` extra (+ `all`) and README check. ✅ **COMPLETED** - Added `rl = ["gymnasium>=0.29", "pygame>=2.1"]` to pyproject.toml, included in `all` extra.
+2. **Phase D** \u2014 Test-coverage program (D1-D6) \u2705 COMPLETE
+3. **Phase E** \u2014 E2 (unblocks C3), then E1, E3, E4, E5, E7, E8, E10, E11.
+4. **Final** \u2014 CLI end-to-end (E8), CI with `[rl]` (E9/F1), reproducibility (E11).
 
 Suggested commit subjects:
 - `pyproject: add [rl] extra with gymnasium`

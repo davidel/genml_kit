@@ -1,6 +1,6 @@
 """RL data pipeline: environment wrapper + replay buffer + eval rollout.
 
-Phase 1 of ``plans/RL_PLAN.md`` (§6.3).  The pipeline owns the
+Phase 1 of ``plans/RL_PLAN.md`` (\u00a76.3).  The pipeline owns the
 **data side** of RL training: the Gymnasium environment, the replay
 buffer, and the evaluation-rollout helper.  ``build_loader`` returns
 ``None`` (the ``RLTrainer`` samples directly from the buffer).
@@ -8,6 +8,7 @@ buffer, and the evaluation-rollout helper.  ``build_loader`` returns
 
 import logging
 
+import numpy as np
 import torch
 
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset

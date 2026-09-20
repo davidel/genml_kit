@@ -95,8 +95,11 @@ class SACMethod(Method):
   def wire_data(self, args, pipeline):
     self._pipeline = pipeline
     # Get action dimension from pipeline's action_space for continuous support.
-    if hasattr(pipeline, "action_space") and hasattr(pipeline.action_space, "shape"):
-      self._action_dim = pipeline.action_space.shape[0]
+    action_space = getattr(pipeline, "action_space", None)
+    is_continuous = action_space is not None and hasattr(
+        action_space, "shape") and getattr(action_space, "shape", ()) != ()
+    if is_continuous:
+      self._action_dim = action_space.shape[0]
     else:
       # Fallback for discrete.
       self._action_dim = pipeline.n_actions

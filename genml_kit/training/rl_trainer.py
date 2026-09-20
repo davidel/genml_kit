@@ -71,9 +71,11 @@ class RLTrainer(BaseTrainer):
     obs = self._warmup_obs
     if obs is None:
       obs = self.pipeline.reset_env()
-    # Determine if continuous action space
-    is_continuous = hasattr(self.pipeline.env, 'action_space') and hasattr(self.pipeline.env.action_space, 'shape')
-    action_dim = getattr(self.pipeline.env.action_space, 'shape', [1])[0] if is_continuous else 1
+    # Determine if continuous action space: Discrete has .n, Box has .shape
+    action_space = getattr(self.pipeline.env, 'action_space', None)
+    is_continuous = action_space is not None and hasattr(
+        action_space, 'shape') and getattr(action_space, 'shape', ()) != ()
+    action_dim = getattr(action_space, 'shape', (1,))[0] if is_continuous else 1
     while len(self.pipeline.replay_buffer) < self.args.warmup_steps:
       if is_continuous:
         # Sample random continuous action from [-1, 1]
@@ -98,14 +100,17 @@ class RLTrainer(BaseTrainer):
     batches = 0
 
     # Determine if continuous action space (needed for step_env)
-    is_continuous = hasattr(self.pipeline.env, 'action_space') and hasattr(self.pipeline.env.action_space, 'shape')
+    action_space = getattr(self.pipeline.env, 'action_space', None)
+    is_continuous = action_space is not None and hasattr(
+        action_space, 'shape') and getattr(action_space, 'shape', ()) != ()
 
     for _step in range(self.args.steps_per_epoch):
       # Act.
       action = self.method.act(self.model, obs, deterministic=False)
-      # For continuous, step_env expects a scalar, but we store full array in buffer
+      # For continuous, step_env expects the full action array; for discrete, a scalar.
       if is_continuous:
-        action_for_env = float(action.flat[0]) if hasattr(action, 'flat') else float(action)
+        # action is already a 1D numpy array from SAC.act()
+        action_for_env = action
       else:
         action_for_env = int(action) if hasattr(action, 'item') else int(action)
       next_obs, reward, done, _ = self.pipeline.step_env(action_for_env)
@@ -132,7 +137,7 @@ class RLTrainer(BaseTrainer):
         continue
 
       self._apply_grad(loss_out, scaler, amp_dtype)
-      
+
       # D2: Gradient norm logging
       if self.writer is not None and hasattr(self.method, 'apply_grad'):
         # For SAC with custom apply_grad, gradients are already applied
@@ -143,8 +148,8 @@ class RLTrainer(BaseTrainer):
         for p in self.model.parameters():
           if p.grad is not None:
             param_norm = p.grad.data.norm(2)
-            total_norm += param_norm.item() ** 2
-        total_norm = total_norm ** 0.5
+            total_norm += param_norm.item()**2
+        total_norm = total_norm**0.5
         self.writer.add_scalar("train/grad_norm", total_norm, step)
 
       step += 1
@@ -253,7 +258,7 @@ class RLTrainer(BaseTrainer):
           continue
 
         self._apply_grad(loss_out, scaler, amp_dtype)
-        
+
         # D2: Gradient norm logging
         if self.writer is not None and self.optimization.optimizer is not None:
           # Log gradient norm
@@ -261,8 +266,8 @@ class RLTrainer(BaseTrainer):
           for p in self.model.parameters():
             if p.grad is not None:
               param_norm = p.grad.data.norm(2)
-              total_norm += param_norm.item() ** 2
-          total_norm = total_norm ** 0.5
+              total_norm += param_norm.item()**2
+          total_norm = total_norm**0.5
           self.writer.add_scalar("train/grad_norm", total_norm, step)
 
         step += 1
