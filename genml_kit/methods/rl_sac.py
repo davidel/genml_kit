@@ -122,7 +122,7 @@ class SACMethod(Method):
     return model
 
   def _get_alpha(self):
-    return self._log_alpha.exp().item()
+    return self._log_alpha.exp()
 
   def build_optimization(self, args, model, device, ckpt_extra, states_to_load):
     """Build three separate optimizers for critic, actor, and alpha."""
@@ -187,12 +187,12 @@ class SACMethod(Method):
 
     # Step critic optimizer
     optimization.critic_opt.zero_grad(set_to_none=True)
-    critic_loss.backward(retain_graph=True)
+    critic_loss.backward()
     optimization.critic_opt.step()
 
     # Step actor optimizer
     optimization.actor_opt.zero_grad(set_to_none=True)
-    actor_loss.backward(retain_graph=True)
+    actor_loss.backward()
     optimization.actor_opt.step()
 
     # Step alpha optimizer (if auto_alpha)
@@ -210,7 +210,10 @@ class SACMethod(Method):
           obs_t,
           deterministic=deterministic,
       )
-    return action.squeeze(0).cpu().numpy()
+    # Return as numpy array (1D for continuous actions)
+    action_np = action.squeeze(0).cpu().numpy()
+    # Ensure it's a flat 1D array
+    return action_np.flatten()
 
   def step_epsilon(self):
     """SAC does not use epsilon — no-op."""
@@ -242,8 +245,10 @@ class SACMethod(Method):
       q1_next = model.q1.target(torch.cat([next_obs, next_action], dim=-1)).squeeze(-1)
       q2_next = model.q2.target(torch.cat([next_obs, next_action], dim=-1)).squeeze(-1)
       min_q_next = torch.min(q1_next, q2_next)
+      # Use detached alpha for critic target to avoid gradient conflicts
+      alpha_detached = alpha.detach()
       soft_target = rewards + self._gamma * (1.0 - dones) * (min_q_next -
-                                                             alpha * next_log_prob)
+                                                             alpha_detached * next_log_prob)
 
     # Twin Q losses.
     action = data["action"]
@@ -262,23 +267,29 @@ class SACMethod(Method):
       p.requires_grad_(False)
 
     new_action, _, new_log_prob, _, _ = model.actor.get_action_and_value(obs)
-    q1_new = model.q1.get_value(obs, new_action)
-    q2_new = model.q2.get_value(obs, new_action)
+    # Use no_grad to prevent gradients from flowing to Q networks
+    with torch.no_grad():
+      q1_new = model.q1.get_value(obs, new_action)
+      q2_new = model.q2.get_value(obs, new_action)
     min_q_new = torch.min(q1_new, q2_new)
     from genml_kit.losses.rl import sac_policy_loss
     actor_loss = sac_policy_loss(new_log_prob, min_q_new, alpha)
 
     # Re-enable critic gradients.
-    for p in model.q1.parameters():
+    for p in model.q1.net.parameters():
       p.requires_grad_(True)
-    for p in model.q2.parameters():
+    for p in model.q2.net.parameters():
       p.requires_grad_(True)
 
     # --- Alpha update ---
     alpha_loss = torch.tensor(0.0, device=obs.device)
     if self._auto_alpha:
       from genml_kit.losses.rl import sac_alpha_loss
-      alpha_loss = sac_alpha_loss(new_log_prob.detach(), self._target_entropy)
+      alpha = self._get_alpha()
+      # Use the same log_prob from actor update to ensure proper gradient flow
+      # The alpha loss is -alpha * (log_prob + target_entropy), which needs gradients w.r.t. alpha only
+      # We detach log_prob to avoid backprop through the policy network
+      alpha_loss = sac_alpha_loss(new_log_prob.detach(), self._target_entropy, alpha)
 
     # B5: track env steps for logging (1 env step per train_step in off-policy)
     self._env_steps += 1
@@ -290,9 +301,10 @@ class SACMethod(Method):
         "critic_loss": critic_loss,
         "actor_loss": actor_loss,
         "alpha_loss": alpha_loss,
-        "alpha": torch.tensor(alpha),
+        "alpha": alpha.detach(),
         "q_mean": q1_pred.detach().mean(),
     }
+    return LossOutput(loss=total_loss, metrics=metrics)
     return LossOutput(loss=total_loss, metrics=metrics)
 
   def evaluate(self, model, pipeline, num_episodes, max_steps=10_000):

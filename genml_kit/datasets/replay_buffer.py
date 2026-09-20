@@ -21,24 +21,33 @@ class ReplayBufferDataset(Dataset):
   ``__getitem__`` protocol returns a plain ``dict`` (keys
   ``obs``, ``action``, ``reward``, ``next_obs``, ``done``) so that
   ``default_collate`` stacks them into the ``TransitionBatch`` namedtuple
-  consumed by ``DQNMethod.train_step``.
+  consumed by ``DQNMethod.train_step`` / ``SACMethod.train_step``.
 
   Args:
       obs_dim:  Dimensionality of the observation vector.
       capacity: Maximum number of transitions stored.
+      action_dim: Dimensionality of the action vector (default: 1 for discrete).
+      action_dtype: dtype for actions (default: int64 for discrete, float32 for continuous).
   """
 
-  def __init__(self, obs_dim, capacity=100_000):
+  def __init__(self, obs_dim, capacity=100_000, action_dim=1, action_dtype=np.int64, seed=None):
     self.capacity = capacity
     self.obs_dim = obs_dim
+    self.action_dim = action_dim
     self._pos = 0
     self._size = 0
 
     self.obs = np.zeros((capacity, obs_dim), dtype=np.float32)
-    self.action = np.zeros(capacity, dtype=np.int64)
+    if action_dim == 1:
+      self.action = np.zeros(capacity, dtype=action_dtype)
+    else:
+      self.action = np.zeros((capacity, action_dim), dtype=action_dtype)
     self.reward = np.zeros(capacity, dtype=np.float32)
     self.next_obs = np.zeros((capacity, obs_dim), dtype=np.float32)
     self.done = np.zeros(capacity, dtype=np.float32)
+    
+    # D5: Independent RNG for reproducible sampling
+    self._rng = np.random.default_rng(seed)
 
   # ------------------------------------------------------------------
   # Public API
@@ -50,6 +59,15 @@ class ReplayBufferDataset(Dataset):
     All arguments are plain Python / numpy scalars or arrays.
     """
     self.obs[self._pos] = obs
+    # Handle both scalar and array actions
+    if self.action_dim > 1:
+      # Continuous action: ensure it's a 1D array
+      action = np.asarray(action, dtype=self.action.dtype).flatten()
+      # Ensure correct shape
+      assert action.shape == (self.action_dim,), f"action shape {action.shape} != ({self.action_dim},)"
+    else:
+      # Discrete action: ensure scalar
+      action = np.asarray(action, dtype=self.action.dtype).item() if hasattr(np.asarray(action), 'item') else action
     self.action[self._pos] = action
     self.reward[self._pos] = reward
     self.next_obs[self._pos] = next_obs
@@ -79,12 +97,13 @@ class ReplayBufferDataset(Dataset):
 
     Returns:
         dict with keys ``obs``, ``action``, ``reward``, ``next_obs``,
-        ``done`` — each a ``torch.Tensor``.
+        ``done`` -- each a ``torch.Tensor``.
     """
     if generator is not None:
       indices = torch.randint(0, self._size, (batch_size,), generator=generator).numpy()
     else:
-      indices = np.random.randint(0, self._size, size=batch_size)
+      # D5: Use independent RNG for reproducible sampling
+      indices = self._rng.integers(0, self._size, size=batch_size)
 
     return {
         "obs": torch.from_numpy(self.obs[indices]),

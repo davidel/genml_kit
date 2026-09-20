@@ -217,7 +217,7 @@ def sac_policy_loss(log_probs, q_values, alpha):
   return (alpha * log_probs - q_values).mean()
 
 
-def sac_alpha_loss(log_probs, target_entropy):
+def sac_alpha_loss(log_probs, target_entropy, alpha=None):
   """Auto-tuning temperature loss (§13.4 of ``rl/README.md``).
 
   L_α = −E_{a∼π}[α (log π(a|s) + H*)]
@@ -227,8 +227,12 @@ def sac_alpha_loss(log_probs, target_entropy):
   Args:
     log_probs:     (B,) log-probabilities.
     target_entropy: scalar target entropy (negative).
+    alpha:         temperature parameter (if provided, loss includes alpha factor).
 
   Returns:
     Scalar loss (to be minimised by the alpha optimizer).
   """
-  return -(log_probs + target_entropy).mean()
+  base_loss = -(log_probs + target_entropy).mean()
+  if alpha is not None:
+    return alpha * base_loss
+  return base_loss

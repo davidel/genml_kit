@@ -25,7 +25,7 @@ class RolloutBuffer(Dataset):
       device:        Target device for tensor conversion.
   """
 
-  def __init__(self, obs_dim, rollout_len, action_dim=None, device="cpu"):
+  def __init__(self, obs_dim, rollout_len, action_dim=None, device="cpu", seed=None):
     self.obs_dim = obs_dim
     self.rollout_len = rollout_len
     self.action_dim = action_dim
@@ -47,6 +47,11 @@ class RolloutBuffer(Dataset):
 
     self._ptr = 0
     self._filled = False
+    
+    # D5: Independent RNG for reproducible sampling
+    self._rng = torch.Generator()
+    if seed is not None:
+      self._rng.manual_seed(seed)
 
   def add(self, obs, action, log_prob, reward, value, done, raw_action=None):
     """Store a single timestep at the current pointer.
@@ -159,7 +164,8 @@ class RolloutBuffer(Dataset):
     if generator is not None:
       idx = torch.randint(n, (batch_size,), generator=generator)
     else:
-      idx = torch.randint(n, (batch_size,))
+      # D5: Use independent RNG for reproducible sampling
+      idx = torch.randint(n, (batch_size,), generator=self._rng)
     return {
         "obs": self.obs[idx],
         "action": self.actions[idx],

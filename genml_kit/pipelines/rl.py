@@ -246,9 +246,23 @@ class RLPipeline(DataPipeline):
       self._n_actions = 2
       self._action_dim = 2
 
+    # Determine action dim and dtype for replay buffer
+    if self._action_dim is not None and self._action_dim > 1:
+      action_dim = self._action_dim
+      action_dtype = np.float32
+    else:
+      action_dim = 1
+      action_dtype = np.int64
+
+    # D5: Use env_seed for reproducible buffer sampling
+    buffer_seed = getattr(args, "env_seed", None)
+
     self.replay_buffer = ReplayBufferDataset(
         obs_dim=obs_dim,
         capacity=getattr(args, "replay_capacity", 100_000),
+        action_dim=action_dim,
+        action_dtype=action_dtype,
+        seed=buffer_seed,
     )
 
     # On-policy rollout buffer (used by PPO; ignored by DQN/SAC).
@@ -257,6 +271,7 @@ class RLPipeline(DataPipeline):
         rollout_len=getattr(args, "rollout_len", 2048),
         action_dim=self._action_dim,
         device="cpu",
+        seed=buffer_seed,
     )
 
     logging.info(

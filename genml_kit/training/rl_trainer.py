@@ -48,6 +48,9 @@ class RLTrainer(BaseTrainer):
     """
     method_name = getattr(self.method, "NAME", "dqn")
     if method_name == "ppo":
+      # D3: Step PPO scheduler if present
+      if self.optimization.scheduler is not None:
+        self.optimization.scheduler.step()
       return self._train_epoch_ppo(epoch, saver, step, monitor)
     return self._train_epoch_offpolicy(epoch, saver, step, monitor)
 
@@ -68,24 +71,47 @@ class RLTrainer(BaseTrainer):
     obs = self._warmup_obs
     if obs is None:
       obs = self.pipeline.reset_env()
+    # Determine if continuous action space
+    is_continuous = hasattr(self.pipeline.env, 'action_space') and hasattr(self.pipeline.env.action_space, 'shape')
+    action_dim = getattr(self.pipeline.env.action_space, 'shape', [1])[0] if is_continuous else 1
     while len(self.pipeline.replay_buffer) < self.args.warmup_steps:
-      action = torch.randint(0, self.method.n_actions, (1,)).item()
+      if is_continuous:
+        # Sample random continuous action from [-1, 1]
+        action = np.random.uniform(-1, 1, size=action_dim).astype(np.float32)
+      else:
+        action = int(torch.randint(0, self.method.n_actions, (1,)).item())
       next_obs, reward, done, _ = self.pipeline.step_env(action)
       self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done))
       obs = next_obs if not done else self.pipeline.reset_env()
-      self.method.step_epsilon()
+      if hasattr(self.method, 'step_epsilon'):
+        self.method.step_epsilon()
     self._warmup_obs = obs
+
+    # D4: SAC hard-target sync on warmup complete
+    # For SAC, after warmup, sync target networks with online networks
+    if hasattr(self.method, '_get_alpha') and hasattr(self.model, 'hard_update'):
+      self.model.hard_update()
+      logging.info("SAC: Hard target update after warmup complete")
 
     # Phase 2: interleaved acting + learning.
     total_loss = 0.0
     batches = 0
 
+    # Determine if continuous action space (needed for step_env)
+    is_continuous = hasattr(self.pipeline.env, 'action_space') and hasattr(self.pipeline.env.action_space, 'shape')
+
     for _step in range(self.args.steps_per_epoch):
       # Act.
       action = self.method.act(self.model, obs, deterministic=False)
-      next_obs, reward, done, _ = self.pipeline.step_env(action)
+      # For continuous, step_env expects a scalar, but we store full array in buffer
+      if is_continuous:
+        action_for_env = float(action.flat[0]) if hasattr(action, 'flat') else float(action)
+      else:
+        action_for_env = int(action) if hasattr(action, 'item') else int(action)
+      next_obs, reward, done, _ = self.pipeline.step_env(action_for_env)
       self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done))
-      self.method.step_epsilon()
+      if hasattr(self.method, 'step_epsilon'):
+        self.method.step_epsilon()
 
       obs = next_obs if not done else self.pipeline.reset_env()
 
@@ -100,7 +126,27 @@ class RLTrainer(BaseTrainer):
       ):
         loss_out = self.method.train_step(self.model, batch, step)
 
-      self._apply_grad(loss_out.loss, scaler, amp_dtype)
+      # D2: NaN guard - check for NaN loss before backward
+      if torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any():
+        logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
+        continue
+
+      self._apply_grad(loss_out, scaler, amp_dtype)
+      
+      # D2: Gradient norm logging
+      if self.writer is not None and hasattr(self.method, 'apply_grad'):
+        # For SAC with custom apply_grad, gradients are already applied
+        pass
+      elif self.writer is not None and self.optimization.optimizer is not None:
+        # Log gradient norm
+        total_norm = 0.0
+        for p in self.model.parameters():
+          if p.grad is not None:
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** 0.5
+        self.writer.add_scalar("train/grad_norm", total_norm, step)
+
       step += 1
       self.method.update_target(self.model, global_step=step)
 
@@ -189,15 +235,9 @@ class RLTrainer(BaseTrainer):
     mini_batch_size = self.method._mini_batch_size
 
     for _ppo_epoch in range(self.method._ppo_epochs):
-      rollout_indices = torch.randperm(rollout_len)
-      for start in range(0, rollout_len, mini_batch_size):
-        end = min(start + mini_batch_size, rollout_len)
-        mb_idx = rollout_indices[start:end]
-        batch = {
-            k: v[mb_idx]
-            for k, v in rollout.__dict__.items()
-            if isinstance(v, torch.Tensor) and v.shape[0] == rollout_len
-        }
+      # Use rollout's sample method to get properly formatted mini-batches
+      for _ in range(0, rollout_len, mini_batch_size):
+        batch = rollout.sample(mini_batch_size)
         batch = self.pipeline.to_device(batch, self.device)
 
         with torch.amp.autocast(
@@ -207,7 +247,24 @@ class RLTrainer(BaseTrainer):
         ):
           loss_out = self.method.train_step(self.model, batch, step)
 
-        self._apply_grad(loss_out.loss, scaler, amp_dtype)
+        # D2: NaN guard - check for NaN loss before backward
+        if torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any():
+          logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
+          continue
+
+        self._apply_grad(loss_out, scaler, amp_dtype)
+        
+        # D2: Gradient norm logging
+        if self.writer is not None and self.optimization.optimizer is not None:
+          # Log gradient norm
+          total_norm = 0.0
+          for p in self.model.parameters():
+            if p.grad is not None:
+              param_norm = p.grad.data.norm(2)
+              total_norm += param_norm.item() ** 2
+          total_norm = total_norm ** 0.5
+          self.writer.add_scalar("train/grad_norm", total_norm, step)
+
         step += 1
 
         total_loss += loss_out.loss.item()
@@ -246,13 +303,15 @@ class RLTrainer(BaseTrainer):
     if hasattr(self.method, "apply_grad"):
       self.method.apply_grad(loss, scaler, amp_dtype, self.optimization)
     else:
+      # loss is a LossOutput namedtuple; extract the scalar loss tensor
+      loss_tensor = loss.loss if hasattr(loss, 'loss') else loss
       self.optimization.optimizer.zero_grad(set_to_none=True)
       if scaler is not None:
-        scaler.scale(loss).backward()
+        scaler.scale(loss_tensor).backward()
         scaler.step(self.optimization.optimizer)
         scaler.update()
       else:
-        loss.backward()
+        loss_tensor.backward()
         self.optimization.optimizer.step()
 
   def validate(self):

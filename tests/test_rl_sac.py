@@ -146,7 +146,7 @@ class TestSACMethod:
     args = _make_args(sac_auto_alpha=False, sac_alpha=0.5)
     method.wire_data(args, pipeline)
     method.build_model(args, device=torch.device("cpu"))
-    assert method._get_alpha() == pytest.approx(0.5)
+    assert method._get_alpha().item() == pytest.approx(0.5)
 
   def test_add_args_no_collision(self):
     parser = argparse.ArgumentParser()
