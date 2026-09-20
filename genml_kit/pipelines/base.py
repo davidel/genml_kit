@@ -4,7 +4,7 @@ import abc
 
 
 class DataPipeline(abc.ABC):  # noqa: B024
-    """Data side of training: loader + blob contract + device transfer.
+  """Data side of training: loader + blob contract + device transfer.
 
     Registered via @register_pipeline, constructed via build_pipeline(name).
     Does NOT build models or compute losses (that is Method's job).  The
@@ -13,18 +13,18 @@ class DataPipeline(abc.ABC):  # noqa: B024
     without extra plumbing.
     """
 
-    NAME = ""  # registry key (matches Method.NAME convention)
+  NAME = ""  # registry key (matches Method.NAME convention)
 
-    def __init__(self, **kwargs):
-        self.train_loader = None
-        self.val_loader = None
+  def __init__(self, **kwargs):
+    self.train_loader = None
+    self.val_loader = None
 
-    @classmethod  # noqa: B027
-    def add_args(cls, parser):
-        """Add this pipeline's CLI flags.  No-op by default."""
+  @classmethod  # noqa: B027
+  def add_args(cls, parser):
+    """Add this pipeline's CLI flags.  No-op by default."""
 
-    def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
-        """Build and cache the loader for *mode* (train/val).
+  def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
+    """Build and cache the loader for *mode* (train/val).
 
         Args:
             needs_labels: If True, the pipeline must ensure labels are present in
@@ -34,14 +34,14 @@ class DataPipeline(abc.ABC):  # noqa: B024
         Raises:
             NotImplementedError: until the concrete pipeline implements it.
         """
-        raise NotImplementedError
+    raise NotImplementedError
 
-    def to_device(self, blob, device):
-        """Move a DataBlob (data AND meta) onto *device*."""
-        raise NotImplementedError
+  def to_device(self, blob, device):
+    """Move a DataBlob (data AND meta) onto *device*."""
+    raise NotImplementedError
 
-    def build_transform(self, args, method):
-        """Optional generic preprocessing (default: None = no pipeline phase).
+  def build_transform(self, args, method):
+    """Optional generic preprocessing (default: None = no pipeline phase).
 
         Default returns None so that only the method's own augmentation (or the
         historic fallback) is used.  A pipeline MAY override this to apply its
@@ -50,12 +50,12 @@ class DataPipeline(abc.ABC):  # noqa: B024
         "two-phase contract" in the plan (s 6.1).  Returns a callable applied to
         each raw item before it becomes a DataBlob, or None.
         """
-        return None
+    return None
 
-    def init_env(self, args):
-        """Initialize environment-specific state (e.g., Gymnasium envs for RL).
+  def init_env(self, args):
+    """Initialize environment-specific state (e.g., Gymnasium envs for RL).
 
         Default is a no-op.  RL pipelines override this to create the
         environment and any wrappers/buffers before ``wire_data`` runs.
         """
-        pass
+    pass
