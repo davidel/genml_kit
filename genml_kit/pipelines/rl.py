@@ -194,6 +194,13 @@ class RLPipeline(DataPipeline):
         default=1000,
         help="Environment steps per training epoch (default: 1000).",
     )
+    group.add_argument(
+        "--n-step",
+        dest="n_step",
+        type=int,
+        default=1,
+        help="Number of steps for n-step returns (default: 1).",
+    )
 
   def build_loader(self, args, **kwargs):
     """Return ``None`` — the RLTrainer samples from the buffer directly."""
@@ -263,6 +270,8 @@ class RLPipeline(DataPipeline):
         capacity=getattr(args, "replay_capacity", 100_000),
         action_dim=action_dim,
         action_dtype=action_dtype,
+        n_step=getattr(args, "n_step", 1),
+        gamma=getattr(args, "gamma", 0.99),
         seed=buffer_seed,
     )
 
