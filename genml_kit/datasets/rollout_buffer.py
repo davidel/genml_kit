@@ -13,17 +13,17 @@ from torch.utils.data import Dataset
 class RolloutBuffer(Dataset):
   """Fixed-length on-policy rollout storage.
 
-  Data is filled sequentially via :meth:`add` and converted to tensors
-  via :meth:`compute`.  After conversion the buffer acts as a
-  ``Dataset`` over the stored transitions (for mini-batch SGD epochs).
+    Data is filled sequentially via :meth:`add` and converted to tensors
+    via :meth:`compute`.  After conversion the buffer acts as a
+    ``Dataset`` over the stored transitions (for mini-batch SGD epochs).
 
-  Args:
-      obs_dim:       Observation dimensionality.
-      rollout_len:   Number of time-steps per rollout.
-      action_dim:    Action dimensionality (for continuous; ``None``
-                     for discrete).
-      device:        Target device for tensor conversion.
-  """
+    Args:
+        obs_dim:       Observation dimensionality.
+        rollout_len:   Number of time-steps per rollout.
+        action_dim:    Action dimensionality (for continuous; ``None``
+                       for discrete).
+        device:        Target device for tensor conversion.
+    """
 
   def __init__(self, obs_dim, rollout_len, action_dim=None, device="cpu", seed=None):
     self._obs_dim = obs_dim
@@ -56,12 +56,12 @@ class RolloutBuffer(Dataset):
   def add(self, obs, action, log_prob, reward, value, done, raw_action=None):
     """Store a single timestep at the current pointer.
 
-    All arguments are plain Python scalars or numpy values.
+        All arguments are plain Python scalars or numpy values.
 
-    Args:
-        raw_action: Optional raw (pre-tanh) action for continuous spaces.
-                    Ignored for discrete.
-    """
+        Args:
+            raw_action: Optional raw (pre-tanh) action for continuous spaces.
+                        Ignored for discrete.
+        """
     if self._ptr >= self._rollout_len:
       raise RuntimeError(f"RolloutBuffer overflow: ptr={self._ptr}, "
                          f"capacity={self._rollout_len}")
@@ -78,17 +78,17 @@ class RolloutBuffer(Dataset):
   def set_next_values(self, next_values):
     """Set bootstrap value estimates for the rollout's final states.
 
-    ``next_values`` should be a tensor of shape (rollout_len,) containing
-    V(s_{t+1}) for each step t in the rollout.
+        ``next_values`` should be a tensor of shape (rollout_len,) containing
+        V(s_{t+1}) for each step t in the rollout.
 
-    Args:
-        next_values: Tensor of shape (rollout_len,) with per-step bootstrap values.
-                     Scalar broadcasting is no longer supported.
-    """
+        Args:
+            next_values: Tensor of shape (rollout_len,) with per-step bootstrap values.
+                         Scalar broadcasting is no longer supported.
+        """
     if isinstance(next_values, (int, float)):
-      raise ValueError(
-          "set_next_values no longer accepts scalars. "
-          "Pass a tensor/array of shape (rollout_len,) with per-step bootstrap values.")
+      raise ValueError("set_next_values no longer accepts scalars. "
+                       "Pass a tensor/array of shape (rollout_len,) with "
+                       "per-step bootstrap values.")
     next_values = torch.as_tensor(next_values, dtype=torch.float32).flatten()
     assert next_values.numel() == self._rollout_len, (
         f"next_values must have {self._rollout_len} elements, "
@@ -98,10 +98,11 @@ class RolloutBuffer(Dataset):
   def compute(self, gamma, lam):
     """Compute GAE advantages and discounted returns.
 
-    Must be called after the rollout is full and ``set_next_values``
-    has been called.
-    """
+        Must be called after the rollout is full and ``set_next_values``
+        has been called.
+        """
     from genml_kit.losses.rl import gae
+
     self._advantages, self._returns = gae(
         self._rewards,
         self._values,
@@ -157,8 +158,8 @@ class RolloutBuffer(Dataset):
   def sample(self, batch_size, generator=None):
     """Sample a random mini-batch from the computed rollout.
 
-    Returns a dict of tensors suitable for PPO ``train_step``.
-    """
+        Returns a dict of tensors suitable for PPO ``train_step``.
+        """
     n = len(self)
     if n == 0:
       raise ValueError("RolloutBuffer is empty")
@@ -244,3 +245,46 @@ class RolloutBuffer(Dataset):
   @property
   def device(self):
     return self._device
+
+  def state_dict(self):
+    """Return state dict for checkpointing."""
+    return {
+        "obs": self._obs,
+        "actions": self._actions,
+        "raw_actions": self._raw_actions,
+        "log_probs": self._log_probs,
+        "rewards": self._rewards,
+        "values": self._values,
+        "dones": self._dones,
+        "advantages": self._advantages,
+        "returns": self._returns,
+        "next_values": self._next_values,
+        "ptr": self._ptr,
+        "filled": self._filled,
+        "obs_dim": self._obs_dim,
+        "action_dim": self._action_dim,
+        "rollout_len": self._rollout_len,
+        "device": self._device,
+        "rng_state": self._rng.get_state(),
+    }
+
+  def load_state_dict(self, state):
+    """Load state from checkpoint."""
+    self._obs = state["obs"]
+    self._actions = state["actions"]
+    self._raw_actions = state.get("raw_actions", self._raw_actions)
+    self._log_probs = state["log_probs"]
+    self._rewards = state["rewards"]
+    self._values = state["values"]
+    self._dones = state["dones"]
+    self._advantages = state["advantages"]
+    self._returns = state["returns"]
+    self._next_values = state["next_values"]
+    self._ptr = state["ptr"]
+    self._filled = state["filled"]
+    self._obs_dim = state["obs_dim"]
+    self._action_dim = state["action_dim"]
+    self._rollout_len = state["rollout_len"]
+    self._device = state["device"]
+    if "rng_state" in state:
+      self._rng.set_state(state["rng_state"])

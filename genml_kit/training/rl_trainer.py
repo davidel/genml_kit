@@ -357,10 +357,17 @@ class RLTrainer(BaseTrainer):
 
   def saver_extra(self):
     """Extra state attached to every checkpoint write (method state)."""
+    from genml_kit.utils.attr import get_attribute, MISSING
+
     extra = {"method_state": self.method.get_checkpoint_state(self.model, self.args)}
     # Include pipeline state (e.g., obs normalization RMS)
-    if hasattr(self.pipeline, 'get_checkpoint_state'):
-      extra.update(self.pipeline.get_checkpoint_state())
+    fn = get_attribute(self.pipeline, "get_checkpoint_state")
+    if fn is not MISSING:
+      extra.update(fn())
+    # Include rollout buffer state for PPO resume
+    fn = get_attribute(self.pipeline, "rollout_buffer.state_dict")
+    if fn is not MISSING:
+      extra["rollout_buffer"] = fn()
     return extra
 
   def ckpt_extra(self, best, step):

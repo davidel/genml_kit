@@ -259,3 +259,7 @@ class PPOMethod(Method):
 
   def load_checkpoint_state(self, model, state, args):
     self._env_steps = state.get("env_steps", 0)
+
+  def ckpt_extra(self, best, step):
+    """Save rollout buffer state for resume."""
+    return {}

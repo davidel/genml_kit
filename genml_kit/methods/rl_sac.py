@@ -96,8 +96,8 @@ class SACMethod(Method):
     self._pipeline = pipeline
     # Get action dimension from pipeline's action_space for continuous support.
     action_space = getattr(pipeline, "action_space", None)
-    is_continuous = action_space is not None and hasattr(
-        action_space, "shape") and getattr(action_space, "shape", ()) != ()
+    is_continuous = (action_space is not None and hasattr(action_space, "shape") and
+                     getattr(action_space, "shape", ()) != ())
     if is_continuous:
       self._action_dim = action_space.shape[0]
     else:
@@ -354,13 +354,19 @@ class SACMethod(Method):
     }
 
   def ckpt_extra(self, best, step):
-    """Save three optimizers' state."""
+    """Save three optimizers' state and alpha optimizer."""
     opt = self.optimization
+    extra = {}
     if hasattr(opt, "state_dict"):
-      return {"optim": opt.state_dict()}
-    return {}
+      extra["optim"] = opt.state_dict()
+    # Save alpha optimizer state for resume
+    if hasattr(self, "_alpha_optim") and hasattr(self._alpha_optim, "state_dict"):
+      extra["alpha_optim"] = self._alpha_optim.state_dict()
+    return extra
 
   def load_checkpoint_state(self, model, state, args):
     self._env_steps = state.get("env_steps", 0)
     if "log_alpha" in state:
       self._log_alpha.data.fill_(state["log_alpha"])
+    if "alpha_optim" in state and hasattr(self, "_alpha_optim"):
+      self._alpha_optim.load_state_dict(state["alpha_optim"])

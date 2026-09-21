@@ -255,6 +255,7 @@ class DQNMethod(Method):
         "eps_start": self._eps_start,
         "eps_end": self._eps_end,
         "decay_steps": self._decay_steps,
+        "target_net": model.target.state_dict(),
     }
 
   def load_checkpoint_state(self, model, state, args):
@@ -263,3 +264,5 @@ class DQNMethod(Method):
     self._eps_start = state.get("eps_start", self._eps_start)
     self._eps_end = state.get("eps_end", self._eps_end)
     self._decay_steps = state.get("decay_steps", self._decay_steps)
+    if "target_net" in state:
+      model.target.load_state_dict(state["target_net"])

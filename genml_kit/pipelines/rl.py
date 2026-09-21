@@ -431,9 +431,11 @@ class RLPipeline(DataPipeline):
       self.obs_rms = None
 
     logging.info(
-        "RLPipeline: obs_dim=%d, n_actions=%d, buffer_capacity=%d, obs_normalize=%s",
+        "RLPipeline: obs_dim=%d, n_actions=%s, action_dim=%s, "
+        "buffer_capacity=%d, obs_normalize=%s",
         obs_dim,
         self._n_actions,
+        self._action_dim,
         self.replay_buffer.capacity,
         self._obs_normalize,
     )
@@ -490,15 +492,28 @@ class RLPipeline(DataPipeline):
     return self.replay_buffer
 
   def get_checkpoint_state(self):
-    """Return observation normalization state for checkpointing."""
+    """Return observation normalization and rollout buffer state for checkpointing."""
+    from genml_kit.utils.attr import get_attribute, MISSING
+
+    state = {}
     if self._obs_normalize and self.obs_rms is not None:
-      return {"obs_rms": self.obs_rms.state_dict()}
-    return {}
+      state["obs_rms"] = self.obs_rms.state_dict()
+    # Include rollout buffer state for PPO resume
+    fn = get_attribute(self, "rollout_buffer.state_dict")
+    if fn is not MISSING:
+      state["rollout_buffer"] = fn()
+    return state
 
   def load_checkpoint_state(self, state):
-    """Load observation normalization state from checkpoint."""
+    """Load observation normalization and rollout buffer state from checkpoint."""
+    from genml_kit.utils.attr import get_attribute, MISSING
+
     if self._obs_normalize and self.obs_rms is not None and "obs_rms" in state:
       self.obs_rms.load_state_dict(state["obs_rms"])
+    # Restore rollout buffer state for PPO resume
+    fn = get_attribute(self, "rollout_buffer.load_state_dict")
+    if fn is not MISSING and "rollout_buffer" in state:
+      fn(state["rollout_buffer"])
 
   def to_device(self, blob, device):
     """Move a ``TransitionBatch`` dict (or ``DataBlob``) to *device*.
