@@ -250,11 +250,11 @@ class SACMethod(Method):
     # --- Critic update (twin soft Q-learning) ---
     with torch.no_grad():
       next_action, _, next_log_prob, _, _ = model.actor.get_action_and_value(next_obs)
-      # Target networks are plain Sequential modules; call forward directly
+      # Target networks are plain Sequential modules; call forward directly.
       q1_next = model.q1.target(torch.cat([next_obs, next_action], dim=-1)).squeeze(-1)
       q2_next = model.q2.target(torch.cat([next_obs, next_action], dim=-1)).squeeze(-1)
       min_q_next = torch.min(q1_next, q2_next)
-      # Use detached alpha for critic target to avoid gradient conflicts
+      # Use detached alpha for critic target to avoid gradient conflicts.
       alpha_detached = alpha.detach()
       soft_target = rewards + self._gamma * (1.0 - dones) * (
           min_q_next - alpha_detached * next_log_prob)
@@ -298,18 +298,18 @@ class SACMethod(Method):
       from genml_kit.losses.rl import sac_alpha_loss
 
       alpha = self._get_alpha()
-      # Use same log_prob from actor update for gradient flow
-      # Alpha loss: -alpha * (log_prob + target_entropy), needs grads w.r.t. alpha only
-      # Detach log_prob to avoid backprop through policy network
+      # Use same log_prob from actor update for gradient flow.
+      # Alpha loss: -alpha * (log_prob + target_entropy), needs grads w.r.t. alpha only.
+      # Detach log_prob to avoid backprop through policy network.
       alpha_loss = sac_alpha_loss(new_log_prob.detach(), self._target_entropy, alpha)
 
-    # B5: track env steps for logging (1 env step per train_step in off-policy)
+    # B5: track env steps for logging (1 env step per train_step in off-policy).
     self._env_steps += 1
 
-    # Return combined loss (for logging) + individual losses in metrics
+    # Return combined loss (for logging) + individual losses in metrics.
     total_loss = critic_loss + actor_loss + alpha_loss
 
-    # For PER: use critic TD errors (average of twin critics)
+    # For PER: use critic TD errors (average of twin critics).
     td_errors = (q1_pred - soft_target.detach() + q2_pred - soft_target.detach()) * 0.5
 
     metrics = {

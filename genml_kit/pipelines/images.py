@@ -154,7 +154,7 @@ class ImagesPipeline(DataPipeline):
             pipeline decides based on its own logic (backward compat).
     """
     method = kwargs.get("method")
-    # Use method's NEEDS_LABELS if not explicitly provided (via kwarg or args)
+    # Use method's NEEDS_LABELS if not explicitly provided (via kwarg or args).
     if needs_labels is None:
       if hasattr(args, "needs_labels"):
         needs_labels = bool(args.needs_labels)
@@ -296,7 +296,7 @@ class ImagesPipeline(DataPipeline):
       method_transform = method.build_transform(args, getattr(args, "image_size", 224))
 
     if pipeline_transform is not None and method_transform is not None:
-      # Compose: pipeline first, then method
+      # Compose: pipeline first, then method.
       from torchvision.transforms import v2
       transform = v2.Compose([pipeline_transform, method_transform])
     elif pipeline_transform is not None:
@@ -310,8 +310,8 @@ class ImagesPipeline(DataPipeline):
 
     dataset = DictFieldTransform(ensemble, transform, fields=(ensemble.image_column,))
     if not needs_labels:
-      # Methods that ignore labels get image-only items: a mixed ensemble
-      # (some sources labeled, some not) would otherwise produce batches
+      # Methods that ignore labels get image-only items: a mixed ensemble.
+      # (some sources labeled, some not) would otherwise produce batches.
       # with inconsistent keys that default_collate cannot handle.
       dataset = FieldSectorDataset(
           dataset, fields={ensemble.image_column: ensemble.image_column})
@@ -376,6 +376,7 @@ class ImagesPipeline(DataPipeline):
       labels = torch.tensor([b["label"] for b in batch], dtype=torch.long)
     return DataBlob(data=images, meta={"labels": labels})
 
+
 _images_collate = ImagesPipeline._collate
 
 
@@ -425,8 +426,8 @@ def build_pretrain_dataset(args, needs_labels=False, transform=None):
     transform = build_pretrain_transform(args.image_size)
   dataset = DictFieldTransform(ensemble, transform, fields=(ensemble.image_column,))
   if not needs_labels:
-    # Methods that ignore labels get image-only items: a mixed ensemble
-    # (some sources labeled, some not) would otherwise produce batches
+    # Methods that ignore labels get image-only items: a mixed ensemble.
+    # (some sources labeled, some not) would otherwise produce batches.
     # with inconsistent keys that default_collate cannot handle.
     dataset = FieldSectorDataset(dataset,
                                  fields={ensemble.image_column: ensemble.image_column})

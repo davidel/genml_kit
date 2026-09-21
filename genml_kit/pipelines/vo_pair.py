@@ -121,15 +121,16 @@ class VOPairPipeline(DataPipeline):
         collate_fn=self._collate,
     )
 
+  @staticmethod
+  def _move_to_device(v, device):
+    if hasattr(v, "to"):
+      return v.to(device, non_blocking=True)
+    if isinstance(v, dict):
+      return {k: VOPairPipeline._move_to_device(x, device) for k, x in v.items()}
+    # ints (range_bin), strings (terrain) stay on CPU
+    return v
+
   def to_device(self, blob, device):
-
-    def _move(v):
-      if hasattr(v, "to"):
-        return v.to(device, non_blocking=True)
-      if isinstance(v, dict):
-        return {k: _move(x) for k, x in v.items()}
-      return v  # ints (range_bin), strings (terrain) stay on CPU
-
-    moved_meta = {k: _move(v) for k, v in blob.meta.items()}
+    moved_meta = {k: self._move_to_device(v, device) for k, v in blob.meta.items()}
     return DataBlob((blob.data[0].to(device, non_blocking=True), blob.data[1].to(
         device, non_blocking=True)), moved_meta)

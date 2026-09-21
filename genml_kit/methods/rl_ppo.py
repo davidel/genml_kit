@@ -178,8 +178,8 @@ class PPOMethod(Method):
     # Normalize advantages.
     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-    # For continuous: re-evaluate log_prob on RAW (pre-tanh) actions
-    # because the distribution is defined over raw actions.
+    # For continuous: re-evaluate log_prob on RAW (pre-tanh) actions.
+    # Because the distribution is defined over raw actions.
     eval_action = data.get("raw_action", actions)
 
     _, _, new_log_probs, entropy, new_values = model.get_action_and_value(
@@ -209,7 +209,7 @@ class PPOMethod(Method):
     # Combined loss.
     loss = pg_loss + self._value_coef * v_loss - self._entropy_coef * ent
 
-    # For PER: use value function errors as TD errors
+    # For PER: use value function errors as TD errors.
     td_errors = (returns - new_values.detach()).abs()
 
     metrics = {
