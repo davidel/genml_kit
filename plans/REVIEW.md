@@ -403,7 +403,7 @@ column_limit = 88
 
 ## 8. Fixed Issues (Completed)
 
-All **7 Critical Issues** and **3 High Priority** issues have been resolved:
+All **7 Critical Issues**, **3 High Priority**, and **3 Medium Priority** issues have been resolved:
 
 | Issue | Status | Files Modified |
 |-------|--------|----------------|
@@ -417,6 +417,9 @@ All **7 Critical Issues** and **3 High Priority** issues have been resolved:
 | 2.1 `DualViewTransform` → `nn.Module` | ✅ FIXED | `genml_kit/augmentations/dual_view.py` |
 | 2.2 `DictFieldTransform` → `nn.Module` | ✅ FIXED | `genml_kit/datasets/transforms.py` |
 | 2.3 `RunningMeanStd` → `nn.Module` | ✅ FIXED | `genml_kit/pipelines/rl.py` |
+| 3.1 RL methods: inline comments + `.forward()` | ✅ FIXED | `rl_dqn.py`, `rl_sac.py`, `rl_ppo.py` |
+| 3.2 `vo_pair.py`: `_move` → `@staticmethod` | ✅ FIXED | `genml_kit/pipelines/vo_pair.py` |
+| 3.3 `images.py`: inline comments | ✅ FIXED | `genml_kit/pipelines/images.py` |
 
 ### Additional Improvements:
 - Added backward-compatibility properties for all private fields (tests pass without modification)
