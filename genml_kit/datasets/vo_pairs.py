@@ -166,26 +166,51 @@ class VOPairDataset:
                seed=0,
                cam=None,
                pitch_deg=45.0):
-    self.length = length
-    self.size = size
-    self.motion_cfg = motion_cfg or {
+    self._length = length
+    self._size = size
+    self._motion_cfg = motion_cfg or {
         "translation_frac": 0.35,
         "rot_deg": 25.0,
         "scale_range": [0.6, 1.6],
         "height_frac": 0.2,
     }
-    self.terrain = terrain
-    self.seed = seed
-    self.cam = cam or {
+    self._terrain = terrain
+    self._seed = seed
+    self._cam = cam or {
         "fx": 380.0,
         "fy": 380.0,
         "cx": size[0] / 2.0,
         "cy": size[1] / 2.0
     }
-    self.pitch = math_radians(pitch_deg)
+    self._pitch = math_radians(pitch_deg)
 
   def __len__(self):
-    return self.length
+    return self._length
+
+  @property
+  def size(self):
+    """Public read-only access to image size for external consumers."""
+    return self._size
+
+  @property
+  def terrain(self):
+    """Public read-only access to terrain for external consumers."""
+    return self._terrain
+
+  @property
+  def motion_cfg(self):
+    """Public read-only access to motion config for external consumers."""
+    return self._motion_cfg
+
+  @property
+  def cam(self):
+    """Public read-only access to camera params for external consumers."""
+    return self._cam
+
+  @property
+  def pitch(self):
+    """Public read-only access to camera pitch for external consumers."""
+    return self._pitch
 
   # Tile texture is a deliberate, fixed design: low-frequency value noise
   # (``NOISE_CELL_PX`` cells) plus a fine grid (``GRID_PERIOD_PX`` period,
@@ -207,7 +232,7 @@ class VOPairDataset:
     widths per side): frame B's footprint grows with height change and
     translation, and the extra margin keeps it free of edge zeros.
     """
-    side = self.TILE_SCALE * max(self.size)
+    side = self.TILE_SCALE * max(self._size)
     low = rng.random((side // self.NOISE_CELL_PX + 1, side // self.NOISE_CELL_PX + 1))
     image = np.kron(low, np.ones(
         (self.NOISE_CELL_PX, self.NOISE_CELL_PX)))[:side, :side]
@@ -247,16 +272,16 @@ class VOPairDataset:
     return out.reshape(height, width)
 
   def __getitem__(self, idx):
-    rng = np.random.default_rng(self.seed + idx)
+    rng = np.random.default_rng(self._seed + idx)
     base = self._base_tile(rng)
     height = float(rng.uniform(30.0, 80.0))
-    motion = sample_motion(rng, self.motion_cfg)
+    motion = sample_motion(rng, self._motion_cfg)
     # Place camera A on the ray through the world origin: the optical
     # axis (pitch ``self.pitch`` down, yaw 45) hits the ground at the
     # origin, so the origin projects to the image center and every motion
     # of B moves content across the frame.  Frame B is A moved by the
     # sampled motion (translation in ground units, height change, yaw).
-    pitch = self.pitch
+    pitch = self._pitch
     yaw0 = np.deg2rad(45.0)
     dist = np.array([
         np.cos(yaw0) * np.cos(pitch),
@@ -267,7 +292,7 @@ class VOPairDataset:
     rpy_a = np.array([0.0, pitch, yaw0])
     # Image-plane fracs -> ground units: one image width covers
     # W * height / fx ground units (approx, at nadir depth).
-    width_units = self.size[0] * height / self.cam["fx"]
+    width_units = self._size[0] * height / self._cam["fx"]
     # Ground translation in the (heading, perpendicular) frame; camera B
     # stays on the -dist ray so its footprint overlaps frame A's.
     ground_t = np.array([motion["dx"], motion["dy"], 0.0]) * width_units
@@ -276,11 +301,11 @@ class VOPairDataset:
     cam_b = -height * motion["ds"] * dist + ground_t[0] * heading \
         + ground_t[1] * side
     rpy_b = rpy_a + np.array([0.0, 0.0, motion["dyaw"]])
-    h_a = look_at_ground_h(cam_a, rpy_a, self.cam, self.size)
-    h_b = look_at_ground_h(cam_b, rpy_b, self.cam, self.size)
+    h_a = look_at_ground_h(cam_a, rpy_a, self._cam, self._size)
+    h_b = look_at_ground_h(cam_b, rpy_b, self._cam, self._size)
     frame_a = self._render(base, h_a)
     frame_b = self._render(base, h_b)
-    sim, residual = homography_to_similarity(h_b @ np.linalg.inv(h_a), self.size)
+    sim, residual = homography_to_similarity(h_b @ np.linalg.inv(h_a), self._size)
     gt = {
         "log_s": torch.tensor(sim["log_s"]),
         "theta": torch.tensor(sim["theta"]),
@@ -290,7 +315,7 @@ class VOPairDataset:
     image_b = torch.tensor(frame_b, dtype=torch.float32).unsqueeze(0)
     meta = VOPairMeta(gt=gt,
                       gt_residual=torch.tensor(residual, dtype=torch.float32),
-                      terrain=self.terrain,
+                      terrain=self._terrain,
                       range_bin=int(
                           np.clip(np.searchsorted([0.1, 0.2, 0.3], abs(motion["dx"])),
                                   0, 3)))

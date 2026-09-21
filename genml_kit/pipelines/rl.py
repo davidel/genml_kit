@@ -10,6 +10,7 @@ import logging
 
 import numpy as np
 import torch
+from torch import nn
 
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
@@ -18,7 +19,7 @@ from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import register_pipeline
 
 
-class RunningMeanStd:
+class RunningMeanStd(nn.Module):
   """Running mean and standard deviation for observation normalization.
 
   Uses Welford's online algorithm for numerical stability.
@@ -30,11 +31,11 @@ class RunningMeanStd:
   """
 
   def __init__(self, shape, epsilon=1e-4):
-    self.shape = shape
+    super().__init__()
     self.epsilon = epsilon
-    self.mean = np.zeros(shape, dtype=np.float64)
-    self.var = np.ones(shape, dtype=np.float64)
-    self.count = epsilon
+    self.register_buffer("mean", torch.zeros(shape, dtype=torch.float64))
+    self.register_buffer("var", torch.ones(shape, dtype=torch.float64))
+    self.register_buffer("count", torch.tensor(epsilon, dtype=torch.float64))
 
   def update(self, x):
     """Update running statistics with a batch of data.
@@ -42,9 +43,9 @@ class RunningMeanStd:
     Args:
         x: Batch of observations with shape (batch_size, *shape).
     """
-    x = np.asarray(x, dtype=np.float64)
-    batch_mean = np.mean(x, axis=0)
-    batch_var = np.var(x, axis=0)
+    x = torch.as_tensor(x, dtype=torch.float64)
+    batch_mean = torch.mean(x, dim=0)
+    batch_var = torch.var(x, dim=0, unbiased=False)
     batch_count = x.shape[0]
     self._update_from_moments(batch_mean, batch_var, batch_count)
 
@@ -59,11 +60,11 @@ class RunningMeanStd:
     m_2 = m_a + m_b + delta**2 * self.count * batch_count / tot_count
     new_var = m_2 / tot_count
 
-    self.mean = new_mean
-    self.var = new_var
-    self.count = tot_count
+    self.mean.copy_(new_mean)
+    self.var.copy_(new_var)
+    self.count.copy_(tot_count)
 
-  def normalize(self, x, clip=None):
+  def forward(self, x, clip=None):
     """Normalize observations using running statistics.
 
     Args:
@@ -71,32 +72,40 @@ class RunningMeanStd:
         clip: Optional value to clip normalized observations to [-clip, clip].
 
     Returns:
-        Normalized observations.
+        Normalized observations (same type as input: torch.Tensor or numpy array).
     """
-    x = np.asarray(x, dtype=np.float32)
-    normalized = (x - self.mean.astype(
-        np.float32)) / np.sqrt(self.var.astype(np.float32) + self.epsilon)
+    is_numpy = isinstance(x, np.ndarray)
+    x_t = torch.as_tensor(x, dtype=torch.float32)
+    mean = self.mean.to(torch.float32)
+    var = self.var.to(torch.float32)
+    normalized = (x_t - mean) / torch.sqrt(var + self.epsilon)
     if clip is not None:
-      normalized = np.clip(normalized, -clip, clip)
+      normalized = torch.clamp(normalized, -clip, clip)
+    if is_numpy:
+      return normalized.numpy()
     return normalized
+
+  def normalize(self, x, clip=None):
+    """Alias for forward() for backward compatibility."""
+    return self.forward(x, clip=clip)
 
   def state_dict(self):
     """Return state dict for checkpointing."""
     return {
-        "mean": self.mean.copy(),
-        "var": self.var.copy(),
-        "count": self.count,
+        "mean": self.mean.clone(),
+        "var": self.var.clone(),
+        "count": self.count.clone(),
         "epsilon": self.epsilon,
-        "shape": self.shape,
+        "shape": self.mean.shape,
     }
 
   def load_state_dict(self, state):
     """Load state dict from checkpoint."""
-    self.mean = state["mean"].astype(np.float64)
-    self.var = state["var"].astype(np.float64)
-    self.count = state["count"]
+    self.mean.copy_(state["mean"].to(torch.float64))
+    self.var.copy_(state["var"].to(torch.float64))
+    self.count.copy_(state["count"].to(torch.float64))
     self.epsilon = state.get("epsilon", 1e-4)
-    self.shape = state.get("shape", self.shape)
+    # shape is inferred from mean
 
 
 class GymnasiumEnvWrapper:

@@ -6,10 +6,12 @@ augmentation to both frames of a pair through the same wrapper the
 pre-training harness uses for its single image field.
 """
 
+from torch import nn
+
 from genml_kit.utils.logging import fatal
 
 
-class DictFieldTransform:
+class DictFieldTransform(nn.Module):
   """Apply a transform to selected fields of a dict-returning dataset.
 
   Parameters
@@ -30,6 +32,7 @@ class DictFieldTransform:
   """
 
   def __init__(self, dataset, transform, fields=("image",)):
+    super().__init__()
     if not fields:
       fatal("DictFieldTransform requires a non-empty 'fields' tuple.", ValueError)
     self._ds = dataset
@@ -44,9 +47,13 @@ class DictFieldTransform:
     """The transformed field names."""
     return self._fields
 
-  def __getitem__(self, idx):
+  def forward(self, idx):
     row = dict(self._ds[idx])  # copy: never mutate the source row
     for f in self._fields:
       if f in row:
         row[f] = self._t(row[f])
     return row
+
+  # For backwards compatibility with Dataset interface
+  def __getitem__(self, idx):
+    return self.forward(idx)

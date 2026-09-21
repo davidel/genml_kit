@@ -59,27 +59,27 @@ class ReplayBufferDataset(Dataset):
                beta_start=0.4,
                beta_frames=100_000,
                seed=None):
-    self.capacity = capacity
-    self.obs_dim = obs_dim
-    self.action_dim = action_dim
-    self.n_step = n_step
-    self.gamma = gamma
-    self.prioritized = prioritized
-    self.alpha = alpha
-    self.beta_start = beta_start
-    self.beta_frames = beta_frames
+    self._capacity = capacity
+    self._obs_dim = obs_dim
+    self._action_dim = action_dim
+    self._n_step = n_step
+    self._gamma = gamma
+    self._prioritized = prioritized
+    self._alpha = alpha
+    self._beta_start = beta_start
+    self._beta_frames = beta_frames
     self._beta = beta_start
     self._pos = 0
     self._size = 0
 
-    self.obs = np.zeros((capacity, obs_dim), dtype=np.float32)
+    self._obs = np.zeros((capacity, obs_dim), dtype=np.float32)
     if action_dim == 1:
-      self.action = np.zeros(capacity, dtype=action_dtype)
+      self._action = np.zeros(capacity, dtype=action_dtype)
     else:
-      self.action = np.zeros((capacity, action_dim), dtype=action_dtype)
-    self.reward = np.zeros(capacity, dtype=np.float32)
-    self.next_obs = np.zeros((capacity, obs_dim), dtype=np.float32)
-    self.done = np.zeros(capacity, dtype=np.float32)
+      self._action = np.zeros((capacity, action_dim), dtype=action_dtype)
+    self._reward = np.zeros(capacity, dtype=np.float32)
+    self._next_obs = np.zeros((capacity, obs_dim), dtype=np.float32)
+    self._done = np.zeros(capacity, dtype=np.float32)
 
     # N-step return support
     if n_step > 1:
@@ -87,7 +87,7 @@ class ReplayBufferDataset(Dataset):
 
     # Prioritized Experience Replay support
     if prioritized:
-      self.priorities = np.zeros(capacity, dtype=np.float32)
+      self._priorities = np.zeros(capacity, dtype=np.float32)
       self._max_priority = 1.0
 
     # D5: Independent RNG for reproducible sampling
@@ -105,40 +105,40 @@ class ReplayBufferDataset(Dataset):
     are computed when the buffer fills or the episode terminates.
     """
     # Handle n-step returns
-    if self.n_step > 1:
+    if self._n_step > 1:
       self._n_step_buffer.append((obs, action, reward, next_obs, done))
 
       # Compute n-step return if buffer is full or episode terminated
-      if len(self._n_step_buffer) == self.n_step or done:
+      if len(self._n_step_buffer) == self._n_step or done:
         self._push_n_step()
     else:
       self._push_single(obs, action, reward, next_obs, done)
 
   def _push_single(self, obs, action, reward, next_obs, done):
     """Internal: push a single transition to the main buffer."""
-    self.obs[self._pos] = obs
+    self._obs[self._pos] = obs
     # Handle both scalar and array actions
-    if self.action_dim > 1:
+    if self._action_dim > 1:
       # Continuous action: ensure it's a 1D array
-      action = np.asarray(action, dtype=self.action.dtype).flatten()
+      action = np.asarray(action, dtype=self._action.dtype).flatten()
       # Ensure correct shape
       assert action.shape == (
-          self.action_dim,), f"action shape {action.shape} != ({self.action_dim},)"
+          self._action_dim,), f"action shape {action.shape} != ({self._action_dim},)"
     else:
       # Discrete action: ensure scalar
-      action = (np.asarray(action, dtype=self.action.dtype).item() if hasattr(
+      action = (np.asarray(action, dtype=self._action.dtype).item() if hasattr(
           np.asarray(action), "item") else action)
-    self.action[self._pos] = action
-    self.reward[self._pos] = reward
-    self.next_obs[self._pos] = next_obs
-    self.done[self._pos] = float(done)
+    self._action[self._pos] = action
+    self._reward[self._pos] = reward
+    self._next_obs[self._pos] = next_obs
+    self._done[self._pos] = float(done)
 
     # Initialize priority for new transition
-    if self.prioritized:
-      self.priorities[self._pos] = self._max_priority
+    if self._prioritized:
+      self._priorities[self._pos] = self._max_priority
 
-    self._pos = (self._pos + 1) % self.capacity
-    self._size = min(self._size + 1, self.capacity)
+    self._pos = (self._pos + 1) % self._capacity
+    self._size = min(self._size + 1, self._capacity)
 
   def _push_n_step(self):
     """Compute n-step return from the n-step buffer and push to main buffer."""
@@ -153,7 +153,7 @@ class ReplayBufferDataset(Dataset):
     gamma_pow = 1.0
     for _i, (_, _, reward, _, done) in enumerate(self._n_step_buffer):
       n_step_reward += gamma_pow * reward
-      gamma_pow *= self.gamma
+      gamma_pow *= self._gamma
       if done:
         break
 
@@ -186,10 +186,10 @@ class ReplayBufferDataset(Dataset):
         indices: Array of transition indices to update.
         priorities: New priority values (absolute TD errors + epsilon).
     """
-    if not self.prioritized:
+    if not self._prioritized:
       return
     priorities = np.asarray(priorities, dtype=np.float32)
-    self.priorities[indices] = priorities
+    self._priorities[indices] = priorities
     self._max_priority = max(self._max_priority, float(np.max(priorities)))
 
   def sample(self, batch_size, generator=None):
@@ -204,7 +204,7 @@ class ReplayBufferDataset(Dataset):
         ``done`` -- each a ``torch.Tensor``. If prioritized, also includes
         ``indices`` and ``weights`` for importance sampling correction.
     """
-    if self.prioritized:
+    if self._prioritized:
       return self._sample_prioritized(batch_size)
 
     if generator is not None:
@@ -214,18 +214,18 @@ class ReplayBufferDataset(Dataset):
       indices = self._rng.integers(0, self._size, size=batch_size)
 
     return {
-        "obs": torch.from_numpy(self.obs[indices]),
-        "action": torch.from_numpy(self.action[indices]),
-        "reward": torch.from_numpy(self.reward[indices]),
-        "next_obs": torch.from_numpy(self.next_obs[indices]),
-        "done": torch.from_numpy(self.done[indices]),
+        "obs": torch.from_numpy(self._obs[indices]),
+        "action": torch.from_numpy(self._action[indices]),
+        "reward": torch.from_numpy(self._reward[indices]),
+        "next_obs": torch.from_numpy(self._next_obs[indices]),
+        "done": torch.from_numpy(self._done[indices]),
     }
 
   def _sample_prioritized(self, batch_size):
     """Sample transitions proportionally to priority^alpha with IS weights."""
     # Get priorities for valid transitions
-    valid_priorities = self.priorities[:self._size]
-    probs = valid_priorities**self.alpha
+    valid_priorities = self._priorities[:self._size]
+    probs = valid_priorities**self._alpha
     probs_sum = probs.sum()
     if probs_sum == 0:
       # Fallback to uniform if all priorities are zero
@@ -242,11 +242,11 @@ class ReplayBufferDataset(Dataset):
     weights = weights / weights.max()
 
     return {
-        "obs": torch.from_numpy(self.obs[indices]),
-        "action": torch.from_numpy(self.action[indices]),
-        "reward": torch.from_numpy(self.reward[indices]),
-        "next_obs": torch.from_numpy(self.next_obs[indices]),
-        "done": torch.from_numpy(self.done[indices]),
+        "obs": torch.from_numpy(self._obs[indices]),
+        "action": torch.from_numpy(self._action[indices]),
+        "reward": torch.from_numpy(self._reward[indices]),
+        "next_obs": torch.from_numpy(self._next_obs[indices]),
+        "done": torch.from_numpy(self._done[indices]),
         "indices": torch.from_numpy(indices.astype(np.int64)),
         "weights": torch.from_numpy(weights.astype(np.float32)),
     }
@@ -257,10 +257,10 @@ class ReplayBufferDataset(Dataset):
     Args:
         frames: Number of training frames/steps elapsed.
     """
-    if not self.prioritized:
+    if not self._prioritized:
       return
-    progress = min(frames / self.beta_frames, 1.0)
-    self._beta = self.beta_start + progress * (1.0 - self.beta_start)
+    progress = min(frames / self._beta_frames, 1.0)
+    self._beta = self._beta_start + progress * (1.0 - self._beta_start)
 
   @property
   def beta(self):
@@ -273,14 +273,14 @@ class ReplayBufferDataset(Dataset):
       return {"size": 0, "fill_ratio": 0.0}
     stats = {
         "size": self._size,
-        "capacity": self.capacity,
-        "fill_ratio": self._size / self.capacity,
-        "mean_reward": float(np.mean(self.reward[:self._size])),
+        "capacity": self._capacity,
+        "fill_ratio": self._size / self._capacity,
+        "mean_reward": float(np.mean(self._reward[:self._size])),
     }
-    if self.prioritized:
+    if self._prioritized:
       stats.update({
-          "mean_priority": float(np.mean(self.priorities[:self._size])),
-          "max_priority": float(np.max(self.priorities[:self._size])),
+          "mean_priority": float(np.mean(self._priorities[:self._size])),
+          "max_priority": float(np.max(self._priorities[:self._size])),
           "beta": self._beta,
       })
     return stats
@@ -292,6 +292,59 @@ class ReplayBufferDataset(Dataset):
   def __len__(self):
     return self._size
 
+  # Properties for backward compatibility with tests
+  @property
+  def obs(self):
+    return self._obs
+
+  @property
+  def action(self):
+    return self._action
+
+  @property
+  def reward(self):
+    return self._reward
+
+  @property
+  def next_obs(self):
+    return self._next_obs
+
+  @property
+  def done(self):
+    return self._done
+
+  @property
+  def capacity(self):
+    return self._capacity
+
+  @property
+  def prioritized(self):
+    return self._prioritized
+
+  @property
+  def alpha(self):
+    return self._alpha
+
+  @property
+  def gamma(self):
+    return self._gamma
+
+  @property
+  def n_step(self):
+    return self._n_step
+
+  @property
+  def obs_dim(self):
+    return self._obs_dim
+
+  @property
+  def action_dim(self):
+    return self._action_dim
+
+  @property
+  def priorities(self):
+    return self._priorities
+
   def __getitem__(self, idx):
     """Return a single transition as a dict (DataLoader-compatible).
 
@@ -299,9 +352,9 @@ class ReplayBufferDataset(Dataset):
     converts them to tensors via ``default_collate``.
     """
     return {
-        "obs": self.obs[idx],
-        "action": self.action[idx],
-        "reward": self.reward[idx],
-        "next_obs": self.next_obs[idx],
-        "done": self.done[idx],
+        "obs": self._obs[idx],
+        "action": self._action[idx],
+        "reward": self._reward[idx],
+        "next_obs": self._next_obs[idx],
+        "done": self._done[idx],
     }

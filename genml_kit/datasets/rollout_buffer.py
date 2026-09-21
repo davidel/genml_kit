@@ -26,24 +26,24 @@ class RolloutBuffer(Dataset):
   """
 
   def __init__(self, obs_dim, rollout_len, action_dim=None, device="cpu", seed=None):
-    self.obs_dim = obs_dim
-    self.rollout_len = rollout_len
-    self.action_dim = action_dim
-    self.device = device
+    self._obs_dim = obs_dim
+    self._rollout_len = rollout_len
+    self._action_dim = action_dim
+    self._device = device
 
-    self.obs = torch.zeros(rollout_len, obs_dim)
-    self.actions = (torch.zeros(rollout_len, action_dim) if action_dim is not None else
-                    torch.zeros(rollout_len, dtype=torch.long))
-    self.raw_actions = (
+    self._obs = torch.zeros(rollout_len, obs_dim)
+    self._actions = (torch.zeros(rollout_len, action_dim) if action_dim is not None else
+                     torch.zeros(rollout_len, dtype=torch.long))
+    self._raw_actions = (
         torch.zeros(rollout_len, action_dim) if action_dim is not None else None
     )  # Store pre-tanh actions for continuous
-    self.log_probs = torch.zeros(rollout_len)
-    self.rewards = torch.zeros(rollout_len)
-    self.values = torch.zeros(rollout_len)
-    self.dones = torch.zeros(rollout_len)
-    self.advantages = torch.zeros(rollout_len)
-    self.returns = torch.zeros(rollout_len)
-    self.next_values = torch.zeros(rollout_len)
+    self._log_probs = torch.zeros(rollout_len)
+    self._rewards = torch.zeros(rollout_len)
+    self._values = torch.zeros(rollout_len)
+    self._dones = torch.zeros(rollout_len)
+    self._advantages = torch.zeros(rollout_len)
+    self._returns = torch.zeros(rollout_len)
+    self._next_values = torch.zeros(rollout_len)
 
     self._ptr = 0
     self._filled = False
@@ -62,17 +62,17 @@ class RolloutBuffer(Dataset):
         raw_action: Optional raw (pre-tanh) action for continuous spaces.
                     Ignored for discrete.
     """
-    if self._ptr >= self.rollout_len:
+    if self._ptr >= self._rollout_len:
       raise RuntimeError(f"RolloutBuffer overflow: ptr={self._ptr}, "
-                         f"capacity={self.rollout_len}")
-    self.obs[self._ptr] = torch.as_tensor(obs, dtype=torch.float32)
-    self.actions[self._ptr] = torch.as_tensor(action)
-    if self.raw_actions is not None and raw_action is not None:
-      self.raw_actions[self._ptr] = torch.as_tensor(raw_action)
-    self.log_probs[self._ptr] = float(log_prob)
-    self.rewards[self._ptr] = float(reward)
-    self.values[self._ptr] = float(value)
-    self.dones[self._ptr] = float(done)
+                         f"capacity={self._rollout_len}")
+    self._obs[self._ptr] = torch.as_tensor(obs, dtype=torch.float32)
+    self._actions[self._ptr] = torch.as_tensor(action)
+    if self._raw_actions is not None and raw_action is not None:
+      self._raw_actions[self._ptr] = torch.as_tensor(raw_action)
+    self._log_probs[self._ptr] = float(log_prob)
+    self._rewards[self._ptr] = float(reward)
+    self._values[self._ptr] = float(value)
+    self._dones[self._ptr] = float(done)
     self._ptr += 1
 
   def set_next_values(self, next_values):
@@ -90,9 +90,10 @@ class RolloutBuffer(Dataset):
           "set_next_values no longer accepts scalars. "
           "Pass a tensor/array of shape (rollout_len,) with per-step bootstrap values.")
     next_values = torch.as_tensor(next_values, dtype=torch.float32).flatten()
-    assert next_values.numel() == self.rollout_len, (
-        f"next_values must have {self.rollout_len} elements, got {next_values.numel()}")
-    self.next_values.copy_(next_values)
+    assert next_values.numel() == self._rollout_len, (
+        f"next_values must have {self._rollout_len} elements, "
+        f"got {next_values.numel()}")
+    self._next_values.copy_(next_values)
 
   def compute(self, gamma, lam):
     """Compute GAE advantages and discounted returns.
@@ -101,11 +102,11 @@ class RolloutBuffer(Dataset):
     has been called.
     """
     from genml_kit.losses.rl import gae
-    self.advantages, self.returns = gae(
-        self.rewards,
-        self.values,
-        self.next_values,
-        self.dones,
+    self._advantages, self._returns = gae(
+        self._rewards,
+        self._values,
+        self._next_values,
+        self._dones,
         gamma=gamma,
         lam=lam,
     )
@@ -116,36 +117,36 @@ class RolloutBuffer(Dataset):
   # ------------------------------------------------------------------
 
   def __len__(self):
-    return self.rollout_len if self._filled else self._ptr
+    return self._rollout_len if self._filled else self._ptr
 
   def __getitem__(self, idx):
     """Return a single timestep as a dict (DataLoader-compatible)."""
     item = {
-        "obs": self.obs[idx],
-        "action": self.actions[idx],
-        "log_prob": self.log_probs[idx],
-        "advantage": self.advantages[idx],
-        "return": self.returns[idx],
-        "value": self.values[idx],
+        "obs": self._obs[idx],
+        "action": self._actions[idx],
+        "log_prob": self._log_probs[idx],
+        "advantage": self._advantages[idx],
+        "return": self._returns[idx],
+        "value": self._values[idx],
     }
-    if self.raw_actions is not None:
-      item["raw_action"] = self.raw_actions[idx]
+    if self._raw_actions is not None:
+      item["raw_action"] = self._raw_actions[idx]
     return item
 
   def to(self, device):
     """Move all tensors to *device* (in-place)."""
-    self.obs = self.obs.to(device)
-    self.actions = self.actions.to(device)
-    if self.raw_actions is not None:
-      self.raw_actions = self.raw_actions.to(device)
-    self.log_probs = self.log_probs.to(device)
-    self.rewards = self.rewards.to(device)
-    self.values = self.values.to(device)
-    self.dones = self.dones.to(device)
-    self.advantages = self.advantages.to(device)
-    self.returns = self.returns.to(device)
-    self.next_values = self.next_values.to(device)
-    self.device = device
+    self._obs = self._obs.to(device)
+    self._actions = self._actions.to(device)
+    if self._raw_actions is not None:
+      self._raw_actions = self._raw_actions.to(device)
+    self._log_probs = self._log_probs.to(device)
+    self._rewards = self._rewards.to(device)
+    self._values = self._values.to(device)
+    self._dones = self._dones.to(device)
+    self._advantages = self._advantages.to(device)
+    self._returns = self._returns.to(device)
+    self._next_values = self._next_values.to(device)
+    self._device = device
     return self
 
   def reset(self):
@@ -167,12 +168,12 @@ class RolloutBuffer(Dataset):
       # D5: Use independent RNG for reproducible sampling
       idx = torch.randint(n, (batch_size,), generator=self._rng)
     return {
-        "obs": self.obs[idx],
-        "action": self.actions[idx],
-        "log_prob": self.log_probs[idx],
-        "advantage": self.advantages[idx],
-        "return": self.returns[idx],
-        "value": self.values[idx],
+        "obs": self._obs[idx],
+        "action": self._actions[idx],
+        "log_prob": self._log_probs[idx],
+        "advantage": self._advantages[idx],
+        "return": self._returns[idx],
+        "value": self._values[idx],
     }
 
   # Alias for backward compatibility
@@ -184,4 +185,62 @@ class RolloutBuffer(Dataset):
 
   @property
   def full(self):
-    return self._ptr >= self.rollout_len
+    return self._ptr >= self._rollout_len
+
+  @property
+  def rollout_len(self):
+    """Public read-only access to rollout length for external consumers."""
+    return self._rollout_len
+
+  # Properties for backward compatibility with tests
+  @property
+  def obs(self):
+    return self._obs
+
+  @property
+  def actions(self):
+    return self._actions
+
+  @property
+  def log_probs(self):
+    return self._log_probs
+
+  @property
+  def rewards(self):
+    return self._rewards
+
+  @property
+  def values(self):
+    return self._values
+
+  @property
+  def dones(self):
+    return self._dones
+
+  @property
+  def advantages(self):
+    return self._advantages
+
+  @property
+  def returns(self):
+    return self._returns
+
+  @property
+  def next_values(self):
+    return self._next_values
+
+  @property
+  def raw_actions(self):
+    return self._raw_actions
+
+  @property
+  def obs_dim(self):
+    return self._obs_dim
+
+  @property
+  def action_dim(self):
+    return self._action_dim
+
+  @property
+  def device(self):
+    return self._device
