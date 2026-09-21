@@ -36,15 +36,15 @@ def _make_args(**overrides):
 
 def _make_pipeline_and_method(obs_dim=4):
   pipeline = RLPipeline()
-  env = _ScriptedEnv(obs_dim=obs_dim, max_episode_length=6)
+  env = _ScriptedEnv(obs_dim=obs_dim, max_episode_length=6, continuous=True)
   pipeline.env = env
   pipeline._obs_dim = obs_dim
-  pipeline._n_actions = env.action_space.n
+  pipeline._n_actions = 2
   pipeline.replay_buffer = ReplayBufferDataset(
       obs_dim=obs_dim,
       capacity=50,
   )
-  pipeline._action_dim = env.action_space.n
+  pipeline._action_dim = 2
 
   method = get_method("sac")()
   args = _make_args()
@@ -135,6 +135,21 @@ class TestSACMethod:
 
   def test_fixed_alpha(self):
     pipeline = RLPipeline()
+    env = _ScriptedEnv(obs_dim=4, max_episode_length=6, continuous=True)
+    pipeline.env = env
+    pipeline._obs_dim = 4
+    pipeline._action_dim = 2
+    pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
+
+    method = get_method("sac")()
+    args = _make_args(sac_auto_alpha=False, sac_alpha=0.5)
+    method.wire_data(args, pipeline)
+    method.build_model(args, device=torch.device("cpu"))
+    assert method._get_alpha().item() == pytest.approx(0.5)
+
+  def test_discrete_env_rejected(self):
+    """SAC is continuous-only: a discrete env must raise a clear error."""
+    pipeline = RLPipeline()
     env = _ScriptedEnv(obs_dim=4, max_episode_length=6)
     pipeline.env = env
     pipeline._obs_dim = 4
@@ -143,10 +158,9 @@ class TestSACMethod:
     pipeline._action_dim = 2
 
     method = get_method("sac")()
-    args = _make_args(sac_auto_alpha=False, sac_alpha=0.5)
-    method.wire_data(args, pipeline)
-    method.build_model(args, device=torch.device("cpu"))
-    assert method._get_alpha().item() == pytest.approx(0.5)
+    args = _make_args()
+    with pytest.raises(ValueError, match="continuous"):
+      method.wire_data(args, pipeline)
 
   def test_add_args_no_collision(self):
     parser = argparse.ArgumentParser()

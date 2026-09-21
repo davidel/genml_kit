@@ -23,6 +23,10 @@ class Method(abc.ABC):
 
   NEEDS_LABELS = False  # whether this method requires labels in the data blob
 
+  IS_ON_POLICY = False  # True for on-policy RL methods (PPO): the trainer
+  # collects a rollout and re-uses it for multiple SGD epochs instead of
+  # sampling from a replay buffer.
+
   @classmethod
   def get_trainer_class(cls):
     """Return the Trainer class this method should use.

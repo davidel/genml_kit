@@ -13,6 +13,21 @@ import torch
 from genml_kit.training.trainer import BaseTrainer
 
 
+def _terminated_from(info, done):
+  """Extract the true MDP-end flag from a step_env ``info`` dict.
+
+  ``RLPipeline.step_env`` surfaces ``info["terminated"]`` (Gymnasium
+  5-tuple API).  For old-gym 4-tuple envs (or scripted envs) it is
+  absent, in which case we fall back to ``done`` (terminated-or-
+  truncated), preserving the historical behaviour.
+  """
+  if isinstance(info, dict):
+    term = info.get("terminated")
+    if term is not None:
+      return float(term)
+  return float(done)
+
+
 class RLTrainer(BaseTrainer):
   """Training loop for RL methods.
 
@@ -46,8 +61,7 @@ class RLTrainer(BaseTrainer):
     Returns:
         ``(avg_loss, new_step)``
     """
-    method_name = getattr(self.method, "NAME", "dqn")
-    if method_name == "ppo":
+    if getattr(self.method, "IS_ON_POLICY", False):
       # D3: Step PPO scheduler if present
       if self.optimization.scheduler is not None:
         self.optimization.scheduler.step()
@@ -82,8 +96,10 @@ class RLTrainer(BaseTrainer):
         action = np.random.uniform(-1, 1, size=action_dim).astype(np.float32)
       else:
         action = int(torch.randint(0, self.method.n_actions, (1,)).item())
-      next_obs, reward, done, _ = self.pipeline.step_env(action)
-      self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done))
+      next_obs, reward, done, info = self.pipeline.step_env(action)
+      terminated = _terminated_from(info, done)
+      self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done),
+                                       terminated)
       obs = next_obs if not done else self.pipeline.reset_env()
       if hasattr(self.method, 'step_epsilon'):
         self.method.step_epsilon()
@@ -113,8 +129,10 @@ class RLTrainer(BaseTrainer):
         action_for_env = action
       else:
         action_for_env = int(action) if hasattr(action, 'item') else int(action)
-      next_obs, reward, done, _ = self.pipeline.step_env(action_for_env)
-      self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done))
+      next_obs, reward, done, info = self.pipeline.step_env(action_for_env)
+      terminated = _terminated_from(info, done)
+      self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done),
+                                       terminated)
       if hasattr(self.method, 'step_epsilon'):
         self.method.step_epsilon()
 
@@ -220,8 +238,10 @@ class RLTrainer(BaseTrainer):
       action, log_prob, value, raw_action = self.method.act(self.model,
                                                             obs,
                                                             deterministic=False)
-      next_obs, reward, done, _ = self.pipeline.step_env(action)
-      rollout.add(obs, action, log_prob, reward, value, float(done), raw_action)
+      next_obs, reward, done, info = self.pipeline.step_env(action)
+      terminated = _terminated_from(info, done)
+      rollout.add(obs, action, log_prob, reward, value, float(done), raw_action,
+                  terminated)
 
       # Compute V(s_{t+1}) for GAE bootstrap at this step.
       with torch.no_grad():

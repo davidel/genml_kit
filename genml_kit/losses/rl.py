@@ -19,6 +19,7 @@ def td_target(
     gamma,
     double_q=True,
     n_step=1,
+    terminated=None,
 ):
   """Compute the n-step Bellman TD target for Q-learning.
 
@@ -40,11 +41,18 @@ def td_target(
     gamma:      discount factor ∈ (0, 1].
     double_q:   if True, use Double-DQN action selection.
     n_step:     number of lookahead steps for the multi-step return.
+    terminated: optional (B,) float tensor — true MDP end flags.  When
+                given, ``(1 − terminated)`` is used as the bootstrap mask
+                instead of ``(1 − dones)``.
 
   Returns:
     (B,) tensor of TD targets.
   """
   gamma_n = gamma**n_step
+
+  # Bootstrap mask: use the true-termination flag when available, so a
+  # *truncated* step (dones=1 but terminated=0) still bootstraps.
+  mask = 1.0 - dones if terminated is None else 1.0 - terminated
 
   with torch.no_grad():
     next_q_target = target_net(next_obs)  # (B, n_actions)
@@ -57,7 +65,7 @@ def td_target(
     else:
       next_q_values = next_q_target.max(dim=-1).values  # (B,)
 
-    td = rewards + gamma_n * (1.0 - dones) * next_q_values
+    td = rewards + gamma_n * mask * next_q_values
 
   return td
 
@@ -79,7 +87,7 @@ def td_loss(pred_q, target, reduction="mean"):
   return F.smooth_l1_loss(pred_q, target, reduction=reduction)
 
 
-def gae(rewards, values, next_values, dones, gamma, lam):
+def gae(rewards, values, next_values, dones, gamma, lam, terminated=None):
   """Compute Generalized Advantage Estimation (GAE).
 
   Implements the backward recurrence from ``rl/README.md`` §10.3:
@@ -100,6 +108,9 @@ def gae(rewards, values, next_values, dones, gamma, lam):
     dones:       (T,) float flags (0.0 / 1.0).
     gamma:       discount factor.
     lam:         GAE lambda (typically 0.95).
+    terminated:  optional (T,) float tensor — true MDP end flags.  When
+                 given, ``(1 − terminated)`` is used as the bootstrap mask
+                 instead of ``(1 − dones)``.
 
   Returns:
     advantages: (T,) GAE advantage estimates.
@@ -109,13 +120,19 @@ def gae(rewards, values, next_values, dones, gamma, lam):
   values = values.squeeze(-1) if values.dim() == 2 else values
   next_values = (next_values.squeeze(-1) if next_values.dim() == 2 else next_values)
   dones = dones.squeeze(-1) if dones.dim() == 2 else dones
+  if terminated is not None:
+    terminated = (terminated.squeeze(-1) if terminated.dim() == 2 else terminated)
 
   T = rewards.shape[0]
   advantages = torch.zeros_like(rewards)
   last_gae = 0.0
 
+  # Bootstrap mask: use the true-termination flag when available, so a
+  # *truncated* step (dones=1 but terminated=0) still bootstraps.
+  mask = 1.0 - dones if terminated is None else 1.0 - terminated
+
   for t in reversed(range(T)):
-    non_terminal = 1.0 - dones[t]
+    non_terminal = mask[t]
     delta = rewards[t] + gamma * next_values[t] * non_terminal - values[t]
     last_gae = delta + gamma * lam * non_terminal * last_gae
     advantages[t] = last_gae

@@ -32,7 +32,7 @@ is never required; every formula that matters is derived here.
 - **What is derived vs. what is asserted.**  Statements labelled
   **Proof** or **Derivation** are shown in full.  Statements labelled
   *Claim* are true but their proofs are standard textbook material; we give
-  the precise reference in Appendix C so nothing is taken on faith silently.
+  the precise reference in Appendix D so nothing is taken on faith silently.
 - **Notation.**  Tables (Appendix A) spell out every symbol at first use.
   Vectors are lowercase bold $`\boldsymbol{x}`$; scalars are lowercase
   italic $`x`$; random variables are uppercase $`S_t`$; matrices are
@@ -65,7 +65,8 @@ is never required; every formula that matters is derived here.
 - **Appendices**
   - [Appendix A: Symbol Table](#appendix-a-symbol-table)
   - [Appendix B: Failure Modes And Shortcuts](#appendix-b-failure-modes-and-shortcuts)
-  - [Appendix C: Reading List](#appendix-c-reading-list)
+  - [Appendix C: Code Map](#appendix-c-code-map)
+  - [Appendix D: Reading List](#appendix-d-reading-list)
 
 ---
 
@@ -907,7 +908,7 @@ perturbation $`\sum_t \alpha_t w_t`$ converges a.s. to a finite value
 (Kolmogorov's criterion for martingale differences applied to $`\alpha_t
 w_t`$).  Combining the geometric attraction of Step 2 with the vanishing
 perturbation yields the standard convergence theorem (Jaakkola, Jordan, and
-Singh 1994; Watkins and Dayan 1992; see Appendix C).
+Singh 1994; Watkins and Dayan 1992; see Appendix D).
 
 **Theorem (Q-learning convergence).**  For a finite MDP, if
 $`\sum_t \alpha_t(s,a) = \infty`$ and $`\sum_t \alpha_t(s,a)^2 < \infty`$
@@ -1962,7 +1963,37 @@ early; GAE with $`\lambda`$ interpolation (Section 10.2) and value clipping
 
 ---
 
-# Appendix C: Reading List
+# Appendix C: Code Map
+
+This appendix maps the mathematics of this tutorial onto the reference
+implementation in `genml_kit`.  Every loss and model module carries a
+docstring that cites the relevant section (e.g. "rl/README.md 3.3");
+the table below is the reverse index.
+
+| Math section | Concept | Python symbol |
+|---|---|---|
+| 2 (tabular TD) | TD error `r + γ V(s′) - V(s)` | `genml_kit.losses.rl.td_loss` |
+| 3.3 | n-step Double-DQN target | `genml_kit.losses.rl.td_target` |
+| 3.2 | dueling decomposition `Q = V + A - mean(A)` | `genml_kit.models.rl.qnetwork.DuelingQHead` |
+| 4, 11 | PPO, GAE, clipped surrogate | `genml_kit.methods.rl_ppo.PPOMethod` |
+| 10.3 | GAE recurrence `A_t = δ_t + γλ(1-d)A_{t+1}` | `genml_kit.losses.rl.gae` |
+| 11.3 | clipped surrogate `L_CLIP` | `genml_kit.losses.rl.clipped_surrogate` |
+| 11.4 | value loss + entropy bonus | `genml_kit.losses.rl.value_loss`, `entropy_bonus` |
+| 5, 12-13 | SAC (soft Q, actor, alpha) | `genml_kit.methods.rl_sac.SACMethod` |
+| 12-13 | soft Bellman target `r + γ(min Q' - α log π')` | `genml_kit.losses.rl.sac_q_loss` (used with the target in `SACMethod.train_step`) |
+| 13.4 | adaptive temperature | `genml_kit.losses.rl.sac_alpha_loss`, `SACMethod._get_alpha` |
+| - | observation normalization (Welford) | `genml_kit.pipelines.rl.RunningMeanStd` |
+| - | replay buffer / n-step / PER | `genml_kit.datasets.replay_buffer.ReplayBufferDataset` |
+| - | rollout buffer (PPO) | `genml_kit.datasets.rollout_buffer.RolloutBuffer` |
+
+**Episode-end semantics in the code.**  Gymnasium returns *terminated* (true
+MDP end) and *truncated* (time limit) separately.  `genml_kit` threads the
+true `terminated` flag through the buffers and the losses: GAE and the TD
+targets use `(1 - terminated)` as the bootstrap mask, so a *truncated* final
+step (dones=1 but terminated=0) still bootstraps `γ V(s′)`.  Environments
+using the legacy 4-tuple gym API fall back to `terminated = done`.
+
+# Appendix D: Reading List
 
 The methods in this document come from a long and well-documented line of
 work.  Canonical references, each paired with where it is used here; every

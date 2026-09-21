@@ -2,6 +2,7 @@
 
 import argparse
 
+import pytest
 import torch
 
 from genml_kit.methods import get_method
@@ -160,3 +161,40 @@ class TestPPOMethod:
     assert action.shape == (2,)
     assert raw_action.shape == (2,)
     assert isinstance(log_prob, float)
+
+  def test_continuous_log_prob_round_trip(self):
+    """log_prob(stored raw action) approx equals the rollout-time log_prob.
+
+    Guards against the classic continuous-PPO bug where the update-time
+    re-evaluation disagrees with the log_prob stored during rollout.
+    """
+    pipeline = RLPipeline()
+    env = _ScriptedEnv(obs_dim=4, max_episode_length=6, continuous=True)
+    pipeline.env = env
+    pipeline._obs_dim = 4
+    pipeline._action_dim = 2
+    pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
+    from genml_kit.datasets.rollout_buffer import RolloutBuffer
+    pipeline.rollout_buffer = RolloutBuffer(
+        obs_dim=4,
+        rollout_len=16,
+        action_dim=2,
+    )
+
+    method = get_method("ppo")()
+    args = _make_args(ppo_discrete=False)
+    method.wire_data(args, pipeline)
+    method._discrete = False
+    method._action_dim = 2
+    model = method.build_model(args, device=torch.device("cpu"))
+
+    # Simulate one rollout step: record log_prob at the raw action.
+    obs = torch.randn(4)
+    action, log_prob, _, raw_action = method.act(model, obs)
+    obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+    with torch.no_grad():
+      _, _, re_eval, _, _ = model.get_action_and_value(
+          obs_t,
+          action=torch.as_tensor(raw_action, dtype=torch.float32).unsqueeze(0),
+      )
+    assert re_eval.item() == pytest.approx(log_prob, abs=1e-4)

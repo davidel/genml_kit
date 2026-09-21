@@ -69,7 +69,69 @@ class TestReplayBufferDataset:
     buf.push(obs=[1.0, 2.0], action=1, reward=0.5, next_obs=[3.0, 4.0], done=False)
     item = buf[0]
     assert isinstance(item, dict)
-    assert set(item.keys()) == {"obs", "action", "reward", "next_obs", "done"}
+    assert set(
+        item.keys()) == {"obs", "action", "reward", "next_obs", "done", "terminated"}
+
+  def test_terminated_threaded(self):
+    """A truncated step is stored with done=1 but terminated=0."""
+    buf = ReplayBufferDataset(obs_dim=2, capacity=10)
+    # Truncated: done=1 (episode over), terminated=0 (MDP would continue).
+    buf.push(obs=[0, 0],
+             action=0,
+             reward=0.0,
+             next_obs=[1, 1],
+             done=True,
+             terminated=False)
+    # Terminated: both flags set.
+    buf.push(obs=[1, 1],
+             action=0,
+             reward=0.0,
+             next_obs=[2, 2],
+             done=True,
+             terminated=True)
+    # sample() draws with replacement, so assert per-index instead.
+    item0 = buf[0]
+    item1 = buf[1]
+    assert item0["done"] == 1.0 and item0["terminated"] == 0.0
+    assert item1["done"] == 1.0 and item1["terminated"] == 1.0
+    batch = buf.sample(2, generator=None)
+    assert batch["done"].tolist() == [1.0, 1.0]
+
+  def test_terminated_defaults_to_done(self):
+    """Omitting terminated falls back to done (backward compat)."""
+    buf = ReplayBufferDataset(obs_dim=2, capacity=10)
+    buf.push(obs=[0, 0], action=0, reward=0.0, next_obs=[1, 1], done=True)
+    assert buf[0]["terminated"] == 1.0
+
+  def test_n_step_propagates_terminated(self):
+    """N-step window: a true termination anywhere sets terminated=1."""
+    buf = ReplayBufferDataset(obs_dim=2, capacity=10, n_step=3, gamma=0.99)
+    # episode: 3 steps, the 2nd step truly terminates.
+    buf.push(obs=[0, 0],
+             action=0,
+             reward=1.0,
+             next_obs=[1, 1],
+             done=False,
+             terminated=False)
+    buf.push(obs=[1, 1],
+             action=0,
+             reward=1.0,
+             next_obs=[2, 2],
+             done=True,
+             terminated=True)
+    buf.push(obs=[2, 2],
+             action=0,
+             reward=1.0,
+             next_obs=[3, 3],
+             done=False,
+             terminated=False)
+    # After the done step, the window is flushed; only the first window
+    # (steps 1-2) is stored before the episode ended.
+    assert len(buf) >= 1
+    item = buf[0]
+    assert item["terminated"] == 1.0
+    # Return is discounted over the two steps that happened.
+    assert item["reward"] == pytest.approx(1.0 + 0.99 * 1.0)
 
   def test_stats_empty(self):
     buf = ReplayBufferDataset(obs_dim=2, capacity=10)

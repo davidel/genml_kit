@@ -91,6 +91,37 @@ class TestTdTarget:
       expected = rewards + (0.9**2) * next_q_target.max(dim=-1).values
     assert torch.allclose(target, expected, atol=1e-5)
 
+  def test_terminated_overrides_dones(self):
+    """A truncated step (done=1, terminated=0) still bootstraps."""
+    obs = torch.randn(3, 4)
+    rewards = torch.zeros(3)
+    dones = torch.ones(3)  # episode over from the env's perspective
+    terminated = torch.ones(3)
+    target_done = td_target(rewards, obs, dones, self.policy, self.target, gamma=0.9)
+    # With terminated=1 the bootstrap is masked out: target == reward.
+    target_term = td_target(rewards,
+                            obs,
+                            dones,
+                            self.policy,
+                            self.target,
+                            gamma=0.9,
+                            terminated=terminated)
+    assert torch.allclose(target_term, rewards, atol=1e-6)
+    # Truncation: done=1 but terminated=0 -> gamma * Q is included.
+    truncated = torch.zeros(3)
+    target_trunc = td_target(rewards,
+                             obs,
+                             dones,
+                             self.policy,
+                             self.target,
+                             gamma=0.9,
+                             terminated=truncated)
+    with torch.no_grad():
+      next_q_target = self.target(obs)
+      expected = 0.9 * next_q_target.max(dim=-1).values
+    assert torch.allclose(target_trunc, expected, atol=1e-5)
+    assert not torch.allclose(target_trunc, target_done, atol=1e-5)
+
 
 class TestTdLoss:
   """Tests for the Huber TD loss."""

@@ -94,15 +94,24 @@ class SACMethod(Method):
 
   def wire_data(self, args, pipeline):
     self._pipeline = pipeline
-    # Get action dimension from pipeline's action_space for continuous support.
+    # SAC is a continuous-action algorithm (Gaussian policy + twin
+    # Q-critics over (obs, action) vectors).  Refuse discrete envs
+    # loudly instead of silently building a bogus continuous policy.
     action_space = getattr(pipeline, "action_space", None)
+    if action_space is None:
+      action_space = getattr(getattr(pipeline, "env", None), "action_space", None)
     is_continuous = (action_space is not None and hasattr(action_space, "shape") and
                      getattr(action_space, "shape", ()) != ())
-    if is_continuous:
-      self._action_dim = action_space.shape[0]
-    else:
-      # Fallback for discrete.
-      self._action_dim = pipeline.n_actions
+    if not is_continuous:
+      from genml_kit.utils.logging import fatal
+
+      fatal(
+          "SAC supports continuous action spaces only.  Use --method dqn "
+          "for discrete environments or --ppo-continuous for a continuous "
+          "PPO run.",
+          ValueError,
+      )
+    self._action_dim = int(action_space.shape[0])
     self._env_steps = 0
 
   def build_model(self, args, device):
@@ -126,8 +135,6 @@ class SACMethod(Method):
         action_dim=self._action_dim,
         hidden_dim=256,
     ).to(device)
-    return model
-
     return model
 
   def _get_alpha(self):
@@ -244,6 +251,9 @@ class SACMethod(Method):
     rewards = data["reward"]
     next_obs = data["next_obs"]
     dones = data["done"]
+    # True MDP-end flag (Gymnasium 'terminated'); falls back to done
+    # when the env / buffer does not distinguish truncation.
+    terminated = data.get("terminated", dones)
 
     alpha = self._get_alpha()
 
@@ -256,7 +266,9 @@ class SACMethod(Method):
       min_q_next = torch.min(q1_next, q2_next)
       # Use detached alpha for critic target to avoid gradient conflicts.
       alpha_detached = alpha.detach()
-      soft_target = rewards + self._gamma * (1.0 - dones) * (
+      # Bootstrap mask from the true-termination flag so a truncated step
+      # (dones=1, terminated=0) still bootstraps gamma * V(s').
+      soft_target = rewards + self._gamma * (1.0 - terminated) * (
           min_q_next - alpha_detached * next_log_prob)
 
     # Twin Q losses.

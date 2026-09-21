@@ -17,6 +17,12 @@ class SACCritic(nn.Module):
   """Twin Q-critic for SAC (continuous actions).
 
   Takes (obs, action) concatenated and outputs a scalar Q-value.
+
+  Each critic owns a frozen target network (``self.target``).  Note that
+  the target is a plain ``nn.Sequential`` module, *not* an ``SACCritic``:
+  call it directly on the concatenated input, e.g.
+  ``self.target(torch.cat([obs, action], dim=-1))``.  Do NOT route it
+  through ``get_action_and_value`` / ``forward``.
   """
 
   def __init__(self, obs_dim, action_dim, hidden_dims=None):

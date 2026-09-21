@@ -10,8 +10,11 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-Transition = collections.namedtuple("Transition",
-                                    ["obs", "action", "reward", "next_obs", "done"])
+Transition = collections.namedtuple(
+    "Transition",
+    ["obs", "action", "reward", "next_obs", "done", "terminated"],
+    defaults=[False],
+)
 
 
 class ReplayBufferDataset(Dataset):
@@ -19,9 +22,11 @@ class ReplayBufferDataset(Dataset):
 
   Internally stores numpy arrays for memory efficiency.  The
   ``__getitem__`` protocol returns a plain ``dict`` (keys
-  ``obs``, ``action``, ``reward``, ``next_obs``, ``done``) so that
-  ``default_collate`` stacks them into the ``TransitionBatch`` namedtuple
-  consumed by ``DQNMethod.train_step`` / ``SACMethod.train_step``.
+  ``obs``, ``action``, ``reward``, ``next_obs``, ``done``,
+  ``terminated``) so that ``default_collate`` stacks them into the
+  ``TransitionBatch`` namedtuple consumed by ``DQNMethod.train_step`` /
+  ``SACMethod.train_step``.  ``terminated`` holds the true MDP-end flag
+  (absent for a truncated step) and defaults to ``done`` when not given.
 
   Supports n-step returns: when n_step > 1, the buffer stores
   n-step accumulated reward, the observation after n steps, and
@@ -80,6 +85,7 @@ class ReplayBufferDataset(Dataset):
     self._reward = np.zeros(capacity, dtype=np.float32)
     self._next_obs = np.zeros((capacity, obs_dim), dtype=np.float32)
     self._done = np.zeros(capacity, dtype=np.float32)
+    self._terminated = np.zeros(capacity, dtype=np.float32)
 
     # N-step return support
     if n_step > 1:
@@ -97,25 +103,33 @@ class ReplayBufferDataset(Dataset):
   # Public API
   # ------------------------------------------------------------------
 
-  def push(self, obs, action, reward, next_obs, done):
+  def push(self, obs, action, reward, next_obs, done, terminated=None):
     """Add a single transition to the buffer.
 
     All arguments are plain Python / numpy scalars or arrays.
     When n_step > 1, transitions are first buffered and n-step returns
-    are computed when the buffer fills or the episode terminates.
+    are computed when the buffer fills or the episode ends.
+
+    Args:
+      terminated: Optional true MDP-end flag (``False`` for a truncated
+                  step).  When omitted, ``terminated = done``.
     """
+    if terminated is None:
+      terminated = float(done)
     # Handle n-step returns
     if self._n_step > 1:
-      self._n_step_buffer.append((obs, action, reward, next_obs, done))
+      self._n_step_buffer.append((obs, action, reward, next_obs, done, terminated))
 
-      # Compute n-step return if buffer is full or episode terminated
+      # Compute n-step return if buffer is full or episode ended
       if len(self._n_step_buffer) == self._n_step or done:
         self._push_n_step()
     else:
-      self._push_single(obs, action, reward, next_obs, done)
+      self._push_single(obs, action, reward, next_obs, done, terminated)
 
-  def _push_single(self, obs, action, reward, next_obs, done):
+  def _push_single(self, obs, action, reward, next_obs, done, terminated=None):
     """Internal: push a single transition to the main buffer."""
+    if terminated is None:
+      terminated = float(done)
     self._obs[self._pos] = obs
     # Handle both scalar and array actions
     if self._action_dim > 1:
@@ -132,6 +146,7 @@ class ReplayBufferDataset(Dataset):
     self._reward[self._pos] = reward
     self._next_obs[self._pos] = next_obs
     self._done[self._pos] = float(done)
+    self._terminated[self._pos] = float(terminated)
 
     # Initialize priority for new transition
     if self._prioritized:
@@ -146,22 +161,28 @@ class ReplayBufferDataset(Dataset):
       return
 
     # First transition in the n-step window
-    obs, action, _, _, _ = self._n_step_buffer[0]
+    obs, action, _, _, _, _ = self._n_step_buffer[0]
 
-    # Compute n-step accumulated reward
+    # Compute n-step accumulated reward.  The window ends early on a
+    # *terminated* step (true MDP end); a truncated step (done=1 but
+    # terminated=0) also ends the window because the collected trajectory
+    # stops there, but the bootstrap flag stays False.
     n_step_reward = 0.0
     gamma_pow = 1.0
-    for _i, (_, _, reward, _, done) in enumerate(self._n_step_buffer):
+    window_terminated = False
+    for _i, (_, _, reward, _, done, term) in enumerate(self._n_step_buffer):
       n_step_reward += gamma_pow * reward
       gamma_pow *= self._gamma
+      window_terminated = window_terminated or bool(term)
       if done:
         break
 
     # Last transition in the n-step window
-    _, _, _, next_obs, done = self._n_step_buffer[-1]
+    _, _, _, next_obs, done, _ = self._n_step_buffer[-1]
 
     # Push the n-step transition
-    self._push_single(obs, action, n_step_reward, next_obs, float(done))
+    self._push_single(obs, action, n_step_reward, next_obs, float(done),
+                      float(window_terminated))
 
     # Clear the n-step buffer after pushing
     self._n_step_buffer.clear()
@@ -175,9 +196,10 @@ class ReplayBufferDataset(Dataset):
     """
     for t in transitions:
       if isinstance(t, Transition):
-        self.push(t.obs, t.action, t.reward, t.next_obs, t.done)
+        self.push(t.obs, t.action, t.reward, t.next_obs, t.done, t.terminated)
       else:
-        self.push(t["obs"], t["action"], t["reward"], t["next_obs"], t["done"])
+        self.push(t["obs"], t["action"], t["reward"], t["next_obs"], t["done"],
+                  t.get("terminated"))
 
   def update_priorities(self, indices, priorities):
     """Update priorities for sampled transitions (PER).
@@ -219,6 +241,7 @@ class ReplayBufferDataset(Dataset):
         "reward": torch.from_numpy(self._reward[indices]),
         "next_obs": torch.from_numpy(self._next_obs[indices]),
         "done": torch.from_numpy(self._done[indices]),
+        "terminated": torch.from_numpy(self._terminated[indices]),
     }
 
   def _sample_prioritized(self, batch_size):
@@ -247,6 +270,7 @@ class ReplayBufferDataset(Dataset):
         "reward": torch.from_numpy(self._reward[indices]),
         "next_obs": torch.from_numpy(self._next_obs[indices]),
         "done": torch.from_numpy(self._done[indices]),
+        "terminated": torch.from_numpy(self._terminated[indices]),
         "indices": torch.from_numpy(indices.astype(np.int64)),
         "weights": torch.from_numpy(weights.astype(np.float32)),
     }
@@ -357,4 +381,5 @@ class ReplayBufferDataset(Dataset):
         "reward": self._reward[idx],
         "next_obs": self._next_obs[idx],
         "done": self._done[idx],
+        "terminated": self._terminated[idx],
     }

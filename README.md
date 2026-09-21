@@ -1532,6 +1532,81 @@ head before loading the checkpoint weights.
 
 ---
 
+## Reinforcement Learning
+
+genml_kit ships a self-contained reinforcement-learning (RL) toolkit built on
+Gymnasium.  The companion document
+[`rl/README.md`](rl/README.md) is a from-the-ground-up *mathematics* tutorial
+(Bellman equations, TD, Q-learning, GAE, PPO, SAC); this section is the
+practical *usage* guide.
+
+### Installation
+
+RL support is an optional extra:
+
+```
+pip install 'genml_kit[rl]'
+```
+
+### Supported algorithms
+
+| `--method` | Algorithm | Action space | Key files |
+|---|---|---|---|
+| `dqn` | Double-DQN with epsilon-greedy, optional dueling + n-step + PER | Discrete | `genml_kit/methods/rl_dqn.py` |
+| `ppo` | On-policy PPO with GAE, clipped surrogate, entropy bonus | Discrete or continuous | `genml_kit/methods/rl_ppo.py` |
+| `sac` | Soft Actor-Critic, twin critics, reparameterized policy, auto-alpha | Continuous only | `genml_kit/methods/rl_sac.py` |
+
+### Quick start
+
+```
+# DQN on CartPole (discrete)
+genml-kit-train --pipeline rl --method dqn --env-id CartPole-v1 \
+    --epochs 20 --batch-size 64
+
+# PPO on CartPole (discrete)
+genml-kit-train --pipeline rl --method ppo --env-id CartPole-v1 \
+    --epochs 20 --ppo-rollout-len 2048
+
+# SAC on a continuous env (e.g. LunarLanderContinuous-v3)
+genml-kit-train --pipeline rl --method sac --env-id LunarLanderContinuous-v3 \
+    --epochs 20
+```
+
+All RL methods use `eval_return` (mean undiscounted return over
+`--eval-episodes` episodes, default 5) as the checkpoint-selection metric.
+The trainer bypasses the DataLoader: it steps the environment directly and
+samples from a replay buffer (DQN/SAC) or re-uses a rollout buffer (PPO).
+
+### Custom environments
+
+Pass `--env-script /path/to/env.py` to load a custom environment.  The
+script must expose a `make_env()` factory returning a Gymnasium-style env
+(`reset()`, `step(action)`, `close()`; `observation_space` and
+`action_space` attributes, which the pipeline introspects to size the
+networks).  `make_env()` may take a single `seed` keyword argument if your
+environment wants reproducible initialization.
+
+### Environment & replay options
+
+Relevant flags:
+  - `--env-id`, `--obs-dim`, `--env-script` -- environment selection.
+  - `--buffer-size`, `--batch-size`, `--n-step`, `--prioritized`,
+    `--per-alpha`, `--per-beta-start`, `--per-beta-frames` -- replay tuning.
+  - `--obs-normalize`, `--obs-norm-clip` -- running observation
+    normalization (Welford).  Both train and eval observations are
+    normalized with the same RMS statistics.
+  - `--eval-episodes`, `--env-seed` -- evaluation.
+
+### Episode-end semantics (terminated vs truncated)
+
+Gymnasium distinguishes *terminated* (the MDP truly ended, e.g. the pole
+fell) from *truncated* (the episode was cut short, e.g. by a time limit).
+genml_kit threads the true `terminated` flag through the replay buffer,
+rollout buffer, GAE, and the TD targets: a truncated final step still
+bootstraps `γ V(s′)`, while a terminated one does not.  Environments using
+the legacy 4-tuple gym API (no `terminated`/`truncated` split) fall back to
+treating `done` as `terminated`.
+
 ## References And Further Reading
 
 - Xie et al., [SimMIM: A Simple Framework for Masked Image Modeling](https://arxiv.org/abs/2111.09886), CVPR 2022.

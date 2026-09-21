@@ -9,6 +9,11 @@ All math references ``rl/README.md`` Parts 4 and 11.
 
 import torch
 
+from genml_kit.losses.rl import (
+    clipped_surrogate,
+    entropy_bonus,
+    value_loss,
+)
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import register_method
 from genml_kit.models.registry import load_model
@@ -22,6 +27,7 @@ class PPOMethod(Method):
   NAME = "ppo"
   METRIC_KEY = "eval_return"
   NEEDS_LABELS = False
+  IS_ON_POLICY = True
 
   @classmethod
   def get_trainer_class(cls):
@@ -189,21 +195,15 @@ class PPOMethod(Method):
 
     # Policy loss (clipped surrogate).
     ratio = (new_log_probs - old_log_probs).exp()
-    from genml_kit.losses.rl import clipped_surrogate
-
     pg_loss = clipped_surrogate(ratio, advantages, self._clip_eps)
 
     # Value loss.
-    from genml_kit.losses.rl import value_loss
-
     v_loss = value_loss(new_values,
                         returns,
                         old_values=None,
                         clip_eps=self._vf_clip_eps)
 
     # Entropy bonus.
-    from genml_kit.losses.rl import entropy_bonus
-
     ent = entropy_bonus(new_log_probs if entropy is None else entropy)
 
     # Combined loss.

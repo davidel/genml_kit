@@ -41,6 +41,7 @@ class RolloutBuffer(Dataset):
     self._rewards = torch.zeros(rollout_len)
     self._values = torch.zeros(rollout_len)
     self._dones = torch.zeros(rollout_len)
+    self._terminated = torch.zeros(rollout_len)
     self._advantages = torch.zeros(rollout_len)
     self._returns = torch.zeros(rollout_len)
     self._next_values = torch.zeros(rollout_len)
@@ -53,7 +54,15 @@ class RolloutBuffer(Dataset):
     if seed is not None:
       self._rng.manual_seed(seed)
 
-  def add(self, obs, action, log_prob, reward, value, done, raw_action=None):
+  def add(self,
+          obs,
+          action,
+          log_prob,
+          reward,
+          value,
+          done,
+          raw_action=None,
+          terminated=None):
     """Store a single timestep at the current pointer.
 
         All arguments are plain Python scalars or numpy values.
@@ -61,10 +70,14 @@ class RolloutBuffer(Dataset):
         Args:
             raw_action: Optional raw (pre-tanh) action for continuous spaces.
                         Ignored for discrete.
+            terminated: Optional true MDP-end flag (``False`` for a truncated
+                        step).  When omitted, ``terminated = done``.
         """
     if self._ptr >= self._rollout_len:
       raise RuntimeError(f"RolloutBuffer overflow: ptr={self._ptr}, "
                          f"capacity={self._rollout_len}")
+    if terminated is None:
+      terminated = float(done)
     self._obs[self._ptr] = torch.as_tensor(obs, dtype=torch.float32)
     self._actions[self._ptr] = torch.as_tensor(action)
     if self._raw_actions is not None and raw_action is not None:
@@ -73,6 +86,7 @@ class RolloutBuffer(Dataset):
     self._rewards[self._ptr] = float(reward)
     self._values[self._ptr] = float(value)
     self._dones[self._ptr] = float(done)
+    self._terminated[self._ptr] = float(terminated)
     self._ptr += 1
 
   def set_next_values(self, next_values):
@@ -110,6 +124,7 @@ class RolloutBuffer(Dataset):
         self._dones,
         gamma=gamma,
         lam=lam,
+        terminated=self._terminated,
     )
     self._filled = True
 
@@ -144,6 +159,7 @@ class RolloutBuffer(Dataset):
     self._rewards = self._rewards.to(device)
     self._values = self._values.to(device)
     self._dones = self._dones.to(device)
+    self._terminated = self._terminated.to(device)
     self._advantages = self._advantages.to(device)
     self._returns = self._returns.to(device)
     self._next_values = self._next_values.to(device)
@@ -219,6 +235,10 @@ class RolloutBuffer(Dataset):
     return self._dones
 
   @property
+  def terminated(self):
+    return self._terminated
+
+  @property
   def advantages(self):
     return self._advantages
 
@@ -256,6 +276,7 @@ class RolloutBuffer(Dataset):
         "rewards": self._rewards,
         "values": self._values,
         "dones": self._dones,
+        "terminated": self._terminated,
         "advantages": self._advantages,
         "returns": self._returns,
         "next_values": self._next_values,
@@ -277,6 +298,7 @@ class RolloutBuffer(Dataset):
     self._rewards = state["rewards"]
     self._values = state["values"]
     self._dones = state["dones"]
+    self._terminated = state.get("terminated", self._terminated)
     self._advantages = state["advantages"]
     self._returns = state["returns"]
     self._next_values = state["next_values"]

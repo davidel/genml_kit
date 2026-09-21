@@ -454,6 +454,11 @@ class RLPipeline(DataPipeline):
     """Execute *action* in the environment.
 
     Returns ``(next_obs, reward, done, info)`` as plain Python / numpy.
+
+    When the wrapped env uses the Gymnasium 5-tuple API, the true
+    MDP-end flag is additionally surfaced in ``info["terminated"]`` and
+    the truncation flag in ``info["truncated"]``; callers that need to
+    distinguish the two (e.g. GAE bootstrap in PPO) read those keys.
     """
     # Handle both old gym API (obs, reward, done, info)
     # and new gymnasium API (obs, reward, terminated, truncated, info)
@@ -461,6 +466,9 @@ class RLPipeline(DataPipeline):
     if len(step_result) == 5:
       next_obs, reward, terminated, truncated, info = step_result
       done = terminated or truncated
+      info = dict(info)  # do not mutate the env-owned dict
+      info["terminated"] = terminated
+      info["truncated"] = truncated
     else:
       next_obs, reward, done, info = step_result
     if self._obs_normalize and self.obs_rms is not None:

@@ -9,6 +9,7 @@ import random
 
 import torch
 
+from genml_kit.losses.rl import td_loss, td_target
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import register_method
 from genml_kit.models.registry import load_model
@@ -178,13 +179,14 @@ class DQNMethod(Method):
     reward = data["reward"]
     next_obs = data["next_obs"]
     done = data["done"]
+    # True MDP-end flag (Gymnasium 'terminated'); falls back to done
+    # when the env / buffer does not distinguish truncation.
+    terminated = data.get("terminated", done)
 
     # Q(s, a) for the taken actions — (B, 1).
     q = model.online(obs).gather(1, action.unsqueeze(1)).squeeze(1)
 
     # TD target.
-    from genml_kit.losses.rl import td_target
-
     target = td_target(
         reward,
         next_obs,
@@ -194,11 +196,10 @@ class DQNMethod(Method):
         gamma=self._gamma,
         double_q=self._ddqn,
         n_step=self._n_step,
+        terminated=terminated,
     )
 
     # TD loss.
-    from genml_kit.losses.rl import td_loss
-
     # Compute per-sample TD errors for PER priority updates
     td_errors = q - target.detach()
     loss = td_loss(q, target, reduction="mean")
