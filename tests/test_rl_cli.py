@@ -94,11 +94,16 @@ class TestRLCLIHelp:
     parser = argparse.ArgumentParser()
     DQNMethod.add_args(parser)
     args = parser.parse_args([
-        "--gamma", "0.95",
-        "--epsilon_start", "0.8",
-        "--epsilon_end", "0.05",
-        "--epsilon_decay_steps", "20000",
-        "--tau", "0.5",
+        "--gamma",
+        "0.95",
+        "--epsilon_start",
+        "0.8",
+        "--epsilon_end",
+        "0.05",
+        "--epsilon_decay_steps",
+        "20000",
+        "--tau",
+        "0.5",
         "--dueling",
     ])
     assert args.gamma == 0.95

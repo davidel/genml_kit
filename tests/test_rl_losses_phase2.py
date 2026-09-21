@@ -170,7 +170,7 @@ class TestSACAlphaLoss:
     """When entropy is high (log_prob very negative), alpha should grow."""
     # loss = -E[log π + H*]. When log π << H*, loss is very negative
     # (large gradient to increase α).
-    low_entropy = torch.full((8,), -0.1)   # close to target
+    low_entropy = torch.full((8,), -0.1)  # close to target
     high_entropy = torch.full((8,), -5.0)  # much higher entropy
     loss_low = sac_alpha_loss(low_entropy, target_entropy=-2.0)
     loss_high = sac_alpha_loss(high_entropy, target_entropy=-2.0)

@@ -52,10 +52,10 @@ class DataPipeline(abc.ABC):  # noqa: B024
         """
     return None
 
-  def init_env(self, args):
+  def init_env(self, args):  # noqa: B027
     """Initialize environment-specific state (e.g., Gymnasium envs for RL).
 
-        Default is a no-op.  RL pipelines override this to create the
-        environment and any wrappers/buffers before ``wire_data`` runs.
-        """
+    Default is a no-op.  RL pipelines override this to create the
+    environment and any wrappers/buffers before ``wire_data`` runs.
+    """
     pass

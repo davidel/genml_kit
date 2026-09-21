@@ -81,8 +81,7 @@ class TestBaseHooks:
     method = _BareMethod()
     assert method.prepare_transforms(argparse.Namespace(), "cpu") is None
     assert method.wire_data(argparse.Namespace(), object()) is None
-    assert method.post_train(argparse.Namespace(), object(), "cpu",
-                             object()) is None
+    assert method.post_train(argparse.Namespace(), object(), "cpu", object()) is None
 
 
 class TestApplyModelExtras:
@@ -104,9 +103,8 @@ class TestApplyModelExtras:
 
   def test_lora_wraps_model(self):
     method = _BareMethod()
-    model = method._apply_model_extras(
-        _base_args(lora=True, lora_target_modules="fc"), _LinearBackbone(),
-        torch.device("cpu"))
+    model = method._apply_model_extras(_base_args(lora=True, lora_target_modules="fc"),
+                                       _LinearBackbone(), torch.device("cpu"))
     assert isinstance(model, peft.PeftModel)
     trainable = [n for n, p in model.named_parameters() if p.requires_grad]
     assert any("lora" in n for n in trainable)
@@ -130,8 +128,8 @@ class TestApplyModelExtras:
     model = _LinearBackbone()
     torch.nn.init.zeros_(model.fc.weight)
     torch.nn.init.zeros_(model.fc.bias)
-    model = method._apply_model_extras(_base_args(source_checkpoint=path),
-                                       model, torch.device("cpu"))
+    model = method._apply_model_extras(_base_args(source_checkpoint=path), model,
+                                       torch.device("cpu"))
     assert torch.allclose(model.fc.weight, torch.full_like(model.fc.weight, 0.5))
     assert torch.allclose(model.fc.bias, torch.full_like(model.fc.bias, 0.25))
 
@@ -139,8 +137,8 @@ class TestApplyModelExtras:
     # freeze_model semantics: *patterns* list what stays TRAINABLE;
     # everything else is frozen.
     method = _BareMethod()
-    model = method._apply_model_extras(_base_args(freeze="fc"),
-                                       _LinearBackbone(), torch.device("cpu"))
+    model = method._apply_model_extras(_base_args(freeze="fc"), _LinearBackbone(),
+                                       torch.device("cpu"))
     assert model.fc.weight.requires_grad is True
     assert model.fc.bias.requires_grad is True
 
@@ -152,9 +150,12 @@ class TestApplyModelExtras:
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([
-        "--proj_dim", "8",
-        "--proj_hidden", "8",
-        "--temperature", "0.07",
+        "--proj_dim",
+        "8",
+        "--proj_hidden",
+        "8",
+        "--temperature",
+        "0.07",
     ])
     args.model = "fc-tiny"
     args.image_size = 16
@@ -177,8 +178,7 @@ class TestApplyModelExtras:
     assert isinstance(model, peft.PeftModel)
     assert isinstance(model.get_base_model(), ContrastiveEncoder)
     backbone_linears = [
-        n for n, m in model.named_modules()
-        if isinstance(m, peft.tuners.lora.Linear)
+        n for n, m in model.named_modules() if isinstance(m, peft.tuners.lora.Linear)
     ]
     assert backbone_linears, "LoRA adapters must reach the backbone"
     # The adapter's target Linear is the backbone's `fc`; the LoRA wrapper
@@ -259,8 +259,7 @@ class TestClassificationLifecycle:
 
     method = self._method()
     method.wire_data(self._args(), self._pipeline(num_labels=3))
-    with patch("genml_kit.models.load_model",
-               return_value=_Classifier(3)):
+    with patch("genml_kit.models.load_model", return_value=_Classifier(3)):
       model = method.build_model(self._args(), torch.device("cpu"))
     logits = model(pixel_values=torch.zeros(2, 3, 16, 16)).logits
     assert logits.shape == (2, 3)
@@ -283,8 +282,7 @@ class TestClassificationLifecycle:
     method.wire_data(self._args(), self._pipeline(num_labels=3))
     args = self._args()
     args.lora = True
-    with patch("genml_kit.models.load_model",
-               return_value=_Classifier(3)):
+    with patch("genml_kit.models.load_model", return_value=_Classifier(3)):
       model = method.build_model(args, torch.device("cpu"))
     assert isinstance(model, peft.PeftModel)
 
@@ -292,9 +290,8 @@ class TestClassificationLifecycle:
     # The hook unconditionally forwards; the --xgboost_model flag check is
     # owned by maybe_train_xgboost (its own guard, covered by its contract).
     calls = []
-    monkeypatch.setattr(
-        "genml_kit.training.train_compat.maybe_train_xgboost",
-        lambda *a, **k: calls.append(a))
+    monkeypatch.setattr("genml_kit.training.train_compat.maybe_train_xgboost",
+                        lambda *a, **k: calls.append(a))
     method = self._method()
     args = self._args()
     args.xgboost_model = "some/path"
@@ -319,8 +316,7 @@ class TestDriverIsBranchless:
     assert 'get_method("classification")' not in source
     assert "is_classification" not in source
     # And the hooks are actually invoked.
-    for hook in ("prepare_transforms", "wire_data", "build_model",
-                 "post_train"):
+    for hook in ("prepare_transforms", "wire_data", "build_model", "post_train"):
       assert f"method.{hook}" in source
 
   def test_driver_module_has_no_method_type_sniffing(self):
@@ -332,7 +328,6 @@ class TestDriverIsBranchless:
     assert 'get_method("classification")' not in source
     assert "is_classification" not in source
     # The old driver helpers are gone.
-    for gone in ("_wire_classification", "_build_model",
-                 "_load_classification_model",
+    for gone in ("_wire_classification", "_build_model", "_load_classification_model",
                  "_resolve_classification_transforms"):
       assert f"def {gone}" not in source

@@ -376,7 +376,6 @@ class ImagesPipeline(DataPipeline):
       labels = torch.tensor([b["label"] for b in batch], dtype=torch.long)
     return DataBlob(data=images, meta={"labels": labels})
 
-
 _images_collate = ImagesPipeline._collate
 
 

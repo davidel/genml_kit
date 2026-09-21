@@ -433,10 +433,7 @@ class RLPipeline(DataPipeline):
     """Reset the environment and return the initial observation tensor."""
     # Handle both old gym API (obs) and new gymnasium API (obs, info)
     reset_result = self.env.reset()
-    if isinstance(reset_result, tuple):
-      obs = reset_result[0]
-    else:
-      obs = reset_result
+    obs = reset_result[0] if isinstance(reset_result, tuple) else reset_result
     if self._obs_normalize and self.obs_rms is not None:
       self.obs_rms.update(obs[None, ...])  # Add batch dim for update
       obs = self.obs_rms.normalize(obs, clip=self._obs_norm_clip)

@@ -47,7 +47,7 @@ class RolloutBuffer(Dataset):
 
     self._ptr = 0
     self._filled = False
-    
+
     # D5: Independent RNG for reproducible sampling
     self._rng = torch.Generator()
     if seed is not None:

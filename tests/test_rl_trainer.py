@@ -1202,7 +1202,8 @@ class TestObservationNormalization:
 
     obs = pipeline.reset_env()
     # Should return normalized observation (first obs has no statistics yet)
-    # After first reset, RMS has 1 sample, so normalization = (x - mean) / sqrt(var + eps)
+    # After first reset, RMS has 1 sample, so normalization =
+    # (x - mean) / sqrt(var + eps)
     # With 1 sample, var = 0, so normalized = (x - x) / sqrt(eps) = 0
     assert obs.shape == (4,)
 
