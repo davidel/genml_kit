@@ -41,6 +41,7 @@ from genml_kit.utils.args import (
     add_training_state_args,
     normalize_args,
 )
+from genml_kit.utils.attr import maybe_call
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import resolve_device
 from genml_kit.utils.logging import fatal, open_writer, setup_logging
@@ -450,6 +451,11 @@ def main(argv=None):
       default_metric=_default_metric(method),
   )
   method.load_checkpoint_state(model, ckpt_extra.get("method_state", {}), args)
+  # Restore pipeline state (e.g., observation-normalization RMS for RL) saved
+  # by RLTrainer.saver_extra() into the checkpoint.  Only pipelines that opt
+  # in (RLPipeline) define load_checkpoint_state; no-op for image/vo pipelines
+  # (mirrors genml_kit.utils.attr.maybe_call semantics).
+  maybe_call(pipeline, "load_checkpoint_state", ckpt_extra)
 
   optimization = build_optimization(args, model, device, ckpt_extra, states_to_load)
   train_loader = getattr(pipeline, "train_loader", None)

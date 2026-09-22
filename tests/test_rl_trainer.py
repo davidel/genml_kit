@@ -1185,6 +1185,49 @@ class TestObservationNormalization:
     next_obs, reward, done, info = pipeline.step_env(0)
     assert next_obs.shape == (4,)
 
+  def test_pipeline_obs_normalize_roundtrip(self):
+    """Pipeline checkpoint state roundtrips obs_rms (save -> load).
+
+    Verifies the path used on resume: RLTrainer.saver_extra() writes the
+    pipeline's obs_rms into the checkpoint, and the driver restores it via
+    pipeline.load_checkpoint_state().
+    """
+    from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv, RunningMeanStd
+    from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+
+    pipeline = RLPipeline()
+    pipeline.env = _ScriptedEnv(obs_dim=4)
+    pipeline._obs_dim = 4
+    pipeline._n_actions = 2
+    pipeline._obs_normalize = True
+    pipeline._obs_norm_clip = 10.0
+    pipeline.obs_rms = RunningMeanStd(shape=(4,))
+    pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=100)
+
+    # Accumulate statistics so the saved state is non-trivial.
+    for _ in range(10):
+      pipeline.step_env(0)
+    saved_count = pipeline.obs_rms.count
+    assert saved_count > 1
+
+    state = pipeline.get_checkpoint_state()
+    assert "obs_rms" in state
+
+    # A fresh pipeline (fresh RMS) restores the saved statistics.
+    pipeline2 = RLPipeline()
+    pipeline2.env = _ScriptedEnv(obs_dim=4)
+    pipeline2._obs_dim = 4
+    pipeline2._n_actions = 2
+    pipeline2._obs_normalize = True
+    pipeline2._obs_norm_clip = 10.0
+    pipeline2.obs_rms = RunningMeanStd(shape=(4,))
+    pipeline2.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=100)
+
+    pipeline2.load_checkpoint_state(state)
+    assert pipeline2.obs_rms.count == saved_count
+    assert np.allclose(pipeline2.obs_rms.mean, pipeline.obs_rms.mean)
+    assert np.allclose(pipeline2.obs_rms.var, pipeline.obs_rms.var)
+
   def test_pipeline_obs_normalize_enabled(self):
     """Test pipeline normalizes observations when enabled."""
     from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
