@@ -1,0 +1,14 @@
+Show me the diff of the changes before commit, explaining, for each diff hunk, one by one, what is the reason of the change in that part of the code.
+Do not commit the new code to GIT until I review it.
+NEVER amend or squash commits, as you break the remote github history otherwise.
+We use a Python Google style format for Python code, with 2 space indent.
+Please make sure your changes are always using 2 space indent, and use the format_file tool with the yapf formatter and the .style.yapf config.
+Use Ruff to validate code, and never add Ruff annotation comments to silence Russ w/out asking me first.
+Do not add "Co-Authored-By:" comments to the commit message.
+The process must be:
+  1) You analyze the issue and ask me questions if necessary
+  2) You provide a detailed plan of the requested changes
+  3) We iterate over plan revisions until I agree
+  4) When I tell you to go ahead and implement the plan, you do it
+  5) When changes are done I will review them, and ONLY when you get my approval, you can commit them to GIT
+

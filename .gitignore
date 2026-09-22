@@ -1,14 +1,9 @@
-# Chatty backups
-.chatty/
-
-# Build artifacts
+.chatty/backups/
+.chatty/cache/
 *.egg-info/
 dist/
 build/
 .url_cache/
-
-# HuggingFace / timm cache
+.ruff_cache/
+.pytest_cache/
 .cache/
-
-# TensorBoard run artifacts
-logs/
