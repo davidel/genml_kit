@@ -1590,7 +1590,7 @@ environment wants reproducible initialization.
 
 Relevant flags:
   - `--env-id`, `--obs-dim`, `--env-script` -- environment selection.
-  - `--buffer-size`, `--batch-size`, `--n-step`, `--prioritized`,
+  - `--replay-capacity`, `--batch-size`, `--n-step`, `--prioritized`,
     `--per-alpha`, `--per-beta-start`, `--per-beta-frames` -- replay tuning.
   - `--obs-normalize`, `--obs-norm-clip` -- running observation
     normalization (Welford).  Both train and eval observations are
