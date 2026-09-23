@@ -49,13 +49,16 @@ class _TinyBackbone(torch.nn.Module):
   def __init__(self, hidden_size=64):
     super().__init__()
     self.pool = torch.nn.AdaptiveAvgPool2d(1)
-    self.proj = torch.nn.Linear(3, hidden_size)  # project channels → hidden_size
+    # Project channels → hidden_size.
+    self.proj = torch.nn.Linear(3, hidden_size)
     self.hidden_size = hidden_size
 
   def forward(self, pixel_values):
     # pixel_values: [B, 3, H, W]
-    pooled = self.pool(pixel_values).flatten(1)  # [B, 3]
-    projected = self.proj(pooled)  # [B, hidden_size]
+    # [B, 3].
+    pooled = self.pool(pixel_values).flatten(1)
+    # [B, hidden_size].
+    projected = self.proj(pooled)
     Output = namedtuple("Output", ["pooler_output", "last_hidden_state"])
     return Output(pooler_output=projected, last_hidden_state=pixel_values)
 

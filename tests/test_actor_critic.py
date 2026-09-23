@@ -92,7 +92,8 @@ class TestActorCritic:
     obs = torch.randn(8, 4)
     action, raw_action, log_prob, entropy, value = ac.get_action_and_value(obs)
     assert action.shape == (8,)
-    assert raw_action is None  # discrete
+    # Discrete.
+    assert raw_action is None
     assert log_prob.shape == (8,)
     assert value.shape == (8,)
 
@@ -114,7 +115,8 @@ class TestActorCritic:
     obs = torch.randn(8, 4)
     action, raw_action, log_prob, entropy, value = ac.get_action_and_value(obs)
     assert action.shape == (8, 2)
-    assert raw_action.shape == (8, 2)  # raw action same shape as action
+    # Raw action same shape as action.
+    assert raw_action.shape == (8, 2)
     assert log_prob.shape == (8,)
     assert value.shape == (8,)
 

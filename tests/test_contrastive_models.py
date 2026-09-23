@@ -128,7 +128,8 @@ class TestContrastiveEncoder:
     )
     images = torch.randn(2, 3, 64, 64)
     features = model.encode(images)
-    assert features.shape == (2, 128)  # backbone dim, not proj_dim
+    # Backbone dim, not proj_dim.
+    assert features.shape == (2, 128)
 
   def test_explicit_backbone_dim(self):
     backbone = _FakeBackbone(out_dim=99)

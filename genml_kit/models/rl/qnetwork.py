@@ -36,7 +36,8 @@ class QHead(nn.Module):
     self.fc = nn.Linear(hidden_dim, n_actions)
 
   def forward(self, h):
-    return self.fc(h)  # (B, hidden_dim) -> (B, n_actions)
+    # (B, hidden_dim) -> (B, n_actions)
+    return self.fc(h)
 
 
 class DuelingQHead(nn.Module):
@@ -55,9 +56,12 @@ class DuelingQHead(nn.Module):
     self.adv = nn.Linear(hidden_dim, n_actions)
 
   def forward(self, h):
-    v = self.val(h)  # (B, 1)
-    a = self.adv(h)  # (B, n_actions)
-    return v + a - a.mean(dim=-1, keepdim=True)  # (B, n_actions)
+    # (B, 1)
+    v = self.val(h)
+    # (B, n_actions)
+    a = self.adv(h)
+    # (B, n_actions)
+    return v + a - a.mean(dim=-1, keepdim=True)
 
 
 class _MLPBackbone(nn.Module):
@@ -142,7 +146,8 @@ class QNetwork(nn.Module):
     Returns:
         (B,) Q-values for the given actions.
     """
-    q_values = self.online(obs)  # (B, n_actions)
+    # (B, n_actions)
+    q_values = self.online(obs)
     return q_values.gather(1, action.unsqueeze(1)).squeeze(1)
 
   @torch.no_grad()

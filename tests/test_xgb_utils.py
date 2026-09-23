@@ -171,7 +171,8 @@ class TestEvalLabelSpace:
     """id2label covering classes absent from the eval split must not crash."""
     rng = np.random.RandomState(42)
     features = rng.randn(30, 16).astype(np.float32)
-    labels = rng.randint(0, 2, size=30)  # only classes 0 and 1 present
+    # Only classes 0 and 1 present.
+    labels = rng.randint(0, 2, size=30)
 
     clf = train_xgboost(features, labels, max_depth=3, n_estimators=10)
     id2label = {"0": "a", "1": "b", "2": "c", "3": "d"}
@@ -206,7 +207,8 @@ class TestEvalLabelSpace:
     labels = rng.randint(0, 3, size=30)
 
     clf = train_xgboost(features, labels, max_depth=3, n_estimators=10)
-    id2label = {"0": "a", "1": "b", "3": "d"}  # class 2 missing
+    # Class 2 missing.
+    id2label = {"0": "a", "1": "b", "3": "d"}
     with caplog.at_level("WARNING"):
       result = eval_xgboost(clf, features, labels, id2label=id2label)
 
@@ -221,7 +223,8 @@ class TestEvalLabelSpace:
     labels = rng.randint(0, 2, size=30)
 
     clf = train_xgboost(features, labels, max_depth=3, n_estimators=10)
-    id2label = {str(i): f"c{i}" for i in range(5)}  # 5 vs 2 classes
+    # 5 vs 2 classes.
+    id2label = {str(i): f"c{i}" for i in range(5)}
     with caplog.at_level("WARNING"):
       eval_xgboost(clf, features, labels, id2label=id2label)
 

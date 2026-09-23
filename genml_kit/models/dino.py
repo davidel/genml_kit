@@ -117,7 +117,8 @@ class DINO(nn.Module):
     Returns:
         (loss, info_dict)
     """
-    n_global = global_crops.shape[0]  # 2B
+    # 2B.
+    n_global = global_crops.shape[0]
     b = n_global // 2
 
     s_global = self.student(global_crops)
@@ -134,7 +135,8 @@ class DINO(nn.Module):
     #   t_global[0:B]   = teacher output of global view 1
     #   t_global[B:2B]  = teacher output of global view 2
     paired_global = torch.cat([t_global[b:2 * b], t_global[0:b]], dim=0)
-    n_local = s_local.shape[0]  # N*B
+    # N*B.
+    n_local = s_local.shape[0]
     t_local = t_global[b:2 * b].repeat((n_local // b) + 1, 1)[:n_local]
     t_all = torch.cat([paired_global, t_local], dim=0)
 

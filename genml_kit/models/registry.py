@@ -211,7 +211,8 @@ def load_processor(
     Returns:
         processor object with ``image_mean`` / ``image_std`` attributes.
     """
-  from transformers import AutoImageProcessor  # local to avoid top-level import
+  # Local to avoid top-level import.
+  from transformers import AutoImageProcessor
 
   parsed = parse_model_name(model_name)
 

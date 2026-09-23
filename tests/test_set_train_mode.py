@@ -12,7 +12,8 @@ class _Backbone(nn.Module):
   def __init__(self):
     super().__init__()
     self.bn = nn.BatchNorm1d(8)
-    self.dropout = nn.Dropout(p=1.0)  # p=1.0: drops everything
+    # p=1.0: drops everything
+    self.dropout = nn.Dropout(p=1.0)
     self.fc = nn.Linear(8, 8)
 
   def forward(self, x):

@@ -18,7 +18,8 @@ class TestSigexcept:
     with sigexcept("SIGUSR1") as interrupts:
       try:
         os.kill(os.getpid(), signal.SIGUSR1)
-        time.sleep(0.2)  # let the handler raise at a bytecode boundary
+        # Let the handler raise at a bytecode boundary.
+        time.sleep(0.2)
         pytest.fail("expected InterruptedException")
       except InterruptedException:
         pass

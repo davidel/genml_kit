@@ -83,5 +83,6 @@ def encode_with_backbone(encoder, images):
     last_hidden = getattr(raw, "last_hidden_state", None)
     if last_hidden is not None:
       return last_hidden.mean(dim=1)
-    return raw.logits  # any .logits-only container (registry.ModelOutput)
+    # Any .logits-only container (registry.ModelOutput).
+    return raw.logits
   return raw

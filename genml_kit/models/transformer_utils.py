@@ -14,12 +14,14 @@ def drop_path(x, drop_prob=0.0, training=False):
   if drop_prob == 0.0 or not training:
     return x
   keep_prob = 1 - drop_prob
-  # (B, 1, ..., 1): one keep/drop decision per sample, broadcast across all
-  # remaining (token/channel) dims.
-  shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # (B, 1, ..., 1)
+  # (B, 1, ..., 1): one keep/drop decision per sample, broadcast across all remaining
+  # (token/channel) dims.
+  # (B, 1, ..., 1)
+  shape = (x.shape[0],) + (1,) * (x.ndim - 1)
   random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
   random_tensor.floor_()
-  output = x.div(keep_prob) * random_tensor  # (B, T, D), same shape as x
+  # (B, T, D), same shape as x.
+  output = x.div(keep_prob) * random_tensor
   return output
 
 

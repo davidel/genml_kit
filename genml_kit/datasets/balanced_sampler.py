@@ -55,7 +55,8 @@ class BalancedBatchSampler(Sampler):
 
     self._batch_size = batch_size
     self._samples_per_class = samples_per_class
-    self._n_groups = -(-batch_size // samples_per_class)  # ceil division
+    # Ceil division.
+    self._n_groups = -(-batch_size // samples_per_class)
     self._group_sizes = self._even_group_sizes(batch_size, self._n_groups)
 
     # Build per-class index lists.

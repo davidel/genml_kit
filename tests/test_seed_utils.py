@@ -91,7 +91,8 @@ class TestSeedWorker:
     monkeypatch.setattr(torch, "initial_seed", lambda: 12345)
     seed_worker(0)
     assert np.random.get_state()[1][0] == (12345 % 2**32)
-    assert random.random() is not None  # seeded without error
+    # Seeded without error.
+    assert random.random() is not None
 
   def test_worker_determinism(self):
     """Two workers with the same torch seed draw the same numbers."""

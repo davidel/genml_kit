@@ -34,9 +34,9 @@ class RolloutBuffer(Dataset):
     self._obs = torch.zeros(rollout_len, obs_dim)
     self._actions = (torch.zeros(rollout_len, action_dim) if action_dim is not None else
                      torch.zeros(rollout_len, dtype=torch.long))
-    self._raw_actions = (
-        torch.zeros(rollout_len, action_dim) if action_dim is not None else None
-    )  # Store pre-tanh actions for continuous
+    # Store pre-tanh actions for continuous.
+    self._raw_actions = (torch.zeros(rollout_len, action_dim)
+                         if action_dim is not None else None)
     self._log_probs = torch.zeros(rollout_len)
     self._rewards = torch.zeros(rollout_len)
     self._values = torch.zeros(rollout_len)

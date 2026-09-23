@@ -44,7 +44,8 @@ class TTATransform:
         views produced by the underlying per-sample function.
     """
     views = [self._fn(img) for img in images]
-    return torch.stack(views)  # (B, N, C, H, W)
+    # (B, N, C, H, W)
+    return torch.stack(views)
 
 
 def create_default_tta_transform(image_size=None, **kwargs):

@@ -92,7 +92,8 @@ class TestSimMIMMethod:
 
     class FakeModel:
       mask_ratio = 0.6
-      _mask_ratio = 0.75  # Old-style attribute.
+      # Old-style attribute.
+      _mask_ratio = 0.75
 
     model = FakeModel()
     # Empty state (no method_state in checkpoint).

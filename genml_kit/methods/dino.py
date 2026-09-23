@@ -47,7 +47,8 @@ class DINOMethod(Method):
   NAME = "dino"
   NEEDS_LABELS = False
   METRIC_KEY = "loss"
-  METRIC_MINIMIZE = True  # loss is minimized
+  # Loss is minimized.
+  METRIC_MINIMIZE = True
 
   @classmethod
   def add_args(cls, parser):
@@ -155,7 +156,8 @@ class DINOMethod(Method):
     """
     total = None
     with contextlib.suppress(TypeError):
-      total = len(pipeline.train_loader)  # iterable-only datasets: no len()
+      # Iterable-only datasets: no len().
+      total = len(pipeline.train_loader)
     if total:
       total = total * args.epochs // max(getattr(args, "grad_accum_steps", 1), 1)
     self._total_steps = total
@@ -191,9 +193,11 @@ class DINOMethod(Method):
     """
     set_train_mode(model, "train")
     if isinstance(images, (tuple, list)):
-      global_crops = torch.stack(images[:2]).flatten(0, 1)  # (2B, C, H, W)
+      # (2B, C, H, W)
+      global_crops = torch.stack(images[:2]).flatten(0, 1)
       if len(images) > 2:
-        local_crops = torch.stack(images[2:]).flatten(0, 1)  # (N*B, C, h, w)
+        # (N*B, C, h, w)
+        local_crops = torch.stack(images[2:]).flatten(0, 1)
       else:
         local_crops = global_crops
     else:

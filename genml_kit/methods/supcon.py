@@ -18,7 +18,8 @@ class SupConMethod(Method):
 
   NAME = "supcon"
   METRIC_KEY = "loss"
-  METRIC_MINIMIZE = True  # loss is minimized
+  # Loss is minimized.
+  METRIC_MINIMIZE = True
   NEEDS_LABELS = True
 
   @classmethod
@@ -86,10 +87,12 @@ class SupConMethod(Method):
     }
 
   def load_checkpoint_state(self, model, state, args):
-    pass  # Projection head is part of the model state dict.
+    # Projection head is part of the model state dict.
+    pass
 
   def validate(self, model, images, num_samples):
-    return None  # No pixel-space visualization for contrastive.
+    # No pixel-space visualization for contrastive.
+    return None
 
   def on_epoch_end(self, model, epoch, writer):
     pass

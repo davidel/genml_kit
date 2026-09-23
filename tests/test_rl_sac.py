@@ -109,8 +109,10 @@ class TestSACMethod:
 
   def test_has_metric_improved(self):
     method = SACMethod()
-    assert method.has_metric_improved(5.0, 3.0)  # new=5, best=3 -> improved
-    assert not method.has_metric_improved(3.0, 5.0)  # new=3, best=5 -> not improved
+    # new=5, best=3 -> improved
+    assert method.has_metric_improved(5.0, 3.0)
+    # new=3, best=5 -> not improved
+    assert not method.has_metric_improved(3.0, 5.0)
 
   def test_checkpoint_round_trip(self):
     _, method, model = _make_pipeline_and_method()

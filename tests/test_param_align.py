@@ -58,7 +58,8 @@ class TestWeightedTokenDistance:
     t1 = ["weight", "ln", "model", "encoder"]
     t2 = ["weight", "ln", "encoder"]
     d = weighted_token_distance(t1, t2)
-    assert d == 0.25  # one root-side extra token
+    # One root-side extra token.
+    assert d == 0.25
 
   def test_symmetry(self):
     t1 = ["a", "b", "c"]
@@ -76,7 +77,8 @@ class TestWeightedTokenDistance:
     t1 = ["weight", "layer", "encoder"]
     t2 = ["bias", "fc", "encoder"]
     d = weighted_token_distance(t1, t2)
-    assert d == 1.0  # substitution at pos 0 + deletion at pos 1 via DP
+    # Substitution at pos 0 + deletion at pos 1 via DP.
+    assert d == 1.0
 
   def test_geometric_weights_dominated(self):
     """Sum of all weights beyond position 0 is < 1.0, so one leaf match
@@ -253,7 +255,8 @@ class TestAlignStateDicts:
     new = {"encoder.weight": torch.zeros(3, 3)}
     report = align_state_dicts(old, new)
     assert "extra.weight" in report.unused_old
-    assert not report.ok  # unused old key → not perfect
+    # Unused old key → not perfect.
+    assert not report.ok
 
   def test_empty_state_dicts(self):
     report = align_state_dicts({}, {})
@@ -269,7 +272,8 @@ class TestAlignStateDicts:
     old = {"a.weight": torch.zeros(3, 3)}
     report = align_state_dicts(old, {})
     assert "a.weight" in report.unused_old
-    assert not report.ok  # unused old key → not perfect
+    # Unused old key → not perfect.
+    assert not report.ok
 
   def test_many_to_one_old_conflict(self):
     old = {"shared.weight": torch.zeros(3, 3)}

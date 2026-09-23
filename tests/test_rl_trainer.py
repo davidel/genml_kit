@@ -109,7 +109,8 @@ def _make_args(**overrides):
       warmup_steps=8,
       steps_per_epoch=5,
       eval_episodes=1,
-      checkpoint=None,  # Set via context manager
+      # Set via context manager.
+      checkpoint=None,
       save_every=0,
       log_dir=None,
       log_interval=100,
@@ -345,8 +346,10 @@ class TestRLTrainerEndToEnd:
     """Helper to run PPO end-to-end for one epoch."""
     args = self._make_args(
         epochs=1,
-        warmup_steps=0,  # PPO doesn't use warmup
-        steps_per_epoch=16,  # rollout_len
+        # PPO doesn't use warmup.
+        warmup_steps=0,
+        # Rollout_len.
+        steps_per_epoch=16,
         checkpoint=str(tmp_path / "ppo_ckpt"),
         seed=42,
         env_seed=42,
@@ -570,7 +573,8 @@ class TestRLCheckpointRoundTrip:
 
     # Second run: load checkpoint and continue
     args2 = self._make_args(
-        epochs=2,  # Run one more epoch
+        # Run one more epoch.
+        epochs=2,
         warmup_steps=4,
         steps_per_epoch=4,
         checkpoint=str(tmp_path / "dqn_ckpt"),
@@ -602,7 +606,8 @@ class TestRLCheckpointRoundTrip:
         optimization=optimization2,
         device=torch.device("cpu"),
         writer=None,
-        start_epoch=1,  # Resume from epoch 1
+        # Resume from epoch 1.
+        start_epoch=1,
         best_metric=ckpt1.get("best_eval_return", float("-inf")),
         global_step=ckpt1.get("global_step", 0),
     )
@@ -805,11 +810,13 @@ class TestNStepReturns:
 
     # Step 0: reward=1.0, not done
     buffer.push(obs0, 0, 1.0, obs1, False)
-    assert len(buffer) == 0  # n-step buffer not full yet
+    # N-step buffer not full yet.
+    assert len(buffer) == 0
 
     # Step 1: reward=2.0, not done
     buffer.push(obs1, 1, 2.0, obs2, False)
-    assert len(buffer) == 0  # n-step buffer not full yet
+    # N-step buffer not full yet.
+    assert len(buffer) == 0
 
     # Step 2: reward=3.0, not done -> n-step buffer full, should push
     buffer.push(obs2, 2, 3.0, obs3, False)
@@ -993,7 +1000,8 @@ class TestPrioritizedExperienceReplay:
 
     # Index 0 should appear ~100/103 = 97% of the time
     count_0 = np.sum(indices == 0)
-    assert count_0 > 800  # Allow some variance
+    # Allow some variance.
+    assert count_0 > 800
 
   def test_per_importance_sampling_weights(self):
     """Test IS weights are computed correctly."""
@@ -1034,13 +1042,16 @@ class TestPrioritizedExperienceReplay:
 
     assert buffer.beta == 0.4
 
-    buffer.anneal_beta(500)  # Halfway
+    # Halfway.
+    buffer.anneal_beta(500)
     assert buffer.beta == pytest.approx(0.7, rel=1e-3)
 
-    buffer.anneal_beta(1000)  # Full
+    # Full.
+    buffer.anneal_beta(1000)
     assert buffer.beta == pytest.approx(1.0, rel=1e-3)
 
-    buffer.anneal_beta(2000)  # Beyond
+    # Beyond.
+    buffer.anneal_beta(2000)
     assert buffer.beta == 1.0
 
   def test_per_stats_includes_priority_info(self):

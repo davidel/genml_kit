@@ -21,7 +21,8 @@ class TestScriptedEnv:
   def test_advance_action(self):
     env = _ScriptedEnv(obs_dim=4)
     env.reset()
-    obs, reward, done, _ = env.step(0)  # action 0 = advance
+    # Action 0 = advance.
+    obs, reward, done, _ = env.step(0)
     assert obs[1] == 1.0
     assert obs[0] == 0.0
     assert reward == 0.0
@@ -30,7 +31,8 @@ class TestScriptedEnv:
   def test_stay_action(self):
     env = _ScriptedEnv(obs_dim=4)
     env.reset()
-    obs, reward, done, _ = env.step(1)  # action 1 = stay
+    # Action 1 = stay.
+    obs, reward, done, _ = env.step(1)
     assert obs[0] == 1.0
     assert not done
 

@@ -24,10 +24,14 @@ class ConvPatchEmbeddingBlock(nn.Module):
   def forward(self, x):
     # x: (B, Cin, H, W)
     identity = x
-    x = F.gelu(self.bn1(self.conv1(x)))  # stride-1: (B, Cmid, H, W)
-    x = self.bn2(self.conv2(x))  # stride-2: (B, Cout, H/2, W/2)
-    skip = self.skip_bn(self.skip_proj(self.skip_pool(identity)))  # (B, Cout, H/2, W/2)
-    return F.gelu(x + skip)  # (B, Cout, H/2, W/2)
+    # Stride-1: (B, Cmid, H, W).
+    x = F.gelu(self.bn1(self.conv1(x)))
+    # Stride-2: (B, Cout, H/2, W/2).
+    x = self.bn2(self.conv2(x))
+    # (B, Cout, H/2, W/2)
+    skip = self.skip_bn(self.skip_proj(self.skip_pool(identity)))
+    # (B, Cout, H/2, W/2)
+    return F.gelu(x + skip)
 
 
 class ConvPatchEmbedding(nn.Module):
@@ -54,7 +58,8 @@ class ConvPatchEmbedding(nn.Module):
     blocks = []
     in_ch = img_channels
     for out_ch in channels:
-      mid_ch = out_ch  # mid = out for this design
+      # mid = out for this design
+      mid_ch = out_ch
       blocks.append(ConvPatchEmbeddingBlock(in_ch, mid_ch, out_ch))
       in_ch = out_ch
     self.blocks = nn.Sequential(*blocks)
@@ -168,10 +173,12 @@ class CustomPatchTransformer(nn.Module):
     B = patch_embeddings.shape[0]
     x = patch_embeddings
 
-    # Prepend learnable CLS tokens; pos_embedding covers the full
-    # (num_cls_tokens + N) sequence.
-    cls = self.cls_token.expand(B, -1, -1)  # [B, num_cls, D]
-    x = torch.cat([cls, x], dim=1)  # [B, num_cls+N, D]
+    # Prepend learnable CLS tokens; pos_embedding covers the full (num_cls_tokens + N)
+    # sequence.
+    # [B, num_cls, D].
+    cls = self.cls_token.expand(B, -1, -1)
+    # [B, num_cls+N, D].
+    x = torch.cat([cls, x], dim=1)
     x = x + self.pos_embedding[:, :x.shape[1], :]
     x = self.pos_drop(x)
 
@@ -185,11 +192,12 @@ class CustomPatchTransformer(nn.Module):
         )
       else:
         x = layer(x)
-    x = self.ln_norm(x)  # (B, 1+N, D)
+    # (B, 1+N, D)
+    x = self.ln_norm(x)
 
     # Split: CLS slots (B, num_cls, D) and spatial slots (B, N, D)
-    return (x[:, :self.num_cls_tokens, :], x[:,
-                                             self.num_cls_tokens:, :])  # CLS, spatial
+    # CLS, spatial.
+    return (x[:, :self.num_cls_tokens, :], x[:, self.num_cls_tokens:, :])
 
   def forward(self, x):
     # Conv stem: (B, 3, H, W) -> (B, N, D) patch embeddings.

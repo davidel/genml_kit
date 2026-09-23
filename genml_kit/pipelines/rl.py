@@ -501,7 +501,8 @@ class RLPipeline(DataPipeline):
     reset_result = self.env.reset()
     obs = reset_result[0] if isinstance(reset_result, tuple) else reset_result
     if self._obs_normalize and self.obs_rms is not None:
-      self.obs_rms.update(obs[None, ...])  # Add batch dim for update
+      # Add batch dim for update.
+      self.obs_rms.update(obs[None, ...])
       obs = self.obs_rms.normalize(obs, clip=self._obs_norm_clip)
     return obs
 
@@ -521,7 +522,8 @@ class RLPipeline(DataPipeline):
     if len(step_result) == 5:
       next_obs, reward, terminated, truncated, info = step_result
       done = terminated or truncated
-      info = dict(info)  # do not mutate the env-owned dict
+      # Do not mutate the env-owned dict.
+      info = dict(info)
       info["terminated"] = terminated
       info["truncated"] = truncated
     else:

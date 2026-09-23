@@ -17,8 +17,10 @@ from genml_kit.training.trainer import BaseTrainer
 
 class _Args:
   epochs = 2
-  state_save = "none"  # optimizer/scheduler/AMP states not saved
-  checkpoint = None  # set per-test
+  # Optimizer/scheduler/AMP states not saved.
+  state_save = "none"
+  # Set per-test.
+  checkpoint = None
   save_every = 0
   remote_checkpoint = None
   grad_accum_steps = 1

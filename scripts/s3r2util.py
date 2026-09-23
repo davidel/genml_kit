@@ -588,14 +588,16 @@ def r2_object_index(s3_client, bucket, prefix):
 def should_upload(local_size, local_mtime, remote_size, remote_mtime):
   """Decide whether a local file should be uploaded based on size/mtime."""
   if remote_size is None:
-    return True  # Object doesn't exist remotely.
+    # Object doesn't exist remotely.
+    return True
   return (local_size != remote_size) or (local_mtime > remote_mtime)
 
 
 def should_download(local_size, local_mtime, remote_size, remote_mtime):
   """Decide whether a remote object should be downloaded to local."""
   if local_size is None:
-    return True  # Local file doesn't exist.
+    # Local file doesn't exist.
+    return True
   return (local_size != remote_size) or (remote_mtime > local_mtime)
 
 
@@ -719,7 +721,8 @@ def sync_r2_to_local(s3_client, r2_bucket, r2_prefix, local_dir, args):
   remote = r2_object_index(s3_client, r2_bucket, r2_prefix)
 
   # Build local index (keys relative to r2_prefix).
-  local_files = {}  # {rel_path: (size, mtime)}
+  # {rel_path: (size, mtime)}.
+  local_files = {}
   if os.path.isdir(local_dir):
     for root, _, files in os.walk(local_dir):
       for fname in files:
@@ -729,9 +732,11 @@ def sync_r2_to_local(s3_client, r2_bucket, r2_prefix, local_dir, args):
 
   to_download = []
   for r2_key, (remote_size, remote_mtime) in remote.items():
-    rel_path = r2_key[len(r2_prefix):]  # Strip prefix.
+    # Strip prefix.
+    rel_path = r2_key[len(r2_prefix):]
     if not rel_path:
-      continue  # Skip the prefix itself if it's an object.
+      # Skip the prefix itself if it's an object.
+      continue
 
     # Apply exclude filter.
     if args.exclude and fnmatch.fnmatch(rel_path, args.exclude):
@@ -989,7 +994,8 @@ def handle_mv(args, s3_client):
 
     # Wildcard source
     if has_wildcard(source):
-      src_prefix = src_key  # already normalized
+      # Already normalized.
+      src_prefix = src_key
       matches = expand_wildcard(s3_client, source)
       _, dst_prefix = parse_r2_path(destination)
 

@@ -50,15 +50,24 @@ ISIC_2019_URLS = {
 
 # Class names from the ground truth CSV
 CLASS_NAMES = [
-    "MEL",  # Melanoma
-    "NV",  # Melanocytic nevus
-    "BCC",  # Basal cell carcinoma
-    "AK",  # Actinic keratosis
-    "BKL",  # Benign keratosis
-    "DF",  # Dermatofibroma
-    "VASC",  # Vascular lesion
-    "SCC",  # Squamous cell carcinoma
-    "UNK",  # Unknown
+    # Melanoma.
+    "MEL",
+    # Melanocytic nevus.
+    "NV",
+    # Basal cell carcinoma.
+    "BCC",
+    # Actinic keratosis.
+    "AK",
+    # Benign keratosis.
+    "BKL",
+    # Dermatofibroma.
+    "DF",
+    # Vascular lesion.
+    "VASC",
+    # Squamous cell carcinoma.
+    "SCC",
+    # Unknown.
+    "UNK",
 ]
 
 

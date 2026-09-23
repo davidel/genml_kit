@@ -51,7 +51,8 @@ def _make_pipeline_and_method(obs_dim=4):
       obs_dim=obs_dim,
       rollout_len=16,
   )
-  pipeline._action_dim = None  # discrete
+  # Discrete.
+  pipeline._action_dim = None
 
   method = get_method("ppo")()
   args = _make_args()
@@ -77,7 +78,8 @@ class TestPPOMethod:
     assert action in (0, 1)
     assert isinstance(log_prob, float)
     assert isinstance(value, float)
-    assert raw_action is None  # discrete
+    # Discrete.
+    assert raw_action is None
 
   def test_train_step(self):
     _, method, model = _make_pipeline_and_method()
@@ -105,8 +107,10 @@ class TestPPOMethod:
 
   def test_has_metric_improved(self):
     method = PPOMethod()
-    assert method.has_metric_improved(5.0, 3.0)  # new=5, best=3 -> improved
-    assert not method.has_metric_improved(3.0, 5.0)  # new=3, best=5 -> not improved
+    # new=5, best=3 -> improved
+    assert method.has_metric_improved(5.0, 3.0)
+    # new=3, best=5 -> not improved
+    assert not method.has_metric_improved(3.0, 5.0)
 
   def test_update_target_noop(self):
     _, method, model = _make_pipeline_and_method()

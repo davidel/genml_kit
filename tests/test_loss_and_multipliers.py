@@ -301,7 +301,8 @@ class TestCombinedFocalLoss:
   def test_gamma_zero_reduces_to_ce(self):
     """When gamma=0, the loss should match F.cross_entropy(reduction='none').mean()."""
     logits, targets = _make_batch()
-    weights = torch.rand(7) + 0.1  # Random positive weights
+    # Random positive weights.
+    weights = torch.rand(7) + 0.1
 
     focal = CombinedFocalLoss(weights=weights, gamma=0.0, reduction='mean')
 

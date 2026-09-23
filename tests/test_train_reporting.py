@@ -71,7 +71,8 @@ def test_init_stores_references():
 
 
 def test_step_accumulates_loss():
-  r = _make_reporter(log_every=100)  # large log_every to suppress logging
+  # Large log_every to suppress logging.
+  r = _make_reporter(log_every=100)
   logits, targets = _dummy_batch(batch_size=4)
   r.step(0, 4, 2.5, logits, targets, 0)
   assert r._total_loss == 2.5
@@ -105,9 +106,12 @@ def test_log_triggered_on_log_every_boundary(caplog):
   r = _make_reporter(log_every=3)
   logits, targets = _dummy_batch()
   with caplog.at_level(logging.INFO):
-    r.step(0, 4, 1.0, logits, targets, 0)  # batch_idx=0, (0+1)%3 != 0
-    r.step(1, 4, 1.0, logits, targets, 1)  # batch_idx=1, (1+1)%3 != 0
-    r.step(2, 4, 1.0, logits, targets, 2)  # batch_idx=2, (2+1)%3 == 0 -> log
+    # batch_idx=0, (0+1)%3 != 0
+    r.step(0, 4, 1.0, logits, targets, 0)
+    # batch_idx=1, (1+1)%3 != 0
+    r.step(1, 4, 1.0, logits, targets, 1)
+    # batch_idx=2, (2+1)%3 == 0 -> log
+    r.step(2, 4, 1.0, logits, targets, 2)
   assert "[Step 3/10]" in caplog.text
   assert "loss=" in caplog.text
 
@@ -122,7 +126,8 @@ def test_no_log_when_not_on_boundary(caplog):
 
 
 def test_report_now_forces_log(caplog):
-  r = _make_reporter(log_every=100)  # would NOT normally log
+  # Would NOT normally log.
+  r = _make_reporter(log_every=100)
   logits, targets = _dummy_batch()
   with caplog.at_level(logging.INFO):
     r.step(0, 4, 1.0, logits, targets, 0, report_now=True)
@@ -154,8 +159,10 @@ def test_window_accumulates_between_logs():
   # No log yet — window should have accumulated 8 samples.
   assert r._window_samples == 8
   assert r._window_loss == 2.0
-  r.step(2, 4, 1.0, logits, targets, 2)  # triggers log
-  assert r._window_samples == 0  # reset
+  # Triggers log.
+  r.step(2, 4, 1.0, logits, targets, 2)
+  # Reset.
+  assert r._window_samples == 0
 
 
 def test_log_contains_key_fields(caplog):
@@ -223,7 +230,8 @@ def test_macro_f1_in_log(caplog):
   batch_size = 4
   targets = torch.zeros(batch_size, dtype=torch.long)
   logits = torch.zeros(batch_size, 2)
-  logits[:, 0] = 10.0  # all predict class 0
+  # All predict class 0.
+  logits[:, 0] = 10.0
   with caplog.at_level(logging.INFO):
     r.step(0, batch_size, 1.0, logits, targets, 0)
   assert "macro_f1=100.00%" in caplog.text
@@ -234,7 +242,8 @@ def test_macro_f1_zero_when_no_correct(caplog):
   r = _make_reporter(log_every=1)
   targets = torch.tensor([0, 0, 0, 0])
   logits = torch.zeros(4, 2)
-  logits[:, 1] = 10.0  # all predict class 1
+  # All predict class 1.
+  logits[:, 1] = 10.0
   with caplog.at_level(logging.INFO):
     r.step(0, 4, 1.0, logits, targets, 0)
   assert "macro_f1=0.00%" in caplog.text
@@ -284,6 +293,8 @@ def test_report_now_false_on_boundary_still_logs():
   logits, targets = _dummy_batch()
   # (batch_idx=1, (1+1)%2==0) triggers log even without report_now.
   r.step(0, 4, 1.0, logits, targets, 0)
-  assert r._window_samples == 4  # no log yet
+  # No log yet.
+  assert r._window_samples == 4
   r.step(1, 4, 1.0, logits, targets, 1)
-  assert r._window_samples == 0  # log happened, window reset
+  # Log happened, window reset.
+  assert r._window_samples == 0

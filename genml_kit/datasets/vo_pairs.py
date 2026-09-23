@@ -214,16 +214,23 @@ class VOPairDataset:
 
   # Tile texture is a deliberate, fixed design: low-frequency value noise
   # (``NOISE_CELL_PX`` cells) plus a fine grid (``GRID_PERIOD_PX`` period,
-  # ``GRID_LINE_PX`` stroke).  These statistics define the visual structure
-  # of the synthetic terrain, not any camera behaviour, so they are hard-coded
-  # rather than exposed as constructor options.
-  TILE_SCALE = 4  # base tile is this many image widths per side
-  NOISE_CELL_PX = 8  # value-noise cell size in tile pixels
-  GRID_PERIOD_PX = 32  # grid spacing, tile pixels
-  GRID_LINE_PX = 2  # grid stroke width, tile pixels
-  GRID_WEIGHT = 0.25  # grid contribution in [0, 1]
-  NOISE_WEIGHT = 0.75  # value-noise contribution in [0, 1]
-  TILE_CLIP = (0.0, 1.0)  # texture is normalized to this range
+  # ``GRID_LINE_PX`` stroke).  These statistics define the visual structure of the
+  # synthetic terrain, not any camera behaviour, so they are hard-coded rather than
+  # exposed as constructor options.
+  # Base tile is this many image widths per side.
+  TILE_SCALE = 4
+  # Value-noise cell size in tile pixels.
+  NOISE_CELL_PX = 8
+  # Grid spacing, tile pixels.
+  GRID_PERIOD_PX = 32
+  # Grid stroke width, tile pixels.
+  GRID_LINE_PX = 2
+  # Grid contribution in [0, 1].
+  GRID_WEIGHT = 0.25
+  # Value-noise contribution in [0, 1].
+  NOISE_WEIGHT = 0.75
+  # Texture is normalized to this range.
+  TILE_CLIP = (0.0, 1.0)
 
   def _base_tile(self, rng):
     """Procedural ground texture: value noise + grid, in [0, 1].

@@ -118,7 +118,8 @@ def _make_block_mask(num_h, num_w, block_size_h, block_size_w, n_blocks, device)
   rows = torch.arange(0, num_h - block_size_h + 1, block_size_h, device=device)
   cols = torch.arange(0, num_w - block_size_w + 1, block_size_w, device=device)
   grid = torch.stack(torch.meshgrid(rows, cols, indexing="ij"), dim=-1)
-  grid = grid.reshape(-1, 2)  # (num_candidates, 2)
+  # (num_candidates, 2)
+  grid = grid.reshape(-1, 2)
   n_blocks = min(n_blocks, grid.shape[0])
   idx = torch.randperm(grid.shape[0], device=device)[:n_blocks]
   for r, c in grid[idx]:
@@ -134,7 +135,8 @@ class IJEPAMethod(Method):
   NAME = "ijepa"
   NEEDS_LABELS = False
   METRIC_KEY = "loss"
-  METRIC_MINIMIZE = True  # loss is minimized
+  # Loss is minimized.
+  METRIC_MINIMIZE = True
 
   @classmethod
   def add_args(cls, parser):
@@ -315,10 +317,13 @@ class IJEPA(nn.Module):
       z_t = self.teacher(target_view)
 
     # -- Block mask on target space.
-    t_h = target_view.shape[2] // patch_size  # target grid height
-    t_w = target_view.shape[3] // patch_size  # target grid width
+    # Target grid height.
+    t_h = target_view.shape[2] // patch_size
+    # Target grid width.
+    t_w = target_view.shape[3] // patch_size
     n_mask = self._n_mask_blocks
     block_size = self._block_size
+    # (N_t,) boolean mask over target patches
     mask = _make_block_mask(
         t_h,
         t_w,
@@ -326,13 +331,14 @@ class IJEPA(nn.Module):
         min(block_size, t_w),
         n_mask,
         images.device,
-    )  # (N_t,) boolean mask over target patches
+    )
 
     # Flatten the masked positions: (N_t,) -> (M,).
     mask_indices = mask.nonzero(as_tuple=False).squeeze(1)
 
     # -- Predict masked target embeddings from source context.
-    context = z_s  # (B, N_s, D)
+    # (B, N_s, D)
+    context = z_s
     # Broadcast mask indices over the batch: (M,) -> (B, M).
     idx_expanded = mask_indices.unsqueeze(0).expand(z_s.shape[0], -1)
     # Predictor: (B, N_s, D) context + (B, M) indices -> (B, M, D).

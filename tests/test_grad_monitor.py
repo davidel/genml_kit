@@ -526,8 +526,10 @@ def test_zero_element_parameter_reports_zero_stats():
   model = nn.Sequential()
   model.fc = nn.Linear(10, 5)
   with warnings.catch_warnings():
-    warnings.simplefilter("ignore", UserWarning)  # nn.Linear warns on out=0
-    model.unused_head = nn.Linear(5, 0)  # zero-element weight and bias
+    # Nn.Linear warns on out=0.
+    warnings.simplefilter("ignore", UserWarning)
+    # Zero-element weight and bias.
+    model.unused_head = nn.Linear(5, 0)
 
   mon = GradMonitor(model, log_every=1)
   x = torch.randn(4, 10)
@@ -535,10 +537,12 @@ def test_zero_element_parameter_reports_zero_stats():
 
   # Step through the real sub-network only (unused_head outputs nothing).
   loss = nn.functional.mse_loss(model.fc(x), target)
-  loss.backward()  # would raise ZeroDivisionError inside monitor below
+  # Would raise ZeroDivisionError inside monitor below.
+  loss.backward()
 
   with caplog_disabled():
-    mon.step(1)  # must not raise
+    # Must not raise.
+    mon.step(1)
 
 
 class caplog_disabled:

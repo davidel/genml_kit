@@ -57,7 +57,8 @@ class TestBalancedBatchSampler:
   def test_length(self):
     labels = np.arange(100)
     sampler = BalancedBatchSampler(labels, batch_size=10, samples_per_class=2)
-    assert len(sampler) == 10  # 100 // 10
+    # 100 // 10.
+    assert len(sampler) == 10
 
   def test_small_class_replaced(self):
     """Class with fewer samples than samples_per_class uses replacement."""

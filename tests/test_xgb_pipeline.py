@@ -68,7 +68,8 @@ class TestEndToEnd:
 
   def test_trains_and_saves_model(self, tmp_path):
     out_path = str(tmp_path / "xgb_model.json")
-    fake_ds = object()  # opaque; only passed through to HFDatasetProxy
+    # Opaque; only passed through to HFDatasetProxy.
+    fake_ds = object()
 
     with contextlib.ExitStack() as stack:
       for cm in self._pipeline_patches(tmp_path):

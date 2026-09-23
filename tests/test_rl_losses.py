@@ -95,7 +95,8 @@ class TestTdTarget:
     """A truncated step (done=1, terminated=0) still bootstraps."""
     obs = torch.randn(3, 4)
     rewards = torch.zeros(3)
-    dones = torch.ones(3)  # episode over from the env's perspective
+    # Episode over from the env's perspective.
+    dones = torch.ones(3)
     terminated = torch.ones(3)
     target_done = td_target(rewards, obs, dones, self.policy, self.target, gamma=0.9)
     # With terminated=1 the bootstrap is masked out: target == reward.

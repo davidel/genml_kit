@@ -502,7 +502,8 @@ class TestExtractLoraParams:
 
     wrapped = apply_lora(TwoLayer(), r=4, alpha=8, target_modules=["fc1", "fc2"])
     params = extract_lora_params(wrapped)
-    assert len(params) == 4  # lora_A + lora_B for each of fc1, fc2
+    # Lora_A + lora_B for each of fc1, fc2.
+    assert len(params) == 4
     for p in params:
       assert "fc1" in p or "fc2" in p
 

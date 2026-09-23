@@ -14,10 +14,14 @@ class TestSupConLoss:
     # 4 samples: class 0 pair close together, class 1 pair far apart.
     feat = torch.nn.functional.normalize(
         torch.tensor([
-            [1.0, 0.0],  # class 0
-            [0.95, 0.31],  # class 0, close
-            [1.0, 0.0],  # class 1
-            [-1.0, 0.0],  # class 1, far
+            # Class 0.
+            [1.0, 0.0],
+            # Class 0, close.
+            [0.95, 0.31],
+            # Class 1.
+            [1.0, 0.0],
+            # Class 1, far.
+            [-1.0, 0.0],
         ]),
         dim=1,
     )
@@ -25,10 +29,14 @@ class TestSupConLoss:
 
     feat2 = torch.nn.functional.normalize(
         torch.tensor([
-            [1.0, 0.0],  # class 0
-            [-1.0, 0.0],  # class 0, far
-            [1.0, 0.0],  # class 1
-            [-1.0, 0.0],  # class 1, far
+            # Class 0.
+            [1.0, 0.0],
+            # Class 0, far.
+            [-1.0, 0.0],
+            # Class 1.
+            [1.0, 0.0],
+            # Class 1, far.
+            [-1.0, 0.0],
         ]),
         dim=1,
     )
@@ -100,7 +108,8 @@ class TestSupConLoss:
     n = 6
     # Build near-orthogonal features via QR so off-diagonal sims ≈ 0.
     q, _ = torch.linalg.qr(torch.randn(d, n))
-    features = q.T.float()  # (6, 128), rows are orthonormal.
+    # (6, 128), rows are orthonormal.
+    features = q.T.float()
     labels = torch.tensor([0, 0, 1, 1, 2, 2])
     loss = supcon_loss(features, labels, temperature=0.07)
     assert torch.isfinite(loss)

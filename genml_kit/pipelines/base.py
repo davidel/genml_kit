@@ -13,7 +13,8 @@ class DataPipeline(abc.ABC):  # noqa: B024
     without extra plumbing.
     """
 
-  NAME = ""  # registry key (matches Method.NAME convention)
+  # Registry key (matches Method.NAME convention).
+  NAME = ""
 
   def __init__(self, **kwargs):
     self.train_loader = None

@@ -66,7 +66,8 @@ def test_network_output_is_valid_similarity():
   b = torch.rand(3, 1, 128, 128)
   out = net(a, b)
   src = out["corners"]
-  dst = src + out["dc"] * 100.0  # exaggerate the offsets
+  # Exaggerate the offsets.
+  dst = src + out["dc"] * 100.0
   from genml_kit.geometry.similarity import umeyama_similarity
   params = umeyama_similarity(src, dst)
   scale = torch.exp(params.log_s)
@@ -113,8 +114,7 @@ def test_corner_head_shapes_and_slice():
   assert out["dc"].shape == (2, 4, 2)
   assert out["conf"].shape == (2, 2)
   # The MLP output width must equal the encoder's final stage width.
-  final_width = dict(net.encoder.named_parameters())[
-      "stages.7.0.weight"].shape[0]
+  final_width = dict(net.encoder.named_parameters())["stages.7.0.weight"].shape[0]
   assert net.corner_mlp[0].in_features == final_width
   assert net.corner_mlp[0].out_features == final_width
   assert net.corner_mlp[2].in_features == final_width

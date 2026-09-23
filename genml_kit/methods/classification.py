@@ -184,7 +184,8 @@ class ClassificationMethod(Method):
       soft_targets = (lam * F.one_hot(targets_a, logits.size(-1)).float() +
                       (1.0 - lam) * F.one_hot(targets_b, logits.size(-1)).float())
       loss = self._criterion(logits, soft_targets)
-      hard_targets = targets_a  # dominant label (mixup_data clamps lam>=0.5)
+      # Dominant label (mixup_data clamps lam>=0.5).
+      hard_targets = targets_a
     else:
       loss = self._criterion(logits, targets)
       hard_targets = targets

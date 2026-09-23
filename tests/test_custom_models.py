@@ -288,7 +288,8 @@ class TestConvViTForward:
     x = torch.randn(1, 3, 224, 224)
     # Access the conv stem directly
     features = model.patch_embed.blocks
-    assert len(features) == 4  # num_conv_layers=4
+    # num_conv_layers=4
+    assert len(features) == 4
     # Forward through the stem manually
     feat_maps = []
     h = x
@@ -410,7 +411,8 @@ class TestClsModelWrapper:
     features = model.extract_backbone_features(x)
     assert isinstance(features, torch.Tensor)
     assert features.shape[0] == 2
-    assert features.ndim == 2  # (B, F)
+    # (B, F)
+    assert features.ndim == 2
 
   def test_extract_backbone_features_cls_attention(self):
     model = self._make_wrapper(
@@ -621,9 +623,10 @@ class TestLoadCustomModel:
     # The model constructor should have received the overrides.
     assert captured_kwargs["num_transformer_layers"] == 3
     assert captured_kwargs["drop_path_rate"] == 0.2
-    # Only explicitly-passed kwargs appear; constructor defaults are irrelevant
-    # because we mocked __init__.
-    assert "nhead" not in captured_kwargs  # not passed by test
+    # Only explicitly-passed kwargs appear; constructor defaults are irrelevant because
+    # we mocked __init__.
+    # Not passed by test.
+    assert "nhead" not in captured_kwargs
 
   def test_unknown_model_raises(self):
     # load_model falls through to HuggingFace for unknown names,
@@ -695,7 +698,8 @@ class TestExtractBackboneFeatures:
     config = ConvNextV2Config(
         image_size=224,
         num_labels=num_labels,
-        hidden_size=128,  # small for fast tests
+        # Small for fast tests.
+        hidden_size=128,
         depths=[2, 2, 6, 2],
         hidden_sizes=[64, 128, 256, 512],
     )
@@ -769,7 +773,8 @@ class TestExtractBackboneFeatures:
 
   def test_hook_no_classifier_raises(self):
     """Raises ValueError if no classifier head is found."""
-    model = torch.nn.Linear(10, 5)  # bare Linear, no .classifier attr
+    # Bare Linear, no .classifier attr.
+    model = torch.nn.Linear(10, 5)
 
     with pytest.raises(ValueError, match="Cannot extract backbone features"):
       extract_backbone_features(model, torch.randn(1, 10))

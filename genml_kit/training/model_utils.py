@@ -342,14 +342,18 @@ def _extract_backbone_features_impl(model, pixel_values):
   try:
     out = model(pixel_values=pixel_values, output_hidden_states=True)
     if hasattr(out, "hidden_states") and out.hidden_states:
-      last = out.hidden_states[-1]  # (B, N, D) or (B, D, H, W)
+      # (B, N, D) or (B, D, H, W)
+      last = out.hidden_states[-1]
       if last.ndim == 4:
-        return last.mean(dim=(2, 3))  # spatial average-pool
+        # Spatial average-pool.
+        return last.mean(dim=(2, 3))
       if last.ndim == 3:
-        return last[:, 0]  # CLS token
+        # CLS token.
+        return last[:, 0]
       return last
   except TypeError:
-    pass  # model doesn't accept output_hidden_states
+    # Model doesn't accept output_hidden_states.
+    pass
 
   # 3. Hook-based fallback via the classification head
   head = _find_head_module(model)

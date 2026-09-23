@@ -110,7 +110,8 @@ class ImageFolderDataset:
           f"No images found under '{self._root_dir}' "
           f"(extensions checked: {_IMAGE_EXTS})", FileNotFoundError)
 
-    depth_map = {}  # depth → list[Path]
+    # Depth → list[Path].
+    depth_map = {}
     for p in all_paths:
       depth = len(p.relative_to(self._root_dir).parts)
       depth_map.setdefault(depth, []).append(p)
@@ -196,7 +197,8 @@ class ImageFolderDataset:
   def __getitem__(self, idx):
     n = len(self._paths)
     if idx < 0:
-      idx += n  # Python-style negative indexing (-1 == last)
+      # Python-style negative indexing (-1 == last).
+      idx += n
     if idx < 0 or idx >= n:
       fatal(f"Index {idx} out of range for '{self.name}'", IndexError)
 

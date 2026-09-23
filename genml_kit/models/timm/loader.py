@@ -61,7 +61,8 @@ def load_timm_model(
     Extra arguments forwarded to ``timm.create_model``
     (e.g. ``drop_path_rate``, ``pretrained_cfg_overlay``).
   """
-  import timm  # local import so the module is optional
+  # Local import so the module is optional.
+  import timm
 
   timm_model = timm.create_model(
       backbone,
@@ -94,7 +95,8 @@ def load_timm_processor(*, backbone, image_size=224, **kwargs):
   Reads the model's ``pretrained_cfg`` to obtain the correct
   normalization and interpolation settings.
   """
-  import timm  # local import so the module is optional
+  # Local import so the module is optional.
+  import timm
 
   timm_model = timm.create_model(backbone, pretrained=False)
   data_config = timm.data.resolve_data_config(timm_model.pretrained_cfg)

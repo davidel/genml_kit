@@ -181,7 +181,8 @@ class TestEndToEnd:
     model.eval()
 
     img = Image.new("RGB", (256, 256), color=(100, 150, 200))
-    pixel_values = proc(img).unsqueeze(0)  # (1, C, H, W)
+    # (1, C, H, W)
+    pixel_values = proc(img).unsqueeze(0)
     out = model(pixel_values=pixel_values)
     assert isinstance(out, ModelOutput)
     assert out.logits.shape == (1, 5)

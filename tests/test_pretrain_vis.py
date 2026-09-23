@@ -123,4 +123,5 @@ def test_simmim_logs_first_view_of_multiview():
                         torch.device("cpu"),
                         num_samples=2)
   original = [t for tag, t, _ in writer._images if tag == "recon/original"][0]
-  assert original.ndim == 3  # single image (C, H, W) after [0] indexing
+  # Single image (C, H, W) after [0] indexing.
+  assert original.ndim == 3

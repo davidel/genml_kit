@@ -48,7 +48,8 @@ class DictFieldTransform(nn.Module):
     return self._fields
 
   def forward(self, idx):
-    row = dict(self._ds[idx])  # copy: never mutate the source row
+    # Copy: never mutate the source row.
+    row = dict(self._ds[idx])
     for f in self._fields:
       if f in row:
         row[f] = self._t(row[f])

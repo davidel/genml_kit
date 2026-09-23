@@ -152,7 +152,8 @@ class TestEnableGradCheckpointing:
 
     from genml_kit.training.model_utils import enable_grad_checkpointing
 
-    model = MagicMock(spec=[])  # empty spec = no real attributes
+    # Empty spec = no real attributes.
+    model = MagicMock(spec=[])
 
     with caplog.at_level(logging.WARNING):
       enable_grad_checkpointing(model)

@@ -39,7 +39,8 @@ class TestBuildParamGroups:
     assert len(groups) == 1
     assert groups[0]["lr"] == 1e-3
     assert groups[0]["weight_decay"] == 0.01
-    assert len(groups[0]["params"]) == 4  # 2 weight + 2 bias
+    # 2 weight + 2 bias.
+    assert len(groups[0]["params"]) == 4
 
   def test_regex_matching(self):
     model = self._make_model()
@@ -93,7 +94,8 @@ class TestBuildParamGroups:
     named_params = dict(model.named_parameters())
     groups = build_param_groups(named_params, lr=1e-3, weight_decay=0.01)
     # Only backbone params should be in the group
-    assert len(groups[0]["params"]) == 2  # weight + bias
+    # Weight + bias.
+    assert len(groups[0]["params"]) == 2
 
   def test_unmatched_regex_raises(self):
     model = self._make_model()
@@ -322,7 +324,8 @@ class TestCreateOptimizerScript:
         momentum=0.9,
     )
     assert isinstance(opt, optim.SGD)
-    assert opt.param_groups[0]["lr"] == 0.05  # forwarded from lr=
+    # Forwarded from lr=.
+    assert opt.param_groups[0]["lr"] == 0.05
     assert opt.param_groups[0]["momentum"] == 0.9
 
 

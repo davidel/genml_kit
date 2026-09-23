@@ -150,7 +150,8 @@ class TestEvaluateRecordVideo:
     assert "episode_frames" in metrics
     assert len(metrics["episode_frames"]) == 2
     for frames in metrics["episode_frames"]:
-      assert len(frames) >= 2  # reset frame + at least one step frame
+      # Reset frame + at least one step frame.
+      assert len(frames) >= 2
       for frame in frames:
         assert frame.shape == (16, 16, 3)
         assert frame.dtype == np.uint8

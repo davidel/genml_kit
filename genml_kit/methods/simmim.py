@@ -66,7 +66,8 @@ class SimMIMMethod(Method):
   NAME = "simmim"
   NEEDS_LABELS = False
   METRIC_KEY = "loss"
-  METRIC_MINIMIZE = True  # loss is minimized
+  # Loss is minimized.
+  METRIC_MINIMIZE = True
 
   @classmethod
   def add_args(cls, parser):
@@ -167,7 +168,8 @@ class SimMIMMethod(Method):
     blob = to_device(blob, device)
     images = blob.data
     if isinstance(images, (tuple, list)):
-      images = images[0]  # dual-view/multi-crop: log the first view
+      # Dual-view/multi-crop: log the first view.
+      images = images[0]
     images = images[:num_samples]
     with model_mode(model, "eval"):
       mask = make_mask(images, model.patch_size, model.mask_ratio)

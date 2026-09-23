@@ -33,7 +33,8 @@ class VOPairMethod(Method):
 
   NAME = "vo_pair"
   METRIC_KEY = "mce"
-  METRIC_MINIMIZE = True  # mce is minimized
+  # Mce is minimized.
+  METRIC_MINIMIZE = True
   NEEDS_LABELS = True
 
   def __init__(self):

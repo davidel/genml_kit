@@ -15,17 +15,21 @@ class Method(abc.ABC):
     (SimMIM, SupCon, DINO, BYOL, IJEPA, VO photometric) alike.
     """
 
-  NAME = ""  # registry key (matches PretrainMethod.NAME today)
+  # Registry key (matches PretrainMethod.NAME today).
+  NAME = ""
 
-  METRIC_KEY = "loss"  # best-checkpoint metric key (best_<METRIC_KEY>)
+  # Best-checkpoint metric key (best_<METRIC_KEY>).
+  METRIC_KEY = "loss"
 
-  METRIC_MINIMIZE = False  # True for loss-keyed methods (lower is better)
+  # True for loss-keyed methods (lower is better).
+  METRIC_MINIMIZE = False
 
-  NEEDS_LABELS = False  # whether this method requires labels in the data blob
+  # Whether this method requires labels in the data blob.
+  NEEDS_LABELS = False
 
-  IS_ON_POLICY = False  # True for on-policy RL methods (PPO): the trainer
-  # collects a rollout and re-uses it for multiple SGD epochs instead of
-  # sampling from a replay buffer.
+  # True for on-policy RL methods (PPO): the trainer collects a rollout and re-uses it
+  # for multiple SGD epochs instead of sampling from a replay buffer.
+  IS_ON_POLICY = False
 
   @classmethod
   def get_trainer_class(cls):
@@ -133,7 +137,8 @@ class Method(abc.ABC):
           will call ``optimizer.zero_grad()``, ``loss.backward()``,
           ``optimizer.step()`` on the returned optimizer.
         """
-    return None  # Use default from optim_factory
+    # Use default from optim_factory.
+    return None
 
   @classmethod  # noqa: B027
   def add_args(cls, parser):

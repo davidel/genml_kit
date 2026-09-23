@@ -82,8 +82,10 @@ class TestDatasetEnsemble:
     assert len(ensemble) == 7
 
     # Verify flat indexing crosses dataset boundaries
-    item_a = ensemble[2]  # last image in dir_a
-    item_b = ensemble[3]  # first image in dir_b
+    # Last image in dir_a.
+    item_a = ensemble[2]
+    # First image in dir_b.
+    item_b = ensemble[3]
     assert isinstance(item_a, dict)
     assert isinstance(item_a["image"], Image.Image)
     assert isinstance(item_b["image"], Image.Image)

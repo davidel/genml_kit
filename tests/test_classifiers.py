@@ -16,7 +16,8 @@ class TestBuildClassifier:
 
   def test_mlp_default(self):
     net = build_classifier("mlp", num_labels=7, hidden_size=64)
-    x = torch.randn(2, 10, 64)  # (B, N, D)
+    # (B, N, D)
+    x = torch.randn(2, 10, 64)
     out = net(x)
     assert out.shape == (2, 7)
 
@@ -32,7 +33,8 @@ class TestBuildClassifier:
 
   def test_cls_attention_default(self):
     net = build_classifier("cls_attention", num_labels=7, hidden_size=64, num_heads=4)
-    x = torch.randn(2, 10, 64)  # (B, N, D)
+    # (B, N, D)
+    x = torch.randn(2, 10, 64)
     out = net(x)
     assert out.shape == (2, 7)
 
@@ -102,7 +104,8 @@ class TestClsAttention:
     net = build_classifier("mlp", num_labels=5, hidden_size=64, cls_slice=(0, 3))
     x = torch.randn(2, 10, 64)
     feats = net.extract_features(x)
-    assert feats.shape == (2, 192)  # 3 * 64
+    # 3 * 64.
+    assert feats.shape == (2, 192)
     out = net(x)
     assert out.shape == (2, 5)
 

@@ -208,7 +208,8 @@ class TestImagesPipelineLoader:
     assert pipeline.train_loader is loader
     batch = next(iter(loader))
     assert isinstance(batch, DataBlob)
-    assert batch.data.ndim == 4  # (B, C, H, W)
+    # (B, C, H, W)
+    assert batch.data.ndim == 4
     assert batch.meta["labels"] is not None
     assert batch.meta["labels"].shape[0] == batch.data.shape[0]
 
@@ -246,7 +247,8 @@ class TestImagesPipelineLoader:
     args.image_column = "image"
     args.sampler = "balanced"
     args.samples_per_class = 3
-    args.batch_size = 4  # 4 % 3 != 0, but the sampler still runs
+    # 4 % 3 != 0, but the sampler still runs.
+    args.batch_size = 4
     args.class_multipliers = ""
     args.sampler_weights = "frequency"
     args.train_transforms = build_pretrain_transform(args.image_size)
@@ -299,7 +301,8 @@ class TestVOPairPipeline:
     assert isinstance(batch, DataBlob)
     a, b = batch.data
     assert a.shape == b.shape
-    assert a.shape[0] == 4  # batch_size
+    # Batch_size.
+    assert a.shape[0] == 4
     assert a.shape[2] == 16
     assert "gt" in batch.meta
     assert "gt_residual" in batch.meta
@@ -354,7 +357,8 @@ class TestClassificationMethod:
 
       def forward(self, pixel_values):
         # pixel_values: (B, 3, H, W) -> global pool (B,) -> (B, 2).
-        x = pixel_values.mean(dim=[1, 2, 3]).unsqueeze(1)  # (B, 1)
+        # (B, 1)
+        x = pixel_values.mean(dim=[1, 2, 3]).unsqueeze(1)
         return type("Out", (), {"logits": self.fc(x.repeat(1, 4))})()
 
     model = _Model()

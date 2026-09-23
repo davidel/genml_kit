@@ -93,32 +93,39 @@ class BaseTrainer:
 
   def train_epoch(self, epoch, saver, step, monitor):
     """Run one training epoch; return ``(avg_loss, new_step)``."""
-    set_train_mode(self.model, "train")  # loop owns train/eval mode
+    # Loop owns train/eval mode.
+    set_train_mode(self.model, "train")
     total, batches = 0.0, 0
-    scaler = self.optimization.scaler  # None unless fp16-on-CUDA
+    # None unless fp16-on-CUDA.
+    scaler = self.optimization.scaler
     amp_dtype = getattr(self.args, "amp_dtype", None)
     total_batches = len(self.pipeline.train_loader)
 
     for step_in_epoch, blob in enumerate(self.pipeline.train_loader):
-      blob = self.pipeline.to_device(blob, self.device)  # data AND meta
+      # Data AND meta.
+      blob = self.pipeline.to_device(blob, self.device)
       with torch.amp.autocast(
           "cuda",
           dtype=amp_dtype,
           enabled=(amp_dtype is not None and self.device.type == "cuda"),
       ):
         loss_out = self.method.train_step(self.model, blob, step)
-        loss = loss_out.loss  # raw, UNSCALED mean batch objective
-      grad = loss / self.args.grad_accum_steps  # scale ONLY for grad
+        # Raw, UNSCALED mean batch objective.
+        loss = loss_out.loss
+      # Scale ONLY for grad.
+      grad = loss / self.args.grad_accum_steps
       if scaler is not None:
         scaler.scale(grad).backward()
       else:
         grad.backward()
 
+      # Flush partial tail.
       if ((step_in_epoch + 1) % self.args.grad_accum_steps == 0 or
-          (step_in_epoch + 1) == total_batches):  # flush partial tail
+          (step_in_epoch + 1) == total_batches):
         if scaler is not None:
           scaler.unscale_(self.optimization.optimizer)
-        if monitor is not None:  # true grads: post-unscale, pre-clip
+        # True grads: post-unscale, pre-clip.
+        if monitor is not None:
           monitor.step(step)
         if self.args.grad_clip > 0:
           torch.nn.utils.clip_grad_norm_(self.model.parameters(),
@@ -131,7 +138,8 @@ class BaseTrainer:
         self.optimization.optimizer.zero_grad(set_to_none=True)
         step += 1
 
-      total += loss.item()  # report RAW loss (see s 4 notes)
+      # Report RAW loss (see s 4 notes).
+      total += loss.item()
       batches += 1
 
     if self.writer is not None:
@@ -186,7 +194,8 @@ class BaseTrainer:
     """Run the training loop and return a ``TrainingResult``."""
     args = self.args
     states_to_save = parse_state_flags(args.state_save)
-    completed_epoch = self.start_epoch - 1  # last fully completed (-1 = none)
+    # Last fully completed (-1 = none).
+    completed_epoch = self.start_epoch - 1
     grad_monitor = self._init_grad_monitor()
 
     # Report the final model state after checkpoint restoration and all
@@ -252,7 +261,8 @@ class BaseTrainer:
                          f"{best_metric:.2f} -> {self.best_metric:.2f}")
 
           self.epoch_end()
-          completed_epoch = epoch  # epoch fully done: train, validate, hooks
+          # Epoch fully done: train, validate, hooks.
+          completed_epoch = epoch
       except InterruptedException:
         logging.warning(f"Interrupted by {interrupts.received}; saving "
                         "checkpoint.")

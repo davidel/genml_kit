@@ -196,10 +196,13 @@ class TestDINOMethod:
     # Apply the real per-item multi-crop transform, then collate: this is
     # the exact production path (#1 crashed before the split fix).
     items = [{"image": tf(torch.randn(3, 64, 64))} for _ in range(2)]
-    blob = ImagesPipeline._collate(items)  # DataBlob, tuple of stacked crops
+    # DataBlob, tuple of stacked crops.
+    blob = ImagesPipeline._collate(items)
     assert isinstance(blob.data, tuple)
-    assert len(blob.data) == 5  # 2 global + 3 local positions
-    assert blob.data[0].shape[0] == 2  # each position stacked over B
+    # 2 global + 3 local positions.
+    assert len(blob.data) == 5
+    # Each position stacked over B.
+    assert blob.data[0].shape[0] == 2
 
     out = method.train_step(model, blob, global_step=0)
     assert isinstance(out, LossOutput)
@@ -238,7 +241,8 @@ class TestDINOMethod:
 
     method.log_validation(None, iter([]), _to_device, _Writer(), 0, torch.device("cpu"))
     # Nothing was logged; the method has no vis support.
-    assert True  # reaching here without raising is the contract
+    # Reaching here without raising is the contract.
+    assert True
 
   def test_build_transform(self):
     method = get_method("dino")()

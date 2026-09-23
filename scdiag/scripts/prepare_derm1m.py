@@ -60,7 +60,8 @@ def download_file(url, dest_path, token=None):
   # Extract repo_id and filename from URL
   # URL format: https://huggingface.co/datasets/redlessone/Derm1M/resolve/main/IIYI.zip
   parts = url.split("/datasets/")[-1].split("/resolve/")
-  repo_id = parts[0]  # redlessone/Derm1M
+  # Redlessone/Derm1M.
+  repo_id = parts[0]
   filename = parts[1].split("/", 1)[1] if "/" in parts[1] else parts[1]
 
   print(f"  Downloading {filename} ...")

@@ -111,7 +111,8 @@ class TestSetupLogging:
 
   def test_replaces_existing_handlers(self):
     root = self._clear_root()
-    root.addHandler(logging.StreamHandler())  # plain handler
+    # Plain handler.
+    root.addHandler(logging.StreamHandler())
     setup_logging()
     # The plain handler should be gone.
     assert all(isinstance(h.formatter, GlogFormatter) for h in root.handlers)

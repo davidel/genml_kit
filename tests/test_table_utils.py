@@ -7,7 +7,8 @@ def test_basic_alignment():
   headers = ["Name", "Value"]
   rows = [["abc", "1"], ["ab", "22"]]
   lines = format_table(headers, rows)
-  assert len(lines) == 4  # header + sep + 2 data rows
+  # Header + sep + 2 data rows.
+  assert len(lines) == 4
   # Header and data rows should have the same length.
   assert len(lines[0]) == len(lines[2])
   assert len(lines[0]) == len(lines[3])
@@ -18,7 +19,8 @@ def test_footer_alignment():
   rows = [["abc", "100"], ["ab", "200"]]
   footer = ["TOTAL", "300"]
   lines = format_table(headers, rows, footer=footer)
-  assert len(lines) == 5  # header + sep + 2 data + footer
+  # Header + sep + 2 data + footer.
+  assert len(lines) == 5
   # All lines (except separator) should have the same length.
   line_len = len(lines[0])
   assert len(lines[2]) == line_len
@@ -54,7 +56,8 @@ def test_empty_rows():
   headers = ["A", "B"]
   footer = ["sum", "0"]
   lines = format_table(headers, [], footer=footer)
-  assert len(lines) == 3  # header + sep + footer
+  # Header + sep + footer.
+  assert len(lines) == 3
 
 
 def test_empty_headers_returns_empty():

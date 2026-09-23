@@ -197,7 +197,8 @@ class TestLoadCheckpointWeights:
     model = nn.Linear(10, 5)
     path = str(tmp_path / "model.pt")
     torch.save({"model_state_dict": model.state_dict()}, path)
-    new_model = nn.Linear(10, 8)  # different output dim
+    # Different output dim.
+    new_model = nn.Linear(10, 8)
     report = load_checkpoint_weights(path, new_model)
     assert report.unused_old or report.unmatched_new
 
@@ -289,7 +290,8 @@ class TestFetchRemoteCheckpoint:
                         lambda uri, path: True)
     restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
     assert restored == [str(latest), str(best)]
-    assert latest.exists() is False  # stub does not write; path bookkeeping only
+    # Stub does not write; path bookkeeping only.
+    assert latest.exists() is False
 
   def test_latest_tried_before_best(self, tmp_path, monkeypatch, caplog):
     """Precedence mirrors resume_checkpoint: latest first, then best."""
@@ -309,7 +311,8 @@ class TestFetchRemoteCheckpoint:
     with caplog.at_level(logging.WARNING):
       restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
     assert restored == []
-    assert caplog.records == []  # no warnings: a miss is normal
+    # No warnings: a miss is normal.
+    assert caplog.records == []
     assert not latest.exists()
     assert not best.exists()
 

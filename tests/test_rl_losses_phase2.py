@@ -63,8 +63,9 @@ class TestGAE:
     T = 2
     rewards = torch.zeros(T)
     values = torch.zeros(T)
-    next_values = torch.ones(T)  # V(s') = 1
-    # done=1 everywhere: the old code would mask out the bootstrap.
+    # V(s') = 1.
+    # Done=1 everywhere: the old code would mask out the bootstrap.
+    next_values = torch.ones(T)
     dones = torch.ones(T)
     # terminated=0 everywhere: both steps are truncations, not MDP ends.
     terminated = torch.zeros(T)
@@ -121,7 +122,8 @@ class TestClippedSurrogate:
     ratio = torch.ones(4)
     advantages = -torch.ones(4)
     loss = clipped_surrogate(ratio, advantages, clip_eps=0.2)
-    assert loss.item() >= 0.0  # loss is negated
+    # Loss is negated.
+    assert loss.item() >= 0.0
 
 
 class TestValueLoss:
@@ -158,7 +160,8 @@ class TestEntropyBonus:
 
   def test_positive(self):
     """Entropy bonus should be positive for negative log_probs."""
-    log_probs = -torch.ones(8)  # log_prob < 0 is typical
+    # Log_prob < 0 is typical.
+    log_probs = -torch.ones(8)
     ent = entropy_bonus(log_probs)
     assert ent.item() > 0
 
@@ -208,10 +211,12 @@ class TestSACAlphaLoss:
 
   def test_direction(self):
     """When entropy is high (log_prob very negative), alpha should grow."""
-    # loss = -E[log π + H*]. When log π << H*, loss is very negative
-    # (large gradient to increase α).
-    low_entropy = torch.full((8,), -0.1)  # close to target
-    high_entropy = torch.full((8,), -5.0)  # much higher entropy
+    # loss = -E[log π + H*]. When log π << H*, loss is very negative (large gradient to
+    # increase α).
+    # Close to target.
+    low_entropy = torch.full((8,), -0.1)
+    # Much higher entropy.
+    high_entropy = torch.full((8,), -5.0)
     loss_low = sac_alpha_loss(low_entropy, target_entropy=-2.0)
     loss_high = sac_alpha_loss(high_entropy, target_entropy=-2.0)
     # -(-5 + -2) = 7 vs -(-0.1 + -2) = 2.1 → loss_high > loss_low

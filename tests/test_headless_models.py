@@ -24,7 +24,8 @@ class TestConvViTHeadless:
   def test_no_head_created(self):
     model = load_model("convvit", num_labels=0, image_size=64)
     _assert_no_zero_element_params(model)
-    assert model.model.head is None  # adapter -> raw model under .model
+    # Adapter -> raw model under .model.
+    assert model.model.head is None
     # No classifier-specific pooling either: headless mode must leave no
     # learnable parameters outside the pre-training forward path.
     assert model.model.cls_guided_pool is None
@@ -51,7 +52,8 @@ class TestConvViTHeadless:
     with torch.no_grad():
       out = model(pixel_values=torch.randn(2, 3, 64, 64))
     assert isinstance(out, ModelOutput)
-    assert out.logits.shape == (2, 768)  # 1 CLS token x loader embed_dim
+    # 1 CLS token x loader embed_dim.
+    assert out.logits.shape == (2, 768)
 
   def test_labeled_path_unaffected(self):
     model = load_model("convvit", num_labels=7, image_size=64)
@@ -101,7 +103,8 @@ class TestConvViTHeadless:
     """ConvViTMaskedImageEncoder must work with the raw headless model."""
     model = load_model("convvit", num_labels=0, image_size=64)
     enc = ConvViTMaskedImageEncoder(model)
-    assert enc.embed_dim == 768  # loader default
+    # Loader default.
+    assert enc.embed_dim == 768
     assert enc.num_patches > 0
     x = torch.randn(2, enc.num_patches, enc.embed_dim)
     assert enc.encode_embeddings(x).shape[0] == 2
@@ -113,7 +116,8 @@ class TestConvViTHeadless:
     model = load_model("convvit", num_labels=0, image_size=64)
     wrapped = _PatchEmbedder(model)
     assert wrapped.patch_size > 0
-    assert wrapped.embed_dim == 768  # loader default
+    # Loader default.
+    assert wrapped.embed_dim == 768
     assert wrapped.num_patches > 0
 
 
@@ -122,7 +126,8 @@ class TestUVitoHeadless:
   def test_no_head_created(self):
     model = load_model("uvito", num_labels=0, image_size=64, encoder_weights=None)
     _assert_no_zero_element_params(model)
-    assert model.model.mlp_head is None  # adapter -> raw model under .model
+    # Adapter -> raw model under .model.
+    assert model.model.mlp_head is None
 
   def test_forward_returns_features(self):
     """Headless: ModelOutput whose logits ARE the backbone features."""

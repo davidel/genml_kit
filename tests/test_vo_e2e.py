@@ -47,7 +47,8 @@ def test_evaluate_vo_runs():
   loader = torch.utils.data.DataLoader(dataset, batch_size=2)
   bundle = load_model("vo/npu-small", num_labels=0, image_size=64)
   metrics = evaluate_vo(bundle.model, loader, torch.device("cpu"))
-  assert metrics.mce == metrics.mce  # finite (not NaN)
+  # finite (not NaN)
+  assert metrics.mce == metrics.mce
 
 
 def test_evaluate_sliced_groups_by_terrain():

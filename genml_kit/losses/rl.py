@@ -55,15 +55,19 @@ def td_target(
   mask = 1.0 - dones if terminated is None else 1.0 - terminated
 
   with torch.no_grad():
-    next_q_target = target_net(next_obs)  # (B, n_actions)
+    # (B, n_actions)
+    next_q_target = target_net(next_obs)
 
     if double_q:
-      next_q_online = policy_net(next_obs)  # (B, n_actions)
-      best_actions = next_q_online.argmax(dim=-1)  # (B,)
-      next_q_values = next_q_target.gather(1,
-                                           best_actions.unsqueeze(1)).squeeze(1)  # (B,)
+      # (B, n_actions)
+      next_q_online = policy_net(next_obs)
+      # (B,)
+      best_actions = next_q_online.argmax(dim=-1)
+      # (B,)
+      next_q_values = next_q_target.gather(1, best_actions.unsqueeze(1)).squeeze(1)
     else:
-      next_q_values = next_q_target.max(dim=-1).values  # (B,)
+      # (B,)
+      next_q_values = next_q_target.max(dim=-1).values
 
     td = rewards + gamma_n * mask * next_q_values
 

@@ -96,7 +96,8 @@ class TestFieldSectorOnMixedEnsemble:
     for batch in loader:
       assert set(batch) == {"image"}
       total += batch["image"].shape[0]
-    assert total == 10  # every image went through default_collate unharmed
+    # Every image went through default_collate unharmed.
+    assert total == 10
 
   def test_log_validation_consumes_real_collated_loader(self, tmp_path):
     """End-to-end: log_validation consumes a real collated mixed batch.
@@ -140,7 +141,8 @@ class TestFieldSectorOnMixedEnsemble:
     writer = _Writer()
     _NoopMethod().log_validation(None, loader, _to_device, writer, 0,
                                  torch.device("cpu"))
-    assert writer.calls == []  # no-op method logs nothing
+    # No-op method logs nothing.
+    assert writer.calls == []
 
   def test_label_requiring_method_rejects_mixed(self, tmp_path):
     """Methods needing labels refuse mixed ensembles.

@@ -44,5 +44,7 @@ class CLSGuidedAttentionPooling(nn.Module):
         value=spatial_out,
     )
     if attn_out.shape[1] == 1:
-      return attn_out.squeeze(1)  # [B, D] (single-CLS backward compat)
-    return attn_out  # [B, K, D]
+      # [B, D] (single-CLS backward compat).
+      return attn_out.squeeze(1)
+    # [B, K, D].
+    return attn_out
