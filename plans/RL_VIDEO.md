@@ -1,6 +1,7 @@
 # Feature plan: record evaluation videos for RL methods (DQN / PPO / SAC)
 
-Status: **DRAFT — awaiting approval. Do not implement until the plan is approved.**
+Status: **IMPLEMENTED** (all changes staged in the working tree, awaiting
+user review before commit; see §9 step 3).
 Created: (date of writing)
 Author: chatty (assistant), on behalf of the user.
 
@@ -897,20 +898,13 @@ being installed for the *logic* tests; only the video-writer tests use
 ## 8. Open items / decision log (for tomorrow)
 
 - [x] D1-D10 resolved (see §3).
-- [ ] Confirm preferred home for `video_utils.py`:
-      `genml_kit/training/` (plan default) vs `genml_kit/utils/`.
-- [ ] Confirm whether to also expose `--eval-video-fps` (default 30) — the plan
-      hardcodes 30; a flag is a trivial extension if desired.
-- [ ] Confirm max video length: `max_steps` per episode already caps frames
-      (10_000 default in the evaluate signature; CartPole rarely hits it).
-      No extra cap planned.
-- [ ] `imageio` API: prefer the v3 `import imageio; imageio.get_writer(...)`
-      API, which is the supported surface for `imageio>=2.31` (our floor);
-      `imageio.v2` is deprecated and its shim may be removed. Pick one at
-      implementation time and make sure the writer unit test exercises it
-      (see §4.3).
-- [ ] README: locate the exact RL CLI section to patch (main README is big;
-      rl/README.md has the primary RL docs).
+- [x] `video_utils.py` home: `genml_kit/training/` (plan default; trainer-facing).
+- [x] fps hardcoded 30 (no `--eval-video-fps` flag added; trivial later).
+- [x] Max video length: `max_steps` per episode caps frames (no extra cap).
+- [x] `imageio` v3 API (`imageio.get_writer`) used; unit tests exercise it
+      (MP4 test requires `imageio_ffmpeg`, GIF fallback always tested).
+- [x] README: main README RL section patched (flag + "Evaluation videos"
+      subsection); `rl/README.md` Code Map row added for `write_video`.
 
 ---
 

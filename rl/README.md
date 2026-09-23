@@ -1985,6 +1985,7 @@ the table below is the reverse index.
 | - | observation normalization (Welford) | `genml_kit.pipelines.rl.RunningMeanStd` |
 | - | replay buffer / n-step / PER | `genml_kit.datasets.replay_buffer.ReplayBufferDataset` |
 | - | rollout buffer (PPO) | `genml_kit.datasets.rollout_buffer.RolloutBuffer` |
+| - | evaluation-video writer (MP4/GIF) | `genml_kit.training.video_utils.write_video` |
 
 **Episode-end semantics in the code.**  Gymnasium returns *terminated* (true
 MDP end) and *truncated* (time limit) separately.  `genml_kit` threads the

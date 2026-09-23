@@ -1,5 +1,6 @@
 """Tests for RLPipeline (env wrapper + replay buffer + eval rollout)."""
 
+import numpy as np
 import torch
 
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
@@ -117,3 +118,72 @@ class TestRLPipeline:
     result = pipeline.to_device(blob, torch.device("cpu"))
     assert isinstance(result, DataBlob)
     assert result.meta["step"] == 42
+
+
+class _RenderableScriptedEnv(_ScriptedEnv):
+  """Scripted env that pretends to support rgb_array rendering."""
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self._render_calls = 0
+    self._render_failure = None
+
+  def can_render(self):
+    try:
+      self.render()
+      return True
+    except Exception:  # noqa: BLE001
+      return False
+
+  def render(self):
+    if self._render_failure is not None:
+      raise self._render_failure
+    self._render_calls += 1
+    return np.zeros((64, 64, 3), dtype=np.uint8)
+
+  def render_frame(self):
+    return self.render()
+
+
+class TestRenderHelpers:
+  """RL_VIDEO: render helpers (can_record_video / render_frame)."""
+
+  def _make_pipeline(self):
+    pipeline = RLPipeline()
+    pipeline.env = _RenderableScriptedEnv(obs_dim=4)
+    return pipeline
+
+  def test_can_record_video_true_for_renderable_env(self):
+    pipeline = self._make_pipeline()
+    assert pipeline.can_record_video() is True
+
+  def test_can_record_video_false_for_plain_scripted_env(self):
+    pipeline = RLPipeline()
+    pipeline.env = _ScriptedEnv(obs_dim=4)
+    assert pipeline.can_record_video() is False
+
+  def test_can_record_video_false_when_render_raises(self):
+    pipeline = self._make_pipeline()
+    pipeline.env._render_failure = RuntimeError("cannot render")
+    assert pipeline.can_record_video() is False
+
+  def test_can_record_video_false_without_env(self):
+    pipeline = RLPipeline()
+    assert pipeline.can_record_video() is False
+
+  def test_render_frame_returns_frame(self):
+    pipeline = self._make_pipeline()
+    frame = pipeline.render_frame()
+    assert frame is not None
+    assert frame.shape == (64, 64, 3)
+    assert frame.dtype == np.uint8
+
+  def test_render_frame_returns_none_when_render_raises(self):
+    pipeline = self._make_pipeline()
+    pipeline.env._render_failure = RuntimeError("cannot render")
+    assert pipeline.render_frame() is None
+
+  def test_render_frame_returns_none_for_plain_scripted_env(self):
+    pipeline = RLPipeline()
+    pipeline.env = _ScriptedEnv(obs_dim=4)
+    assert pipeline.render_frame() is None

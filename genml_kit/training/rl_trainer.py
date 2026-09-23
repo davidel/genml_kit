@@ -6,11 +6,13 @@ and replay/rollout buffers directly.
 """
 
 import logging
+import os
 
 import numpy as np
 import torch
 
 from genml_kit.training.trainer import BaseTrainer
+from genml_kit.training.video_utils import write_video
 
 
 def _terminated_from(info, done):
@@ -365,15 +367,37 @@ class RLTrainer(BaseTrainer):
     else:
       old_state = None
     try:
+      record = bool(getattr(self.args, "record_eval_video", False))
       metrics = self.method.evaluate(
           self.model,
           self.pipeline,
           getattr(self.args, "eval_episodes", 5),
+          record_video=record,
       )
+      if record:
+        self._write_eval_videos(metrics.get("episode_frames"))
       return float(metrics["eval_return"])
     finally:
       if old_state is not None:
         np.random.set_state(old_state)
+
+  def _write_eval_videos(self, episode_frames):
+    """Write one video per evaluation episode under ``<checkpoint>/videos/``.
+
+    Args:
+      episode_frames: Optional list of per-episode frame lists (from the
+        ``episode_frames`` metric).  Episodes with no captured frames are
+        skipped; ``None``/missing is a no-op.
+    """
+    if not episode_frames:
+      return
+    out_dir = os.path.join(getattr(self.args, "checkpoint", "."), "videos")
+    for i, frames in enumerate(episode_frames):
+      frames = [f for f in (frames or []) if f is not None]
+      if not frames:
+        continue
+      path = os.path.join(out_dir, f"eval_episode_{i:03d}.mp4")
+      write_video(frames, path)
 
   def saver_extra(self):
     """Extra state attached to every checkpoint write (method state)."""

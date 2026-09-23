@@ -27,7 +27,7 @@ s3 = ["boto3>=1.28"]
 lora = ["peft>=0.7.0"]
 timm = ["timm>=1.0"]
 uvito = ["segmentation_models_pytorch>=0.3.0"]
-rl = ["gymnasium>=0.29", "pygame>=2.1"]
+rl = ["gymnasium>=0.29", "pygame>=2.1", "imageio[ffmpeg]>=2.31"]
 all = ["genml_kit[gcs,s3,lora,timm,uvito,rl]"]
 dev = ["pytest", "ruff", "yapf"]
 

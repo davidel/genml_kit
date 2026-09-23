@@ -1577,6 +1577,16 @@ All RL methods use `eval_return` (mean undiscounted return over
 The trainer bypasses the DataLoader: it steps the environment directly and
 samples from a replay buffer (DQN/SAC) or re-uses a rollout buffer (PPO).
 
+### Evaluation videos
+
+Pass `--record-eval-video` to record **one video per evaluation episode**
+during validation (all RL methods: DQN / PPO / SAC).  Videos are written to
+`<checkpoint_dir>/videos/` as `eval_episode_000.mp4` etc., or as
+`eval_episode_000.gif` when the MP4 writer is unavailable (e.g. no
+`imageio[ffmpeg]`).  Recording is **only** attempted when the environment can
+produce `rgb_array` frames: scripted/custom environments without a renderer
+are detected at validation time and skipped without crashing.
+
 ### Custom environments
 
 Pass `--env-script /path/to/env.py` to load a custom environment.  The
@@ -1596,6 +1606,9 @@ Relevant flags:
     normalization (Welford).  Both train and eval observations are
     normalized with the same RMS statistics.
   - `--eval-episodes`, `--env-seed` -- evaluation.
+  - `--record-eval-video` -- record one MP4 (or GIF fallback) per evaluation
+    episode under `<checkpoint_dir>/videos/`; only when the environment
+    supports rendering (see "Evaluation videos" below).
 
 ### Episode-end semantics (terminated vs truncated)
 

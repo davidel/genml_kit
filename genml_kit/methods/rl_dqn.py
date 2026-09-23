@@ -212,23 +212,48 @@ class DQNMethod(Method):
     }
     return LossOutput(loss=loss, metrics=metrics, td_errors=td_errors)
 
-  def evaluate(self, model, pipeline, num_episodes, max_steps=10_000):
+  def evaluate(self,
+               model,
+               pipeline,
+               num_episodes,
+               max_steps=10_000,
+               record_video=False):
     """Run evaluation episodes and return mean return.
 
         Overrides the base ``Method.evaluate`` signature because RL
         validation does not use a DataLoader.
 
         Args:
-            model:       QNetwork with ``.online`` sub-module.
-            pipeline:    ``RLPipeline`` providing ``reset_env`` / ``step_env``.
-            num_episodes: Number of evaluation episodes.
-            max_steps:   Hard cap on environment steps PER EPISODE to prevent
-                         infinite loops with untrained policies.
+            model:          QNetwork with ``.online`` sub-module.
+            pipeline:       ``RLPipeline`` providing ``reset_env`` /
+                            ``step_env`` / ``can_record_video`` /
+                            ``render_frame``.
+            num_episodes:   Number of evaluation episodes.
+            max_steps:      Hard cap on environment steps PER EPISODE to
+                            prevent infinite loops with untrained policies.
+            record_video:   If True, capture ``render_frame()`` after reset
+                            and after each step for every episode, and
+                            return them under ``metrics["episode_frames"]``
+                            (list of per-episode frame lists).  If the env
+                            cannot render, inner lists stay empty.
         """
     total_return = 0.0
     total_steps = 0
+    episode_frames = []
     for _ in range(num_episodes):
       obs = pipeline.reset_env()
+      # D6/D10: probe *after* reset. can_record_video() performs a real
+      # render() attempt (any renderer error -> False); cache the result so
+      # frame grabs don't re-probe and so ResetNeeded / DependencyNotInstalled
+      # are only ever hit inside the probe's try/except.
+      episode_record = bool(record_video and pipeline.can_record_video())
+      if record_video:
+        frames = []
+        if episode_record:
+          frame = pipeline.render_frame()
+          if frame is not None:
+            frames.append(frame)
+        episode_frames.append(frames)
       episode_return = 0.0
       done = False
       episode_steps = 0
@@ -238,11 +263,18 @@ class DQNMethod(Method):
         episode_return += reward
         episode_steps += 1
         total_steps += 1
+        if record_video and episode_record:
+          frame = pipeline.render_frame()
+          if frame is not None:
+            episode_frames[-1].append(frame)
       total_return += episode_return
-    return {
+    metrics = {
         "eval_return": total_return / max(num_episodes, 1),
         "eval_steps": total_steps,
     }
+    if record_video:
+      metrics["episode_frames"] = episode_frames
+    return metrics
 
   def has_metric_improved(self, new_metric, best_metric):
     """Higher eval_return is better."""

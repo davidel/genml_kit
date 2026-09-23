@@ -116,15 +116,19 @@ class GymnasiumEnvWrapper:
 
   Args:
       env_id:  Gymnasium environment id string (e.g. ``"CartPole-v1"``).
+      render_mode:  Optional render mode to request from ``gym.make``
+        (e.g. ``"rgb_array"`` for video capture).  ``None`` disables
+        rendering entirely.
   """
 
-  def __init__(self, env_id):
+  def __init__(self, env_id, render_mode=None):
     try:
       import gymnasium as gym
     except ImportError as exc:
       raise ImportError("gymnasium is required for --pipeline rl.  "
                         "Install it with:  pip install 'genml_kit[rl]'") from exc
-    self.env = gym.make(env_id)
+    self.env = gym.make(env_id, render_mode=render_mode)
+    self._render_mode = render_mode
     self.observation_space = self.env.observation_space
     self.action_space = self.env.action_space
 
@@ -138,6 +142,41 @@ class GymnasiumEnvWrapper:
     obs, reward, terminated, truncated, info = self.env.step(action)
     done = terminated or truncated
     return obs, reward, done, info
+
+  def render_frame(self):
+    """Return the current frame as a numpy RGB (H, W, 3) uint8 array.
+
+    Returns ``None`` if the env was created without a render mode or the
+    underlying env has no renderer for this mode.
+    """
+    if self._render_mode is None:
+      return None
+    try:
+      return self.env.render()
+    except Exception:  # noqa: BLE001 - any renderer failure => no video
+      return None
+
+  def can_render(self):
+    """Whether a ``render()`` call is expected to produce frames.
+
+    **This performs a real ``render()`` attempt** (wrapped in try/except) and
+    returns whether it produced a frame.  It does NOT trust
+    ``metadata["render_modes"]``: that field is populated statically on the
+    env class and reports e.g. ``['human', 'rgb_array']`` even when
+    ``pygame`` is not installed (verified, gymnasium 1.3.0), which would
+    crash on the actual ``render()`` call.  Rendering is the source of truth.
+
+    **Invariant (see plans/RL_VIDEO.md section 2.2 / D10): call only after
+    ``reset()``** - gymnasium >= 1.0 raises ``ResetNeeded`` if ``render()``
+    is called before the first ``env.reset()``.
+    """
+    if self._render_mode is None:
+      return False
+    try:
+      frame = self.env.render()
+      return frame is not None
+    except Exception:  # noqa: BLE001 - any renderer error => no video
+      return False
 
   def close(self):
     self.env.close()
@@ -224,6 +263,8 @@ class RLPipeline(DataPipeline):
     self.replay_buffer = None
     self._obs_dim = None
     self._n_actions = None
+    # Video capture (RL_VIDEO) - default for test pipelines that bypass init_env
+    self._video_enabled = False
     # Observation normalization (E3) - defaults for test pipelines that bypass init_env
     self._obs_normalize = False
     self._obs_norm_clip = 10.0
@@ -335,6 +376,14 @@ class RLPipeline(DataPipeline):
         default=10.0,
         help="Clip normalized observations to [-clip, clip] (default: 10.0).",
     )
+    group.add_argument(
+        "--record-eval-video",
+        dest="record_eval_video",
+        action="store_true",
+        help="Record a video of each evaluation episode during validation "
+        "(only if the environment supports rendering; MP4 via ffmpeg, "
+        "GIF fallback).",
+    )
 
   def build_loader(self, args, **kwargs):
     """Return ``None`` — the RLTrainer samples from the buffer directly."""
@@ -355,10 +404,16 @@ class RLPipeline(DataPipeline):
     if self.env is not None:
       return
 
+    # D6/D7: rendering must be requested at gym.make() time.
+    render_mode = ("rgb_array" if getattr(args, "record_eval_video", False) else None)
+    self._video_enabled = render_mode is not None
+
     if getattr(args, "env_script", None):
       self.env = extern_call(args.env_script, "make_env")
+      # External envs are probed at validation time; we cannot force a
+      # render_mode on them here, so keep _video_enabled as a hint only.
     else:
-      self.env = GymnasiumEnvWrapper(args.env_id)
+      self.env = GymnasiumEnvWrapper(args.env_id, render_mode=render_mode)
 
     obs_dim = getattr(args, "obs_dim", None)
     if obs_dim is None:
@@ -476,6 +531,53 @@ class RLPipeline(DataPipeline):
       self.obs_rms.update(next_obs[None, ...])
       next_obs = self.obs_rms.normalize(next_obs, clip=self._obs_norm_clip)
     return next_obs, reward, float(done), info
+
+  def can_record_video(self):
+    """Whether the current env can produce frames for a video.
+
+    Returns ``False`` for scripted/external envs that do not expose the
+    render API, so callers can skip recording without erroring.
+
+    **Invariant (see plans/RL_VIDEO.md section 2.2 / D10): call only after
+    ``reset_env()``.** The check is a real ``render()`` attempt, not a
+    ``metadata["render_modes"]`` lookup - the latter reports static class
+    metadata and stays true even when the renderer (e.g. pygame) is not
+    installed.  This probe tolerates ``ResetNeeded``,
+    ``DependencyNotInstalled``, and any other renderer error.
+    """
+    env = getattr(self, "env", None)
+    if env is None:
+      return False
+    render = getattr(env, "can_render", None)
+    if callable(render):
+      return bool(render())
+    render = getattr(env, "render", None)
+    if not callable(render):
+      return False
+    try:
+      frame = render()
+      return frame is not None
+    except Exception:  # noqa: BLE001
+      return False
+
+  def render_frame(self):
+    """Return the latest rendered frame (numpy HxWx3 uint8) or ``None``."""
+    env = getattr(self, "env", None)
+    if env is None:
+      return None
+    render = getattr(env, "render_frame", None)
+    if callable(render):
+      try:
+        return render()
+      except Exception:  # noqa: BLE001
+        return None
+    render = getattr(env, "render", None)
+    if callable(render):
+      try:
+        return render()
+      except Exception:  # noqa: BLE001
+        return None
+    return None
 
   def env_push(self, transition):
     """Push a single transition into the replay buffer."""
