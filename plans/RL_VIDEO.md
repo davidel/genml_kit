@@ -118,15 +118,40 @@ class GymnasiumEnvWrapper:
     self.env.close()
 ```
 
-**Critical gymnasium detail (verified):** in gymnasium (`>=0.29`, our min), the
-renderer is chosen **at construction** via `gym.make(env_id, render_mode=...)`.
-If the env was created with `render_mode=None` (the default) and you later call
-`env.render()`, gymnasium raises `AttributeError`:
+**Critical gymnasium details (verified against gymnasium 1.3.0, the sandbox
+version; the API contract below also holds for our min `>=0.29`):**
 
-> `AttributeError: Your environment must specify a valid render_mode to use the render method`
+1. **The renderer is chosen at construction** via `gym.make(env_id,
+   render_mode=...)`. If the env was created with `render_mode=None` (the
+   default) and you later call `env.render()`, gymnasium raises `AttributeError`:
 
-Therefore **we must enable rendering at `gym.make()` time**, before any training
-begins — not lazily at validation time. This drives the design in §4.
+   > `AttributeError: Your environment must specify a valid render_mode to use the render method`
+
+   Therefore **we must enable rendering at `gym.make()` time**, before any
+   training begins — not lazily at validation time. This drives the design in §4.
+
+2. **`metadata["render_modes"]` does NOT reflect runtime availability.** For
+   CartPole, `CartPoleEnv.metadata["render_modes"]` is statically
+   `['human', 'rgb_array']` **regardless of whether `pygame` is installed**.
+   Verified: with `pygame` absent, `gym.make("CartPole-v1", render_mode="rgb_array")`
+   *succeeds* (the renderer is only constructed lazily on the first `render()`
+   call in gymnasium >= 1.0), and **that first `render()` then raises
+   `gymnasium.error.DependencyNotInstalled`**. Consequence for the design: a
+   probe that only checks `metadata["render_modes"]` will *falsely* report
+   "renderable" on a headless / no-`pygame` box. **The probe must actually call
+   `render()` (inside a try/except) to know the truth** — a metadata check alone
+   is insufficient. (`pygame>=2.1` is a declared dep of the `rl` extra, so a
+   properly installed environment is fine; the fragile case is CI / headless /
+   partial installs — exactly the "must not crash" requirement.)
+
+3. **`render()` requires a preceding `reset()`.** In gymnasium >= 1.0, calling
+   `render()` before the first `env.reset()` raises
+   `gymnasium.error.ResetNeeded` ("Cannot call `env.render()` before calling
+   `env.reset()`"). In our wrapper, `reset()` is always called before the eval
+   loop (via `reset_env()`), so the *recording* path is safe — **but a
+   `can_render()`-style probe performed at init time (before any reset) must
+   tolerate `ResetNeeded`, or be invoked only after reset.** This is settled in
+   §3 D10 / §4.2 by probing *inside the eval loop, after reset*.
 
 ### 2.3 Eval loops (the three methods)
 
@@ -297,12 +322,12 @@ if self.criterion(metrics[self.best_metric_key], self.best_metric): ...
 | D2 | Output directory | `<checkpoint_dir>/videos/` (i.e. `os.path.join(args.checkpoint, "videos")`; `args.checkpoint` is the existing checkpoint dir used for saves/logs) |
 | D3 | Recording cadence | **Every validation** when flag is on. (No separate "every N" knob in v1.) |
 | D4 | Which episode(s) | **All `eval_episodes`** — each episode becomes its own numbered file (`eval_episode_00001.mp4`, …). This gives the best signal for roughly ~5 short files on classic control. |
-| D5 | Format / encoder | Prefer **MP4 via `imageio[ffmpeg]`**; **fallback to animated GIF via `PIL`** (PIL is already a dependency in the environment, verified). Both written by a new shared helper (§5.4). |
-| D6 | Env renderability | Probe at construction; **skip gracefully** if unsupported. Only gymnasium-backed envs are considered; `--env-script` envs are probed too but assumed not renderable if they lack the API (see §4.3). |
+| D5 | Format / encoder | Prefer **MP4 via `imageio[ffmpeg]`**; **fallback to animated GIF via `PIL`** (PIL is already a dependency in the environment, verified). Both written by a new shared helper (§4.3). |
+| D6 | Env renderability | **Probe by actually calling `render()`** (in a try/except) once per episode *after* `reset_env()` — **not** by checking `metadata["render_modes"]` (which is statically populated and ignores missing `pygame`/headless; see §2.2). Skip recording gracefully if the probe raises or returns `None`. `--env-script` envs are probed too but assumed not renderable if they lack the API (see §4.2). |
 | D7 | Render mode string | `"rgb_array"` (default gymnasium mode that returns numpy HxWx3 uint8 frames; works headless with `pygame` for classic control) |
 | D8 | Extra dependency | Add `imageio[ffmpeg]` to the `rl` extra in `pyproject.toml`. GIF fallback keeps the feature working even without it. |
 | D9 | Recording scope | Validation only; never inside training loops. No extra env steps are performed; frames are grabbed from the real rollout. |
-| D10 | Frame source | `pipeline.render_frame()` grabs the **current rendered frame** from the env *after* each `step_env`, plus one frame *after* `reset_env` (so the video starts at the initial state). |
+| D10 | Frame source | `pipeline.render_frame()` grabs the **current rendered frame** from the env *after* each `step_env`, plus one frame *after* `reset_env` (so the video starts at the initial state). **The per-episode `can_record_video()` probe (a real `render()` attempt) must run *after* the reset**, because gymnasium >= 1.0 raises `ResetNeeded` on `render()` before the first reset (see §2.2). The probe result is cached per episode and reused by the frame-grab calls. |
 
 ---
 
@@ -358,24 +383,43 @@ def render(self):
       return None
 
 def can_render(self):
-    """Whether a ``render()`` call is expected to produce frames."""
+    """Whether a ``render()`` call is expected to produce frames.
+
+    **This performs a real ``render()`` attempt** (wrapped in try/except) and
+    returns whether it produced a frame.  It does NOT trust
+    ``metadata["render_modes"]``: that field is populated statically on the
+    env class and reports e.g. ``['human', 'rgb_array']`` even when
+    ``pygame`` is not installed (verified, gymnasium 1.3.0) — a metadata-only
+    check would falsely report "renderable" and then crash on the first real
+    ``render()`` with ``DependencyNotInstalled``.
+
+    Precondition: called only *after* ``reset()`` (otherwise gymnasium >= 1.0
+    raises ``ResetNeeded``; that, too, is caught here and maps to ``False``).
+    """
     if self._render_mode is None:
       return False
-    # gymnasium envs advertise metadata.render_modes; honor it when present.
-    render_modes = getattr(self.env.unwrapped, "metadata", {}).get("render_modes", None)
-    if render_modes is not None:
-      return self._render_mode in render_modes
-    # Fallback: probe by rendering once.
     try:
       frame = self.env.render()
       return frame is not None
     except Exception:  # noqa: BLE001
+      # DependencyNotInstalled (no pygame / headless), ResetNeeded, etc.
       return False
 ```
 
-Rationale for `can_render()` probing `metadata["render_modes"]` first: avoids an
-actual render during warmup on envs where rendering is expensive; still has a
-safe fallback. Guard with `env.unwrapped` because some wrappers hide metadata.
+Design notes (revised after code inspection):
+
+- **Real-render probe, not metadata.** The previous draft probed
+  `metadata["render_modes"]` first for cheapness. That check is statically
+  true on classic-control envs regardless of runtime deps, so it *cannot* be
+  used to satisfy the "must not crash on headless/no-pygame" requirement. The
+  probe cost (one `render()` per episode) is negligible vs. the recording
+  itself, which calls `render()` per step anyway.
+- **Call-site ordering matters.** `can_render()` may only be safely invoked
+  *after* `reset_env()` (see §2.2 point 3). The eval loops in §4.4 therefore
+  call `pipeline.can_record_video()` (which delegates here) right after
+  `reset_env()` and cache the result for the episode.
+- The `env.unwrapped` metadata guard is no longer needed for correctness and
+  is dropped from the probe; rendering is the source of truth.
 
 #### 4.2.2 `RLPipeline` — expose render helpers + flag
 
@@ -387,6 +431,12 @@ def can_record_video(self):
 
     Returns ``False`` for scripted/external envs that do not expose the
     render API, so callers can skip recording without erroring.
+
+    **Invariant (see §2.2 / §3 D10): call only after ``reset_env()``.** The
+    check is a real ``render()`` attempt, not a ``metadata["render_modes"]``
+    lookup — the latter reports static class metadata and stays truthy even
+    when ``pygame`` is missing (verified).  Raising is impossible here: all
+    renderer failures are caught and mapped to ``False``.
     """
     env = getattr(self, "env", None)
     if env is None:
@@ -395,6 +445,7 @@ def can_record_video(self):
     if callable(can_render):
       return bool(can_render())
     # External script envs without the helper: probe the raw API.
+    # (This tolerates ResetNeeded, DependencyNotInstalled, any renderer error.)
     render = getattr(env, "render", None)
     if not callable(render):
       return False
@@ -517,7 +568,10 @@ def write_video(frames, path, fps=30):
 
 
 def _write_mp4(frames, path, fps=30):
-  import imageio.v2 as imageio  # noqa: PLC0415 - lazy: optional dep
+  # Use the v3 `imageio` API: `imageio.v2` is deprecated and its shim can
+  # disappear at our dependency floor (imageio==2.31). v3 exposes the same
+  # `get_writer(path, fps=...)` surface.
+  import imageio  # noqa: PLC0415 - lazy: optional dep
   with imageio.get_writer(path, fps=fps) as writer:
     for frame in frames:
       writer.append_data(frame)
@@ -576,11 +630,17 @@ def evaluate(self, model, pipeline, num_episodes, max_steps=10_000,
     episode_frames = []
     for _ in range(num_episodes):
       obs = pipeline.reset_env()
+      # D6/D10: probe *after* reset. can_record_video() performs a real
+      # render() attempt (any renderer error -> False); cache the result so
+      # frame grabs don't re-probe and so ResetNeeded / DependencyNotInstalled
+      # are only ever hit inside the probe's try/except.
+      episode_record = bool(record_video and pipeline.can_record_video())
       if record_video:
         frames = []
-        frame = pipeline.render_frame()
-        if frame is not None:
-          frames.append(frame)
+        if episode_record:
+          frame = pipeline.render_frame()
+          if frame is not None:
+            frames.append(frame)
         episode_frames.append(frames)
       episode_return = 0.0
       done = False
@@ -589,7 +649,7 @@ def evaluate(self, model, pipeline, num_episodes, max_steps=10_000,
         obs_t = torch.as_tensor(obs, dtype=torch.float32)
         # ... existing act logic (unchanged) ...
         obs, reward, done, _ = pipeline.step_env(act_val)
-        if record_video:
+        if episode_record:
           frame = pipeline.render_frame()
           if frame is not None:
             episode_frames[-1].append(frame)
@@ -750,10 +810,11 @@ Tests:
 ### 5.2 `tests/test_rl_video.py` (new)
 
 1. `test_write_video_mp4_returns_path` — frames of `np.zeros((8,8,3), uint8)`;
-   monkeypatch `imageio.v2` if not installed, or skip when ffmpeg absent:
-   use `pytest.importorskip("imageio.v2")` (project already depends on
-   `pytest` in dev extra) — but still write the output under a `tmp_path`
-   (pytest fixture), assert file exists and size > 0.
+   skip when the optional writer deps are absent: use
+   `pytest.importorskip("imageio")` (the primary v3 API surface; the
+   deprecated `imageio.v2` shim is intentionally NOT used — see §4.3/§8) —
+   but still write the output under a `tmp_path` (pytest fixture), assert
+   file exists and size > 0.
 2. `test_write_video_gif_fallback` — monkeypatch `write_video`'s `_write_mp4`
    to raise; file extension `.mp4` input → asserts a `.gif` file is produced.
 3. `test_write_video_empty_frames_returns_none` — `write_video([], ...)` → None.
@@ -777,6 +838,14 @@ being installed for the *logic* tests; only the video-writer tests use
   defaults to `False` and the metrics dict is unchanged.
 - `RLTrainer.validate()` returns the same float; new behavior only activates
   when `--record-eval-video` is set.
+- **New regression guard for the probe semantics (§2.2, §3 D6):** add a test
+  that runs `evaluate(..., record_video=True)` against a fake env whose
+  `render()` *raises* (simulating missing `pygame` / headless). Assert the run
+  completes without raising and yields empty `episode_frames` — this locks in
+  the "must not crash" guarantee that the metadata-probe draft would have
+  broken.
+- The `imageio` writer test must use `importorskip("imageio")` (see §4.3), so a
+  partial install cannot silently skip the MP4 path coverage.
 
 ---
 
@@ -810,8 +879,18 @@ being installed for the *logic* tests; only the video-writer tests use
 3. Negative path — env without rendering (e.g. a custom `--env-script` whose
    `make_env` returns an object lacking `render`): run with the same flag,
    expect **no crash**, one warning, no videos dir (or empty).
-4. Headless check (CI-like): ensure `pygame` not required for the tests; the
-   GIF fallback path works when `imageio` is absent.
+4. Headless / missing-`pygame` path (the case that motivated the probe change,
+   §2.2): uninstall `pygame` (or run where it is absent) and repeat step 2.
+   Expect **no crash**: `can_render()` / `can_record_video()` performs a real
+   `render()` attempt, catches `DependencyNotInstalled`, returns `False`, and no
+   video is written. This is the scenario a `metadata["render_modes"]`-only
+   check would have broken.
+5. Frame-count sanity: with `--eval-episodes 1` on CartPole, the produced MP4
+   should contain > 1 frame (initial frame after `reset` + one per `step_env`),
+   i.e. a non-trivial video.
+6. GIF fallback path: run with `imageio` absent (or `_write_mp4` forced to
+   fail) and confirm the `.gif` file is produced instead — PIL is a hard
+   dependency, so the fallback is always exercisable.
 
 ---
 
@@ -825,6 +904,11 @@ being installed for the *logic* tests; only the video-writer tests use
 - [ ] Confirm max video length: `max_steps` per episode already caps frames
       (10_000 default in the evaluate signature; CartPole rarely hits it).
       No extra cap planned.
+- [ ] `imageio` API: prefer the v3 `import imageio; imageio.get_writer(...)`
+      API, which is the supported surface for `imageio>=2.31` (our floor);
+      `imageio.v2` is deprecated and its shim may be removed. Pick one at
+      implementation time and make sure the writer unit test exercises it
+      (see §4.3).
 - [ ] README: locate the exact RL CLI section to patch (main README is big;
       rl/README.md has the primary RL docs).
 
@@ -835,11 +919,14 @@ being installed for the *logic* tests; only the video-writer tests use
 1. **Approved plan** in `plans/RL_VIDEO.md` (this file).
 2. Implement in this order:
    1. `pyproject.toml` rl extra += `imageio[ffmpeg]>=2.31`
-   2. `video_utils.py` (new helper)
+   2. `video_utils.py` (new helper; use the `imageio` v3 API, not the
+      deprecated `imageio.v2` shim; GIF fallback via PIL)
    3. `pipelines/rl.py` (wrapper `render_mode`/`render`/`can_render`;
       pipeline `can_record_video`/`render_frame`/`_video_enabled`;
-      `init_env` render_mode wiring; `add_args` flag)
+      `init_env` render_mode wiring; `add_args` flag. Probe = **real
+      `render()` attempt after reset**, NOT a `metadata` check)
    4. `methods/rl_{dqn,ppo,sac}.py` `evaluate(..., record_video=False)`
+      (call `can_record_video()` after `reset_env()`, cache per episode)
    5. `training/rl_trainer.py` `validate()` + `_write_eval_videos()` + `import os`
    6. tests + docs
 3. **Do NOT commit** — user reviews first; commit only after explicit approval.
