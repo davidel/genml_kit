@@ -39,67 +39,67 @@ class PPOMethod(Method):
   def add_args(cls, parser):
     group = parser.add_argument_group("ppo method")
     group.add_argument(
-        "--ppo-gamma",
+        "--ppo_gamma",
         type=float,
         default=0.99,
         help="Discount factor.",
     )
     group.add_argument(
-        "--ppo-lam",
+        "--ppo_lam",
         type=float,
         default=0.95,
         help="GAE lambda.",
     )
     group.add_argument(
-        "--ppo-clip-eps",
+        "--ppo_clip_eps",
         type=float,
         default=0.2,
         help="PPO clipping epsilon.",
     )
     group.add_argument(
-        "--ppo-epochs",
+        "--ppo_epochs",
         type=int,
         default=4,
         help="SGD epochs per rollout.",
     )
     group.add_argument(
-        "--ppo-mini-batch-size",
+        "--ppo_mini_batch_size",
         type=int,
         default=64,
         help="Mini-batch size for PPO updates.",
     )
     group.add_argument(
-        "--ppo-entropy-coef",
+        "--ppo_entropy_coef",
         type=float,
         default=0.01,
         help="Entropy bonus coefficient.",
     )
     group.add_argument(
-        "--ppo-value-coef",
+        "--ppo_value_coef",
         type=float,
         default=0.5,
         help="Value loss coefficient.",
     )
     group.add_argument(
-        "--ppo-vf-clip-eps",
+        "--ppo_vf_clip_eps",
         type=float,
         default=None,
         help="Value function clipping epsilon (None = unclipped).",
     )
     group.add_argument(
-        "--ppo-rollout-len",
+        "--ppo_rollout_len",
         type=int,
         default=2048,
         help="Rollout length before each PPO update.",
     )
     group.add_argument(
-        "--ppo-discrete",
+        "--ppo_discrete",
         action="store_true",
         default=True,
         help="Use discrete action space.",
     )
     group.add_argument(
-        "--ppo-continuous",
+        "--ppo_continuous",
         dest="ppo_discrete",
         action="store_false",
         help="Use continuous action space.",
@@ -160,6 +160,10 @@ class PPOMethod(Method):
         value.item(),
         raw_action.squeeze(0).numpy(),
     )
+
+  def _eval_action(self, model, obs):
+    """Return the deterministic action for evaluation."""
+    return self.act(model, obs, deterministic=True)[0]
 
   def update_target(self, model, global_step):
     """PPO does not use target networks — no-op."""
@@ -226,63 +230,17 @@ class PPOMethod(Method):
                num_episodes,
                max_steps=10_000,
                record_video=False):
-    """Run evaluation episodes and return mean return.
+    """Run evaluation episodes and return mean return."""
+    from genml_kit.methods.rl_utils import rl_evaluate
 
-        Args:
-            model:          Policy model (actor + critic).
-            pipeline:       ``RLPipeline`` providing ``reset_env`` /
-                            ``step_env`` / ``can_record_video`` /
-                            ``render_frame``.
-            num_episodes:   Number of evaluation episodes.
-            max_steps:      Hard cap on environment steps PER EPISODE.
-            record_video:   If True, capture ``render_frame()`` after reset
-                            and after each step for every episode, and
-                            return them under ``metrics["episode_frames"]``
-                            (list of per-episode frame lists).  If the env
-                            cannot render, inner lists stay empty.
-        """
-    total_return = 0.0
-    total_steps = 0
-    episode_frames = []
-    for _ in range(num_episodes):
-      obs = pipeline.reset_env()
-      # D6/D10: probe *after* reset (real render() attempt; any renderer
-      # error -> False); cache so frame grabs don't re-probe.
-      episode_record = bool(record_video and pipeline.can_record_video())
-      if record_video:
-        frames = []
-        if episode_record:
-          frame = pipeline.render_frame()
-          if frame is not None:
-            frames.append(frame)
-        episode_frames.append(frames)
-      episode_return = 0.0
-      done = False
-      episode_steps = 0
-      while not done and episode_steps < max_steps:
-        obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
-        with torch.no_grad():
-          action, _, _, _, _ = model.get_action_and_value(
-              obs_t,
-              deterministic=True,
-          )
-        act_val = action.item() if self._discrete else action.squeeze(0).numpy()
-        obs, reward, done, _ = pipeline.step_env(act_val)
-        episode_return += reward
-        episode_steps += 1
-        total_steps += 1
-        if record_video and episode_record:
-          frame = pipeline.render_frame()
-          if frame is not None:
-            episode_frames[-1].append(frame)
-      total_return += episode_return
-    metrics = {
-        "eval_return": total_return / max(num_episodes, 1),
-        "eval_steps": total_steps,
-    }
-    if record_video:
-      metrics["episode_frames"] = episode_frames
-    return metrics
+    return rl_evaluate(
+        self,
+        model,
+        pipeline,
+        num_episodes,
+        max_steps=max_steps,
+        record_video=record_video,
+    )
 
   def has_metric_improved(self, new_metric, best_metric):
     """Higher eval_return is better."""

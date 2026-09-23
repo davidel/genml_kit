@@ -152,9 +152,6 @@ class BYOLMethod(Method):
   def _momentum_end(self):
     return getattr(self, "_byol_final_momentum", 1.0)
 
-  def on_epoch_end(self, model, epoch, writer):
-    pass
-
   def get_checkpoint_state(self, model, args):
     return {
         "method": "byol",

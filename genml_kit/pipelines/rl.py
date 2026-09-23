@@ -274,111 +274,95 @@ class RLPipeline(DataPipeline):
   def add_args(cls, parser):
     group = parser.add_argument_group("rl pipeline")
     group.add_argument(
-        "--env-id",
-        dest="env_id",
+        "--env_id",
         type=str,
         default="CartPole-v1",
         help="Gymnasium environment id.",
     )
     group.add_argument(
-        "--obs-dim",
-        dest="obs_dim",
+        "--obs_dim",
         type=int,
         default=None,
         help="Observation dimensionality (inferred from env if omitted).",
     )
     group.add_argument(
-        "--env-script",
-        dest="env_script",
+        "--env_script",
         type=str,
         default=None,
         help="Python file/URL defining a ``make_env`` factory.",
     )
     group.add_argument(
-        "--warmup-steps",
-        dest="warmup_steps",
+        "--warmup_steps",
         type=int,
         default=1000,
         help="Random-action steps before learning starts.",
     )
     group.add_argument(
-        "--replay-capacity",
-        dest="replay_capacity",
+        "--replay_capacity",
         type=int,
         default=100_000,
         help="Maximum transitions in the replay buffer.",
     )
     group.add_argument(
-        "--eval-episodes",
-        dest="eval_episodes",
+        "--eval_episodes",
         type=int,
         default=5,
         help="Number of episodes for policy evaluation.",
     )
     group.add_argument(
-        "--env-seed",
-        dest="env_seed",
+        "--env_seed",
         type=int,
         default=None,
         help="Environment RNG seed.",
     )
     group.add_argument(
-        "--steps-per-epoch",
-        dest="steps_per_epoch",
+        "--steps_per_epoch",
         type=int,
         default=1000,
         help="Environment steps per training epoch.",
     )
     group.add_argument(
-        "--n-step",
-        dest="n_step",
+        "--n_step",
         type=int,
         default=1,
         help="Number of steps for n-step returns.",
     )
     group.add_argument(
         "--prioritized",
-        dest="prioritized",
         action="store_true",
         help="Enable prioritized experience replay (PER).",
     )
     group.add_argument(
-        "--per-alpha",
-        dest="per_alpha",
+        "--per_alpha",
         type=float,
         default=0.6,
         help="Priority exponent for PER.",
     )
     group.add_argument(
-        "--per-beta-start",
-        dest="per_beta_start",
+        "--per_beta_start",
         type=float,
         default=0.4,
         help="Initial beta for IS weight annealing.",
     )
     group.add_argument(
-        "--per-beta-frames",
-        dest="per_beta_frames",
+        "--per_beta_frames",
         type=int,
         default=100000,
         help="Frames over which to anneal beta to 1.0.",
     )
     group.add_argument(
-        "--obs-normalize",
-        dest="obs_normalize",
+        "--obs_normalize",
         action="store_true",
         help="Enable observation normalization with RunningMeanStd.",
     )
     group.add_argument(
-        "--obs-norm-clip",
-        dest="obs_norm_clip",
+        "--obs_norm_clip",
         type=float,
         default=10.0,
         help="Clip normalized observations to [-clip, clip].",
     )
     group.add_argument(
-        "--record-eval-video",
-        dest="record_eval_video",
+        "--record_eval_video",
         action="store_true",
         help="Record a video of each evaluation episode during validation "
         "(only if the environment supports rendering; MP4 via ffmpeg, "

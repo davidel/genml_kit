@@ -14,14 +14,14 @@ from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 def _make_args(**overrides):
   """Create a minimal argparse.Namespace with DQN defaults."""
   defaults = dict(
-      gamma=0.99,
-      ddqn=True,
-      dueling=False,
-      epsilon_start=1.0,
-      epsilon_end=0.02,
-      epsilon_decay_steps=50_000,
-      tau=1.0,
-      target_update_freq=0,
+      dqn_gamma=0.99,
+      dqn_ddqn=True,
+      dqn_dueling=False,
+      dqn_epsilon_start=1.0,
+      dqn_epsilon_end=0.02,
+      dqn_epsilon_decay_steps=50_000,
+      dqn_tau=1.0,
+      dqn_target_update_freq=0,
       source_checkpoint=None,
       param_rename=None,
       freeze_patterns=None,
@@ -173,5 +173,5 @@ class TestDQNMethod:
     DQNMethod.add_args(parser)
     # Just ensure parsing works.
     args = parser.parse_args([])
-    assert args.gamma == 0.99
-    assert args.ddqn is True
+    assert args.dqn_gamma == 0.99
+    assert args.dqn_ddqn is True

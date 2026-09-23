@@ -239,10 +239,6 @@ class IJEPAMethod(Method):
         "predictor_heads": args.predictor_heads,
     }
 
-  def load_checkpoint_state(self, model, state, args):
-    # Momentum / hyperparams restored automatically on next build.
-    pass
-
   def on_epoch_end(self, model, epoch, writer):
     """Ramp teacher EMA momentum."""
     if isinstance(model, IJEPA):

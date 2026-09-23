@@ -234,9 +234,6 @@ class DINOMethod(Method):
   def _momentum_end(self):
     return getattr(self, "_dino_final_momentum", 1.0)
 
-  def on_epoch_end(self, model, epoch, writer):
-    pass
-
   def get_checkpoint_state(self, model, args):
     state = {
         "method": "dino",

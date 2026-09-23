@@ -78,8 +78,8 @@ class TestRLCLIHelp:
     RLPipeline.add_args(parser)
     args = parser.parse_args([])
     # DQN defaults.
-    assert args.gamma == 0.99
-    assert args.ddqn is True
+    assert args.dqn_gamma == 0.99
+    assert args.dqn_ddqn is True
     # PPO defaults.
     assert args.ppo_gamma == 0.99
     assert args.ppo_clip_eps == 0.2
@@ -94,38 +94,38 @@ class TestRLCLIHelp:
     parser = argparse.ArgumentParser()
     DQNMethod.add_args(parser)
     args = parser.parse_args([
-        "--gamma",
+        "--dqn_gamma",
         "0.95",
-        "--epsilon_start",
+        "--dqn_epsilon_start",
         "0.8",
-        "--epsilon_end",
+        "--dqn_epsilon_end",
         "0.05",
-        "--epsilon_decay_steps",
+        "--dqn_epsilon_decay_steps",
         "20000",
-        "--tau",
+        "--dqn_tau",
         "0.5",
-        "--dueling",
+        "--dqn_dueling",
     ])
-    assert args.gamma == 0.95
-    assert args.epsilon_start == 0.8
-    assert args.epsilon_end == 0.05
-    assert args.epsilon_decay_steps == 20000
-    assert args.tau == 0.5
-    assert args.dueling is True
+    assert args.dqn_gamma == 0.95
+    assert args.dqn_epsilon_start == 0.8
+    assert args.dqn_epsilon_end == 0.05
+    assert args.dqn_epsilon_decay_steps == 20000
+    assert args.dqn_tau == 0.5
+    assert args.dqn_dueling is True
 
   def test_ppo_args_parse(self):
     parser = argparse.ArgumentParser()
     PPOMethod.add_args(parser)
     args = parser.parse_args([
-        "--ppo-clip-eps",
+        "--ppo_clip_eps",
         "0.3",
-        "--ppo-epochs",
+        "--ppo_epochs",
         "8",
-        "--ppo-lam",
+        "--ppo_lam",
         "0.9",
-        "--ppo-rollout-len",
+        "--ppo_rollout_len",
         "4096",
-        "--ppo-entropy-coef",
+        "--ppo_entropy_coef",
         "0.05",
     ])
     assert args.ppo_clip_eps == 0.3
@@ -138,11 +138,11 @@ class TestRLCLIHelp:
     parser = argparse.ArgumentParser()
     SACMethod.add_args(parser)
     args = parser.parse_args([
-        "--sac-tau",
+        "--sac_tau",
         "0.002",
-        "--sac-alpha",
+        "--sac_alpha",
         "0.5",
-        "--sac-no-auto-alpha",
+        "--sac_no_auto_alpha",
     ])
     assert args.sac_tau == 0.002
     assert args.sac_alpha == 0.5

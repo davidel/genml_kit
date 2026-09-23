@@ -34,62 +34,62 @@ class DQNMethod(Method):
   def add_args(cls, parser):
     group = parser.add_argument_group("dqn method")
     group.add_argument(
-        "--gamma",
+        "--dqn_gamma",
         type=float,
         default=0.99,
         help="Discount factor.",
     )
     group.add_argument(
-        "--ddqn",
+        "--dqn_ddqn",
         action="store_true",
         default=True,
         help="Use Double-DQN.",
     )
     group.add_argument(
-        "--no_ddqn",
-        dest="ddqn",
+        "--dqn_no_ddqn",
+        dest="dqn_ddqn",
         action="store_false",
         help="Disable Double-DQN (use vanilla DQN).",
     )
     group.add_argument(
-        "--dueling",
+        "--dqn_dueling",
         action="store_true",
         default=False,
         help="Use dueling Q-head architecture.",
     )
     group.add_argument(
-        "--epsilon_start",
+        "--dqn_epsilon_start",
         type=float,
         default=1.0,
         help="Initial exploration rate.",
     )
     group.add_argument(
-        "--epsilon_end",
+        "--dqn_epsilon_end",
         type=float,
         default=0.02,
         help="Final exploration rate.",
     )
     group.add_argument(
-        "--epsilon_decay_steps",
+        "--dqn_epsilon_decay_steps",
         type=int,
         default=50_000,
         help="Linear decay over this many env steps.",
     )
     group.add_argument(
-        "--tau",
+        "--dqn_tau",
         type=float,
         default=1.0,
         help="Polyak coefficient for soft target updates.",
     )
     group.add_argument(
-        "--target_update_freq",
+        "--dqn_target_update_freq",
         type=int,
         default=1,
         help=("Hard target-net sync every N env steps (0 = use soft "
-              "Polyak with --tau)."),
+              "Polyak with --dqn_tau)."),
     )
     group.add_argument(
-        "--n_step",
+        "--dqn_n_step",
         type=int,
         default=1,
         help="Number of lookahead steps for n-step TD target.",
@@ -103,24 +103,24 @@ class DQNMethod(Method):
   def build_model(self, args, device):
     """Build the Q-network and initialise epsilon schedule."""
     # Epsilon schedule state.
-    self._eps_start = getattr(args, "epsilon_start", 1.0)
-    self._eps_end = getattr(args, "epsilon_end", 0.02)
-    self._decay_steps = getattr(args, "epsilon_decay_steps", 50_000)
+    self._eps_start = getattr(args, "dqn_epsilon_start", 1.0)
+    self._eps_end = getattr(args, "dqn_epsilon_end", 0.02)
+    self._decay_steps = getattr(args, "dqn_epsilon_decay_steps", 50_000)
     self._epsilon = self._eps_start
     self._env_steps = 0
 
     # Target-update config.
-    self._target_update_freq = getattr(args, "target_update_freq", 0)
-    self._tau = getattr(args, "tau", 1.0)
+    self._target_update_freq = getattr(args, "dqn_target_update_freq", 0)
+    self._tau = getattr(args, "dqn_tau", 1.0)
 
     # Q-learning hyper-params.
-    self._gamma = getattr(args, "gamma", 0.99)
-    self._ddqn = getattr(args, "ddqn", True)
-    self._n_step = getattr(args, "n_step", 1)
+    self._gamma = getattr(args, "dqn_gamma", 0.99)
+    self._ddqn = getattr(args, "dqn_ddqn", True)
+    self._n_step = getattr(args, "dqn_n_step", 1)
 
     # Model.
     model = load_model(
-        "rl/qnet_dueling" if getattr(args, "dueling", False) else "rl/qnet",
+        "rl/qnet_dueling" if getattr(args, "dqn_dueling", False) else "rl/qnet",
         num_labels=0,
         obs_dim=self._pipeline.obs_dim,
         n_actions=self.n_actions,
@@ -145,6 +145,10 @@ class DQNMethod(Method):
     if random.random() < self._epsilon:
       return random.randrange(self.n_actions)
     return q.argmax(dim=-1).item()
+
+  def _eval_action(self, model, obs):
+    """Return the deterministic action for evaluation."""
+    return self.act(model, obs, deterministic=True)
 
   def step_epsilon(self):
     """Decay epsilon (called by the trainer after each env step)."""
@@ -217,63 +221,17 @@ class DQNMethod(Method):
                num_episodes,
                max_steps=10_000,
                record_video=False):
-    """Run evaluation episodes and return mean return.
+    """Run evaluation episodes and return mean return."""
+    from genml_kit.methods.rl_utils import rl_evaluate
 
-        Overrides the base ``Method.evaluate`` signature because RL
-        validation does not use a DataLoader.
-
-        Args:
-            model:          QNetwork with ``.online`` sub-module.
-            pipeline:       ``RLPipeline`` providing ``reset_env`` /
-                            ``step_env`` / ``can_record_video`` /
-                            ``render_frame``.
-            num_episodes:   Number of evaluation episodes.
-            max_steps:      Hard cap on environment steps PER EPISODE to
-                            prevent infinite loops with untrained policies.
-            record_video:   If True, capture ``render_frame()`` after reset
-                            and after each step for every episode, and
-                            return them under ``metrics["episode_frames"]``
-                            (list of per-episode frame lists).  If the env
-                            cannot render, inner lists stay empty.
-        """
-    total_return = 0.0
-    total_steps = 0
-    episode_frames = []
-    for _ in range(num_episodes):
-      obs = pipeline.reset_env()
-      # D6/D10: probe *after* reset. can_record_video() performs a real
-      # render() attempt (any renderer error -> False); cache the result so
-      # frame grabs don't re-probe and so ResetNeeded / DependencyNotInstalled
-      # are only ever hit inside the probe's try/except.
-      episode_record = bool(record_video and pipeline.can_record_video())
-      if record_video:
-        frames = []
-        if episode_record:
-          frame = pipeline.render_frame()
-          if frame is not None:
-            frames.append(frame)
-        episode_frames.append(frames)
-      episode_return = 0.0
-      done = False
-      episode_steps = 0
-      while not done and episode_steps < max_steps:
-        action = self.act(model, obs, deterministic=True)
-        obs, reward, done, _ = pipeline.step_env(action)
-        episode_return += reward
-        episode_steps += 1
-        total_steps += 1
-        if record_video and episode_record:
-          frame = pipeline.render_frame()
-          if frame is not None:
-            episode_frames[-1].append(frame)
-      total_return += episode_return
-    metrics = {
-        "eval_return": total_return / max(num_episodes, 1),
-        "eval_steps": total_steps,
-    }
-    if record_video:
-      metrics["episode_frames"] = episode_frames
-    return metrics
+    return rl_evaluate(
+        self,
+        model,
+        pipeline,
+        num_episodes,
+        max_steps=max_steps,
+        record_video=record_video,
+    )
 
   def has_metric_improved(self, new_metric, best_metric):
     """Higher eval_return is better."""

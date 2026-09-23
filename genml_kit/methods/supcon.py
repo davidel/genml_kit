@@ -86,13 +86,6 @@ class SupConMethod(Method):
         "temperature": args.temperature,
     }
 
-  def load_checkpoint_state(self, model, state, args):
-    # Projection head is part of the model state dict.
-    pass
-
   def validate(self, model, images, num_samples):
     # No pixel-space visualization for contrastive.
     return None
-
-  def on_epoch_end(self, model, epoch, writer):
-    pass
