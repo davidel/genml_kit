@@ -50,7 +50,7 @@ def write_video(frames, path, fps=30):
 
 def _write_mp4(frames, path, fps=30):
   # Use the v3 `imageio` API: `imageio.v2` is deprecated and its shim may
-  # be removed in future releases (see plans/RL_VIDEO.md section 4.3).
+  # be removed in future releases.
   import imageio
 
   writer = imageio.get_writer(

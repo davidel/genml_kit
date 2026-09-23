@@ -166,9 +166,9 @@ class GymnasiumEnvWrapper:
     ``pygame`` is not installed (verified, gymnasium 1.3.0), which would
     crash on the actual ``render()`` call.  Rendering is the source of truth.
 
-    **Invariant (see plans/RL_VIDEO.md section 2.2 / D10): call only after
-    ``reset()``** - gymnasium >= 1.0 raises ``ResetNeeded`` if ``render()``
-    is called before the first ``env.reset()``.
+    **Invariant: call only after ``reset()``** - gymnasium >= 1.0 raises
+    ``ResetNeeded`` if ``render()`` is called before the first
+    ``env.reset()``.
     """
     if self._render_mode is None:
       return False
@@ -538,8 +538,8 @@ class RLPipeline(DataPipeline):
     Returns ``False`` for scripted/external envs that do not expose the
     render API, so callers can skip recording without erroring.
 
-    **Invariant (see plans/RL_VIDEO.md section 2.2 / D10): call only after
-    ``reset_env()``.** The check is a real ``render()`` attempt, not a
+    **Invariant: call only after ``reset_env()``.** The check is a real
+    ``render()`` attempt, not a
     ``metadata["render_modes"]`` lookup - the latter reports static class
     metadata and stays true even when the renderer (e.g. pygame) is not
     installed.  This probe tolerates ``ResetNeeded``,
