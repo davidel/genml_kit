@@ -124,6 +124,12 @@ def add_optimization_args(parser,
         help="Gradient accumulation steps. Effective batch "
         "size = batch_size * grad_accum_steps.",
     )
+  parser.add_argument(
+      "--log_every",
+      type=int,
+      default=50,
+      help="Log training metrics every N batches.",
+  )
 
 
 def add_source_checkpoint_args(parser):

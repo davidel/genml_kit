@@ -219,10 +219,6 @@ def build_parser():
                       type=int,
                       default=32,
                       help="Training batch size per step.")
-  parser.add_argument("--log_every",
-                      type=int,
-                      default=20,
-                      help="Log training stats every N steps.")
   parser.add_argument("--num_workers",
                       type=int,
                       default=4,

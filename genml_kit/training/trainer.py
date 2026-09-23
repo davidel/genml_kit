@@ -93,13 +93,23 @@ class BaseTrainer:
 
   def train_epoch(self, epoch, saver, step, monitor):
     """Run one training epoch; return ``(avg_loss, new_step)``."""
+    from genml_kit.training.train_reporting import ImageTrainReporting
+
     # Loop owns train/eval mode.
     set_train_mode(self.model, "train")
-    total, batches = 0.0, 0
     # None unless fp16-on-CUDA.
     scaler = self.optimization.scaler
     amp_dtype = getattr(self.args, "amp_dtype", None)
     total_batches = len(self.pipeline.train_loader)
+    accum_steps = getattr(self.args, "grad_accum_steps", 1)
+
+    reporter = ImageTrainReporting(
+        total_batches=total_batches,
+        log_every=getattr(self.args, "log_every", 50),
+        writer=self.writer,
+        device=self.device,
+        optimizer=self.optimization.optimizer,
+    )
 
     for step_in_epoch, blob in enumerate(self.pipeline.train_loader):
       # Data AND meta.
@@ -113,14 +123,14 @@ class BaseTrainer:
         # Raw, UNSCALED mean batch objective.
         loss = loss_out.loss
       # Scale ONLY for grad.
-      grad = loss / self.args.grad_accum_steps
+      grad = loss / accum_steps
       if scaler is not None:
         scaler.scale(grad).backward()
       else:
         grad.backward()
 
       # Flush partial tail.
-      if ((step_in_epoch + 1) % self.args.grad_accum_steps == 0 or
+      if ((step_in_epoch + 1) % accum_steps == 0 or
           (step_in_epoch + 1) == total_batches):
         if scaler is not None:
           scaler.unscale_(self.optimization.optimizer)
@@ -138,13 +148,30 @@ class BaseTrainer:
         self.optimization.optimizer.zero_grad(set_to_none=True)
         step += 1
 
-      # Report RAW loss (see s 4 notes).
-      total += loss.item()
-      batches += 1
+      # Determine batch size from the blob (dict or DataBlob namedtuple).
+      if isinstance(blob, dict):
+        batch_size = blob["pixel_values"].shape[0]
+        targets = blob.get("labels", None)
+      else:
+        data = blob.data
+        if isinstance(data, (tuple, list)):
+          batch_size = data[0].shape[0]
+        else:
+          batch_size = data.shape[0]
+        targets = blob.meta.get("labels", None) if isinstance(blob.meta, dict) else None
 
-    if self.writer is not None:
-      self.writer.add_scalar("train/loss", total / max(batches, 1), epoch)
-    return total / max(batches, 1), step
+      reporter.step(
+          batch_idx=step_in_epoch,
+          batch_size=batch_size,
+          loss_value=loss.item(),
+          logits=loss_out.logits if hasattr(loss_out, "logits") else None,
+          targets=targets,
+          global_step=step,
+          report_now=(step_in_epoch + 1 == total_batches),
+      )
+
+    reporter.summary()
+    return reporter.epoch_avg_loss()[0], step
 
   def validate(self):
     """Evaluate and return ``metrics[method.METRIC_KEY]`` (or ``None``).

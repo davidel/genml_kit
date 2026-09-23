@@ -139,7 +139,7 @@ class TestParseArgs:
     assert args.image_size == 448
     assert args.lr == 3e-5
     assert args.batch_size == 32
-    assert args.log_every == 20
+    assert args.log_every == 50
     assert args.save_every == 500
     assert args.amp_dtype is None
     assert args.checkpoint == "genml_kit"

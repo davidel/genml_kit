@@ -117,6 +117,16 @@ class RLTrainer(BaseTrainer):
     total_loss = 0.0
     batches = 0
 
+    from genml_kit.training.train_reporting import TrainReporting
+    reporter = TrainReporting(
+        total_batches=self.args.steps_per_epoch,
+        log_every=getattr(self.args, "log_every", 50),
+        writer=self.writer,
+        device=self.device,
+        optimizer=self.optimization.optimizer,
+        throughput_unit="step",
+    )
+
     # Determine if continuous action space (needed for step_env)
     action_space = getattr(self.pipeline.env, 'action_space', None)
     is_continuous = action_space is not None and hasattr(
@@ -193,23 +203,28 @@ class RLTrainer(BaseTrainer):
       if monitor is not None:
         monitor.step(loss_out.loss, step)
 
-    avg_loss = total_loss / max(batches, 1)
-    if self.writer is not None:
-      self.writer.add_scalar("train/loss", avg_loss, epoch)
+      # Build extra metrics for the reporter.
+      extra = {}
       if hasattr(self.method, "_epsilon"):
-        self.writer.add_scalar("epsilon", self.method._epsilon, epoch)
+        extra["epsilon"] = self.method._epsilon
       if hasattr(self.method, "_get_alpha"):
-        self.writer.add_scalar("alpha", self.method._get_alpha(), epoch)
-      self.writer.add_scalar("env_steps", self.method._env_steps, epoch)
+        extra["alpha"] = self.method._get_alpha()
+      extra["env_steps"] = self.method._env_steps
+      extra["buffer_size"] = len(self.pipeline.replay_buffer)
+      for k, v in loss_out.metrics.items():
+        extra[k] = v.item() if hasattr(v, "item") else v
 
-    logging.info(
-        "epoch=%d  avg_loss=%.4f  env_steps=%d  buffer_size=%d",
-        epoch,
-        avg_loss,
-        self.method._env_steps,
-        len(self.pipeline.replay_buffer),
-    )
-    return avg_loss, step
+      reporter.step(
+          batch_idx=batches,
+          batch_size=batch_size,
+          loss_value=loss_out.loss.item(),
+          global_step=step,
+          extra_metrics=extra,
+          report_now=(batches + 1 == self.args.steps_per_epoch),
+      )
+
+    reporter.summary()
+    return reporter.epoch_avg_loss(), step
 
   # ------------------------------------------------------------------
   # On-policy: PPO
@@ -272,6 +287,18 @@ class RLTrainer(BaseTrainer):
     total_loss = 0.0
     batches = 0
     mini_batch_size = self.method._mini_batch_size
+    # Total number of mini-batches across all PPO epochs.
+    total_pico_batches = self.method._ppo_epochs * (rollout_len // mini_batch_size)
+
+    from genml_kit.training.train_reporting import TrainReporting
+    reporter = TrainReporting(
+        total_batches=total_pico_batches,
+        log_every=getattr(self.args, "log_every", 50),
+        writer=self.writer,
+        device=self.device,
+        optimizer=self.optimization.optimizer,
+        throughput_unit="step",
+    )
 
     for _ppo_epoch in range(self.method._ppo_epochs):
       # Use rollout's sample method to get properly formatted mini-batches
@@ -312,22 +339,23 @@ class RLTrainer(BaseTrainer):
         if monitor is not None:
           monitor.step(loss_out.loss, step)
 
-    avg_loss = total_loss / max(batches, 1)
-    if self.writer is not None:
-      self.writer.add_scalar("train/loss", avg_loss, epoch)
-      self.writer.add_scalar("env_steps", self.method._env_steps, epoch)
-      for k in ("pg_loss", "value_loss", "entropy", "ratio_mean"):
-        if k in loss_out.metrics:
-          self.writer.add_scalar(f"ppo/{k}", loss_out.metrics[k], epoch)
+        # Build extra metrics for the reporter.
+        extra = {"episodes": episode_count}
+        extra["env_steps"] = self.method._env_steps
+        for k, v in loss_out.metrics.items():
+          extra[k] = v.item() if hasattr(v, "item") else v
 
-    logging.info(
-        "epoch=%d  avg_loss=%.4f  env_steps=%d  episodes=%d",
-        epoch,
-        avg_loss,
-        self.method._env_steps,
-        episode_count,
-    )
-    return avg_loss, step
+        reporter.step(
+            batch_idx=batches - 1,
+            batch_size=mini_batch_size,
+            loss_value=loss_out.loss.item(),
+            global_step=step,
+            extra_metrics=extra,
+            report_now=(batches == total_pico_batches),
+        )
+
+    reporter.summary()
+    return reporter.epoch_avg_loss(), step
 
   # ------------------------------------------------------------------
   # Shared helpers
