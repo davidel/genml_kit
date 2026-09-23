@@ -154,9 +154,12 @@ class SACMethod(Method):
     actor_opt = torch.optim.Adam(actor_params, lr=actor_lr)
     alpha_opt = torch.optim.Adam(alpha_params, lr=alpha_lr)
 
-    # Restore from checkpoint if available
-    if ckpt_extra and "optim" in ckpt_extra:
-      optim_state = ckpt_extra["optim"]
+    # Restore from checkpoint if available.
+    # The checkpoint stores the full SACOptimization state_dict under
+    # "optimizer_state_dict" (saved by CheckpointSaver via
+    # SACOptimization.state_dict()).
+    if ckpt_extra and "optimizer_state_dict" in ckpt_extra:
+      optim_state = ckpt_extra["optimizer_state_dict"]
       if "critic_opt" in optim_state:
         critic_opt.load_state_dict(optim_state["critic_opt"])
       if "actor_opt" in optim_state:
@@ -365,17 +368,6 @@ class SACMethod(Method):
         "env_steps": self._env_steps,
         "log_alpha": self._log_alpha.item(),
     }
-
-  def ckpt_extra(self, best, step):
-    """Save three optimizers' state and alpha optimizer."""
-    opt = self.optimization
-    extra = {}
-    if hasattr(opt, "state_dict"):
-      extra["optim"] = opt.state_dict()
-    # Save alpha optimizer state for resume
-    if hasattr(self, "_alpha_optim") and hasattr(self._alpha_optim, "state_dict"):
-      extra["alpha_optim"] = self._alpha_optim.state_dict()
-    return extra
 
   def load_checkpoint_state(self, model, state, args):
     self._env_steps = state.get("env_steps", 0)

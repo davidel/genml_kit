@@ -2,7 +2,6 @@
 
 import argparse
 import tempfile
-from collections import namedtuple
 
 import numpy as np
 import pytest
@@ -15,10 +14,9 @@ from genml_kit.methods.rl_sac import SACMethod
 from genml_kit.models.rl.qnetwork import QNetwork
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.training.rl_trainer import RLTrainer
+from genml_kit.training.optim_factory import Optimization
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
-
-Optimization = namedtuple("Optimization", ["optimizer", "scheduler", "scaler"])
 
 
 class FakeRLMethod(DQNMethod):
@@ -406,11 +404,8 @@ class TestRLTrainerEndToEnd:
     # Wire data and build model (initializes _log_alpha)
     method.wire_data(args, pipeline)
     model = method.build_model(args, device=torch.device("cpu"))
-    optimization = Optimization(
-        optimizer=Adam(model.parameters(), lr=3e-4),
-        scheduler=None,
-        scaler=None,
-    )
+    # SAC needs its own 3-optimizer setup (critic, actor, alpha).
+    optimization = method.build_optimization(args, model, torch.device("cpu"), {}, {})
     trainer = RLTrainer(
         args=args,
         model=model,
@@ -720,11 +715,8 @@ class TestRLCheckpointRoundTrip:
                                 buffer_size=100)
     method1.wire_data(args1, pipeline1)
     model1 = method1.build_model(args1, device=torch.device("cpu"))
-    optimization1 = Optimization(
-        optimizer=Adam(model1.parameters(), lr=3e-4),
-        scheduler=None,
-        scaler=None,
-    )
+    optimization1 = method1.build_optimization(args1, model1, torch.device("cpu"), {},
+                                               {})
     trainer1 = RLTrainer(
         args=args1,
         model=model1,
@@ -766,11 +758,8 @@ class TestRLCheckpointRoundTrip:
                                 buffer_size=100)
     method2.wire_data(args2, pipeline2)
     model2 = method2.build_model(args2, device=torch.device("cpu"))
-    optimization2 = Optimization(
-        optimizer=Adam(model2.parameters(), lr=3e-4),
-        scheduler=None,
-        scaler=None,
-    )
+    optimization2 = method2.build_optimization(args2, model2, torch.device("cpu"), {},
+                                               {})
     method2.load_checkpoint_state(model2, ckpt1["method_state"], args2)
 
     # Verify state was loaded correctly immediately after loading

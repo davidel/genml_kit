@@ -453,7 +453,8 @@ def main(argv=None):
   # (mirrors genml_kit.utils.attr.maybe_call semantics).
   maybe_call(pipeline, "load_checkpoint_state", ckpt_extra)
 
-  optimization = build_optimization(args, model, device, ckpt_extra, states_to_load)
+  optimization = build_optimization(args, model, device, ckpt_extra,
+                                    states_to_load, method=method)
   train_loader = getattr(pipeline, "train_loader", None)
   global_step = ckpt_extra.get(
       "global_step",

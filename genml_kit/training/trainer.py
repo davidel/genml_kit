@@ -28,6 +28,7 @@ from genml_kit.io.checkpointing import (
     parse_state_flags,
 )
 from genml_kit.training.grad_monitor import create_grad_monitor
+from genml_kit.training.train_reporting import ImageTrainReporting
 from genml_kit.training.model_utils import set_train_mode
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
@@ -93,8 +94,6 @@ class BaseTrainer:
 
   def train_epoch(self, epoch, saver, step, monitor):
     """Run one training epoch; return ``(avg_loss, new_step)``."""
-    from genml_kit.training.train_reporting import ImageTrainReporting
-
     # Loop owns train/eval mode.
     set_train_mode(self.model, "train")
     # None unless fp16-on-CUDA.
@@ -231,9 +230,12 @@ class BaseTrainer:
 
     # All checkpoint writes go through one saver: state sources bound once,
     # per-save data (epoch, global_step, metrics) passed per call.
+    # Pass the full optimization object (not just .optimizer) so that
+    # methods with custom optimization wrappers (e.g. SACOptimization)
+    # save/restore the complete state via their own state_dict().
     saver = CheckpointSaver(
         self.model,
-        self.optimization.optimizer,
+        self.optimization,
         self.optimization.scheduler,
         root=args.checkpoint,
         states_to_save=states_to_save,

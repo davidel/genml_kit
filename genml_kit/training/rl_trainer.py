@@ -11,8 +11,10 @@ import os
 import numpy as np
 import torch
 
+from genml_kit.training.train_reporting import TrainReporting
 from genml_kit.training.trainer import BaseTrainer
 from genml_kit.training.video_utils import write_video
+from genml_kit.utils.attr import get_attribute, MISSING
 
 
 def _terminated_from(info, done):
@@ -48,11 +50,8 @@ class RLTrainer(BaseTrainer):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self._warmup_obs = None
-    # Allow method to build custom optimization (e.g., SAC three optimizers)
-    custom_opt = self.method.build_optimization(self.args, self.model, self.device, {},
-                                                {})
-    if custom_opt is not None:
-      self.optimization = custom_opt
+    # NOTE: method.build_optimization() is now called by optim_factory
+    # with the proper ckpt_extra, so we no longer need to override here.
 
   def train_epoch(self, epoch, saver, step, monitor):
     """One training epoch.
@@ -117,7 +116,6 @@ class RLTrainer(BaseTrainer):
     total_loss = 0.0
     batches = 0
 
-    from genml_kit.training.train_reporting import TrainReporting
     reporter = TrainReporting(
         total_batches=self.args.steps_per_epoch,
         log_every=getattr(self.args, "log_every", 50),
@@ -288,9 +286,9 @@ class RLTrainer(BaseTrainer):
     batches = 0
     mini_batch_size = self.method._mini_batch_size
     # Total number of mini-batches across all PPO epochs.
-    total_pico_batches = self.method._ppo_epochs * (rollout_len // mini_batch_size)
+    total_pico_batches = self.method._ppo_epochs * (
+        rollout_len // mini_batch_size)
 
-    from genml_kit.training.train_reporting import TrainReporting
     reporter = TrainReporting(
         total_batches=total_pico_batches,
         log_every=getattr(self.args, "log_every", 50),
@@ -429,8 +427,6 @@ class RLTrainer(BaseTrainer):
 
   def saver_extra(self):
     """Extra state attached to every checkpoint write (method state)."""
-    from genml_kit.utils.attr import get_attribute, MISSING
-
     extra = {"method_state": self.method.get_checkpoint_state(self.model, self.args)}
     # Include pipeline state (e.g., obs normalization RMS)
     fn = get_attribute(self.pipeline, "get_checkpoint_state")

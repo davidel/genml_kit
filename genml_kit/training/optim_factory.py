@@ -12,22 +12,46 @@ import torch
 import torch.optim as optim
 
 from genml_kit.io.checkpointing import restore_training_state
+from genml_kit.methods.base import Method
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.script import extern_call
+
 
 # Everything needed to drive the training loop: the param groups (as
 # logged/reported), the optimizer, the LR scheduler (may be None) and the
 # AMP GradScaler (only set for float16 AMP on CUDA, else None).
-Optimization = collections.namedtuple("Optimization",
-                                      "param_groups, optimizer, scheduler, scaler")
+class Optimization:
+  """Thin wrapper binding optimizer + scheduler + scaler.
+
+  Implements ``state_dict()`` / ``load_state_dict()`` that delegate to
+  the inner optimizer, so ``CheckpointSaver`` can treat the full
+  optimization object uniformly (both for standard single-optimizer
+  methods and for custom wrappers like ``SACOptimization``).
+  """
+
+  def __init__(self, param_groups=None, optimizer=None, scheduler=None, scaler=None):
+    self.param_groups = param_groups
+    self.optimizer = optimizer
+    self.scheduler = scheduler
+    self.scaler = scaler
+
+  def state_dict(self):
+    return self.optimizer.state_dict()
+
+  def load_state_dict(self, state):
+    self.optimizer.load_state_dict(state)
 
 
-def build_optimization(args, model, device, ckpt_extra, states_to_load):
+def build_optimization(args, model, device, ckpt_extra, states_to_load, method=None):
   """Build param groups, optimizer, scheduler and AMP scaler for a run.
 
   Wraps the optimizer/scheduler/scaler setup that ``train.py`` and
   ``pretrain.py`` used to carry as near-verbatim copies, then restores
   any optimizer/scheduler/scaler state requested via ``--state_load``.
+
+  If *method* provides a custom ``build_optimization`` override (e.g.
+  SAC with three separate optimizers), it is called instead of the
+  standard single-optimizer path.
 
   Args:
       args: Parsed CLI args (lr, weight_decay, llrd_decay, lr_group,
@@ -37,10 +61,20 @@ def build_optimization(args, model, device, ckpt_extra, states_to_load):
       ckpt_extra: Extra dict from the resumed checkpoint (may carry
           optimizer/scheduler/scaler state); may be empty.
       states_to_load: State sources to restore, from ``--state_load``.
+      method: Optional method instance; if it overrides
+          ``build_optimization``, that override is called directly.
 
   Returns:
-      An ``Optimization`` namedtuple.
+      An ``Optimization`` namedtuple (or compatible custom object).
   """
+  # Delegate to method-specific optimization if available.
+  if (method is not None
+      and type(method).build_optimization is not Method.build_optimization):
+    logging.info("Using method-specific build_optimization (%s)",
+                 type(method).__name__)
+    return method.build_optimization(args, model, device, ckpt_extra,
+                                     states_to_load)
+
   if args.llrd_decay is not None:
     param_groups = build_param_groups_llrd(
         dict(model.named_parameters()),
