@@ -59,6 +59,12 @@ def _write_mp4(frames, path, fps=30):
       codec="libx264",
       quality=8,
       pixelformat="yuv420p",
+      # Do not force frames to be divisible by 16x16 macroblocks.
+      # RL envs often render odd dimensions (e.g. 600x400 LunarLander);
+      # libx264 pads internally to the nearest macroblock boundary, and
+      # modern decoders handle this transparently.  Avoids imageio's
+      # implicit rescale (608x400) which slightly distorts the video.
+      macro_block_size=1,
   )
   try:
     for frame in frames:
