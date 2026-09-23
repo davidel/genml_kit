@@ -1560,27 +1560,27 @@ pip install 'genml_kit[rl]'
 
 ```
 # DQN on CartPole (discrete)
-genml-kit-train --pipeline rl --method dqn --env-id CartPole-v1 \
-    --epochs 20 --batch-size 64
+genml-kit-train --pipeline rl --method dqn --env_id CartPole-v1 \
+    --epochs 20 --batch_size 64
 
 # PPO on CartPole (discrete)
-genml-kit-train --pipeline rl --method ppo --env-id CartPole-v1 \
-    --epochs 20 --ppo-rollout-len 2048
+genml-kit-train --pipeline rl --method ppo --env_id CartPole-v1 \
+    --epochs 20 --ppo_rollout_len 2048
 
 # SAC on a continuous env (e.g. LunarLanderContinuous-v3)
-genml-kit-train --pipeline rl --method sac --env-id LunarLanderContinuous-v3 \
+genml-kit-train --pipeline rl --method sac --env_id LunarLanderContinuous-v3 \
     --epochs 20
 ```
 
 All RL methods use `eval_return` (mean undiscounted return over
-`--eval-episodes` episodes, default 5) as the checkpoint-selection metric.
+`--eval_episodes` episodes, default 5) as the checkpoint-selection metric.
 The trainer bypasses the DataLoader: it steps the environment directly and
 samples from a replay buffer (DQN/SAC) or re-uses a rollout buffer (PPO).
 
 ### Evaluation videos
 
-Pass `--record-eval-video` to record **one video per evaluation episode**
-during validation (all RL methods: DQN / PPO / SAC).  Videos are written to
+Pass `--record_eval_video` to record **one video per evaluation episode**
+during validation (all RL methods: DQN / PPO / SAC).
 `<checkpoint_dir>/videos/` as `eval_episode_000.mp4` etc., or as
 `eval_episode_000.gif` when the MP4 writer is unavailable (e.g. no
 `imageio[ffmpeg]`).  Recording is **only** attempted when the environment can
@@ -1589,7 +1589,7 @@ are detected at validation time and skipped without crashing.
 
 ### Custom environments
 
-Pass `--env-script /path/to/env.py` to load a custom environment.  The
+Pass `--env_script /path/to/env.py` to load a custom environment.  The
 script must expose a `make_env()` factory returning a Gymnasium-style env
 (`reset()`, `step(action)`, `close()`; `observation_space` and
 `action_space` attributes, which the pipeline introspects to size the
@@ -1599,14 +1599,14 @@ environment wants reproducible initialization.
 ### Environment & replay options
 
 Relevant flags:
-  - `--env-id`, `--obs-dim`, `--env-script` -- environment selection.
-  - `--replay-capacity`, `--batch-size`, `--n-step`, `--prioritized`,
-    `--per-alpha`, `--per-beta-start`, `--per-beta-frames` -- replay tuning.
-  - `--obs-normalize`, `--obs-norm-clip` -- running observation
+  - `--env_id`, `--obs_dim`, `--env_script` -- environment selection.
+  - `--replay_capacity`, `--batch_size`, `--n_step`, `--prioritized`,
+    `--per_alpha`, `--per_beta_start`, `--per_beta_frames` -- replay tuning.
+  - `--obs_normalize`, `--obs_norm_clip` -- running observation
     normalization (Welford).  Both train and eval observations are
     normalized with the same RMS statistics.
-  - `--eval-episodes`, `--env-seed` -- evaluation.
-  - `--record-eval-video` -- record one MP4 (or GIF fallback) per evaluation
+  - `--eval_episodes`, `--env_seed` -- evaluation.
+  - `--record_eval_video` -- record one MP4 (or GIF fallback) per evaluation
     episode under `<checkpoint_dir>/videos/`; only when the environment
     supports rendering (see "Evaluation videos" below).
 
