@@ -17,7 +17,9 @@ from genml_kit.utils.logging import fatal, setup_logging
 
 def parse_args(argv=None):
   parser = argparse.ArgumentParser(
-      description="Classify images with a fine-tuned model (HuggingFace or timm).")
+      description="Classify images with a fine-tuned model (HuggingFace or timm).",
+      formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+  )
   parser.add_argument(
       "--model",
       required=True,
@@ -34,7 +36,7 @@ def parse_args(argv=None):
       "--image_size",
       type=int,
       default=448,
-      help="Image resize target (default: 448).",
+      help="Image resize target.",
   )
   parser.add_argument(
       "--output",
@@ -44,12 +46,12 @@ def parse_args(argv=None):
   parser.add_argument(
       "--top_k",
       type=int,
-      help="Only show top-K predictions (default: all).",
+      help="Only show top-K predictions.",
   )
   parser.add_argument(
       "--device",
       type=str,
-      help="Device: cuda or cpu (default: auto-detect).",
+      help="Device: cuda or cpu.",
   )
   parser.add_argument(
       "--cache_dir",

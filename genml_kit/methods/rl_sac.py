@@ -41,25 +41,25 @@ class SACMethod(Method):
         "--sac-gamma",
         type=float,
         default=0.99,
-        help="Discount factor (default: 0.99).",
+        help="Discount factor.",
     )
     group.add_argument(
         "--sac-tau",
         type=float,
         default=0.005,
-        help="Polyak coefficient for soft target updates (default: 0.005).",
+        help="Polyak coefficient for soft target updates.",
     )
     group.add_argument(
         "--sac-alpha",
         type=float,
         default=0.2,
-        help="Initial temperature alpha (default: 0.2).",
+        help="Initial temperature alpha.",
     )
     group.add_argument(
         "--sac-auto-alpha",
         action="store_true",
         default=True,
-        help="Auto-tune alpha (default: True).",
+        help="Auto-tune alpha.",
     )
     group.add_argument(
         "--sac-no-auto-alpha",
@@ -71,25 +71,25 @@ class SACMethod(Method):
         "--sac-target-entropy",
         type=float,
         default=None,
-        help="Target entropy for auto-alpha (default: -action_dim).",
+        help="Target entropy for auto-alpha.",
     )
     group.add_argument(
         "--sac-critic-lr",
         type=float,
         default=3e-4,
-        help="Critic learning rate (default: 3e-4).",
+        help="Critic learning rate.",
     )
     group.add_argument(
         "--sac-actor-lr",
         type=float,
         default=3e-4,
-        help="Actor learning rate (default: 3e-4).",
+        help="Actor learning rate.",
     )
     group.add_argument(
         "--sac-alpha-lr",
         type=float,
         default=3e-4,
-        help="Alpha learning rate (default: 3e-4).",
+        help="Alpha learning rate.",
     )
 
   def wire_data(self, args, pipeline):

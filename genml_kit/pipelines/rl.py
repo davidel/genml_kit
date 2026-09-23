@@ -278,7 +278,7 @@ class RLPipeline(DataPipeline):
         dest="env_id",
         type=str,
         default="CartPole-v1",
-        help="Gymnasium environment id (default: CartPole-v1).",
+        help="Gymnasium environment id.",
     )
     group.add_argument(
         "--obs-dim",
@@ -327,14 +327,14 @@ class RLPipeline(DataPipeline):
         dest="steps_per_epoch",
         type=int,
         default=1000,
-        help="Environment steps per training epoch (default: 1000).",
+        help="Environment steps per training epoch.",
     )
     group.add_argument(
         "--n-step",
         dest="n_step",
         type=int,
         default=1,
-        help="Number of steps for n-step returns (default: 1).",
+        help="Number of steps for n-step returns.",
     )
     group.add_argument(
         "--prioritized",
@@ -347,21 +347,21 @@ class RLPipeline(DataPipeline):
         dest="per_alpha",
         type=float,
         default=0.6,
-        help="Priority exponent for PER (default: 0.6).",
+        help="Priority exponent for PER.",
     )
     group.add_argument(
         "--per-beta-start",
         dest="per_beta_start",
         type=float,
         default=0.4,
-        help="Initial beta for IS weight annealing (default: 0.4).",
+        help="Initial beta for IS weight annealing.",
     )
     group.add_argument(
         "--per-beta-frames",
         dest="per_beta_frames",
         type=int,
         default=100000,
-        help="Frames over which to anneal beta to 1.0 (default: 100000).",
+        help="Frames over which to anneal beta to 1.0.",
     )
     group.add_argument(
         "--obs-normalize",
@@ -374,7 +374,7 @@ class RLPipeline(DataPipeline):
         dest="obs_norm_clip",
         type=float,
         default=10.0,
-        help="Clip normalized observations to [-clip, clip] (default: 10.0).",
+        help="Clip normalized observations to [-clip, clip].",
     )
     group.add_argument(
         "--record-eval-video",

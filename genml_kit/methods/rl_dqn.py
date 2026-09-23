@@ -37,13 +37,13 @@ class DQNMethod(Method):
         "--gamma",
         type=float,
         default=0.99,
-        help="Discount factor (default: 0.99).",
+        help="Discount factor.",
     )
     group.add_argument(
         "--ddqn",
         action="store_true",
         default=True,
-        help="Use Double-DQN (default: True).",
+        help="Use Double-DQN.",
     )
     group.add_argument(
         "--no_ddqn",
@@ -61,39 +61,38 @@ class DQNMethod(Method):
         "--epsilon_start",
         type=float,
         default=1.0,
-        help="Initial exploration rate (default: 1.0).",
+        help="Initial exploration rate.",
     )
     group.add_argument(
         "--epsilon_end",
         type=float,
         default=0.02,
-        help="Final exploration rate (default: 0.02).",
+        help="Final exploration rate.",
     )
     group.add_argument(
         "--epsilon_decay_steps",
         type=int,
         default=50_000,
-        help="Linear decay over this many env steps (default: 50000).",
+        help="Linear decay over this many env steps.",
     )
     group.add_argument(
         "--tau",
         type=float,
         default=1.0,
-        help="Polyak coefficient for soft target updates (default: 1.0 = hard).",
+        help="Polyak coefficient for soft target updates.",
     )
     group.add_argument(
         "--target_update_freq",
         type=int,
         default=1,
         help=("Hard target-net sync every N env steps (0 = use soft "
-              "Polyak with --tau). Default 1 = update every step for "
-              "stable training."),
+              "Polyak with --tau)."),
     )
     group.add_argument(
         "--n_step",
         type=int,
         default=1,
-        help="Number of lookahead steps for n-step TD target (default: 1).",
+        help="Number of lookahead steps for n-step TD target.",
     )
 
   def wire_data(self, args, pipeline):

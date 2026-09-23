@@ -42,61 +42,61 @@ class PPOMethod(Method):
         "--ppo-gamma",
         type=float,
         default=0.99,
-        help="Discount factor (default: 0.99).",
+        help="Discount factor.",
     )
     group.add_argument(
         "--ppo-lam",
         type=float,
         default=0.95,
-        help="GAE lambda (default: 0.95).",
+        help="GAE lambda.",
     )
     group.add_argument(
         "--ppo-clip-eps",
         type=float,
         default=0.2,
-        help="PPO clipping epsilon (default: 0.2).",
+        help="PPO clipping epsilon.",
     )
     group.add_argument(
         "--ppo-epochs",
         type=int,
         default=4,
-        help="SGD epochs per rollout (default: 4).",
+        help="SGD epochs per rollout.",
     )
     group.add_argument(
         "--ppo-mini-batch-size",
         type=int,
         default=64,
-        help="Mini-batch size for PPO updates (default: 64).",
+        help="Mini-batch size for PPO updates.",
     )
     group.add_argument(
         "--ppo-entropy-coef",
         type=float,
         default=0.01,
-        help="Entropy bonus coefficient (default: 0.01).",
+        help="Entropy bonus coefficient.",
     )
     group.add_argument(
         "--ppo-value-coef",
         type=float,
         default=0.5,
-        help="Value loss coefficient (default: 0.5).",
+        help="Value loss coefficient.",
     )
     group.add_argument(
         "--ppo-vf-clip-eps",
         type=float,
         default=None,
-        help="Value function clipping epsilon (default: None = unclipped).",
+        help="Value function clipping epsilon (None = unclipped).",
     )
     group.add_argument(
         "--ppo-rollout-len",
         type=int,
         default=2048,
-        help="Rollout length before each PPO update (default: 2048).",
+        help="Rollout length before each PPO update.",
     )
     group.add_argument(
         "--ppo-discrete",
         action="store_true",
         default=True,
-        help="Use discrete action space (default: True).",
+        help="Use discrete action space.",
     )
     group.add_argument(
         "--ppo-continuous",

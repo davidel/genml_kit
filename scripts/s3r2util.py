@@ -1053,7 +1053,9 @@ def handle_mv(args, s3_client):
 
 def main():
   parser = argparse.ArgumentParser(
-      description="Cloudflare R2 CLI tool mimicking AWS S3 commands.")
+      description="Cloudflare R2 CLI tool mimicking AWS S3 commands.",
+      formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+  )
   parser.add_argument("-q",
                       "--quiet",
                       action="store_true",
@@ -1127,7 +1129,7 @@ def main():
   parser_presign.add_argument("--expires",
                               type=int,
                               default=3600,
-                              help="URL validity in seconds (default: 3600)")
+                              help="URL validity in seconds")
   parser_presign.set_defaults(func=handle_presign)
 
   parser_find = subparsers.add_parser(

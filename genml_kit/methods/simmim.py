@@ -75,19 +75,19 @@ class SimMIMMethod(Method):
         "--mask_ratio",
         type=float,
         default=0.6,
-        help="Fraction of patches to mask (default: 0.6).",
+        help="Fraction of patches to mask.",
     )
     group.add_argument(
         "--decoder_dim",
         type=int,
         default=768,
-        help="Hidden dimension of the decoder MLP (default: 768).",
+        help="Hidden dimension of the decoder MLP.",
     )
     group.add_argument(
         "--decoder_depth",
         type=int,
         default=2,
-        help="Number of Linear->GELU layers in the decoder (default: 2).",
+        help="Number of Linear->GELU layers in the decoder.",
     )
 
   def build_model(self, args, device):

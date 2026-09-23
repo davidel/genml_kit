@@ -171,6 +171,6 @@ def add_logging_args(parser):
       type=str,
       default="STDERR",
       help="Comma-separated list of log destinations. 'STDERR' logs to "
-      "standard error (default); any other entry is a log file path "
+      "standard error; any other entry is a log file path "
       "appended to. Example: 'STDERR,/tmp/train.log' logs to both.",
   )

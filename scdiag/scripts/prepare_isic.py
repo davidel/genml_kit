@@ -42,6 +42,11 @@ import time
 from pathlib import Path
 
 
+class RawDefaultsHelpFormatter(argparse.RawDescriptionHelpFormatter,
+                               argparse.ArgumentDefaultsHelpFormatter):
+  pass
+
+
 def download_isic_archive(target_dir, search_query=None, verbose=False, max_retries=3):
   """Invoke the isic-cli tool via Python to download images and metadata.
 
@@ -109,7 +114,7 @@ def download_isic_archive(target_dir, search_query=None, verbose=False, max_retr
 def main():
   parser = argparse.ArgumentParser(
       description="Prepare ISIC archive images for pretraining",
-      formatter_class=argparse.RawDescriptionHelpFormatter,
+      formatter_class=RawDefaultsHelpFormatter,
       epilog=__doc__,
   )
   parser.add_argument(
@@ -142,7 +147,7 @@ def main():
       "--max_retries",
       type=int,
       default=3,
-      help="Number of retry attempts for failed downloads (default: 3)",
+      help="Number of retry attempts for failed downloads",
   )
   args = parser.parse_args()
 

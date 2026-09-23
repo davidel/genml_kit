@@ -30,6 +30,12 @@ from urllib.request import Request, urlopen
 import numpy as np
 from PIL import Image
 
+
+class RawDefaultsHelpFormatter(argparse.RawDescriptionHelpFormatter,
+                               argparse.ArgumentDefaultsHelpFormatter):
+  pass
+
+
 # Download URLs from the ISIC Archive S3 bucket (public, no auth needed).
 # The original challenge S3 bucket (s3.amazonaws.com/isic-challenge-2019/)
 # is dead (403), but the same files are mirrored here.
@@ -417,7 +423,7 @@ def save_as_imagefolder(
 def main():
   parser = argparse.ArgumentParser(
       description="Prepare ISIC 2019 dataset with lesion_id-grouped splits.",
-      formatter_class=argparse.RawDescriptionHelpFormatter,
+      formatter_class=RawDefaultsHelpFormatter,
       epilog="""
 Examples:
   # Basic usage - group by lesion_id (recommended)
@@ -457,14 +463,14 @@ Output structure:
       "--output_dir",
       type=str,
       default="./isic2019_grouped",
-      help="Output directory for ImageFolder dataset (default: %(default)s)",
+      help="Output directory for ImageFolder dataset",
   )
 
   parser.add_argument(
       "--cache_dir",
       type=str,
       default="./isic2019_cache",
-      help="Directory to cache downloaded files (default: %(default)s)",
+      help="Directory to cache downloaded files",
   )
 
   parser.add_argument(
@@ -472,36 +478,35 @@ Output structure:
       type=str,
       choices=["lesion_id", "patient_id"],
       default="lesion_id",
-      help=
-      "Group by lesion_id or patient_id to prevent data leakage (default: %(default)s)",
+      help="Group by lesion_id or patient_id to prevent data leakage",
   )
 
   parser.add_argument(
       "--test_size",
       type=float,
       default=0.15,
-      help="Fraction of groups for test set (default: %(default)s)",
+      help="Fraction of groups for test set",
   )
 
   parser.add_argument(
       "--val_size",
       type=float,
       default=0.15,
-      help="Fraction of groups for validation set (default: %(default)s)",
+      help="Fraction of groups for validation set",
   )
 
   parser.add_argument(
       "--seed",
       type=int,
       default=42,
-      help="Random seed (default: %(default)s)",
+      help="Random seed",
   )
 
   parser.add_argument(
       "--min_resolution",
       type=int,
       default=None,
-      help="Minimum image resolution (shorter side) to keep (default: all)",
+      help="Minimum image resolution (shorter side) to keep (None disables filtering)",
   )
 
   parser.add_argument(

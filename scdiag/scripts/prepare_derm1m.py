@@ -23,6 +23,12 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+
+class RawDefaultsHelpFormatter(argparse.RawDescriptionHelpFormatter,
+                               argparse.ArgumentDefaultsHelpFormatter):
+  pass
+
+
 # All zip file extensions we look for in the Derm1M dataset repo.
 _ZIP_EXT = ".zip"
 _DEFAULT_REPO_ID = "redlessone/Derm1M"
@@ -86,7 +92,7 @@ def collect_images_from_dir(src_dir):
 def main():
   parser = argparse.ArgumentParser(
       description="Prepare Derm1M dataset for pretraining",
-      formatter_class=argparse.RawDescriptionHelpFormatter,
+      formatter_class=RawDefaultsHelpFormatter,
       epilog=__doc__,
   )
   parser.add_argument(

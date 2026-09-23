@@ -27,19 +27,19 @@ class SupConMethod(Method):
         "--proj_dim",
         type=int,
         default=256,
-        help="Projection head output dimension (default: 256).",
+        help="Projection head output dimension.",
     )
     parser.add_argument(
         "--proj_hidden",
         type=int,
         default=2048,
-        help="Projection head hidden dimension (default: 2048).",
+        help="Projection head hidden dimension.",
     )
     parser.add_argument(
         "--temperature",
         type=float,
         default=0.07,
-        help="NT-Xent temperature (default: 0.07).",
+        help="NT-Xent temperature.",
     )
 
   def build_model(self, args, device):

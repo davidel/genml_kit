@@ -315,7 +315,7 @@ def parse_args(argv=None):
       type=str,
       default=None,
       help="torch.optim.lr_scheduler class name (e.g. "
-      "CosineAnnealingLR, StepLR) or a path/URL; default: none.",
+      "CosineAnnealingLR, StepLR) or a path/URL.",
   )
   opt.add_argument(
       "--sched_arg",
@@ -333,19 +333,19 @@ def parse_args(argv=None):
   parser.add_argument(
       "--device",
       type=str,
-      help="Device: cpu, cuda, or cuda:INDEX (default: auto-detect).",
+      help="Device: cpu, cuda, or cuda:INDEX.",
   )
   parser.add_argument(
       "--log_dir",
       type=str,
       default=None,
-      help="TensorBoard log directory (default: <checkpoint_dir>/logs).",
+      help="TensorBoard log directory.",
   )
   parser.add_argument(
       "--hf_token",
       type=str,
       default=None,
-      help="HuggingFace token (default: $HF_TOKEN).",
+      help="HuggingFace token.",
   )
   parser.add_argument(
       "--in_ch",

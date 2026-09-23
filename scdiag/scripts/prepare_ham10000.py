@@ -24,6 +24,11 @@ from pathlib import Path
 from datasets import load_dataset
 
 
+class RawDefaultsHelpFormatter(argparse.RawDescriptionHelpFormatter,
+                               argparse.ArgumentDefaultsHelpFormatter):
+  pass
+
+
 def group_split_by_lesion_id(
     dataset,
     test_size=0.1,
@@ -165,14 +170,14 @@ def save_as_imagefolder(
 def main():
   parser = argparse.ArgumentParser(
       description="Prepare HAM10000 dataset with lesion_id-grouped splits",
-      formatter_class=argparse.RawDescriptionHelpFormatter,
+      formatter_class=RawDefaultsHelpFormatter,
       epilog=__doc__,
   )
   parser.add_argument(
       "--dataset",
       type=str,
       default="marmal88/skin_cancer",
-      help="HuggingFace dataset name (default: %(default)s)",
+      help="HuggingFace dataset name",
   )
   parser.add_argument(
       "--output_dir",
@@ -184,19 +189,19 @@ def main():
       "--test_size",
       type=float,
       default=0.1,
-      help="Fraction of lesion_ids for test set (default: %(default)s)",
+      help="Fraction of lesion_ids for test set",
   )
   parser.add_argument(
       "--val_size",
       type=float,
       default=0.1,
-      help="Fraction of lesion_ids for validation set (default: %(default)s)",
+      help="Fraction of lesion_ids for validation set",
   )
   parser.add_argument(
       "--seed",
       type=int,
       default=42,
-      help="Random seed for reproducibility (default: %(default)s)",
+      help="Random seed for reproducibility",
   )
   parser.add_argument(
       "--min_resolution",
@@ -207,8 +212,7 @@ def main():
   parser.add_argument(
       "--cache_dir",
       type=str,
-      help=
-      "HuggingFace datasets cache directory (default: ~/.cache/huggingface/datasets)",
+      help="HuggingFace datasets cache directory.",
   )
 
   args = parser.parse_args()
