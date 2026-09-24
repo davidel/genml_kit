@@ -52,7 +52,10 @@ ignore = ["I001", "LOG015", "PLC0415", "RUF012", "PLR0402"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config"
+addopts = "-ra --strict-markers --strict-config -m 'not slow'"
+markers = [
+  "slow: long-running learning/convergence tests (deselected by default; run with -m slow)",
+]
 filterwarnings = [
   "error",
   # Known sandbox limitation: joblib falls back to serial mode when a

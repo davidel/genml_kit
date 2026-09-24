@@ -189,15 +189,27 @@ class _ScriptedEnv:
   Action 0 = advance; action 1 = stay.
   Episodes are also forcibly terminated after *max_episode_length* steps
   to prevent infinite loops with untrained policies.
+
+  In ``continuous`` mode the env exposes a ``Box`` action space and rewards
+  the policy by how close its action is to a fixed *target*
+  (``reward = 1.0 - abs(action[0] - target)``).  This gives continuous
+  algorithms a dense, reachable optimum without depending on gymnasium
+  control tasks.  The discrete state-machine semantics are unchanged.
   """
 
-  def __init__(self, obs_dim=4, max_episode_length=10, continuous=False, action_dim=2):
+  def __init__(self,
+               obs_dim=4,
+               max_episode_length=10,
+               continuous=False,
+               action_dim=2,
+               target=0.0):
     self.obs_dim = obs_dim
     self._state = 0
     self._step_count = 0
     self._max_episode_length = max_episode_length
     self._continuous = continuous
     self._action_dim = action_dim
+    self._target = target
     self.observation_space = type("S", (), {
         "shape": (obs_dim,),
     })()
@@ -229,6 +241,8 @@ class _ScriptedEnv:
         act_val = float(action.item())
       else:
         act_val = float(action)
+      # Dense reward: optimal when act_val == target (max 1.0).
+      reward = 1.0 - abs(act_val - self._target)
     else:
       if hasattr(action, "__len__"):
         act_val = int(np.asarray(action).flat[0])
@@ -238,7 +252,7 @@ class _ScriptedEnv:
         act_val = int(action)
       if act_val == 0 and self._state < 3:
         self._state += 1
-    reward = 1.0 if self._state == 3 else 0.0
+      reward = 1.0 if self._state == 3 else 0.0
     done = self._state == 3 or self._step_count >= self._max_episode_length
     return self._obs(), reward, done, {}
 
@@ -652,6 +666,9 @@ class RLPipeline(DataPipeline):
     return data
 
   @classmethod
-  def _make_scripted_env(cls, obs_dim=4, continuous=False, action_dim=2):
+  def _make_scripted_env(cls, obs_dim=4, continuous=False, action_dim=2, target=0.0):
     """Return a ``_ScriptedEnv`` for unit testing."""
-    return _ScriptedEnv(obs_dim=obs_dim, continuous=continuous, action_dim=action_dim)
+    return _ScriptedEnv(obs_dim=obs_dim,
+                        continuous=continuous,
+                        action_dim=action_dim,
+                        target=target)

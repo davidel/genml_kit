@@ -25,3 +25,6 @@ jobs:
 
       - name: Run tests
         run: pytest -q
+
+      - name: Run slow tests
+        run: pytest -q -m slow
