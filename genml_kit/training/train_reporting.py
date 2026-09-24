@@ -71,6 +71,12 @@ class TrainReporting:
     # Extra metrics from the most recent step (held until next log).
     self._extra = {}
 
+    # Epoch-level running averages for arbitrary numeric extra metrics
+    # (e.g. SAC's critic_loss / actor_loss / alpha_loss).  Kept generic so
+    # the summary can report components alongside the aggregate loss.
+    self._extra_totals = {}
+    self._extra_counts = {}
+
   def step(
       self,
       batch_idx,
@@ -115,6 +121,12 @@ class TrainReporting:
       self._extra.update({
           k: v.item() if hasattr(v, "item") else v for k, v in extra_metrics.items()
       })
+      # Accumulate numeric metrics for the epoch-level summary.
+      for k, v in extra_metrics.items():
+        val = v.item() if hasattr(v, "item") else v
+        if isinstance(val, (int, float)):
+          self._extra_totals[k] = self._extra_totals.get(k, 0.0) + val
+          self._extra_counts[k] = self._extra_counts.get(k, 0) + 1
 
     # Decide whether to emit a report.
     if report_now or (batch_idx + 1) % self._log_every == 0:
@@ -129,6 +141,12 @@ class TrainReporting:
   def summary(self):
     """Return final epoch-level metrics and log a summary line.
 
+    The headline ``loss`` is whatever the method reports as its scalar
+    loss and is not comparable across methods.  For SAC it is the *sum*
+    of three heterogeneous objectives (critic + actor + alpha), so it is
+    dominated by ``actor_loss`` and conveys little on its own; the per-
+    component epoch averages appended below are the informative numbers.
+
     Returns
     -------
     float
@@ -139,8 +157,15 @@ class TrainReporting:
     gpu = gpu_stats_str(self._device)
     parts = [
         f"  Train summary -> loss: {avg_loss:.4f}",
-        f"time: {elapsed:.1f}s",
     ]
+    # Component averages (e.g. SAC's critic/actor/alpha losses) when
+    # available, so the aggregate ``loss`` above can be decomposed.  Sorted
+    # for a stable, diff-friendly log line.
+    for k in sorted(self._extra_totals):
+      count = self._extra_counts.get(k, 0)
+      if count:
+        parts.append(f"{k}: {self._extra_totals[k] / count:.4f}")
+    parts.append(f"time: {elapsed:.1f}s")
     if gpu:
       parts.append(gpu)
     logging.info(" | ".join(parts))

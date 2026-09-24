@@ -22,7 +22,35 @@ from genml_kit.models.rl.sac_model import SACModel
 
 @register_method
 class SACMethod(Method):
-  """Soft Actor-Critic (off-policy, continuous actions)."""
+  """Soft Actor-Critic (off-policy, continuous actions).
+
+  Implementation invariants
+  -------------------------
+  Three details are load-bearing and easy to "clean up" into a broken
+  algorithm; they were each the cause of a real training failure and are
+  guarded by regression tests in ``tests/test_rl_sac.py``:
+
+  1. **The actor loss must see** ``dQ/da``.  ``train_step`` intentionally
+     does *not* wrap the actor's Q evaluation in ``torch.no_grad`` — the
+     whole point of the reparameterised policy gradient is to push the
+     action in the direction that raises Q.  Freeze the critic
+     *parameters* (``requires_grad_(False)``) instead, which stops
+     gradient flowing into the critic weights while keeping the graph
+     from ``action -> Q`` intact.  Wrapping (only) the Q call in
+     ``no_grad`` silently reduces SAC to an entropy-only update: the
+     policy never learns the task and ``q_mean`` drifts monotonically.
+  2. **All backwards before any optimizer step.**  Because (1) makes the
+     actor graph reference the critic networks, the critic optimizer must
+     not ``step()`` until the actor ``backward()`` has run — otherwise
+     autograd raises "a variable needed for gradient computation has been
+     modified by an inplace operation".  See ``apply_grad``.
+  3. **The temperature loss is parameterised by** ``log_alpha``, not
+     ``alpha``.  ``sac_alpha_loss`` receives the optimised parameter so
+     that ``dL/dlog_alpha`` does not itself depend on alpha; passing
+     ``alpha = exp(log_alpha)`` makes the gradient shrink towards zero and
+     drives alpha to a spurious ``~0`` fixed point (entropy term
+     vanishes; SAC degenerates toward DDPG).
+  """
 
   NAME = "sac"
   METRIC_KEY = "eval_return"
@@ -118,8 +146,13 @@ class SACMethod(Method):
     self._gamma = getattr(args, "sac_gamma", 0.99)
     self._tau = getattr(args, "sac_tau", 0.005)
     self._auto_alpha = getattr(args, "sac_auto_alpha", True)
+    # Global grad-norm clip for the three SAC optimizers (0 disables).
+    self._grad_clip = getattr(args, "grad_clip", 0.0) or 0.0
 
-    # Temperature alpha.
+    # Temperature alpha.  The *learned* parameter is ``log_alpha`` (its
+    # exponential is the temperature used everywhere else); optimising the
+    # log keeps alpha strictly positive and, crucially, makes the alpha
+    # loss well-conditioned (see invariant 3 in the class docstring).
     self._log_alpha = torch.tensor(
         math.log(getattr(args, "sac_alpha", 0.2)),
         device=device,
@@ -138,6 +171,12 @@ class SACMethod(Method):
     return model
 
   def _get_alpha(self):
+    """Return the temperature ``alpha = exp(log_alpha)`` (> 0 always).
+
+    Note: this value is used in the *critic target* and *actor loss*, but
+    the *alpha loss* must be given ``self._log_alpha`` directly instead
+    (see invariant 3 in the class docstring).
+    """
     return self._log_alpha.exp()
 
   def build_optimization(self, args, model, device, ckpt_extra, states_to_load):
@@ -198,27 +237,54 @@ class SACMethod(Method):
 
         The loss returned by train_step is the combined loss (for logging).
         Individual losses are in loss.metrics. We step each optimizer here.
+
+        Ordering is critical (invariant 2 in the class docstring): every
+        ``backward`` must complete before the first ``step``.  The actor
+        loss graph holds references into the critic networks (from
+        ``get_value`` in ``train_step``), so stepping any optimizer in
+        between backwards mutates parameters that a pending backward still
+        needs and autograd aborts with an in-place-modified error.
         """
     # Get individual losses from metrics (they have gradients)
     critic_loss = loss.metrics["critic_loss"]
     actor_loss = loss.metrics["actor_loss"]
     alpha_loss = loss.metrics["alpha_loss"]
 
-    # Step critic optimizer
+    # Zero all three parameter groups first.  They are distinct parameter
+    # sets, so a single zeroing pass per optimiser is sufficient.
     optimization.critic_opt.zero_grad(set_to_none=True)
-    critic_loss.backward()
-    optimization.critic_opt.step()
-
-    # Step actor optimizer
     optimization.actor_opt.zero_grad(set_to_none=True)
-    actor_loss.backward()
-    optimization.actor_opt.step()
+    optimization.alpha_opt.zero_grad(set_to_none=True)
 
-    # Step alpha optimizer (if auto_alpha)
+    # Phase 1: ALL backward passes, no optimizer steps in between (see the
+    # ordering note in this method's docstring).  Each backward accumulates
+    # into the .grad buffers of its own parameter group; the alpha backward
+    # only touches ``log_alpha``, so the three graphs do not interfere.
+    critic_loss.backward()
+    actor_loss.backward()
     if self._auto_alpha:
-      optimization.alpha_opt.zero_grad(set_to_none=True)
       alpha_loss.backward()
+
+    # Phase 2: clipping, before stepping.  The base trainer only clips in
+    # the supervised/image path; SAC steps its own optimisers, so without
+    # this the ``--grad_clip`` flag would silently have no effect and
+    # critic-loss spikes would hit the weights unchecked.
+    if self._grad_clip > 0:
+      self._clip_optimizer(optimization.critic_opt)
+      self._clip_optimizer(optimization.actor_opt)
+      if self._auto_alpha:
+        self._clip_optimizer(optimization.alpha_opt)
+
+    # Phase 3: now that all grads are computed and clipped, step.
+    optimization.critic_opt.step()
+    optimization.actor_opt.step()
+    if self._auto_alpha:
       optimization.alpha_opt.step()
+
+  def _clip_optimizer(self, optimizer):
+    """Clip the grad norm of every param group owned by *optimizer*."""
+    params = [p for group in optimizer.param_groups for p in group["params"]]
+    torch.nn.utils.clip_grad_norm_(params, self._grad_clip)
 
   def act(self, model, obs, *, deterministic=False):
     """SAC acts by sampling from the squashed Gaussian policy."""
@@ -289,17 +355,28 @@ class SACMethod(Method):
     critic_loss = q1_loss + q2_loss
 
     # --- Actor update ---
-    # Detach Q networks so their gradients don't flow back to critic.
+    # Freeze the critic *parameters* (not the graph!).  ``requires_grad_
+    # (False)`` on the weights stops actor-loss gradient from reaching the
+    # critic optimiser's parameters, while leaving ``dQ/da`` intact below.
+    # Do NOT replace this with ``torch.no_grad()``/``.detach()`` on the Q
+    # values: that also severs ``dQ/da`` and the policy silently loses the
+    # task gradient (see invariant 1 in the class docstring).
     for p in model.q1.net.parameters():
       p.requires_grad_(False)
     for p in model.q2.net.parameters():
       p.requires_grad_(False)
 
     new_action, _, new_log_prob, _, _ = model.actor.get_action_and_value(obs)
-    # Use no_grad to prevent gradients from flowing to Q networks
-    with torch.no_grad():
-      q1_new = model.q1.get_value(obs, new_action)
-      q2_new = model.q2.get_value(obs, new_action)
+    # CRITICAL: intentionally NOT under ``torch.no_grad``.  ``new_action``
+    # is a reparameterised sample (rsample -> tanh), so evaluating Q here
+    # builds the chain ``action -> Q`` that the policy gradient needs in
+    # order to raise Q.  The critic weights are frozen just above, so this
+    # adds gradient *only* to the actor, never to the critic optimiser.
+    # If this block were wrapped in no_grad, ``actor_loss`` would reduce to
+    # ``alpha * log_prob``: the policy would only be regularised towards
+    # entropy and never optimise return (the original bug).
+    q1_new = model.q1.get_value(obs, new_action)
+    q2_new = model.q2.get_value(obs, new_action)
     min_q_new = torch.min(q1_new, q2_new)
     from genml_kit.losses.rl import sac_policy_loss
 
@@ -316,11 +393,16 @@ class SACMethod(Method):
     if self._auto_alpha:
       from genml_kit.losses.rl import sac_alpha_loss
 
-      alpha = self._get_alpha()
-      # Use same log_prob from actor update for gradient flow.
-      # Alpha loss: -alpha * (log_prob + target_entropy), needs grads w.r.t. alpha only.
-      # Detach log_prob to avoid backprop through policy network.
-      alpha_loss = sac_alpha_loss(new_log_prob.detach(), self._target_entropy, alpha)
+      # Pass ``log_alpha`` (the parameter the alpha optimiser actually
+      # updates), NOT ``alpha = exp(log_alpha)`` (invariant 3 in the class
+      # docstring).  With ``coef = log_alpha`` the gradient is simply the
+      # base loss, independent of alpha; with ``coef = alpha`` the gradient
+      # carries an extra factor of ``exp(log_alpha)`` that shrinks to zero,
+      # creating a spurious attractor that drives alpha -> 0.
+      # Detach log_prob so no gradient flows back into the policy net here
+      # (the temperature update must only affect ``log_alpha``).
+      alpha_loss = sac_alpha_loss(new_log_prob.detach(), self._target_entropy,
+                                  self._log_alpha)
 
     # B5: track env steps for logging (1 env step per train_step in off-policy).
     self._env_steps += 1

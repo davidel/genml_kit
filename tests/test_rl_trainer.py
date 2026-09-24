@@ -438,6 +438,51 @@ class TestRLTrainerEndToEnd:
     """SAC: trainer.run() completes one epoch, writes checkpoint."""
     self._run_e2e_sac(tmp_path)
 
+  def test_sac_hard_update_called_once(self, tmp_path):
+    """Target nets must be hard-synced exactly once, not every epoch."""
+    args = self._make_args(
+        epochs=2,
+        warmup_steps=4,
+        steps_per_epoch=4,
+        checkpoint=str(tmp_path / "sac_ckpt"),
+        seed=42,
+        env_seed=42,
+    )
+    method = SACMethod()
+    pipeline = _TestRLPipeline(obs_dim=4,
+                               continuous=True,
+                               action_dim=2,
+                               buffer_size=100)
+    method.wire_data(args, pipeline)
+    model = method.build_model(args, device=torch.device("cpu"))
+    optimization = method.build_optimization(args, model, torch.device("cpu"), {}, {})
+
+    calls = {"n": 0}
+    orig = model.hard_update
+
+    def _counting_hard_update():
+      calls["n"] += 1
+      return orig()
+
+    model.hard_update = _counting_hard_update
+
+    trainer = RLTrainer(
+        args=args,
+        model=model,
+        method=method,
+        pipeline=pipeline,
+        optimization=optimization,
+        device=torch.device("cpu"),
+        writer=None,
+        start_epoch=0,
+        best_metric=float("-inf"),
+        global_step=0,
+    )
+    # Two epochs would call hard_update twice without the one-shot guard.
+    trainer.train_epoch(0, None, step=0, monitor=None)
+    trainer.train_epoch(1, None, step=100, monitor=None)
+    assert calls["n"] == 1, f"expected 1 hard update, got {calls['n']}"
+
 
 class TestRLCheckpointRoundTrip:
   """Checkpointing round-trip tests for RL methods."""

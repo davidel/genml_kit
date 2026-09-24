@@ -238,22 +238,32 @@ def sac_policy_loss(log_probs, q_values, alpha):
   return (alpha * log_probs - q_values).mean()
 
 
-def sac_alpha_loss(log_probs, target_entropy, alpha=None):
+def sac_alpha_loss(log_probs, target_entropy, coef=None):
   """Auto-tuning temperature loss (§13.4 of ``rl/README.md``).
 
-  L_α = −E_{a∼π}[α (log π(a|s) + H*)]
+  L = coef · (−E_{a∼π}[log π(a|s) + H*])
+
+  ``coef`` is the quantity optimised by the temperature optimizer.  SAC
+  parameterises the temperature as ``alpha = exp(log_alpha)`` and must
+  therefore pass **``log_alpha``** here, *not* ``alpha``: because the
+  gradient ``∂L/∂log_alpha`` is then proportional to the base loss rather
+  than to ``alpha`` itself, the update step size does not shrink to zero
+  as ``alpha → 0`` and the temperature cannot collapse to a spurious
+  ``alpha ≈ 0`` fixed point (cf. Stable-Baselines3's ``log_ent_coef``).
 
   ``target_entropy`` is typically −dim(A) for continuous actions.
 
   Args:
     log_probs:     (B,) log-probabilities.
     target_entropy: scalar target entropy (negative).
-    alpha:         temperature parameter (if provided, loss includes alpha factor).
+    coef:          coefficient on the base loss (pass ``log_alpha`` for
+                   SAC auto-tuning).  When ``None`` the raw base loss is
+                   returned.
 
   Returns:
     Scalar loss (to be minimised by the alpha optimizer).
   """
   base_loss = -(log_probs + target_entropy).mean()
-  if alpha is not None:
-    return alpha * base_loss
+  if coef is not None:
+    return coef * base_loss
   return base_loss

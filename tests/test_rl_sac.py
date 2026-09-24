@@ -171,3 +171,75 @@ class TestSACMethod:
     assert args.sac_gamma == 0.99
     assert args.sac_tau == 0.005
     assert args.sac_auto_alpha is True
+
+
+class TestSACRegressions:
+  """Regressions for the SAC actor-gradient / temperature bugs.
+
+  See the corresponding fix: the actor loss must receive dQ/da (not be
+  wrapped in ``torch.no_grad``), all backwards must run before any
+  optimizer step, and the temperature loss must be parameterised by
+  ``log_alpha`` rather than ``alpha``.
+  """
+
+  def _batch(self):
+    torch.manual_seed(0)
+    return {
+        "obs": torch.randn(8, 4),
+        "action": torch.randn(8, 2),
+        "reward": torch.randn(8),
+        "next_obs": torch.randn(8, 4),
+        "done": torch.zeros(8),
+    }
+
+  def test_actor_q_evaluated_with_grad_enabled(self):
+    """The actor-update Q evaluation must NOT run under ``torch.no_grad``.
+
+    Regression for the bug where the actor's ``min(Q1, Q2)`` was computed
+    inside a ``torch.no_grad`` block, severing ``dQ/da`` and reducing the
+    policy update to an entropy-only term.
+
+    We spy on ``q1.get_value`` -- which ``train_step`` calls once during the
+    critic update (grad enabled) and once during the actor update -- and
+    assert grad is enabled on *every* call.  Deterministic and RNG-free: it
+    inspects the real source path rather than re-deriving the loss.
+    """
+    _, method, model = _make_pipeline_and_method()
+    batch = self._batch()
+
+    grad_enabled = []
+    orig_get_value = model.q1.get_value
+
+    def spy_get_value(obs, action):
+      grad_enabled.append(torch.is_grad_enabled())
+      return orig_get_value(obs, action)
+
+    model.q1.get_value = spy_get_value
+    method.train_step(model, batch, global_step=0)
+
+    assert grad_enabled, "q1.get_value was never called"
+    assert all(grad_enabled), (f"Q evaluated under torch.no_grad during actor update "
+                               f"(grad-enabled flags: {grad_enabled})")
+
+  def test_apply_grad_runs_all_backwards_before_steps(self):
+    """No in-place autograd error: actor loss graph reuses critic params."""
+    _, method, model = _make_pipeline_and_method()
+    args = _make_args(grad_clip=1.0)
+    method._grad_clip = 1.0
+    optimization = method.build_optimization(args, model, torch.device("cpu"), {}, {})
+    loss_out = method.train_step(model, self._batch(), global_step=0)
+    # Must not raise "a variable needed for gradient computation has been
+    # modified by an inplace operation".
+    method.apply_grad(loss_out, None, None, optimization)
+
+  def test_alpha_loss_uses_log_alpha(self):
+    """Alpha loss must be parameterised by log_alpha, not alpha."""
+    from genml_kit.losses.rl import sac_alpha_loss
+    log_probs = torch.full((8,), -1.5)
+    target_entropy = -2.0
+    log_alpha = torch.tensor(-0.5, requires_grad=True)
+    loss = sac_alpha_loss(log_probs, target_entropy, log_alpha)
+    loss.backward()
+    # d/dlog_alpha[log_alpha * base] == base, not alpha * base.
+    base = -(log_probs + target_entropy).mean()
+    assert torch.allclose(log_alpha.grad, base)

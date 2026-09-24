@@ -50,6 +50,9 @@ class RLTrainer(BaseTrainer):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self._warmup_obs = None
+    # One-shot guard: sync target nets to the online nets exactly once,
+    # after the very first warmup fill (not on every epoch).
+    self._targets_synced = False
     # NOTE: method.build_optimization() is now called by optim_factory
     # with the proper ckpt_extra, so we no longer need to override here.
 
@@ -106,10 +109,19 @@ class RLTrainer(BaseTrainer):
         self.method.step_epsilon()
     self._warmup_obs = obs
 
-    # D4: SAC hard-target sync on warmup complete
-    # For SAC, after warmup, sync target networks with online networks
-    if hasattr(self.method, '_get_alpha') and hasattr(self.model, 'hard_update'):
+    # D4: SAC hard-target sync, exactly ONCE after the first warmup fill.
+    #
+    # This whole method runs once *per epoch*, and the warmup ``while``
+    # above is already satisfied after epoch 0 (``_warmup_obs`` is cached),
+    # so without the ``_targets_synced`` guard this block would fire every
+    # epoch -- re-copying ``target <- online`` and destroying the target
+    # lag that SAC's soft Polyak updates rely on.  Symptom of the missing
+    # guard: "SAC: Hard target update after warmup complete" logged once
+    # per epoch, with the critic bootstrapping off its own drifting weights.
+    if (not self._targets_synced and hasattr(self.method, '_get_alpha') and
+        hasattr(self.model, 'hard_update')):
       self.model.hard_update()
+      self._targets_synced = True
       logging.info("SAC: Hard target update after warmup complete")
 
     # Phase 2: interleaved acting + learning.
@@ -363,7 +375,14 @@ class RLTrainer(BaseTrainer):
     """Backward + optimizer step (shared by all RL flows).
 
     If the method provides a custom ``apply_grad``, delegate to it.
-    This enables multi-optimizer patterns (e.g., SAC).
+    This enables multi-optimizer patterns (e.g., SAC); in that case the
+    method is responsible for its own ``backward``/``step`` ordering and
+    for honouring ``--grad_clip`` (see ``SACMethod.apply_grad``).
+
+    NOTE: unlike the supervised/image path (``BaseTrainer``), the generic
+    RL branch below historically ignored ``--grad_clip``, so off-policy
+    methods without a custom ``apply_grad`` trained unclipped.  Clipping is
+    applied here now, *before* the optimizer step.
     """
     if hasattr(self.method, "apply_grad"):
       self.method.apply_grad(loss, scaler, amp_dtype, self.optimization)
@@ -373,10 +392,18 @@ class RLTrainer(BaseTrainer):
       self.optimization.optimizer.zero_grad(set_to_none=True)
       if scaler is not None:
         scaler.scale(loss_tensor).backward()
+        # Unscale before clipping so the clip sees true (unscaled) norms.
+        if getattr(self.args, "grad_clip", 0) > 0:
+          scaler.unscale_(self.optimization.optimizer)
+          torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                         max_norm=self.args.grad_clip)
         scaler.step(self.optimization.optimizer)
         scaler.update()
       else:
         loss_tensor.backward()
+        if getattr(self.args, "grad_clip", 0) > 0:
+          torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                         max_norm=self.args.grad_clip)
         self.optimization.optimizer.step()
 
   def validate(self):
