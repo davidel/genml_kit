@@ -54,8 +54,8 @@ class _RenderableRLPipeline(RLPipeline):
     self._n_actions = 2
     self._action_dim = 2 if continuous else None
     self.action_space = self.env.action_space
-    # SAC.path (continuous) needs these to exist on the pipeline.
-    self.action_dim = self._action_dim
+    # PPOMethod.wire_data (continuous) reads ``action_dim``, now provided
+    # by the ``RLPipeline.action_dim`` property (no manual attribute needed).
 
 
 def _make_args(**overrides):

@@ -1,5 +1,6 @@
 """Tests for ReplayBufferDataset."""
 
+import numpy as np
 import pytest
 import torch
 
@@ -161,3 +162,56 @@ class TestReplayBufferDataset:
     vals = batch["obs"][:, 0]
     assert vals.min() >= 0.0
     assert vals.max() <= 9.0
+
+
+class TestActionSpaceDiscreteness:
+  """Regression: a 1-D continuous action must not be treated as discrete.
+
+  A single-element continuous action space (e.g. Pendulum-v1) has
+  ``action_dim == 1``, which the old ``action_dim > 1`` heuristic conflated
+  with a discrete scalar action, storing continuous actions as int64 and
+  crashing the SAC critic.
+  """
+
+  def test_discrete_default_inferred_from_int_dtype(self):
+    buf = ReplayBufferDataset(obs_dim=4, capacity=10)
+    assert buf.discrete is True
+    assert buf._action.dtype == np.int64
+    assert buf._action.shape == (10,)
+
+  def test_continuous_inferred_from_float_dtype(self):
+    buf = ReplayBufferDataset(obs_dim=4,
+                              capacity=10,
+                              action_dim=1,
+                              action_dtype=np.float32)
+    assert buf.discrete is False
+    assert buf._action.dtype == np.float32
+    # 1-D continuous actions are stored as a matrix, never a scalar vector.
+    assert buf._action.shape == (10, 1)
+
+  def test_continuous_flag_overrides_default(self):
+    """Explicit discrete=False with int dtype still yields a matrix."""
+    buf = ReplayBufferDataset(obs_dim=4, capacity=10, action_dim=1, discrete=False)
+    assert buf._action.shape == (10, 1)
+
+  def test_push_continuous_dim_one_stores_column(self):
+    buf = ReplayBufferDataset(obs_dim=2,
+                              capacity=10,
+                              action_dim=1,
+                              action_dtype=np.float32,
+                              discrete=False)
+    for i in range(5):
+      buf.push(obs=[float(i), 0.0],
+               action=[0.25 * i],
+               reward=0.0,
+               next_obs=[float(i + 1), 0.0],
+               done=False)
+    batch = buf.sample(4)
+    assert batch["action"].shape == (4, 1)
+    assert batch["action"].dtype == torch.float32
+
+  def test_push_discrete_still_scalar(self):
+    buf = ReplayBufferDataset(obs_dim=2, capacity=10)
+    buf.push(obs=[0.0, 0.0], action=1, reward=0.0, next_obs=[1.0, 0.0], done=False)
+    batch = buf.sample(1)
+    assert batch["action"].shape == (1,)

@@ -39,9 +39,15 @@ class ReplayBufferDataset(Dataset):
   Args:
       obs_dim:  Dimensionality of the observation vector.
       capacity: Maximum number of transitions stored.
-      action_dim: Dimensionality of the action vector (default: 1 for discrete).
+      action_dim: Dimensionality of the action vector.  Used only when
+          ``discrete`` is False; continuous actions are stored as
+          ``(capacity, action_dim)`` even when ``action_dim == 1``.
       action_dtype: dtype for actions (default: int64 for discrete,
           float32 for continuous).
+      discrete: Whether the action space is discrete.  When ``None`` it is
+          inferred from ``action_dtype`` (integer dtype -> discrete).
+          Discrete actions are stored as a scalar ``(capacity,)`` array;
+          continuous actions as ``(capacity, action_dim)``.
       n_step: Number of steps for n-step returns (default: 1).
       gamma: Discount factor for n-step return computation
           (default: 0.99).
@@ -57,6 +63,7 @@ class ReplayBufferDataset(Dataset):
                capacity=100_000,
                action_dim=1,
                action_dtype=np.int64,
+               discrete=None,
                n_step=1,
                gamma=0.99,
                prioritized=False,
@@ -67,6 +74,13 @@ class ReplayBufferDataset(Dataset):
     self._capacity = capacity
     self._obs_dim = obs_dim
     self._action_dim = action_dim
+    # Discrete vs continuous must be explicit: a 1-D continuous action
+    # (e.g. Pendulum) shares ``action_dim == 1`` with a discrete scalar
+    # action, so the old ``action_dim > 1`` heuristic silently stored
+    # continuous actions as int64 scalars and crashed the SAC critic.
+    if discrete is None:
+      discrete = np.issubdtype(np.dtype(action_dtype), np.integer)
+    self._discrete = bool(discrete)
     self._n_step = n_step
     self._gamma = gamma
     self._prioritized = prioritized
@@ -78,7 +92,7 @@ class ReplayBufferDataset(Dataset):
     self._size = 0
 
     self._obs = np.zeros((capacity, obs_dim), dtype=np.float32)
-    if action_dim == 1:
+    if self._discrete:
       self._action = np.zeros(capacity, dtype=action_dtype)
     else:
       self._action = np.zeros((capacity, action_dim), dtype=action_dtype)
@@ -132,16 +146,15 @@ class ReplayBufferDataset(Dataset):
       terminated = float(done)
     self._obs[self._pos] = obs
     # Handle both scalar and array actions
-    if self._action_dim > 1:
-      # Continuous action: ensure it's a 1D array
-      action = np.asarray(action, dtype=self._action.dtype).flatten()
-      # Ensure correct shape
-      assert action.shape == (
-          self._action_dim,), f"action shape {action.shape} != ({self._action_dim},)"
-    else:
+    if self._discrete:
       # Discrete action: ensure scalar
       action = (np.asarray(action, dtype=self._action.dtype).item() if hasattr(
           np.asarray(action), "item") else action)
+    else:
+      # Continuous action: ensure it's a 1D array of shape (action_dim,)
+      action = np.asarray(action, dtype=self._action.dtype).flatten()
+      assert action.shape == (
+          self._action_dim,), f"action shape {action.shape} != ({self._action_dim},)"
     self._action[self._pos] = action
     self._reward[self._pos] = reward
     self._next_obs[self._pos] = next_obs
@@ -364,6 +377,10 @@ class ReplayBufferDataset(Dataset):
   @property
   def action_dim(self):
     return self._action_dim
+
+  @property
+  def discrete(self):
+    return self._discrete
 
   @property
   def priorities(self):

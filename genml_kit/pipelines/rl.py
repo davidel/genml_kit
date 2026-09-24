@@ -427,8 +427,12 @@ class RLPipeline(DataPipeline):
       self._n_actions = 2
       self._action_dim = 2
 
-    # Determine action dim and dtype for replay buffer
-    if self._action_dim is not None and self._action_dim > 1:
+    # Determine action dim, dtype and discrete flag for the replay buffer.
+    # A continuous action space of size 1 (e.g. Pendulum) must NOT be
+    # treated as discrete: the discrete/continuous split is decided by the
+    # action-space type, not the action dimensionality.
+    is_continuous = self._action_dim is not None
+    if is_continuous:
       action_dim = self._action_dim
       action_dtype = np.float32
     else:
@@ -443,6 +447,7 @@ class RLPipeline(DataPipeline):
         capacity=getattr(args, "replay_capacity", 100_000),
         action_dim=action_dim,
         action_dtype=action_dtype,
+        discrete=not is_continuous,
         n_step=getattr(args, "n_step", 1),
         gamma=getattr(args, "gamma", 0.99),
         prioritized=getattr(args, "prioritized", False),
@@ -582,6 +587,10 @@ class RLPipeline(DataPipeline):
   @property
   def n_actions(self):
     return self._n_actions
+
+  @property
+  def action_dim(self):
+    return self._action_dim
 
   @property
   def buffer(self):

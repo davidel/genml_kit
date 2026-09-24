@@ -1,8 +1,11 @@
 """Tests for RLPipeline (env wrapper + replay buffer + eval rollout)."""
 
+import argparse
+
 import numpy as np
 import torch
 
+import genml_kit.pipelines.rl as rl
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.datasets.replay_buffer import Transition
@@ -189,3 +192,78 @@ class TestRenderHelpers:
     pipeline = RLPipeline()
     pipeline.env = _ScriptedEnv(obs_dim=4)
     assert pipeline.render_frame() is None
+
+
+class _FakeSpace:
+  """Minimal stand-in for a gymnasium space (shape and/or n)."""
+
+  def __init__(self, shape=None, n=None):
+    self.shape = shape
+    if n is not None:
+      self.n = n
+
+
+class _FakeEnv:
+  """Minimal stand-in for a gymnasium Env for init_env testing."""
+
+  def __init__(self, obs_shape, action_space):
+    self.observation_space = _FakeSpace(shape=obs_shape)
+    self.action_space = action_space
+
+
+def _fake_env_factory(obs_shape, action_space):
+  """Return a callable matching GymnasiumEnvWrapper(env_id, render_mode=...)."""
+
+  def _factory(_env_id, render_mode=None):
+    return _FakeEnv(obs_shape, action_space)
+
+  return _factory
+
+
+class TestInitEnvActionSpace:
+  """Regression: init_env must classify a 1-D continuous action correctly.
+
+  The old heuristic (``action_dim > 1`` for continuous) misclassified
+  single-element Box spaces as discrete, wiring an int64 scalar replay
+  buffer that crashed SAC.  These tests avoid the real gymnasium dependency
+  by patching the env factory.
+  """
+
+  def _init_pipeline(self, monkeypatch, action_space):
+    monkeypatch.setattr(rl, "GymnasiumEnvWrapper", _fake_env_factory((4,),
+                                                                     action_space))
+    args = argparse.Namespace(env_id="Fake-v0",
+                              obs_dim=None,
+                              record_eval_video=False,
+                              replay_capacity=10,
+                              env_seed=0)
+    pipeline = RLPipeline()
+    pipeline.init_env(args)
+    return pipeline
+
+  def test_discrete_space(self, monkeypatch):
+    pipeline = self._init_pipeline(monkeypatch, _FakeSpace(n=2))
+    assert pipeline.n_actions == 2
+    assert pipeline.action_dim is None
+    assert pipeline.replay_buffer.discrete is True
+    assert pipeline.replay_buffer._action.shape == (10,)
+
+  def test_continuous_single_dim_space(self, monkeypatch):
+    pipeline = self._init_pipeline(monkeypatch, _FakeSpace(shape=(1,)))
+    assert pipeline.n_actions is None
+    assert pipeline.action_dim == 1
+    assert pipeline.replay_buffer.discrete is False
+    assert pipeline.replay_buffer._action.shape == (10, 1)
+
+  def test_continuous_multi_dim_space(self, monkeypatch):
+    pipeline = self._init_pipeline(monkeypatch, _FakeSpace(shape=(3,)))
+    assert pipeline.action_dim == 3
+    assert pipeline.replay_buffer.discrete is False
+    assert pipeline.replay_buffer._action.shape == (10, 3)
+
+  def test_action_dim_property_matches_private_attribute(self):
+    pipeline = RLPipeline()
+    pipeline._action_dim = 1
+    assert pipeline.action_dim == 1
+    pipeline._action_dim = None
+    assert pipeline.action_dim is None
