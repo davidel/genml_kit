@@ -107,8 +107,29 @@ class sigexcept:
     self._unwinding = True
     raise InterruptedException(f"Signal {name} received")
 
+  def check_interrupt(self):
+    """Re-raise if a handled signal arrived but its exception was swallowed.
+
+    A handled signal normally stops the run by raising
+    :class:`InterruptedException`.  If some inner ``except Exception``
+    swallows that exception (e.g. a best-effort render/video helper), the
+    latch stays set and later signals are only logged as "latched", so the
+    run would otherwise continue forever.  A loop owner can poll this at a
+    safe boundary (e.g. the top of a training epoch) to guarantee the
+    interrupt is honoured even when the exception never reached it.
+
+    Raises:
+        InterruptedException: If a handled signal was received and its
+            in-flight exception is no longer propagating.
+    """
+    if self.received and self._unwinding:
+      raise InterruptedException(f"Signal {self.received[-1]} received")
+
   def __exit__(self, exc_type, exc_value, traceback):
     for sig, original in self._originals:
       signal.signal(sig, original)
     self._originals = []
+    # Clear the latch so a reused context manager (or a later ``__enter__``
+    # on the same instance) starts from a clean state.
+    self._unwinding = False
     return False

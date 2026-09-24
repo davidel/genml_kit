@@ -253,6 +253,11 @@ class BaseTrainer:
     with sigexcept() as interrupts:
       try:
         for epoch in range(self.start_epoch, args.epochs):
+          # Cooperative guard: if an inner ``except Exception`` swallowed an
+          # InterruptedException, the latch would keep logging later signals
+          # as "latched" without ever stopping.  Re-raise at this safe
+          # epoch boundary so the interrupt is honoured regardless.
+          interrupts.check_interrupt()
           logging.info(f"=== Epoch {epoch + 1}/{args.epochs} ===")
           _, self.global_step = self.train_epoch(epoch, saver, self.global_step,
                                                  grad_monitor)
@@ -276,6 +281,8 @@ class BaseTrainer:
                   self.global_step,
                   self.device,
               )
+            except InterruptedException:
+              raise
             except Exception as e:
               logging.warning("Failed to log validation images: %s", e)
           if (metrics is not None and

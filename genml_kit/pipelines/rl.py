@@ -17,6 +17,7 @@ from genml_kit.datasets.rollout_buffer import RolloutBuffer
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import register_pipeline
+from genml_kit.utils.signal import InterruptedException
 
 
 class RunningMeanStd(nn.Module):
@@ -153,6 +154,8 @@ class GymnasiumEnvWrapper:
       return None
     try:
       return self.env.render()
+    except InterruptedException:
+      raise
     except Exception:  # noqa: BLE001 - any renderer failure => no video
       return None
 
@@ -175,6 +178,8 @@ class GymnasiumEnvWrapper:
     try:
       frame = self.env.render()
       return frame is not None
+    except InterruptedException:
+      raise
     except Exception:  # noqa: BLE001 - any renderer error => no video
       return False
 
@@ -562,6 +567,8 @@ class RLPipeline(DataPipeline):
     try:
       frame = render()
       return frame is not None
+    except InterruptedException:
+      raise
     except Exception:  # noqa: BLE001
       return False
 
@@ -574,12 +581,16 @@ class RLPipeline(DataPipeline):
     if callable(render):
       try:
         return render()
+      except InterruptedException:
+        raise
       except Exception:  # noqa: BLE001
         return None
     render = getattr(env, "render", None)
     if callable(render):
       try:
         return render()
+      except InterruptedException:
+        raise
       except Exception:  # noqa: BLE001
         return None
     return None

@@ -109,6 +109,38 @@ class TestSigexcept:
         pass
     assert interrupts.received == ["SIGUSR1"]
 
+  def test_check_interrupt_noop_without_signal(self):
+    # No signal received => the cooperative guard must not raise.
+    with sigexcept("SIGUSR1") as interrupts:
+      interrupts.check_interrupt()
+    assert interrupts.received == []
+
+  def test_check_interrupt_reraises_after_swallow(self):
+    # An inner ``except Exception`` may swallow InterruptedException (e.g. a
+    # best-effort render/video helper), leaving the latch stuck.  The
+    # cooperative guard must still honour the pending signal.
+    with sigexcept("SIGUSR1") as interrupts:
+      try:
+        os.kill(os.getpid(), signal.SIGUSR1)
+        time.sleep(0.2)
+      except InterruptedException:
+        pass  # simulated swallow
+      with pytest.raises(InterruptedException):
+        interrupts.check_interrupt()
+    assert interrupts.received == ["SIGUSR1"]
+
+  def test_latch_cleared_on_exit(self):
+    # __exit__ must clear the latch so a pending/swallowed interrupt cannot
+    # poison a later (re)use of the context manager.
+    cm = sigexcept("SIGUSR1")
+    with cm:
+      try:
+        os.kill(os.getpid(), signal.SIGUSR1)
+        time.sleep(0.2)
+      except InterruptedException:
+        pass  # simulated swallow leaves the latch set
+    assert cm._unwinding is False
+
   def test_train_import_wiring(self):
     # Integration smoke: the training entry must expose the shared loop
     # result type (v4.2: one unified genml-kit-train binary).

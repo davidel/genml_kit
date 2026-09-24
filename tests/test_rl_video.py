@@ -275,3 +275,64 @@ class TestValidatorWritesVideos:
     result = trainer.validate()
     assert result == 1.0
     assert not os.path.exists(os.path.join(str(tmp_path), "videos"))
+
+
+class TestInterruptPropagatesThroughRender:
+  """Regression: render/video helpers must not swallow InterruptedException.
+
+  ``InterruptedException`` subclasses ``Exception``, so a best-effort
+  ``except Exception`` in the frame-capture path would swallow it, leaving
+  ``sigexcept`` latched and the run unstoppable (SIGINT silently ignored
+  when ``--record_eval_video`` is set).  These helpers must re-raise it.
+  """
+
+  def _raising_env(self):
+    from genml_kit.utils.signal import InterruptedException
+
+    class _Env:
+      _render_mode = "rgb_array"
+
+      def render(self):
+        raise InterruptedException("SIGINT received")
+
+    return _Env()
+
+  def test_env_wrapper_render_frame_reraises(self):
+    from genml_kit.pipelines.rl import GymnasiumEnvWrapper
+    from genml_kit.utils.signal import InterruptedException
+
+    wrapper = object.__new__(GymnasiumEnvWrapper)
+    wrapper._render_mode = "rgb_array"
+    wrapper.env = self._raising_env()
+    with pytest.raises(InterruptedException):
+      wrapper.render_frame()
+
+  def test_env_wrapper_can_render_reraises(self):
+    from genml_kit.pipelines.rl import GymnasiumEnvWrapper
+    from genml_kit.utils.signal import InterruptedException
+
+    wrapper = object.__new__(GymnasiumEnvWrapper)
+    wrapper._render_mode = "rgb_array"
+    wrapper.env = self._raising_env()
+    with pytest.raises(InterruptedException):
+      wrapper.can_render()
+
+  def test_pipeline_render_frame_reraises(self):
+    from genml_kit.utils.signal import InterruptedException
+
+    pipe = object.__new__(RLPipeline)
+    pipe.env = self._raising_env()
+    with pytest.raises(InterruptedException):
+      pipe.render_frame()
+
+  def test_write_video_reraises(self, tmp_path, monkeypatch):
+    from genml_kit.training import video_utils
+    from genml_kit.utils.signal import InterruptedException
+
+    def _boom(frames, path, fps=30):
+      raise InterruptedException("SIGINT received")
+
+    monkeypatch.setattr(video_utils, "_write_mp4", _boom)
+    frame = np.zeros((16, 16, 3), dtype=np.uint8)
+    with pytest.raises(InterruptedException):
+      video_utils.write_video([frame], str(tmp_path / "clip.mp4"))

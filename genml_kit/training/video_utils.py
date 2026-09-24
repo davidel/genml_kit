@@ -10,6 +10,8 @@ import os
 
 import numpy as np
 
+from genml_kit.utils.signal import InterruptedException
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +43,8 @@ def write_video(frames, path, fps=30):
   try:
     _write_mp4(frames, path, fps=fps)
     return path
+  except InterruptedException:
+    raise
   except Exception as exc:  # noqa: BLE001 - degrade to GIF
     logger.warning("MP4 writer failed (%s); falling back to GIF.", exc)
     gif_path = os.path.splitext(path)[0] + ".gif"
