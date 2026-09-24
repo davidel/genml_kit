@@ -574,7 +574,7 @@ genml-kit-train --pipeline images --method supcon \
 | `--hf_token` | `None` | HuggingFace token for gated datasets (or set `HF_TOKEN` env var). |
 | `--image_column` | auto-detected | Explicit HF image column name. |
 | `--label_column` | `None` | Explicit HF label column name. Required by `--method supcon` if non-standard. |
-| `--strict_datasets` | `False` | Abort on first dataset-loading failure instead of skipping. |
+| `STRICT_DATASETS` (env) | `False` | Abort on first dataset-loading failure instead of skipping. |
 | `--image_size` | `448` | Input image size (square). |
 | `--batch_size` | `32` | Per-GPU batch size. |
 | `--seed` | `None` | Explicit RNG seed: pins the shuffling and enables full determinism (cuDNN deterministic kernels, benchmark off). Omit (default) to keep runs fast — RNG streams are still seeded from `$GENML_KIT_SEED` (default 42). See [Reproducibility](#reproducibility). |
@@ -635,8 +635,9 @@ Supported dataset types:
   (ImageFolder format).
 
 Datasets are loaded lazily (only when first accessed). By default, datasets
-that fail to load are logged and skipped (best-effort mode). Use
-`--strict_datasets` to abort on the first failure.
+that fail to load are logged and skipped (best-effort mode). Set the
+`STRICT_DATASETS` environment variable to a truthy value (`1`, `true`,
+`yes`, `on`) to abort on the first failure instead.
 
 Images that cannot be decoded are skipped with a warning — this prevents a
 single corrupted file from blocking an entire pre-training run.

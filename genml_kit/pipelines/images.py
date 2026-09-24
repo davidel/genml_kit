@@ -28,8 +28,14 @@ from genml_kit.training.labels import (
     fmt_weights,
     parse_class_multipliers,
 )
+from genml_kit.utils.env import getenv
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
+
+
+def resolve_hf_token(args):
+  """Return the HuggingFace token: ``--hf_token`` wins, else ``HF_TOKEN``."""
+  return getattr(args, "hf_token", None) or getenv("HF_TOKEN", str, None)
 
 
 class _ProxyAdapter(Dataset):
@@ -272,8 +278,8 @@ class ImagesPipeline(DataPipeline):
     ensemble = DatasetEnsemble(
         configs,
         cache_dir=args.cache_dir,
-        hf_token=getattr(args, "hf_token", None),
-        strict=getattr(args, "strict_datasets", False),
+        hf_token=resolve_hf_token(args),
+        strict=getenv("STRICT_DATASETS", bool, False),
     )
     self.ensemble = ensemble
     self.num_labels = ensemble.num_labels if ensemble.has_labels else None
@@ -411,8 +417,8 @@ def build_pretrain_dataset(args, needs_labels=False, transform=None):
   ensemble = DatasetEnsemble(
       configs,
       cache_dir=args.cache_dir,
-      hf_token=args.hf_token,
-      strict=args.strict_datasets,
+      hf_token=resolve_hf_token(args),
+      strict=getenv("STRICT_DATASETS", bool, False),
   )
   if needs_labels:
     ensemble.ensure_label_space()

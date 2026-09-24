@@ -9,7 +9,6 @@ simmim, supcon, dino, byol, ijepa).  Defaults keep the legacy CLI UX:
 
 import argparse
 import logging
-import os
 
 import datasets as _datasets
 
@@ -355,36 +354,7 @@ def parse_args(argv=None):
       default=0,
       help="Log validation images every N epochs (0 disables).",
   )
-  args = parser.parse_args(argv)
-  _post_process(parser, args)
-  return args
-
-
-def _post_process(parser, args):
-  """Shared default-filling done after parsing (kept importable)."""
-  if args.log_dir is None:
-    args.log_dir = os.path.dirname(args.checkpoint) or "."
-    args.log_dir = os.path.join(args.log_dir, "logs")
-  if args.hf_token is None:
-    args.hf_token = os.environ.get("HF_TOKEN")
-  # Classification path needs these present even when the pipeline does
-  # not define them (two-pass parse, defaults section 6.1).
-  for name, default in (
-      ("class_multipliers", None),
-      ("sampler_weights", "frequency"),
-      ("sampler", "none"),
-      ("val_split", 0.2),
-      ("train_transforms", None),
-      ("val_transforms", None),
-      ("tta_transform", None),
-      ("strict_datasets", False),
-      ("needs_labels", False),
-      ("grad_accum_steps", 1),
-      ("grad_clip", 0.0),
-  ):
-    if not hasattr(args, name):
-      setattr(args, name, default)
-  return args
+  return parser.parse_args(argv)
 
 
 def main(argv=None):
@@ -453,8 +423,12 @@ def main(argv=None):
   # (mirrors genml_kit.utils.attr.maybe_call semantics).
   maybe_call(pipeline, "load_checkpoint_state", ckpt_extra)
 
-  optimization = build_optimization(args, model, device, ckpt_extra,
-                                    states_to_load, method=method)
+  optimization = build_optimization(args,
+                                    model,
+                                    device,
+                                    ckpt_extra,
+                                    states_to_load,
+                                    method=method)
   train_loader = getattr(pipeline, "train_loader", None)
   global_step = ckpt_extra.get(
       "global_step",
@@ -466,7 +440,7 @@ def main(argv=None):
   # constructed. This is intentional memory hygiene, not vestigial code.
   del ckpt_extra
 
-  writer = open_writer(log_dir=args.log_dir)
+  writer = open_writer(log_dir=args.log_dir, checkpoint=args.checkpoint)
   # Select trainer class via Method.get_trainer_class() (C13 fix).
   trainer_cls = method.get_trainer_class()
   trainer = trainer_cls(
