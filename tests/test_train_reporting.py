@@ -68,6 +68,7 @@ def _dummy_batch(batch_size=4, num_classes=3, num_correct=4):
 # ImageTrainReporting tests (logits + targets)
 # ---------------------------------------------------------------------------
 
+
 def test_init_counters_are_zero():
   r = _make_reporter()
   assert r._total_loss == 0.0
@@ -208,10 +209,51 @@ def test_image_summary_logs_final_line(caplog):
   r.step(0, 4, 3.0, 0, logits=logits, targets=targets)
   with caplog.at_level(logging.INFO):
     r.summary()
-  assert "Train summary ->" in caplog.text
-  assert "loss:" in caplog.text
-  assert "top1:" in caplog.text
-  assert "time:" in caplog.text
+  assert "Train Summary:" in caplog.text
+  assert "loss=" in caplog.text
+  assert "top1=" in caplog.text
+  assert "time=" in caplog.text
+  assert " | " not in caplog.text
+
+
+def test_base_summary_space_separated_var_value(caplog):
+  """The summary line must use space-separated VAR=VALUE, like _log_step."""
+  from genml_kit.training.train_reporting import MetricKind, metric
+  r = _make_base_reporter(log_every=100)
+  r.step(0,
+         4,
+         1.0,
+         0,
+         extra_metrics={
+             "critic_loss": metric("critic_loss", 10.0),
+             "env_steps": metric("env_steps", 500, MetricKind.LAST, ".0f"),
+         })
+  with caplog.at_level(logging.INFO):
+    r.summary()
+  assert "Train Summary: " in caplog.text
+  assert "loss=" in caplog.text
+  assert "critic_loss=10.0000" in caplog.text
+  assert "time=" in caplog.text
+  assert " | " not in caplog.text
+  assert "loss:" not in caplog.text
+
+
+def test_base_summary_last_metric_not_averaged(caplog):
+  """LAST metrics report their final value, not a mean over the epoch."""
+  from genml_kit.training.train_reporting import MetricKind, metric
+  r = _make_base_reporter(log_every=100)
+  # A counter ramping 100 -> 300; averaging would yield 200.
+  for i, v in enumerate([100, 200, 300]):
+    r.step(i,
+           4,
+           1.0,
+           i,
+           extra_metrics={"env_steps": metric("env_steps", v, MetricKind.LAST, ".0f")})
+  with caplog.at_level(logging.INFO):
+    r.summary()
+  assert "env_steps=300" in caplog.text
+  assert "env_steps=200" not in caplog.text
+  assert "env_steps=300.0000" not in caplog.text
 
 
 def test_image_summary_zero_samples():
@@ -286,6 +328,7 @@ def test_image_report_now_false_on_boundary_still_logs():
 # Base TrainReporting tests (no logits, no targets)
 # ---------------------------------------------------------------------------
 
+
 def test_base_init_counters_are_zero():
   r = _make_base_reporter()
   assert r._total_loss == 0.0
@@ -306,22 +349,42 @@ def test_base_step_accumulates_loss():
 
 
 def test_base_extra_metrics_stored():
+  from genml_kit.training.train_reporting import MetricKind, metric
   r = _make_base_reporter(log_every=100)
-  r.step(0, 4, 1.0, 0, extra_metrics={"epsilon": 0.5, "env_steps": 500})
-  assert r._extra["epsilon"] == 0.5
-  assert r._extra["env_steps"] == 500
+  r.step(0,
+         4,
+         1.0,
+         0,
+         extra_metrics={
+             "epsilon": metric("epsilon", 0.5),
+             "env_steps": metric("env_steps", 500, MetricKind.LAST, ".0f"),
+         })
+  assert r._extra["epsilon"].value == 0.5
+  assert r._extra["env_steps"].value == 500
+  # LAST metrics are not folded into the epoch average.
+  assert "env_steps" not in r._extra_totals
+  assert r._extra_counts["epsilon"] == 1
 
 
 def test_base_extra_metrics_tensor_conversion():
+  from genml_kit.training.train_reporting import metric
   r = _make_base_reporter(log_every=100)
-  r.step(0, 4, 1.0, 0, extra_metrics={"q_mean": torch.tensor(42.0)})
-  assert r._extra["q_mean"] == 42.0
+  r.step(0, 4, 1.0, 0, extra_metrics={"q_mean": metric("q_mean", torch.tensor(42.0))})
+  assert r._extra["q_mean"].value == 42.0
 
 
 def test_base_log_contains_extra_metrics(caplog):
+  from genml_kit.training.train_reporting import MetricKind, metric
   r = _make_base_reporter(log_every=1, total_batches=5)
   with caplog.at_level(logging.INFO):
-    r.step(0, 4, 1.0, 0, extra_metrics={"epsilon": 0.5, "env_steps": 500})
+    r.step(0,
+           4,
+           1.0,
+           0,
+           extra_metrics={
+               "epsilon": metric("epsilon", 0.5),
+               "env_steps": metric("env_steps", 500, MetricKind.LAST, ".0f"),
+           })
   assert "epsilon=0.5000" in caplog.text
   assert "env_steps=500" in caplog.text
 
@@ -347,9 +410,17 @@ def test_base_no_tensorboard_calls_when_writer_none():
 
 
 def test_base_tensorboard_extra_metrics():
+  from genml_kit.training.train_reporting import metric
   writer = MagicMock()
   r = _make_base_reporter(log_every=1, writer=writer)
-  r.step(0, 4, 1.0, 42, extra_metrics={"epsilon": 0.5, "q_mean": 10.0})
+  r.step(0,
+         4,
+         1.0,
+         42,
+         extra_metrics={
+             "epsilon": metric("epsilon", 0.5),
+             "q_mean": metric("q_mean", 10.0),
+         })
   written = {(c[0][0],) for c in writer.add_scalar.call_args_list}
   assert ("Train/epsilon",) in written
   assert ("Train/q_mean",) in written

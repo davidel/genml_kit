@@ -1,6 +1,6 @@
 """Tests for the hand-rolled training loop log formatting.
 
-Tests the structured logging output format (key=value pairs separated by " | "),
+Tests the structured logging output format (space-separated key=value pairs),
 verifying that the log messages produced during training are correctly formatted
 and contain expected metrics.
 """
@@ -74,10 +74,10 @@ class TestTrainLogFormat:
   def test_train_loss_format(self, caplog):
     """End-of-epoch train stats."""
     with caplog.at_level(logging.INFO):
-      logging.info("  Train stats -> loss: 0.4377 | top1: 81.78% | time: 120.5s")
+      logging.info("  Train Summary: loss=0.4377 top1=81.78% time=120.5s")
     msg = caplog.records[0].message
-    assert "loss: 0.4377" in msg
-    assert "top1: 81.78%" in msg
+    assert "loss=0.4377" in msg
+    assert "top1=81.78%" in msg
 
   def test_checkpoint_saved_message(self, caplog):
     """Checkpoint save messages."""

@@ -2,8 +2,17 @@
 
 ``TrainReporting`` is the generic base used by both image and RL trainers.
 ``ImageTrainReporting`` adds accuracy/F1 tracking from logits+targets.
+
+Extra metrics passed to :meth:`TrainReporting.step` are described by a
+:class:`Metric`, which carries the accumulation semantics (average vs last
+value) and the print format.  This lets the epoch summary render every
+metric as space-separated ``name=value`` pairs without the reporter having
+to guess whether a value is a loss (averaged) or a monotonic counter such
+as ``env_steps`` (last value only).
 """
 
+import collections
+import enum
 import logging
 import time
 
@@ -11,6 +20,36 @@ import torch
 
 from genml_kit.training.optim_factory import report_lr
 from genml_kit.utils.gpu import gpu_stats_str
+
+# How a Metric is folded across an epoch.
+#   AVERAGE -- mean of the per-step values (losses, gauges).
+#   LAST    -- final value seen (monotonic counters, e.g. env_steps).
+MetricKind = enum.Enum("MetricKind", ["AVERAGE", "LAST"])
+
+# A single scalar training metric.
+#   name  -- log key (e.g. "critic_loss").
+#   value -- current scalar value.
+#   kind  -- accumulation semantics for the epoch summary.
+#   fmt   -- printf-style format spec used to render the value.
+Metric = collections.namedtuple("Metric", ["name", "value", "kind", "fmt"],
+                                defaults=[MetricKind.AVERAGE, ".4f"])
+
+
+def metric(name, value, kind=MetricKind.AVERAGE, fmt=".4f"):
+  """Build a :class:`Metric` from a raw value.
+
+  Args:
+      name: The log key.
+      value: The scalar value (a torch tensor is detached/``item()``-ed).
+      kind: Accumulation semantics (:class:`MetricKind`).
+      fmt: printf-style format spec used to render the value.
+
+  Returns:
+      A :class:`Metric` instance.
+  """
+  if hasattr(value, "item"):
+    value = value.item()
+  return Metric(name, value, kind, fmt)
 
 
 class TrainReporting:
@@ -68,12 +107,14 @@ class TrainReporting:
     self._window_samples = 0
     self._window_loss = 0.0
 
-    # Extra metrics from the most recent step (held until next log).
+    # Latest extra metric seen per name, as ``{name: Metric}``.  Persists
+    # across log emissions so the epoch summary can render each metric's
+    # format and, for ``LAST`` metrics, its final value.
     self._extra = {}
 
-    # Epoch-level running averages for arbitrary numeric extra metrics
-    # (e.g. SAC's critic_loss / actor_loss / alpha_loss).  Kept generic so
-    # the summary can report components alongside the aggregate loss.
+    # Epoch-level accumulation of ``AVERAGE`` extra metrics (e.g. SAC's
+    # critic_loss / actor_loss / alpha_loss).  ``LAST`` metrics need no
+    # extra state: their final value lives in ``_extra``.
     self._extra_totals = {}
     self._extra_counts = {}
 
@@ -104,9 +145,10 @@ class TrainReporting:
         If *True*, force a log report after updating stats (used for
         the very last batch of the epoch even when it doesn't fall on
         a ``log_every`` boundary).
-    extra_metrics : dict or None
-        Additional scalar metrics to log (e.g. ``{"epsilon": 0.5}``).
-        Values that are ``torch.Tensor`` are converted via ``.item()``.
+    extra_metrics : dict[str, Metric] or None
+        Additional metrics to log, keyed by name (e.g. ``{"epsilon": metric(
+        "epsilon", 0.5)}``).  Values must be :class:`Metric` instances, which
+        carry the accumulation semantics and print format.
     """
     # Cumulative epoch-level counters.
     self._total_loss += loss_value
@@ -116,17 +158,15 @@ class TrainReporting:
     self._window_samples += batch_size
     self._window_loss += loss_value
 
-    # Hold extra metrics until next log emission.
+    # Record the latest value per extra metric (drives both the per-step
+    # line and the epoch summary), and fold ``AVERAGE`` metrics into the
+    # epoch mean.  ``LAST`` metrics need no accumulation.
     if extra_metrics:
-      self._extra.update({
-          k: v.item() if hasattr(v, "item") else v for k, v in extra_metrics.items()
-      })
-      # Accumulate numeric metrics for the epoch-level summary.
-      for k, v in extra_metrics.items():
-        val = v.item() if hasattr(v, "item") else v
-        if isinstance(val, (int, float)):
-          self._extra_totals[k] = self._extra_totals.get(k, 0.0) + val
-          self._extra_counts[k] = self._extra_counts.get(k, 0) + 1
+      for name, m in extra_metrics.items():
+        self._extra[name] = m
+        if m.kind is not MetricKind.LAST:
+          self._extra_totals[name] = self._extra_totals.get(name, 0.0) + m.value
+          self._extra_counts[name] = self._extra_counts.get(name, 0) + 1
 
     # Decide whether to emit a report.
     if report_now or (batch_idx + 1) % self._log_every == 0:
@@ -145,7 +185,12 @@ class TrainReporting:
     loss and is not comparable across methods.  For SAC it is the *sum*
     of three heterogeneous objectives (critic + actor + alpha), so it is
     dominated by ``actor_loss`` and conveys little on its own; the per-
-    component epoch averages appended below are the informative numbers.
+    component values appended below are the informative numbers.
+
+    The line is rendered as space-separated ``name=value`` pairs, matching
+    the per-step log line.  ``AVERAGE`` metrics report their epoch mean;
+    ``LAST`` metrics (monotonic counters such as ``env_steps``) report
+    their final value.
 
     Returns
     -------
@@ -155,20 +200,21 @@ class TrainReporting:
     avg_loss = self.epoch_avg_loss()
     elapsed = time.time() - self._start_time
     gpu = gpu_stats_str(self._device)
-    parts = [
-        f"  Train summary -> loss: {avg_loss:.4f}",
-    ]
-    # Component averages (e.g. SAC's critic/actor/alpha losses) when
-    # available, so the aggregate ``loss`` above can be decomposed.  Sorted
-    # for a stable, diff-friendly log line.
-    for k in sorted(self._extra_totals):
-      count = self._extra_counts.get(k, 0)
-      if count:
-        parts.append(f"{k}: {self._extra_totals[k] / count:.4f}")
-    parts.append(f"time: {elapsed:.1f}s")
+    parts = [f"loss={avg_loss:.4f}"]
+    # Decompose the aggregate ``loss`` above with the per-component
+    # metrics.  Sorted for a stable, diff-friendly log line.
+    for k in sorted(self._extra):
+      m = self._extra[k]
+      if k in self._extra_totals:
+        count = self._extra_counts.get(k, 0)
+        if count:
+          parts.append(f"{k}={self._extra_totals[k] / count:{m.fmt}}")
+      else:
+        parts.append(f"{k}={m.value:{m.fmt}}")
+    parts.append(f"time={elapsed:.1f}s")
     if gpu:
       parts.append(gpu)
-    logging.info(" | ".join(parts))
+    logging.info("  Train Summary: " + " ".join(parts))
     return avg_loss
 
   def _log_step(self, batch_idx, global_step):
@@ -195,12 +241,9 @@ class TrainReporting:
     if gpu:
       msg += f" {gpu}"
     msg += f" {lr_str}"
-    # Append extra metrics.
-    for k, v in self._extra.items():
-      if isinstance(v, float):
-        msg += f" {k}={v:.4f}"
-      else:
-        msg += f" {k}={v}"
+    # Append extra metrics, each rendered with its declared format.
+    for name, m in self._extra.items():
+      msg += f" {name}={m.value:{m.fmt}}"
     logging.info(msg)
 
     # TensorBoard scalars.
@@ -208,8 +251,8 @@ class TrainReporting:
       self._writer.add_scalar("Train/loss", w_loss, global_step)
       self._writer.add_scalar("Train/loss_avg", avg_loss, global_step)
       self._writer.add_scalar("Train/throughput", throughput, global_step)
-      for k, v in self._extra.items():
-        self._writer.add_scalar(f"Train/{k}", v, global_step)
+      for name, m in self._extra.items():
+        self._writer.add_scalar(f"Train/{name}", m.value, global_step)
       if self._device is not None and self._device.type == "cuda":
         self._writer.add_scalar(
             "GPU/memory_MB",
@@ -223,11 +266,12 @@ class TrainReporting:
               global_step,
           )
 
-    # Reset window buffers and update timestamp.
+    # Reset window buffers and update timestamp.  ``self._extra`` is
+    # intentionally NOT cleared: it carries the latest metric per name so
+    # the epoch summary can render each one's format and last value.
     self._last_log_time = time.time()
     self._window_samples = 0
     self._window_loss = 0.0
-    self._extra = {}
 
 
 class ImageTrainReporting(TrainReporting):
@@ -284,9 +328,9 @@ class ImageTrainReporting(TrainReporting):
         Model output logits ``[batch, num_classes]``.
     targets : Tensor or None
         Ground-truth label tensor for this micro-batch.
-    extra_metrics : dict or None
+    extra_metrics : dict[str, Metric] or None
         Additional metrics.  If ``"top1"`` is present and logits/targets
-        are not provided, it is used for accuracy tracking.
+        are not provided, its value is used for accuracy tracking.
     """
     # Track accuracy from logits/targets.
     if logits is not None and targets is not None:
@@ -297,8 +341,7 @@ class ImageTrainReporting(TrainReporting):
       self._window_labels.extend(targets.cpu().tolist())
     elif extra_metrics and "top1" in extra_metrics:
       # Fallback: use top1 from method metrics (already a percentage).
-      top1_val = (extra_metrics["top1"].item()
-                  if hasattr(extra_metrics["top1"], "item") else extra_metrics["top1"])
+      top1_val = extra_metrics["top1"].value
       self._correct_top1 += int(top1_val * batch_size / 100.0)
       self._window_correct += int(top1_val * batch_size / 100.0)
 
@@ -324,13 +367,13 @@ class ImageTrainReporting(TrainReporting):
     elapsed = time.time() - self._start_time
     gpu = gpu_stats_str(self._device)
     parts = [
-        f"  Train summary -> loss: {avg_loss:.4f}",
-        f"top1: {top1:.2f}%",
-        f"time: {elapsed:.1f}s",
+        f"loss={avg_loss:.4f}",
+        f"top1={top1:.2f}%",
+        f"time={elapsed:.1f}s",
     ]
     if gpu:
       parts.append(gpu)
-    logging.info(" | ".join(parts))
+    logging.info("  Train Summary: " + " ".join(parts))
     return avg_loss, top1
 
   def _log_step(self, batch_idx, global_step):
@@ -375,10 +418,10 @@ class ImageTrainReporting(TrainReporting):
       self._writer.add_scalar("Train/loss_avg", avg_loss, global_step)
       self._writer.add_scalar("Train/top1_avg", top1, global_step)
       self._writer.add_scalar("Train/throughput", throughput, global_step)
-      for k, v in self._extra.items():
-        if k == "top1":
+      for name, m in self._extra.items():
+        if name == "top1":
           continue  # Already tracked separately.
-        self._writer.add_scalar(f"Train/{k}", v, global_step)
+        self._writer.add_scalar(f"Train/{name}", m.value, global_step)
       if self._device is not None and self._device.type == "cuda":
         self._writer.add_scalar(
             "GPU/memory_MB",

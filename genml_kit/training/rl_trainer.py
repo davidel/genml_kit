@@ -11,7 +11,7 @@ import os
 import numpy as np
 import torch
 
-from genml_kit.training.train_reporting import TrainReporting
+from genml_kit.training.train_reporting import (MetricKind, metric, TrainReporting)
 from genml_kit.training.trainer import BaseTrainer
 from genml_kit.training.video_utils import write_video
 from genml_kit.utils.attr import get_attribute, MISSING
@@ -213,16 +213,20 @@ class RLTrainer(BaseTrainer):
       if monitor is not None:
         monitor.step(loss_out.loss, step)
 
-      # Build extra metrics for the reporter.
+      # Build extra metrics for the reporter.  ``env_steps`` / ``buffer_size``
+      # are monotonic counters, so they report their last value in the epoch
+      # summary rather than a meaningless mean over the ramp.
       extra = {}
       if hasattr(self.method, "_epsilon"):
-        extra["epsilon"] = self.method._epsilon
+        extra["epsilon"] = metric("epsilon", self.method._epsilon)
       if hasattr(self.method, "_get_alpha"):
-        extra["alpha"] = self.method._get_alpha()
-      extra["env_steps"] = self.method._env_steps
-      extra["buffer_size"] = len(self.pipeline.replay_buffer)
+        extra["alpha"] = metric("alpha", self.method._get_alpha())
+      extra["env_steps"] = metric("env_steps", self.method._env_steps, MetricKind.LAST,
+                                  ".0f")
+      extra["buffer_size"] = metric("buffer_size", len(self.pipeline.replay_buffer),
+                                    MetricKind.LAST, ".0f")
       for k, v in loss_out.metrics.items():
-        extra[k] = v.item() if hasattr(v, "item") else v
+        extra[k] = metric(k, v)
 
       reporter.step(
           batch_idx=batches,
@@ -298,8 +302,7 @@ class RLTrainer(BaseTrainer):
     batches = 0
     mini_batch_size = self.method._mini_batch_size
     # Total number of mini-batches across all PPO epochs.
-    total_pico_batches = self.method._ppo_epochs * (
-        rollout_len // mini_batch_size)
+    total_pico_batches = self.method._ppo_epochs * (rollout_len // mini_batch_size)
 
     reporter = TrainReporting(
         total_batches=total_pico_batches,
@@ -349,11 +352,13 @@ class RLTrainer(BaseTrainer):
         if monitor is not None:
           monitor.step(loss_out.loss, step)
 
-        # Build extra metrics for the reporter.
-        extra = {"episodes": episode_count}
-        extra["env_steps"] = self.method._env_steps
+        # Build extra metrics for the reporter.  ``episodes`` / ``env_steps``
+        # are monotonic counters -> last value in the epoch summary.
+        extra = {"episodes": metric("episodes", episode_count, MetricKind.LAST, ".0f")}
+        extra["env_steps"] = metric("env_steps", self.method._env_steps,
+                                    MetricKind.LAST, ".0f")
         for k, v in loss_out.metrics.items():
-          extra[k] = v.item() if hasattr(v, "item") else v
+          extra[k] = metric(k, v)
 
         reporter.step(
             batch_idx=batches - 1,
