@@ -440,8 +440,10 @@ def resume_checkpoint(ckpt_latest,
             (e.g. ``BestTrainer.BEST_METRIC_KEY``).  The trainer owns the
             key name so resume never hard-codes a task-specific one.
         default_metric: Value returned when the checkpoint has no entry
-            under *metric_key* (e.g. ``0.0`` when maximizing, ``inf`` when
-            minimizing).
+            under *metric_key* -- also used as the initial best-metric
+            sentinel on a fresh (non-resume) run.  Callers own this value:
+            ``method.initial_best_metric`` is the method-declared sentinel
+            (``-inf`` when maximizing, ``inf`` when minimizing).
 
     Returns ``(start_epoch, best_metric, extra)`` where *extra* contains
     auxiliary checkpoint state and other non-model metadata.
@@ -454,7 +456,7 @@ def resume_checkpoint(ckpt_latest,
     resume_path = ckpt_best
 
   if not resume_path:
-    return model, 0, 0.0, {}
+    return model, 0, default_metric, {}
 
   logging.info(f"Resuming from checkpoint: {resume_path}")
   # weights_only=False is intentional: resume checkpoints contain

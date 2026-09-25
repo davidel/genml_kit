@@ -367,6 +367,29 @@ class TestResumeCheckpointMetricKey:
     )
     assert metric == float("inf")
 
+  def test_fresh_run_uses_default_metric_as_initial_best(self, tmp_path):
+    """A fresh (no-checkpoint) run seeds the best metric with the sentinel.
+
+    Previously the fresh-run branch hard-coded ``0.0``, which broke
+    negative-reward RL runs (a maximize method starting at ``-1100`` could
+    never beat ``0.0``, so the "New best" path never fired).
+    """
+    model = nn.Linear(2, 2)
+    # No _latest.pt / _best.pt exist -> fresh-run branch.
+    _, epoch, metric, _ = resume_checkpoint(
+        str(tmp_path / "nope_latest.pt"),
+        str(tmp_path / "nope_best.pt"),
+        model,
+        device=torch.device("cpu"),
+        metric_key="best_eval_return",
+        default_metric=float("-inf"),
+    )
+    assert epoch == 0
+    assert metric == float("-inf")
+    # A negative reward beats the sentinel, so "New best" fires.
+    from genml_kit.methods.rl_ppo import PPOMethod
+    assert PPOMethod().has_metric_improved(-1100.0, metric)  # new beats best
+
   def test_open_resume_context_forwards_metric_key(self, tmp_path, monkeypatch):
     """open_resume_context threads the key through to resume_checkpoint."""
     path = tmp_path / "run"

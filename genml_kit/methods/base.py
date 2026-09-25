@@ -24,6 +24,17 @@ class Method(abc.ABC):
   # True for loss-keyed methods (lower is better).
   METRIC_MINIMIZE = False
 
+  @property
+  def initial_best_metric(self):
+    """Worst possible metric value in this method's direction.
+
+    The initial "best" sentinel before the first validation: the worst
+    value in the metric direction so the first real metric always wins.
+    Direction is owned by ``has_metric_improved`` (via ``METRIC_MINIMIZE``);
+    this sentinel is its counterpart, so the two can never disagree.
+    """
+    return float("inf") if self.METRIC_MINIMIZE else float("-inf")
+
   # Whether this method requires labels in the data blob.
   NEEDS_LABELS = False
 
@@ -116,9 +127,9 @@ class Method(abc.ABC):
 
         Direction is bound to the metric declaration via ``METRIC_MINIMIZE``
         (``True`` for loss-keyed methods: lower is better; ``False`` for
-        accuracy/F1/mce-maximize).  Direction lives ONLY here; the loop never
-        negates.  ``_default_metric`` and the best-checkpoint cycle both probe
-        this method, so the sentinel follows the same direction automatically.
+        accuracy/F1/mce-maximize).  Direction lives ONLY here and in
+        ``initial_best_metric``; the loop never negates, so the sentinel
+        and the comparison can never disagree.
         """
     if self.METRIC_MINIMIZE:
       return new_metric < best_metric

@@ -429,7 +429,7 @@ def main(argv=None):
       model,
       device,
       metric_key=f"best_{method.METRIC_KEY}",
-      default_metric=_default_metric(method),
+      default_metric=method.initial_best_metric,
   )
   method.load_checkpoint_state(model, ckpt_extra.get("method_state", {}), args)
   # Restore pipeline state (e.g., observation-normalization RMS for RL) saved
@@ -472,16 +472,6 @@ def main(argv=None):
   )
   result = trainer.run()
   _post_train(args, pipeline, method, device, result)
-
-
-def _default_metric(method):
-  """Best-metric sentinel for the first validation of a run.
-
-    The sentinel is the worst possible value in the method's metric direction,
-    so the first real metric always wins.  Probe the direction with two
-    constants rather than duplicating maximize/minimize knowledge.
-    """
-  return float("inf") if method.has_metric_improved(0.0, 1.0) else float("-inf")
 
 
 def _post_train(args, pipeline, method, device, result):

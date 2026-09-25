@@ -395,11 +395,25 @@ class TestMetricDirection:
       assert method.has_metric_improved(0.5, 0.8) is True
       assert method.has_metric_improved(0.9, 0.8) is False
 
-  def test_default_metric_sentinel_follows_direction(self):
-    from genml_kit.training.train import _default_metric
-    # Loss-keyed: has_metric_improved(0.0, 1.0) is True (0 < 1) -> -inf.
+  def test_initial_best_metric_follows_direction(self):
+    # Loss-keyed: worst possible value is +inf; the first epoch wins by
+    # being lower (0.5 < inf).
     dino = build_method("dino")
-    assert _default_metric(dino) == float("inf")
+    assert dino.METRIC_MINIMIZE is True
+    assert dino.initial_best_metric == float("inf")
+    assert dino.has_metric_improved(0.5, dino.initial_best_metric) is True
     # Classification: maximizes; sentinel is -inf so the first epoch wins.
     cls = build_method("classification")
-    assert _default_metric(cls) == float("-inf")
+    assert cls.METRIC_MINIMIZE is False
+    assert cls.initial_best_metric == float("-inf")
+    assert cls.has_metric_improved(0.5, cls.initial_best_metric) is True
+
+  def test_sentinel_and_comparison_never_disagree(self):
+    # For every registered method, the first real metric (either 0.0 or 1.0)
+    # must beat the declared initial sentinel.  This guards against a method
+    # overriding only one of the two and breaking the invariant.
+    for name in list_methods():
+      method = build_method(name)
+      sentinel = method.initial_best_metric
+      assert method.has_metric_improved(0.0, sentinel) is True
+      assert method.has_metric_improved(1.0, sentinel) is True
