@@ -1588,6 +1588,85 @@ during validation (all RL methods: DQN / PPO / SAC).
 produce `rgb_array` frames: scripted/custom environments without a renderer
 are detected at validation time and skipped without crashing.
 
+### How a PPO training epoch works
+
+PPO is *on-policy*: every update must be computed from transitions
+collected by the **current** policy.  To keep that guarantee, the rollout
+buffer is **refilled from scratch each epoch** — nothing survives from the
+previous epoch.
+
+**One training epoch** (the `=== Epoch N/500 ===` line in the logs) is
+exactly:
+
+```
+1.  rollout.reset()                        # clear the on-policy buffer
+2.  collect rollout_len env steps          # --ppo_rollout_len (default 2048)
+3.  GAE (gamma, lam) over the rollout      # advantages + returns
+4.  normalize advantages once              # over the whole rollout
+5.  ppo_epochs SGD passes over it          # --ppo_epochs (default 4)
+    each pass: rollout_len / mini_batch_size minibatches
+6.  next epoch -> back to 1
+```
+
+So the arithmetic of a run is:
+
+| Quantity | Formula | Default (Pendulum) |
+|---|---|---|
+| env steps per epoch | `rollout_len` | 2048 |
+| gradient steps per epoch | `ppo_epochs * (rollout_len / mini_batch_size)` | `4 * 2048/64 = 128` |
+| episodes per epoch | `rollout_len / episode_len` | `2048/200 ≈ 10` |
+| total env steps | `epochs * rollout_len` | 500 × 2048 = 1.02M |
+
+The **two "epochs"** that can be confused:
+
+- **Training epoch** (`--epochs`) — one rollout + its updates.  This is
+  what the log lines and checkpoints count.
+- **PPO SGD epoch** (`--ppo_epochs`) — the number of *passes over the
+  same* rollout during the update phase.  Raising it increases data
+  reuse of a single rollout; lowering it (or raising `rollout_len`)
+  increases data freshness.
+
+The buffer itself is wiped cheaply: `rollout.reset()` just rewrites the
+pointer, so the tensor storage is reused and the per-epoch cost is one
+`rollout_len` collection, not an allocation.  On resume, the rollout
+buffer state is saved/restored with the checkpoint and the previous
+epoch's last observation carries over, so an interrupted run continues
+mid-environment rather than restarting the episode.
+
+Changing `--ppo_rollout_len` therefore changes the *epoch length in
+steps*, not the memory footprint (memory is `O(rollout_len)` but tiny —
+~115 KB for Pendulum at 2048) and not the total step budget
+(`epochs × rollout_len`).  A larger rollout gives the GAE a longer
+horizon before bootstrap and more data per update, but also means more
+gradient steps per rollout: at 50000 you'd run `4 × 50000/64 = 3125`
+updates on one batch, which pushes PPO toward overfitting a single
+rollout.
+
+### PPO flag reference
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--ppo_gamma` | 0.99 | Discount factor for GAE / returns |
+| `--ppo_lam` | 0.95 | GAE trace-decay (bias-variance tradeoff) |
+| `--ppo_clip_eps` | 0.2 | Clipping epsilon of the clipped surrogate |
+| `--ppo_epochs` | 4 | SGD passes over each rollout |
+| `--ppo_mini_batch_size` | 64 | Mini-batch size for PPO updates |
+| `--ppo_entropy_coef` | 0.01 | Entropy bonus coefficient (see SB3-tricks section) |
+| `--ppo_value_coef` | 0.5 | Value-loss coefficient |
+| `--ppo_vf_clip_eps` | None | Value-function clipping (None = unclipped) |
+| `--ppo_target_kl` | None | Early-stop a PPO epoch when approx-KL exceeds this (see SB3-tricks section) |
+| `--ppo_rollout_len` | 2048 | Env steps collected per training epoch |
+| `--ppo_discrete` / `--ppo_continuous` | discrete | Action-space selection |
+| `--ppo_log_std_init` | log(0.5) ≈ −0.693 | Initial log_std of the continuous Gaussian policy (σ₀ = 0.5) |
+| `--ppo_log_std_min` | −10.0 | Lower safety clamp of log_std (σ floor ≈ 4.5e-5).  Kept far below a converged policy's operating range so the entropy gradient never dies at the boundary (the old −2.0 default froze exploration at σ = 0.135) |
+| `--ppo_log_std_max` | 2.0 | Upper safety clamp of log_std (σ ceiling ≈ 7.4; bounds entropy) |
+
+The `log_std_*` knobs control the **continuous** Gaussian policy's
+standard deviation.  `log_std_init` sets where exploration starts;
+`log_std_min`/`log_std_max` are wide safety rails (SOTA pattern: SB3
+unbounded, rsl_rl `std_range=(1e-6, 1e6)`, jaxrl `LOG_STD_MIN=-10`) that
+prevent σ collapse/explosion while leaving entropy freely trainable.
+
 ### Stable-Baselines3-style tricks
 
 The PPO implementation supports three opt-in techniques that
@@ -1685,6 +1764,11 @@ Relevant flags:
     "Stable-Baselines3-style tricks" below.
   - `--param_init ortho` -- SB3-style orthogonal parameter initialization.
     See "Stable-Baselines3-style tricks" below.
+  - `--ppo_gamma`, `--ppo_lam`, `--ppo_clip_eps`, `--ppo_epochs`,
+    `--ppo_mini_batch_size`, `--ppo_value_coef`, `--ppo_vf_clip_eps`,
+    `--ppo_rollout_len`, `--ppo_discrete`/`--ppo_continuous`,
+    `--ppo_log_std_init/min/max` -- PPO update and policy knobs.  See the
+    "PPO flag reference" table above.
   - `--ppo_target_kl` -- early-stop a PPO epoch when the k1 approximate-KL
     exceeds this threshold (SB3 `target_kl`).  See below.
   - `--ppo_entropy_coef` -- entropy bonus coefficient (default 0.01).
