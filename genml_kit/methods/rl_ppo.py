@@ -120,6 +120,32 @@ class PPOMethod(Method):
         action="store_false",
         help="Use continuous action space.",
     )
+    group.add_argument(
+        "--ppo_log_std_init",
+        type=float,
+        default=-0.6931471805599453,
+        help="Initial log_std of the continuous Gaussian policy "
+        "(log(sigma); default log(0.5) so sigma starts at 0.5). SOTA "
+        "implementations initialize at sigma=1.0 (log_std=0.0) and rely "
+        "on reward normalization; a larger init explores more early on.",
+    )
+    group.add_argument(
+        "--ppo_log_std_min",
+        type=float,
+        default=-10.0,
+        help="Lower bound of log_std (SOTA-style wide safety clamp, cf. "
+        "rsl_rl std_range / jaxrl LOG_STD_MIN). Kept far below where a "
+        "converged policy operates so the entropy gradient never dies at "
+        "the boundary. Earlier default -2.0 froze exploration at "
+        "sigma=0.135.",
+    )
+    group.add_argument(
+        "--ppo_log_std_max",
+        type=float,
+        default=2.0,
+        help="Upper bound of log_std (safety ceiling preventing sigma "
+        "explosion; keep small enough to bound entropy).",
+    )
 
   def wire_data(self, args, pipeline):
     self.n_actions = pipeline.n_actions
@@ -154,6 +180,9 @@ class PPOMethod(Method):
         n_actions=self.n_actions if self._discrete else None,
         action_dim=self._action_dim if not self._discrete else None,
         discrete=self._discrete,
+        log_std_init=getattr(args, "ppo_log_std_init", -0.6931471805599453),
+        log_std_min=getattr(args, "ppo_log_std_min", -10.0),
+        log_std_max=getattr(args, "ppo_log_std_max", 2.0),
         device=device,
     )
     model = self._apply_model_extras(args, model, device)

@@ -158,6 +158,47 @@ class TestPPOMethod:
     assert args.ppo_gamma == 0.99
     assert args.ppo_clip_eps == 0.2
     assert args.ppo_epochs == 4
+    # SOTA-wide safety defaults.
+    assert args.ppo_log_std_init == pytest.approx(-0.6931, abs=1e-4)
+    assert args.ppo_log_std_min == -10.0
+    assert args.ppo_log_std_max == 2.0
+
+  def test_log_std_flags_parsed(self):
+    parser = argparse.ArgumentParser()
+    PPOMethod.add_args(parser)
+    args = parser.parse_args([
+        "--ppo_log_std_init",
+        "0.0",
+        "--ppo_log_std_min",
+        "-5.0",
+        "--ppo_log_std_max",
+        "1.0",
+    ])
+    assert args.ppo_log_std_init == 0.0
+    assert args.ppo_log_std_min == -5.0
+    assert args.ppo_log_std_max == 1.0
+
+  def test_build_model_reads_log_std_flags(self):
+    pipeline = RLPipeline()
+    env = _ScriptedEnv(obs_dim=4, max_episode_length=6, continuous=True)
+    pipeline.env = env
+    pipeline._obs_dim = 4
+    pipeline._action_dim = 2
+    pipeline._n_actions = 2
+    pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
+
+    method = get_method("ppo")()
+    args = _make_args(ppo_discrete=False,
+                      ppo_log_std_init=0.0,
+                      ppo_log_std_min=-5.0,
+                      ppo_log_std_max=1.0)
+    method.wire_data(args, pipeline)
+    method._action_dim = 2
+    method._discrete = False
+    model = method.build_model(args, device=torch.device("cpu"))
+    assert model.actor.log_std_init == pytest.approx(0.0)
+    assert model.actor.log_std_min == -5.0
+    assert model.actor.log_std_max == 1.0
 
   def test_continuous_mode(self):
     pipeline = RLPipeline()

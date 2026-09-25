@@ -113,8 +113,12 @@ class GaussianActor(nn.Module):
   A single scalar parameter (per action dimension) keeps the same
   optimizable capacity while making the variance **state-independent**,
   so the entropy coefficient controls it directly and it cannot diverge
-  through the backbone.  The clamp keeps sigma in a sane operating
-  range throughout training.
+  through the backbone.  The clamp is a **wide safety bound** (SOTA
+  pattern, cf. rsl_rl's `std_range` and jaxrl's `LOG_STD_MIN/MAX`), not
+  a training restriction: the floor sits far below where a converged
+  policy operates so the entropy-bonus gradient never dies at the
+  boundary, while the ceiling still prevents the sigma explosion that
+  a state-dependent head would allow.
 
   Args:
       hidden_dim: Input feature dimension (used by the mean head).
@@ -127,7 +131,7 @@ class GaussianActor(nn.Module):
   def __init__(self,
                hidden_dim,
                action_dim,
-               log_std_min=-2.0,
+               log_std_min=-10.0,
                log_std_max=2.0,
                log_std_init=-0.6931471805599453):  # log(0.5) ~ -0.6931 (sigma=0.5).
     super().__init__()
@@ -137,6 +141,7 @@ class GaussianActor(nn.Module):
     # the policy loss and can be annealed by the entropy bonus, but it
     # cannot be driven to +/-inf by the backbone features.
     self.log_std = nn.Parameter(torch.full((action_dim,), float(log_std_init)))
+    self.log_std_init = float(log_std_init)
     self.log_std_min = log_std_min
     self.log_std_max = log_std_max
     self.action_dim = action_dim
@@ -155,8 +160,9 @@ class GaussianActor(nn.Module):
     # h: (B, hidden_dim)
     # (B, action_dim)
     mean = self.mean(h)
-    # (action_dim,) -> (B, action_dim), clamped to keep sigma bounded:
-    # exp(-2.0)=0.135 .. exp(2.0)=7.39 with the defaults.
+    # (action_dim,) -> (B, action_dim), clamped for numerical safety:
+    # exp(-10.0)=4.5e-5 .. exp(2.0)=7.39 with the defaults (SOTA-style
+    # wide safety bounds, not a training restriction).
     log_std = self.log_std.clamp(self.log_std_min, self.log_std_max)
     # (B, action_dim)
     std = log_std.exp().expand_as(mean)
@@ -244,6 +250,10 @@ class ActorCritic(nn.Module):
       hidden_dims:  MLP hidden-layer widths (default [256, 256]).
       discrete:     If ``True``, use ``CategoricalActor``; else
                     ``GaussianActor``.
+      log_std_min:  Lower clamp for ``log_std`` (default -10.0, SOTA-style
+                    wide safety bound).
+      log_std_max:  Upper clamp for ``log_std`` (default 2.0).
+      log_std_init: Initial ``log_std`` (default log(0.5), sigma=0.5).
   """
 
   def __init__(self,
@@ -251,7 +261,10 @@ class ActorCritic(nn.Module):
                n_actions=None,
                action_dim=None,
                hidden_dims=None,
-               discrete=True):
+               discrete=True,
+               log_std_min=-10.0,
+               log_std_max=2.0,
+               log_std_init=-0.6931471805599453):
     super().__init__()
     self.discrete = discrete
     self.backbone = _MLPBackbone(obs_dim, hidden_dims)
@@ -263,7 +276,11 @@ class ActorCritic(nn.Module):
       self.n_actions = n_actions
     else:
       assert action_dim is not None, "action_dim required for continuous"
-      self.actor = GaussianActor(h, action_dim)
+      self.actor = GaussianActor(h,
+                                 action_dim,
+                                 log_std_min=log_std_min,
+                                 log_std_max=log_std_max,
+                                 log_std_init=log_std_init)
       self.action_dim = action_dim
 
     self.critic = ValueHead(h)
@@ -404,11 +421,13 @@ class ActorCritic(nn.Module):
 
 @register_model("rl/actor_critic")
 def load_actor_critic(obs_dim=4,
-                      n_actions=2,
+                      n_actions=None,
                       action_dim=None,
-                      discrete=True,
                       hidden_dims=None,
-                      num_labels=0,
+                      discrete=True,
+                      log_std_min=-10.0,
+                      log_std_max=2.0,
+                      log_std_init=-0.6931471805599453,
                       **_kwargs):
   """Factory registered as ``rl/actor_critic``."""
   return ActorCritic(
@@ -417,4 +436,7 @@ def load_actor_critic(obs_dim=4,
       action_dim=action_dim if not discrete else None,
       hidden_dims=hidden_dims,
       discrete=discrete,
+      log_std_min=log_std_min,
+      log_std_max=log_std_max,
+      log_std_init=log_std_init,
   )
