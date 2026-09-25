@@ -285,8 +285,9 @@ def parse_args(argv=None):
   opt.add_argument("--weight_decay", type=float, default=0.0)
   opt.add_argument("--llrd_decay",
                    type=float,
-                   default=0.0,
-                   help="Layer-wise LR decay factor.")
+                   default=None,
+                   help="Layer-wise LR decay factor. Default None = no "
+                   "layer-wise decay (flat LR); set e.g. 0.85 to enable.")
   opt.add_argument(
       "--lr_group",
       action=KVPairAction,

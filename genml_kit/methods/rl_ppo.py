@@ -262,7 +262,10 @@ class PPOMethod(Method):
         # (see ``entropy_bonus`` docstring).
         "entropy": ent.detach(),
         "ratio_mean": ratio.detach().mean(),
-        "approx_kl": ((old_log_probs - new_log_probs).detach().mean()),
+        # Schulman k1 estimator: E[0.5 * (log_ratio)^2].  Always >= 0;
+        # unlike mean(log_ratio) it cannot go negative and is the
+        # standard PPO approximate-KL monitoring metric.
+        "approx_kl": (0.5 * (old_log_probs - new_log_probs).pow(2)).detach().mean(),
     }
     return LossOutput(loss=loss, metrics=metrics, td_errors=td_errors)
 

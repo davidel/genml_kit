@@ -68,12 +68,10 @@ def build_optimization(args, model, device, ckpt_extra, states_to_load, method=N
       An ``Optimization`` namedtuple (or compatible custom object).
   """
   # Delegate to method-specific optimization if available.
-  if (method is not None
-      and type(method).build_optimization is not Method.build_optimization):
-    logging.info("Using method-specific build_optimization (%s)",
-                 type(method).__name__)
-    return method.build_optimization(args, model, device, ckpt_extra,
-                                     states_to_load)
+  if (method is not None and
+      type(method).build_optimization is not Method.build_optimization):
+    logging.info("Using method-specific build_optimization (%s)", type(method).__name__)
+    return method.build_optimization(args, model, device, ckpt_extra, states_to_load)
 
   if args.llrd_decay is not None:
     param_groups = build_param_groups_llrd(
@@ -279,6 +277,14 @@ def build_param_groups_llrd(named_params, lr, weight_decay, decay_factor=0.85):
   learning rate, while deeper blocks and non-block parameters use a
   rate closer to *lr*.
 
+  A ``decay_factor`` of ``None`` or ``<= 0`` disables the layer-wise
+  decay and returns a single flat-LR group (identical to
+  :func:`build_param_groups` with no regex groups).  This guards
+  against the degenerate ``decay_factor=0.0`` configuration in which
+  every level deeper than the first receives ``lr * 0`` --- silently
+  freezing (zero learning rate) nearly the whole network while the
+  logged spread ``lr=[0.0, lr]`` makes it look healthy.
+
   Args:
       named_params: Dict mapping parameter names to Parameters (e.g.
           ``dict(model.named_parameters())``).
@@ -299,6 +305,13 @@ def build_param_groups_llrd(named_params, lr, weight_decay, decay_factor=0.85):
     if param.requires_grad:
       depth = depth_map.get(name, 0)
       dparams[depth].append((name, param))
+
+  # Flat fallback: a decay factor of None or <= 0 means "no layer-wise
+  # decay" -- a single group with the base LR (and per-param weight
+  # decay).  This prevents decay_factor=0.0 from silently zeroing the
+  # learning rate of every layer deeper than the first.
+  if decay_factor is None or decay_factor <= 0:
+    return build_param_groups(named_params, lr, weight_decay, lr_groups=None)
 
   param_groups = []
   for depth, params in sorted(dparams.items()):

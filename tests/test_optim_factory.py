@@ -514,6 +514,26 @@ class TestBuildParamGroupsLlrd:
     assert len(lrs) == 1
     assert 1e-3 in lrs
 
+  def test_decay_factor_zero_or_none_means_flat(self):
+    # Regression: decay_factor=0.0 (the old default) used to zero the
+    # LR of every level deeper than the first, silently freezing most
+    # of the network while the log showed a healthy lr=[0.0, base].
+    # None / <= 0 must fall back to a flat single LR group.
+    model = self._make_model()
+    for factor in (0.0, None):
+      groups = build_param_groups_llrd(
+          dict(model.named_parameters()),
+          lr=1e-3,
+          weight_decay=0.01,
+          decay_factor=factor,
+      )
+      lrs = {g["lr"] for g in groups}
+      assert lrs == {1e-3}, f"decay_factor={factor} must yield flat lr, got {lrs}"
+      # Single group, all params trainable at base LR.
+      assert len(groups) == 1
+      assert len(groups[0]["params"]) == len(
+          [p for p in model.parameters() if p.requires_grad])
+
   def test_optimizable(self):
     model = self._make_model()
     groups = build_param_groups_llrd(
