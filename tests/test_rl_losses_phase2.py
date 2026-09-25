@@ -154,20 +154,27 @@ class TestValueLoss:
 class TestEntropyBonus:
 
   def test_shape(self):
-    log_probs = torch.randn(8)
-    ent = entropy_bonus(log_probs)
+    entropy = torch.randn(8)
+    ent = entropy_bonus(entropy)
     assert ent.shape == ()
 
   def test_positive(self):
-    """Entropy bonus should be positive for negative log_probs."""
-    # Log_prob < 0 is typical.
-    log_probs = -torch.ones(8)
-    ent = entropy_bonus(log_probs)
+    """Entropy bonus is the *mean policy entropy* (positive)."""
+    entropy = torch.ones(8)
+    ent = entropy_bonus(entropy)
     assert ent.item() > 0
 
+  def test_sign_encourages_high_entropy(self):
+    """The loss term is ``-entropy_coef * ent``; higher entropy ->
+
+            lower combined loss (PPO maximises entropy)."""
+    ent_high = entropy_bonus(torch.ones(8) * 2.0)
+    ent_low = entropy_bonus(torch.ones(8) * 0.5)
+    assert ent_high.item() > ent_low.item() > 0
+
   def test_2d_input(self):
-    log_probs = torch.randn(8, 1)
-    ent = entropy_bonus(log_probs)
+    entropy = torch.randn(8, 1)
+    ent = entropy_bonus(entropy)
     assert ent.shape == ()
 
 

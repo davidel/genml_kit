@@ -98,17 +98,45 @@ class GaussianActor(nn.Module):
   Uses a squashed Gaussian (tanh) following the SAC convention, or
   an unbounded Gaussian for PPO.
 
+  **Why a shared scalar ``log_std``?**  The variance of a PPO/SAC
+  continuous policy must be *learnable but bounded*.  A state-dependent
+  ``log_std`` linear head:
+
+  - couples the policy variance to the shared backbone features, which
+    also drive the value head — any advantage/entropy gradient then
+    leaks into ``log_std`` through the backbone and can inflate the
+    variance unboundedly (observed as entropy ``-1.3 -> +18.5`` nats on
+    Pendulum-v1, i.e. sigma exploding to ``~e^18``);
+  - is the single most common cause of continuous-PPO "entropy
+    explosion" (cf. CleanRL/SB3 which use a scalar or tiny MLP head).
+
+  A single scalar parameter (per action dimension) keeps the same
+  optimizable capacity while making the variance **state-independent**,
+  so the entropy coefficient controls it directly and it cannot diverge
+  through the backbone.  The clamp keeps sigma in a sane operating
+  range throughout training.
+
   Args:
-      hidden_dim: Input feature dimension.
+      hidden_dim: Input feature dimension (used by the mean head).
       action_dim: Dimensionality of the continuous action space.
       log_std_min: Minimum log-standard-deviation (clipping).
       log_std_max: Maximum log-standard-deviation (clipping).
+      log_std_init: Initial log-standard-deviation (``log(sigma)``).
   """
 
-  def __init__(self, hidden_dim, action_dim, log_std_min=-20.0, log_std_max=2.0):
+  def __init__(self,
+               hidden_dim,
+               action_dim,
+               log_std_min=-2.0,
+               log_std_max=2.0,
+               log_std_init=-0.6931471805599453):  # log(0.5) ~ -0.6931 (sigma=0.5).
     super().__init__()
     self.mean = nn.Linear(hidden_dim, action_dim)
-    self.log_std = nn.Linear(hidden_dim, action_dim)
+    # Shared (state-independent) log-std, one scalar per action dim.
+    # This is a *parameter* (not a buffer) so it receives gradients from
+    # the policy loss and can be annealed by the entropy bonus, but it
+    # cannot be driven to +/-inf by the backbone features.
+    self.log_std = nn.Parameter(torch.full((action_dim,), float(log_std_init)))
     self.log_std_min = log_std_min
     self.log_std_max = log_std_max
     self.action_dim = action_dim
@@ -121,15 +149,17 @@ class GaussianActor(nn.Module):
 
     Returns:
         A ``Normal`` distribution with
-        mean (B, action_dim) and std (B, action_dim).
+        mean (B, action_dim) and std (B, action_dim).  The std is
+        state-independent (shared scalar ``log_std`` per action dim).
     """
     # h: (B, hidden_dim)
     # (B, action_dim)
     mean = self.mean(h)
+    # (action_dim,) -> (B, action_dim), clamped to keep sigma bounded:
+    # exp(-2.0)=0.135 .. exp(2.0)=7.39 with the defaults.
+    log_std = self.log_std.clamp(self.log_std_min, self.log_std_max)
     # (B, action_dim)
-    log_std = self.log_std(h).clamp(self.log_std_min, self.log_std_max)
-    # (B, action_dim)
-    std = log_std.exp()
+    std = log_std.exp().expand_as(mean)
     # event_dim = action_dim
     return torch.distributions.Normal(mean, std)
 
@@ -350,7 +380,14 @@ class ActorCritic(nn.Module):
         raw_action = None
       else:
         # (B, action_dim) unbounded
-        raw = dist.rsample()
+        # ``deterministic`` MUST be honoured here: evaluation uses
+        # ``act(deterministic=True)`` and expects the *mean* action
+        # (mode of the Gaussian), not another sample.  Ignoring the flag
+        # silently turned every eval episode into a *random walk* for
+        # continuous policies -- eval returns stayed at ~-1100 on
+        # Pendulum-v1 no matter how well the policy learned (and the
+        # "best checkpoint" selection compared noise against noise).
+        raw = dist.mean if deterministic else dist.rsample()
         # (B, action_dim) in [-1, 1]
         squashed = torch.tanh(raw)
         # (B,)

@@ -111,6 +111,14 @@ class PPOMethod(Method):
     self._discrete = getattr(args, "ppo_discrete", True)
     self._action_dim = getattr(pipeline, "action_dim", None)
 
+    # The rollout length is read by ``RLPipeline.init_env`` from
+    # ``args.rollout_len`` (single source of truth for the buffer size).
+    # Expose the PPO-specific flag there so ``--ppo_rollout_len`` takes
+    # effect; without this mapping the flag was silently ignored and the
+    # buffer was always created with the 2048 default (historical bug).
+    if getattr(args, "ppo_rollout_len", None) is not None:
+      args.rollout_len = args.ppo_rollout_len
+
   def build_model(self, args, device):
     self._gamma = getattr(args, "ppo_gamma", 0.99)
     self._lam = getattr(args, "ppo_lam", 0.95)
@@ -172,24 +180,45 @@ class PPOMethod(Method):
   def train_step(self, model, blob, global_step, *, labels=None):
     """PPO clipped surrogate loss.
 
-        Unlike DQN/SAC, ``train_step`` here is called on *mini-batches*
-        sampled from a pre-computed rollout, so the blob already contains
-        actions, log_probs, advantages, and returns.
-        """
+    Unlike DQN/SAC, ``train_step`` here is called on *mini-batches*
+    sampled from a pre-computed rollout, so the blob already contains
+    actions, log_probs, advantages, and returns.
+
+    **Action-space consistency (continuous policies):** the stored
+    ``old_log_prob`` was computed on the *raw pre-tanh* action during
+    rollout collection (with the tanh Jacobian correction).  To compute a
+    valid importance ratio ::
+
+        ratio = exp(pi_new(a) / pi_old(a))
+
+    we must re-evaluate the new policy at the **same raw action**.
+    ``RolloutBuffer.sample`` therefore provides ``raw_action``; when it is
+    missing we fall back to the stored (squashed) action as a defensive
+    default, but any silent drop of ``raw_action`` (e.g. an old buffer
+    checkpoint) yields an *invalid* ratio mixing raw and squashed
+    coordinate systems -- see the extensive note in
+    ``RolloutBuffer.sample``.
+
+    **Advantage normalization:** advantages are normalized **once per
+    rollout** by ``RLTrainer._train_epoch_ppo`` *before* the mini-batch
+    loop.  Re-normalizing per mini-batch here
+    would recompute mean/std on a 64-element subsample of a 2048-step
+    rollout, destroying the relative ordering of advantages and injecting
+    extra noise into the policy gradient.  This method therefore assumes
+    ``data["advantage"]`` is already normalized.
+    """
     data = blob if isinstance(blob, dict) else blob.data
 
     obs = data["obs"]
-    # Squashed actions (for value reference).
+    # Squashed actions (for value reference / discrete policies).
     actions = data["action"]
     old_log_probs = data["log_prob"]
     advantages = data["advantage"]
     returns = data["return"]
 
-    # Normalize advantages.
-    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-    # For continuous: re-evaluate log_prob on RAW (pre-tanh) actions.
-    # Because the distribution is defined over raw actions.
+    # For continuous: re-evaluate log_prob on RAW (pre-tanh) actions,
+    # because the Gaussian distribution is defined over raw actions
+    # (see the docstring above).
     eval_action = data.get("raw_action", actions)
 
     _, _, new_log_probs, entropy, new_values = model.get_action_and_value(
@@ -207,10 +236,17 @@ class PPOMethod(Method):
                         old_values=None,
                         clip_eps=self._vf_clip_eps)
 
-    # Entropy bonus.
-    ent = entropy_bonus(new_log_probs if entropy is None else entropy)
+    # Entropy bonus: ``entropy`` here is the *distribution entropy*
+    # (B,) from ``get_action_and_value`` (for continuous policies it is
+    # ``dist.entropy().sum(dim=-1)``; for discrete ``dist.entropy()``).
+    # ``entropy_bonus`` returns the *positive* mean entropy ``H`` so that
+    #   loss = pg + value_coef * v - entropy_coef * H
+    # maximises the policy entropy (standard PPO convention)::
+    #   d(loss)/dH = -entropy_coef < 0.
+    # Defensive fallback (entropy is None): estimate from sampled log-prob.
+    ent = entropy_bonus(new_log_probs) if entropy is None else entropy_bonus(entropy)
 
-    # Combined loss.
+    # Combined loss (PPO objective + value + entropy bonus).
     loss = pg_loss + self._value_coef * v_loss - self._entropy_coef * ent
 
     # For PER: use value function errors as TD errors.
@@ -219,8 +255,14 @@ class PPOMethod(Method):
     metrics = {
         "pg_loss": pg_loss.detach(),
         "value_loss": v_loss.detach(),
+        # Log the *true* mean policy entropy H -- the quantity the
+        # entropy bonus acts on.  >= 0 for discrete distributions; can
+        # be small/negative for low-variance continuous policies
+        # (differential entropy), but must NOT be ``-log_prob.mean()``
+        # (see ``entropy_bonus`` docstring).
         "entropy": ent.detach(),
         "ratio_mean": ratio.detach().mean(),
+        "approx_kl": ((old_log_probs - new_log_probs).detach().mean()),
     }
     return LossOutput(loss=loss, metrics=metrics, td_errors=td_errors)
 

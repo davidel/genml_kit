@@ -202,3 +202,82 @@ class TestPPOMethod:
           action=torch.as_tensor(raw_action, dtype=torch.float32).unsqueeze(0),
       )
     assert re_eval.item() == pytest.approx(log_prob, abs=1e-4)
+
+  def test_rollout_sample_returns_raw_action(self):
+    """``RolloutBuffer.sample()`` must surface ``raw_action`` (continuous).
+
+    Guards against the fatal continuous-PPO bug where ``sample()`` dropped
+    ``raw_action``, so ``PPOMethod.train_step`` re-evaluated the Gaussian at
+    the *squashed* action while ``old_log_prob`` referred to the *raw* one,
+    corrupting the importance ratio (and eventually collapsing the policy).
+    """
+    from genml_kit.datasets.rollout_buffer import RolloutBuffer
+
+    buffer = RolloutBuffer(obs_dim=4, rollout_len=8, action_dim=1)
+    for i in range(8):
+      buffer.add(
+          obs=torch.randn(4),
+          action=torch.tensor([0.5 * i]),
+          log_prob=-0.5,
+          reward=0.0,
+          value=0.0,
+          done=False,
+          raw_action=torch.tensor([1.2 * i]),
+      )
+    buffer.set_next_values(torch.zeros(8))
+    buffer.compute(gamma=0.99, lam=0.95)
+    batch = buffer.sample(4)
+    assert "raw_action" in batch
+    assert batch["raw_action"].shape == (4, 1)
+
+  def test_continuous_log_std_is_shared_scalar(self):
+    """Continuous actors use a *shared scalar* log_std (not a linear head).
+
+    A state-dependent linear log_std on the shared backbone lets the
+    entropy bonus inflate the variance unboundedly (observed: entropy
+    ``-1.3 -> +18.5`` nats on Pendulum-v1).  The scalar parameter keeps
+    sigma state-independent and bounded via the clamp.
+    """
+    pipeline = RLPipeline()
+    env = _ScriptedEnv(obs_dim=4, max_episode_length=6, continuous=True)
+    pipeline.env = env
+    pipeline._obs_dim = 4
+    pipeline._action_dim = 2
+    pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
+    from genml_kit.datasets.rollout_buffer import RolloutBuffer
+    pipeline.rollout_buffer = RolloutBuffer(
+        obs_dim=4,
+        rollout_len=16,
+        action_dim=2,
+    )
+
+    method = get_method("ppo")()
+    args = _make_args(ppo_discrete=False)
+    method.wire_data(args, pipeline)
+    model = method.build_model(args, device=torch.device("cpu"))
+    actor = model.actor
+    assert isinstance(actor.log_std, torch.nn.Parameter)
+    assert actor.log_std.shape == (2,)
+    # Two different observations must produce the SAME std (state-independent).
+    # NB: the actor consumes the *backbone features* (h), not raw obs;
+    # feed a feature batch of the right width directly.
+    dist1 = actor(torch.randn(4, 256))
+    dist2 = actor(torch.randn(4, 256))
+    assert torch.allclose(dist1.stddev, dist2.stddev)
+
+  def test_ppo_rollout_len_flag_is_mapped(self):
+    """``--ppo_rollout_len`` must be honoured (not silently ignored)."""
+    pipeline = RLPipeline()
+    env = _ScriptedEnv(obs_dim=4, max_episode_length=6)
+    pipeline.env = env
+    pipeline._obs_dim = 4
+    pipeline._n_actions = env.action_space.n
+    pipeline._action_dim = None
+    pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
+
+    method = get_method("ppo")()
+    # Note: ppo_rollout_len set, but no args.rollout_len pre-set -> the PPO
+    # method maps it (historical bug: the flag was dead).
+    args = _make_args(ppo_rollout_len=32)
+    method.wire_data(args, pipeline)
+    assert args.rollout_len == 32

@@ -128,6 +128,35 @@ class RolloutBuffer(Dataset):
     )
     self._filled = True
 
+  def normalize_advantages(self, eps=1e-8):
+    """Standardise the GAE advantages *once* over the whole rollout.
+
+    PPO (per the original paper and CleanRL/SB3) normalises the
+    advantage vector computed over the full rollout *before* the SGD
+    mini-batch loop::
+
+        A = (A - mean(A)) / (std(A) + eps)
+
+    **Why here and not per mini-batch?**  If each 64-sample mini-batch
+    re-normalised its own advantages, the mean/std would be estimated
+    from a tiny subsample of a 2048-step rollout, destroying the
+    relative ordering of advantages between mini-batches and injecting
+    noise into *every* PPO epoch (a common source of unstable
+    continuous-PPO training).  Normalising once here keeps the
+    statistics identical for every mini-batch sampled from this
+    rollout.  A constant shift/scale of the advantages does not change
+    the clipped-surrogate optimum, so this is a variance-reduction
+    trick, not a change of objective.
+
+    Args:
+      eps: Small epsilon against division by zero.
+    """
+    if self._advantages.numel() == 0:
+      return
+    adv = self._advantages
+    adv = (adv - adv.mean()) / (adv.std() + eps)
+    self._advantages.copy_(adv)
+
   # ------------------------------------------------------------------
   # Dataset protocol
   # ------------------------------------------------------------------
@@ -175,6 +204,21 @@ class RolloutBuffer(Dataset):
     """Sample a random mini-batch from the computed rollout.
 
         Returns a dict of tensors suitable for PPO ``train_step``.
+
+        **IMPORTANT (continuous PPO):** the returned dict must contain the
+        same keys as :meth:`__getitem__`, in particular ``raw_action`` for
+        continuous action spaces.  ``PPOMethod.train_step`` re-evaluates the
+        policy at the *stored raw (pre-tanh) action* to compute the PPO
+        importance-sampling ratio::
+
+            ratio = exp(log_pi_new(raw_action) - log_pi_old(raw_action))
+
+        ``old_log_prob`` was computed on the raw action (with the tanh
+        Jacobian correction) during rollout collection.  If ``sample()``
+        silently dropped ``raw_action``, ``train_step`` would fall back to
+        :meth:`data.get("raw_action", actions) <dict.get>` and re-evaluate
+        the Gaussian at the *squashed* action instead, mixing two different
+        coordinate systems and corrupting the ratio.
         """
     n = len(self)
     if n == 0:
@@ -184,7 +228,7 @@ class RolloutBuffer(Dataset):
     else:
       # D5: Use independent RNG for reproducible sampling
       idx = torch.randint(n, (batch_size,), generator=self._rng)
-    return {
+    batch = {
         "obs": self._obs[idx],
         "action": self._actions[idx],
         "log_prob": self._log_probs[idx],
@@ -192,6 +236,12 @@ class RolloutBuffer(Dataset):
         "return": self._returns[idx],
         "value": self._values[idx],
     }
+    if self._raw_actions is not None:
+      # Raw (pre-tanh) actions are only stored for continuous policies;
+      # without them the PPO ratio is computed against squashed actions
+      # while ``old_log_prob`` refers to raw actions (see docstring).
+      batch["raw_action"] = self._raw_actions[idx]
+    return batch
 
   # Alias for backward compatibility
   get_batch = sample

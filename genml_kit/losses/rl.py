@@ -191,18 +191,42 @@ def value_loss(pred_v, returns, old_values=None, clip_eps=None):
   return torch.max(unclipped, clipped).mean()
 
 
-def entropy_bonus(log_probs):
-  """Entropy bonus for PPO: H(π) = -E_a[log π(a|s)].
+def entropy_bonus(entropy):
+  """Mean policy entropy, for the PPO entropy bonus term.
+
+  The combined PPO loss *subtracts* the entropy bonus::
+
+      loss = pg_loss + vf_coef * value_loss - entropy_coef * ent
+
+  so ``ent`` must be the **positive** mean entropy::
+
+      d(loss)/d(entropy) = -entropy_coef  (< 0)
+
+  i.e. maximising the entropy reduces the loss (standard PPO
+  convention, Schulman et al. 2017).
+
+  **IMPORTANT:** pass the *distribution entropy* (from ``dist.entropy()``,
+  e.g. the ``entropy`` value returned by ``ActorCritic.get_action_and_value``),
+  *not* ``-log_prob`` of sampled actions.  For a Gaussian, ``log_prob`` is
+  negative and its magnitude grows for low-variance policies, so
+  ``-log_prob.mean()`` is *not* the policy entropy and inverts the
+  gradient direction -- the historical bug that collapsed ``log_std`` in
+  this codebase (logged ``entropy`` went ``-1.3 -> +18.5`` nats on
+  Pendulum-v1 while the policy became almost deterministic, ``ratio ->
+  0``, ``pg_loss`` stuck at the clip floor).
 
   Args:
-    log_probs: (B,) or (B, 1) log-probabilities of the taken actions.
+    entropy: (B,) or (B, 1) per-sample policy entropy (>= 0 for
+      discrete distributions; can be small or slightly negative for
+      low-variance continuous distributions).
 
   Returns:
-    Scalar (to be *maximised* — returned as a positive value).
+    Scalar ``entropy.mean()`` -- subtracted (via ``-entropy_coef * ent``)
+    from the combined loss to *maximise* the policy entropy.
   """
-  if log_probs.dim() == 2:
-    log_probs = log_probs.squeeze(-1)
-  return -log_probs.mean()
+  if entropy.dim() == 2:
+    entropy = entropy.squeeze(-1)
+  return entropy.mean()
 
 
 def sac_q_loss(q_pred, soft_target):

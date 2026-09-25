@@ -231,7 +231,12 @@ class RLTrainer(BaseTrainer):
       reporter.step(
           batch_idx=batches,
           batch_size=batch_size,
-          loss_value=loss_out.loss.item(),
+          # ``TrainReporting`` computes ``loss = sum(loss_value) / sum(batch_size)``
+          # (per-sample semantics), while RL losses are reported per-*batch*
+          # means.  Scale by the mini-batch size so the printed ``loss`` is the
+          # true mean objective (historical bug: the reported loss was
+          # ``raw_loss / batch_size``, e.g. ~65 instead of ~5300 for PPO).
+          loss_value=loss_out.loss.item() * batch_size,
           global_step=step,
           extra_metrics=extra,
           report_now=(batches + 1 == self.args.steps_per_epoch),
@@ -290,6 +295,9 @@ class RLTrainer(BaseTrainer):
     # Bootstrap values for GAE (per-step, not a single scalar).
     rollout.set_next_values(next_values)
     rollout.compute(gamma=self.method._gamma, lam=self.method._lam)
+    # Standardise advantages ONCE over the full rollout (not per
+    # mini-batch) -- see ``RolloutBuffer.normalize_advantages``.
+    rollout.normalize_advantages()
     rollout.to(self.device)
 
     self._ppo_obs = obs
@@ -363,7 +371,9 @@ class RLTrainer(BaseTrainer):
         reporter.step(
             batch_idx=batches - 1,
             batch_size=mini_batch_size,
-            loss_value=loss_out.loss.item(),
+            # Per-batch mean loss * batch size -> TrainReporting divides by the
+            # summed batch sizes to recover the true mean (see off-policy note).
+            loss_value=loss_out.loss.item() * mini_batch_size,
             global_step=step,
             extra_metrics=extra,
             report_now=(batches == total_pico_batches),

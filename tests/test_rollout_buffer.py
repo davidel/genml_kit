@@ -1,5 +1,6 @@
 """Tests for RolloutBuffer (on-policy PPO)."""
 
+import pytest
 import torch
 
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
@@ -102,3 +103,41 @@ class TestRolloutBuffer:
     assert batch["log_prob"].shape == (4,)
     assert batch["advantage"].shape == (4,)
     assert batch["return"].shape == (4,)
+
+  def test_sample_continuous_returns_raw_action(self):
+    """sample() must pass raw_action through (continuous PPO)."""
+    buf = RolloutBuffer(obs_dim=2, rollout_len=8, action_dim=1)
+    for i in range(8):
+      buf.add(obs=[float(i), 0.0],
+              action=[float(i) * 0.1],
+              log_prob=-0.5,
+              reward=float(i),
+              value=0.0,
+              done=False,
+              raw_action=[float(i) * 0.7])
+    buf.set_next_values([0.0] * 8)
+    buf.compute(gamma=0.99, lam=0.95)
+    batch = buf.sample(4)
+    assert "raw_action" in batch
+    assert batch["raw_action"].shape == (4, 1)
+
+  def test_normalize_advantages_once_over_rollout(self):
+    """Advantages are standardised once over the whole rollout."""
+    buf = RolloutBuffer(obs_dim=2, rollout_len=8)
+    for i in range(8):
+      buf.add(obs=[float(i), 0.0],
+              action=0,
+              log_prob=-0.5,
+              reward=float(i),
+              value=0.0,
+              done=False)
+    buf.set_next_values([0.0] * 8)
+    buf.compute(gamma=0.99, lam=0.95)
+    before = buf.advantages.clone()
+    buf.normalize_advantages()
+    after = buf.advantages
+    assert after.std().item() == pytest.approx(1.0, abs=1e-4)
+    assert after.mean().item() == pytest.approx(0.0, abs=1e-4)
+    # Normalisation is a monotonic affine map of the raw advantages,
+    # so relative ordering is preserved.
+    assert (after[after > 0] > 0).all() == (before[before > 0] > 0).all()
