@@ -1588,6 +1588,80 @@ during validation (all RL methods: DQN / PPO / SAC).
 produce `rgb_array` frames: scripted/custom environments without a renderer
 are detected at validation time and skipped without crashing.
 
+### Stable-Baselines3-style tricks
+
+The PPO implementation supports three opt-in techniques that
+Stable-Baselines3 bakes into its default algorithms.  All three are
+**off by default** — every existing flag combination behaves exactly as
+before — and each is documented with *when it helps* and *when it
+doesn't*.
+
+#### Reward normalization (`--reward_normalize`)
+
+Normalizes rewards by the running standard deviation of discounted
+returns, matching SB3 `VecNormalize(norm_reward=True)`.  For each step,
+`running_return = gamma * running_return + reward` is fed to a Welford
+`RunningMeanStd`; the reward is then divided by `sqrt(var + eps)` and
+clamped to `[-reward_norm_clip, reward_norm_clip]` (default 10.0).
+
+- **When it helps:** environments with large or unnormalized reward
+  scales (Pendulum-v1, MuJoCo) where an O(1000) value loss otherwise
+  dominates the total loss and swamps the entropy/policy signal.
+- **When it doesn't:** rewards already O(1) (CartPole, most toy envs) —
+  normalization is harmless but unnecessary.
+- **Eval always uses raw rewards** (SB3 `VecNormalize.train(False)`):
+  the running-return stats are not updated during evaluation, so
+  `eval_return` stays comparable across runs.  The running stats travel
+  with the checkpoint and are restored on resume.
+
+#### Orthogonal initialization (`--param_init ortho`)
+
+Applies SB3-style orthogonal initialization to the model after
+construction: gain `sqrt(2)` for policy/hidden layers, `1.0` for
+value/head layers, zero biases — matching the original PPO
+implementation.  `log_std` is left untouched.  Works for any method
+(PPO, SAC, and non-RL MLPs alike).
+
+- **When it helps:** continuous RL policies, where the default PyTorch
+  init can leave the policy near-degenerate at start and slow the
+  critical early phase.
+- **When it doesn't:** fine-tuned / checkpoint-loaded models (init is
+  skipped when weights are loaded from a checkpoint) or discrete
+  policies that already train fine with defaults.
+
+#### `target_kl` early stopping (`--ppo_target_kl <float>`)
+
+SB3 stops a PPO epoch early when the approximate KL divergence (the
+Schulman **k1** estimator, `0.5 * mean(log_ratio^2)`, always >= 0)
+exceeds `target_kl`.  This guards against destructive updates on
+high-variance minibatches.
+
+- **Suggested starting point:** `--ppo_target_kl 0.03`.
+- **Too low** (e.g. < 0.005) stalls learning; **too high** (e.g. > 0.1)
+  disables the safety.  `None` (default) disables early stopping.
+- Only affects PPO epochs after the first rollout, so it is a pure
+  safety valve for the on-policy update phase.
+
+#### Entropy coefficient (`--ppo_entropy_coef <float>`)
+
+Coefficient of the entropy bonus (default 0.01).  SB3 uses **0.0** for
+continuous PPO, relying on init + normalization instead; genml_kit keeps
+a small positive default as light regularization.
+
+- **Higher** (0.05–0.1) encourages broader exploration — may help hard
+  exploration tasks.
+- **Lower** (toward 0.0) sharpens the policy — may help fine-tuning late
+  in training.
+- No single value is best for all tasks: sweep 0.0–0.1 on your task.
+
+A typical "serious" continuous-PPO setup (Pendulum-style) looks like:
+
+```
+genml-kit-train --pipeline rl --method ppo --env_id Pendulum-v1 \
+    --ppo_continuous --obs_normalize --reward_normalize --param_init ortho \
+    --ppo_target_kl 0.03 --epochs 500
+```
+
 ### Custom environments
 
 Pass `--env_script /path/to/env.py` to load a custom environment.  The
@@ -1606,6 +1680,15 @@ Relevant flags:
   - `--obs_normalize`, `--obs_norm_clip` -- running observation
     normalization (Welford).  Both train and eval observations are
     normalized with the same RMS statistics.
+  - `--reward_normalize`, `--reward_norm_clip` -- running-return reward
+    normalization (SB3 `VecNormalize(norm_reward=True)`).  See
+    "Stable-Baselines3-style tricks" below.
+  - `--param_init ortho` -- SB3-style orthogonal parameter initialization.
+    See "Stable-Baselines3-style tricks" below.
+  - `--ppo_target_kl` -- early-stop a PPO epoch when the k1 approximate-KL
+    exceeds this threshold (SB3 `target_kl`).  See below.
+  - `--ppo_entropy_coef` -- entropy bonus coefficient (default 0.01).
+    See below.
   - `--eval_episodes`, `--env_seed` -- evaluation.
   - `--record_eval_video` -- record one MP4 (or GIF fallback) per evaluation
     episode under `<checkpoint_dir>/videos/`; only when the environment

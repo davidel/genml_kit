@@ -72,7 +72,13 @@ class PPOMethod(Method):
         "--ppo_entropy_coef",
         type=float,
         default=0.01,
-        help="Entropy bonus coefficient.",
+        help="Coefficient of the entropy bonus. SB3 uses 0.0 for continuous "
+        "PPO (relies on init + normalization); genml_kit keeps 0.01 as a "
+        "lightly-regularizing default. With reward normalization in place, "
+        "increasing to ~0.05-0.1 encourages broader exploration (may help "
+        "hard exploration tasks); decreasing toward 0.0 sharpens the policy "
+        "(may help fine-tuning late in training). No single value is best "
+        "for all tasks - sweep 0.0-0.1 on your task.",
     )
     group.add_argument(
         "--ppo_value_coef",

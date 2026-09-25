@@ -1,6 +1,10 @@
 # Plan: Import SB3 "tricks" into genml_kit PPO (no SB3 dependency)
 
-**Status:** Draft for review — no code committed yet.
+**Status:** Implemented & committed (`307d330`, `bc8436d`, `4fbdfc7`):
+Phases A (reward normalization), B (orthogonal init), C (`target_kl`)
+code + tests are in; §2.6 doc strings and README "Stable-Baselines3-style
+tricks" section are in (this pass); Phase D empirical ent_coef sweep and
+the §4 validation-matrix Pendulum runs remain open.
 **Target:** Make continuous PPO (Pendulum-v1) actually *learn* toward the
 reference ~−200 returns, using the same mechanisms Stable-Baselines3 bakes
 into its PPO, implemented natively.
@@ -269,6 +273,15 @@ README/docs notes that state **when the knob helps and when it doesn't**:
 
 These doc strings are part of the acceptance criteria (see §4).
 
+**Status (2025-09-25):** all §2.6 doc strings are implemented:
+- `--reward_normalize` / `--reward_norm_clip` (rl.py),
+- `--param_init` (train.py),
+- `--ppo_target_kl` (rl_ppo.py),
+- `--ppo_entropy_coef` (rl_ppo.py, added this pass),
+plus a README section "Stable-Baselines3-style tricks" documenting all
+four knobs, when each helps/doesn't help, and a recommended
+Pendulum-style invocation.
+
 ---
 
 ## 3. Implementation plan (ordered, with tests)
@@ -385,6 +398,9 @@ defaults; (b) `value_loss`/`loss` drop to O(1) with reward normalization;
 5. Pendulum target is **empirical**: run with the flags, record where SB3
    changes land us; hard criteria are opt-in defaults + O(1) losses + beat
    the plateau + docs (§4).
+6. **Doc deliverable shipped (2025-09-25):** §2.6 help strings on all
+   four flags + README "Stable-Baselines3-style tricks" section.  The
+   §2.6 requirement (acceptance criterion (d)) is now satisfied.
 
 **Remaining open questions:**
 1. `--param_init`: should `ortho` become the default for *new* continuous
