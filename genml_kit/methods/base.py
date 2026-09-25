@@ -269,6 +269,14 @@ class Method(abc.ABC):
           device=device,
           param_rename=args.param_rename,
       )
+    # Generic parameter-init strategy (SB3-style orthogonal init).
+    # Applied AFTER source-weight loading so it cannot be silently
+    # overridden, and BEFORE freeze patterns (freeze wins over init).
+    param_init = getattr(args, "param_init", None)
+    if param_init == "ortho":
+      from genml_kit.models.init import init_orthogonal
+
+      init_orthogonal(model)
     from genml_kit.training.train_compat import apply_freeze_patterns
 
     apply_freeze_patterns(args, model)

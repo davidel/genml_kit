@@ -188,6 +188,20 @@ def build_parser():
       default=False,
       help="Enable gradient checkpointing to reduce VRAM usage.",
   )
+  init_group = parser.add_argument_group("param init")
+  init_group.add_argument(
+      "--param_init",
+      type=str,
+      default=None,
+      choices=[None, "ortho"],
+      help="Parameter init strategy (default None = PyTorch default "
+      "init). 'ortho' applies SB3-style orthogonal init (gain sqrt(2) for "
+      "policy/hidden layers, 1.0 for value/head layers, zero biases) -- the "
+      "init SB3's PPO/SAC are tuned around, so it helps MLP-based RL "
+      "policies/critics on continuous control and small-to-mid MLPs. "
+      "Generally neutral-to-mild (or harmful) for transformer/ViT and conv "
+      "backbones whose own init is already tuned -- keep None there.",
+  )
   lora_group = parser.add_argument_group("lora")
   lora_group.add_argument(
       "--lora",

@@ -266,6 +266,12 @@ class RLTrainer(BaseTrainer):
     obs = self.pipeline.reset_env() if obs is None else obs
     episode_count = 0
     total_reward = 0.0
+    # Reward/return normalization (SB3 VecNormalize) - PPO-only.
+    # getattr: fake/test pipelines may not define ret_norm.
+    ret_norm = getattr(self.pipeline, "ret_norm", None)
+    if ret_norm is not None:
+      ret_norm.train(True)
+      ret_norm.reset_per_episode()
 
     # Collect per-step bootstrap values V(s_{t+1}) during rollout.
     next_values = torch.zeros(rollout_len, dtype=torch.float32)
@@ -276,6 +282,11 @@ class RLTrainer(BaseTrainer):
                                                             deterministic=False)
       next_obs, reward, done, info = self.pipeline.step_env(action)
       terminated = _terminated_from(info, done)
+      # Update the discounted-return running stats with the RAW reward,
+      # then normalize what is stored in the buffer (SB3 sequence).
+      if ret_norm is not None:
+        ret_norm.update(reward)
+        reward = ret_norm.normalize_reward(reward)
       rollout.add(obs, action, log_prob, reward, value, float(done), raw_action,
                   terminated)
 
@@ -288,6 +299,8 @@ class RLTrainer(BaseTrainer):
       obs = next_obs
 
       if done:
+        if ret_norm is not None:
+          ret_norm.reset_per_episode()
         total_reward = 0.0
         episode_count += 1
         obs = self.pipeline.reset_env()
@@ -321,8 +334,10 @@ class RLTrainer(BaseTrainer):
         throughput_unit="step",
     )
 
+    target_kl = getattr(self.method, "_target_kl", None)
     for _ppo_epoch in range(self.method._ppo_epochs):
       # Use rollout's sample method to get properly formatted mini-batches
+      stop_epoch = False
       for _ in range(0, rollout_len, mini_batch_size):
         batch = rollout.sample(mini_batch_size)
         batch = self.pipeline.to_device(batch, self.device)
@@ -333,6 +348,15 @@ class RLTrainer(BaseTrainer):
             enabled=(amp_dtype is not None and self.device.type == "cuda"),
         ):
           loss_out = self.method.train_step(self.model, batch, step)
+
+        # SB3-style target_kl early-stop: if the k1 approx-KL from this
+        # minibatch update exceeds the threshold, stop the whole epoch
+        # (remaining minibatches are skipped) -- prevents destructive
+        # updates when the policy drifts too far in one epoch.
+        if target_kl is not None:
+          kl = loss_out.metrics.get("approx_kl")
+          if kl is not None and kl > target_kl:
+            stop_epoch = True
 
         # D2: NaN guard - check for NaN loss before backward
         if torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any():
@@ -378,6 +402,13 @@ class RLTrainer(BaseTrainer):
             extra_metrics=extra,
             report_now=(batches == total_pico_batches),
         )
+
+        # SB3-style target_kl: stop the *whole* epoch once exceeded.
+        if stop_epoch:
+          break
+
+      if stop_epoch:
+        break
 
     reporter.summary()
     return reporter.epoch_avg_loss(), step
@@ -436,12 +467,22 @@ class RLTrainer(BaseTrainer):
       old_state = None
     try:
       record = bool(getattr(self.args, "record_eval_video", False))
-      metrics = self.method.evaluate(
-          self.model,
-          self.pipeline,
-          getattr(self.args, "eval_episodes", 5),
-          record_video=record,
-      )
+      # Eval must see RAW rewards (SB3 VecNormalize train(False)):
+      # the running-return stats are not updated, and rewards are not
+      # normalized, so eval_return stays comparable across runs.
+      ret_norm = getattr(self.pipeline, "ret_norm", None)
+      if ret_norm is not None:
+        ret_norm.train(False)
+      try:
+        metrics = self.method.evaluate(
+            self.model,
+            self.pipeline,
+            getattr(self.args, "eval_episodes", 5),
+            record_video=record,
+        )
+      finally:
+        if ret_norm is not None:
+          ret_norm.train(True)
       if record:
         self._write_eval_videos(metrics.get("episode_frames"))
       return float(metrics["eval_return"])

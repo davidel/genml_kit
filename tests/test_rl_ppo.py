@@ -21,6 +21,7 @@ def _make_args(**overrides):
       ppo_entropy_coef=0.01,
       ppo_value_coef=0.5,
       ppo_vf_clip_eps=None,
+      ppo_target_kl=None,
       ppo_rollout_len=16,
       ppo_discrete=True,
       source_checkpoint=None,
@@ -129,6 +130,26 @@ class TestPPOMethod:
     method2.build_model(args, device=torch.device("cpu"))
     method2.load_checkpoint_state(model, state, args)
     assert method2._env_steps == 999
+
+  def test_target_kl_default_none(self):
+    parser = argparse.ArgumentParser()
+    PPOMethod.add_args(parser)
+    args = parser.parse_args([])
+    # Default None = no early-stop (SB3-style opt-in).
+    assert args.ppo_target_kl is None
+
+  def test_target_kl_parsed(self):
+    parser = argparse.ArgumentParser()
+    PPOMethod.add_args(parser)
+    args = parser.parse_args(["--ppo_target_kl", "0.03"])
+    assert args.ppo_target_kl == 0.03
+
+  def test_build_model_reads_target_kl(self):
+    _, method, _ = _make_pipeline_and_method()
+    args = _make_args(ppo_target_kl=0.03)
+    method.wire_data(args, _make_pipeline_and_method()[0])
+    method.build_model(args, device=torch.device("cpu"))
+    assert method._target_kl == 0.03
 
   def test_add_args_no_collision(self):
     parser = argparse.ArgumentParser()

@@ -87,6 +87,16 @@ class PPOMethod(Method):
         help="Value function clipping epsilon (None = unclipped).",
     )
     group.add_argument(
+        "--ppo_target_kl",
+        type=float,
+        default=None,
+        help="Early-stop a PPO epoch when the k1 approx-KL exceeds this "
+        "(SB3 target_kl). Helps avoid destructive updates on "
+        "high-variance minibatches; a value too low (e.g. < 0.005) stalls "
+        "learning, too high (e.g. > 0.1) disables the safety. None "
+        "(default) disables.",
+    )
+    group.add_argument(
         "--ppo_rollout_len",
         type=int,
         default=2048,
@@ -128,6 +138,7 @@ class PPOMethod(Method):
     self._entropy_coef = getattr(args, "ppo_entropy_coef", 0.01)
     self._value_coef = getattr(args, "ppo_value_coef", 0.5)
     self._vf_clip_eps = getattr(args, "ppo_vf_clip_eps", None)
+    self._target_kl = getattr(args, "ppo_target_kl", None)
     self._env_steps = 0
 
     model = load_model(

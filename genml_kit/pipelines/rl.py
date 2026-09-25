@@ -10,103 +10,14 @@ import logging
 
 import numpy as np
 import torch
-from torch import nn
 
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import register_pipeline
+from genml_kit.pipelines.rl_normalize import ReturnNormalizer, RunningMeanStd
 from genml_kit.utils.signal import InterruptedException
-
-
-class RunningMeanStd(nn.Module):
-  """Running mean and standard deviation for observation normalization.
-
-  Uses Welford's online algorithm for numerical stability.
-  Based on OpenAI baselines implementation.
-
-  Args:
-      shape: Shape of the data (excluding batch dimension).
-      epsilon: Small constant for numerical stability.
-  """
-
-  def __init__(self, shape, epsilon=1e-4):
-    super().__init__()
-    self.epsilon = epsilon
-    self.register_buffer("mean", torch.zeros(shape, dtype=torch.float64))
-    self.register_buffer("var", torch.ones(shape, dtype=torch.float64))
-    self.register_buffer("count", torch.tensor(epsilon, dtype=torch.float64))
-
-  def update(self, x):
-    """Update running statistics with a batch of data.
-
-    Args:
-        x: Batch of observations with shape (batch_size, *shape).
-    """
-    x = torch.as_tensor(x, dtype=torch.float64)
-    batch_mean = torch.mean(x, dim=0)
-    batch_var = torch.var(x, dim=0, unbiased=False)
-    batch_count = x.shape[0]
-    self._update_from_moments(batch_mean, batch_var, batch_count)
-
-  def _update_from_moments(self, batch_mean, batch_var, batch_count):
-    """Welford's online update from batch moments."""
-    delta = batch_mean - self.mean
-    tot_count = self.count + batch_count
-
-    new_mean = self.mean + delta * batch_count / tot_count
-    m_a = self.var * self.count
-    m_b = batch_var * batch_count
-    m_2 = m_a + m_b + delta**2 * self.count * batch_count / tot_count
-    new_var = m_2 / tot_count
-
-    self.mean.copy_(new_mean)
-    self.var.copy_(new_var)
-    self.count.copy_(tot_count)
-
-  def forward(self, x, clip=None):
-    """Normalize observations using running statistics.
-
-    Args:
-        x: Observations with shape (..., *shape).
-        clip: Optional value to clip normalized observations to [-clip, clip].
-
-    Returns:
-        Normalized observations (same type as input: torch.Tensor or numpy array).
-    """
-    is_numpy = isinstance(x, np.ndarray)
-    x_t = torch.as_tensor(x, dtype=torch.float32)
-    mean = self.mean.to(torch.float32)
-    var = self.var.to(torch.float32)
-    normalized = (x_t - mean) / torch.sqrt(var + self.epsilon)
-    if clip is not None:
-      normalized = torch.clamp(normalized, -clip, clip)
-    if is_numpy:
-      return normalized.numpy()
-    return normalized
-
-  def normalize(self, x, clip=None):
-    """Alias for forward() for backward compatibility."""
-    return self.forward(x, clip=clip)
-
-  def state_dict(self):
-    """Return state dict for checkpointing."""
-    return {
-        "mean": self.mean.clone(),
-        "var": self.var.clone(),
-        "count": self.count.clone(),
-        "epsilon": self.epsilon,
-        "shape": self.mean.shape,
-    }
-
-  def load_state_dict(self, state):
-    """Load state dict from checkpoint."""
-    self.mean.copy_(state["mean"].to(torch.float64))
-    self.var.copy_(state["var"].to(torch.float64))
-    self.count.copy_(state["count"].to(torch.float64))
-    self.epsilon = state.get("epsilon", 1e-4)
-    # shape is inferred from mean
 
 
 class GymnasiumEnvWrapper:
@@ -288,6 +199,12 @@ class RLPipeline(DataPipeline):
     self._obs_normalize = False
     self._obs_norm_clip = 10.0
     self.obs_rms = None
+    # Reward/return normalization (SB3 VecNormalize) - PPO-only for now.
+    # Defaults so test pipelines that bypass init_env still work.
+    self._reward_normalize = False
+    self._reward_norm_clip = 10.0
+    self.ret_norm = None
+    self._ret_norm_gamma = 0.99
 
   @classmethod
   def add_args(cls, parser):
@@ -379,6 +296,23 @@ class RLPipeline(DataPipeline):
         type=float,
         default=10.0,
         help="Clip normalized observations to [-clip, clip].",
+    )
+    group.add_argument(
+        "--reward_normalize",
+        action="store_true",
+        help="Normalize rewards by the running std of discounted returns "
+        "(SB3 VecNormalize norm_reward). Intended for environments with "
+        "large/unnormalized reward scales (e.g. Pendulum-v1, MuJoCo) where "
+        "value loss otherwise dominates the total loss and swamps the "
+        "entropy/policy signal. Harmless or unnecessary when rewards are "
+        "already O(1). Eval always uses raw rewards.",
+    )
+    group.add_argument(
+        "--reward_norm_clip",
+        type=float,
+        default=10.0,
+        help="Clip normalized rewards to [-clip, clip] (used with "
+        "--reward_normalize).",
     )
     group.add_argument(
         "--record_eval_video",
@@ -493,14 +427,26 @@ class RLPipeline(DataPipeline):
     else:
       self.obs_rms = None
 
+    # Reward/return normalization (SB3 VecNormalize).  PPO-only for now;
+    # SAC auto-alpha already adapts to the reward scale (see the plan).
+    self._reward_normalize = getattr(args, "reward_normalize", False)
+    self._reward_norm_clip = getattr(args, "reward_norm_clip", 10.0)
+    self._ret_norm_gamma = getattr(args, "ppo_gamma", 0.99)
+    if self._reward_normalize:
+      self.ret_norm = ReturnNormalizer(gamma=self._ret_norm_gamma,
+                                       clip_reward=self._reward_norm_clip)
+    else:
+      self.ret_norm = None
+
     logging.info(
         "RLPipeline: obs_dim=%d, n_actions=%s, action_dim=%s, "
-        "buffer_capacity=%d, obs_normalize=%s",
+        "buffer_capacity=%d, obs_normalize=%s, reward_normalize=%s",
         obs_dim,
         self._n_actions,
         self._action_dim,
         self.replay_buffer.capacity,
         self._obs_normalize,
+        self._reward_normalize,
     )
 
   def reset_env(self):
@@ -622,12 +568,18 @@ class RLPipeline(DataPipeline):
     return self.replay_buffer
 
   def get_checkpoint_state(self):
-    """Return observation normalization and rollout buffer state for checkpointing."""
+    """Return observation/return normalization and rollout buffer state.
+
+    Includes ``obs_rms`` (obs normalization) and ``ret_norm`` (reward
+    normalization) when enabled, plus the rollout buffer for PPO resume.
+    """
     from genml_kit.utils.attr import get_attribute, MISSING
 
     state = {}
     if self._obs_normalize and self.obs_rms is not None:
       state["obs_rms"] = self.obs_rms.state_dict()
+    if self._reward_normalize and self.ret_norm is not None:
+      state["ret_norm"] = self.ret_norm.state_dict()
     # Include rollout buffer state for PPO resume
     fn = get_attribute(self, "rollout_buffer.state_dict")
     if fn is not MISSING:
@@ -635,11 +587,13 @@ class RLPipeline(DataPipeline):
     return state
 
   def load_checkpoint_state(self, state):
-    """Load observation normalization and rollout buffer state from checkpoint."""
+    """Load observation/return normalization and rollout buffer state."""
     from genml_kit.utils.attr import get_attribute, MISSING
 
     if self._obs_normalize and self.obs_rms is not None and "obs_rms" in state:
       self.obs_rms.load_state_dict(state["obs_rms"])
+    if (self._reward_normalize and self.ret_norm is not None and "ret_norm" in state):
+      self.ret_norm.load_state_dict(state["ret_norm"])
     # Restore rollout buffer state for PPO resume
     fn = get_attribute(self, "rollout_buffer.load_state_dict")
     if fn is not MISSING and "rollout_buffer" in state:
