@@ -11,23 +11,19 @@ import argparse
 
 import torch
 
+_AMP_DTYPES = {"float16": torch.float16, "bfloat16": torch.bfloat16}
 
-def normalize_args(args):
-  """Post-process parsed CLI args shared by the training entry points.
 
-  Performs the ``--amp_dtype`` string -> ``torch.dtype`` conversion so the
-  rest of the code can rely on a dtype object (or ``None``).
+def amp_dtype_from_args(args):
+  """Resolve the ``--amp_dtype`` CLI string to a ``torch.dtype`` (or None).
 
-  Args:
-      args: The ``argparse.Namespace`` returned by a training script's
-          ``parse_args()``.  Modified in place.
-
-  Returns:
-      The same ``args`` namespace, for call-site readability.
+  Kept at the use site so the parsed ``args`` namespace stays a pure,
+  read-only view of the command line: ``args.amp_dtype`` is always the
+  raw string the user passed (or ``None``), and consumers convert on
+  demand via this helper.
   """
-  # Convert string amp_dtype to torch.dtype.
-  args.amp_dtype = getattr(torch, args.amp_dtype, None) if args.amp_dtype else None
-  return args
+  name = getattr(args, "amp_dtype", None)
+  return _AMP_DTYPES[name] if name else None
 
 
 def add_checkpoint_args(parser, checkpoint_default, resume_default=None):

@@ -137,14 +137,12 @@ class SimMIMMethod(Method):
     # New-style: restore from method_state in checkpoint.
     if (mask_ratio := state.get("mask_ratio")) is not None:
       model.mask_ratio = mask_ratio
-      args.mask_ratio = mask_ratio
       return
     # Backward compat: old checkpoints saved _mask_ratio on the
     # SimMIM model directly (not in method_state).
     old_val = getattr(model, "_mask_ratio", None)
     if old_val is not None:
       model.mask_ratio = old_val
-      args.mask_ratio = old_val
 
   def log_validation(self,
                      model,

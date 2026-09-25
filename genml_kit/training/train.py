@@ -38,7 +38,6 @@ from genml_kit.utils.args import (
     add_optimization_args,
     add_source_checkpoint_args,
     add_training_state_args,
-    normalize_args,
 )
 from genml_kit.utils.attr import maybe_call
 from genml_kit.utils.cli import KVPairAction
@@ -393,7 +392,7 @@ def main(argv=None):
     wire_data runs BEFORE build_model (the HF head is sized from the label
     space).  Both are enforced by the hook order, not by convention.
     """
-  args = normalize_args(parse_args(argv))
+  args = parse_args(argv)
   setup_logging(args.log_level, args.log_targets)
   seed_everything(resolve_seed(args.seed), deterministic=(args.seed is not None))
 

@@ -28,6 +28,7 @@ from genml_kit.io.checkpointing import (
     parse_state_flags,
 )
 from genml_kit.training.grad_monitor import create_grad_monitor
+from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.training.train_reporting import ImageTrainReporting
 from genml_kit.training.model_utils import set_train_mode
 from genml_kit.utils.signal import InterruptedException, sigexcept
@@ -98,7 +99,7 @@ class BaseTrainer:
     set_train_mode(self.model, "train")
     # None unless fp16-on-CUDA.
     scaler = self.optimization.scaler
-    amp_dtype = getattr(self.args, "amp_dtype", None)
+    amp_dtype = amp_dtype_from_args(self.args)
     total_batches = len(self.pipeline.train_loader)
     accum_steps = getattr(self.args, "grad_accum_steps", 1)
 

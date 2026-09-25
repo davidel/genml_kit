@@ -76,10 +76,15 @@ class TestSimMIMMethod:
     state = method.get_checkpoint_state(model, args)
     assert state["mask_ratio"] == 0.8
 
-    # Simulate loading: reset mask_ratio, then load.
+    # Simulate loading: reset mask_ratio, then load.  The checkpoint
+    # restore touches the model only -- it must NOT write back into
+    # args (plans/FIX_FRAP.md).
     model.mask_ratio = 0.6
     method.load_checkpoint_state(model, state, args)
     assert model.mask_ratio == 0.8
+    # The args namespace is never mutated by the checkpoint restore: the
+    # CLI flag keeps its parsed value (0.8 from --mask_ratio), while the
+    # model carries the restored value (plans/FIX_FRAP.md).
     assert args.mask_ratio == 0.8
 
   def test_backward_compat_old_checkpoint(self):

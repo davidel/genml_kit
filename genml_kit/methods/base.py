@@ -193,10 +193,11 @@ class Method(abc.ABC):
     """Resolve any transforms this method needs BEFORE loaders are built.
 
         Lifecycle position 1: called by the driver after parsing and seeding,
-        before ``pipeline.build_loader``.  The classification data path reads
-        ``args.train_transforms`` / ``args.val_transforms`` / ``args.tta_transform``
-        while building its loaders, so a method whose preprocessing depends on a
-        model processor must set them here.  Default: no-op.
+        before ``pipeline.build_loader``.  Transforms are stored on the method
+        (``self.train_transforms`` / ``self.val_transforms`` /
+        ``self.tta_transform``) and read back by the pipeline from the method
+        object -- never stuffed into ``args`` (see plans/FIX_FRAP.md).
+        Default: no-op.
         """
 
   def wire_data(self, args, pipeline):  # noqa: B027

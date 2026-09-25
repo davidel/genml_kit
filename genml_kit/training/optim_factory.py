@@ -13,6 +13,7 @@ import torch.optim as optim
 
 from genml_kit.io.checkpointing import restore_training_state
 from genml_kit.methods.base import Method
+from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.script import extern_call
 
@@ -103,8 +104,9 @@ def build_optimization(args, model, device, ckpt_extra, states_to_load, method=N
 
   # Only use GradScaler with float16 AMP (not bfloat16 which has native
   # wider dynamic range and doesn't need loss scaling).
+  amp_dtype = amp_dtype_from_args(args)
   scaler = (torch.amp.GradScaler(device)
-            if args.amp_dtype == torch.float16 and device.type == "cuda" else None)
+            if amp_dtype == torch.float16 and device.type == "cuda" else None)
   if scaler is not None:
     logging.info("GradScaler enabled for float16 AMP stability.")
 

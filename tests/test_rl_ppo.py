@@ -327,19 +327,23 @@ class TestPPOMethod:
     dist2 = actor(torch.randn(4, 256))
     assert torch.allclose(dist1.stddev, dist2.stddev)
 
-  def test_ppo_rollout_len_flag_is_mapped(self):
-    """``--ppo_rollout_len`` must be honoured (not silently ignored)."""
+  def test_ppo_rollout_len_flag_reads_directly_by_pipeline(self):
+    """``--ppo_rollout_len`` must size the rollout buffer (not silently ignored).
+
+    Regression for the historical bug where ``wire_data`` aliased
+    ``args.rollout_len`` onto ``args.ppo_rollout_len`` *after*
+    ``RLPipeline.init_env`` had already built the buffer at 2048 -- so the
+    flag never took effect.  The pipeline now reads the PPO flag directly
+    when creating the buffer (plans/FIX_FRAP.md).
+    """
+    args = _make_args(ppo_rollout_len=32, env_id="Pendulum-v1")
+    # Real train.py order: init_env builds the buffer from the PPO flag,
+    # then wire_data runs (and must NOT mutate args).
     pipeline = RLPipeline()
-    env = _ScriptedEnv(obs_dim=4, max_episode_length=6)
-    pipeline.env = env
-    pipeline._obs_dim = 4
-    pipeline._n_actions = env.action_space.n
-    pipeline._action_dim = None
-    pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
+    pipeline.init_env(args)
+    assert pipeline.rollout_buffer.rollout_len == 32
 
     method = get_method("ppo")()
-    # Note: ppo_rollout_len set, but no args.rollout_len pre-set -> the PPO
-    # method maps it (historical bug: the flag was dead).
-    args = _make_args(ppo_rollout_len=32)
     method.wire_data(args, pipeline)
-    assert args.rollout_len == 32
+    # The hack is gone: wire_data must not invent args.rollout_len.
+    assert not hasattr(args, "rollout_len")

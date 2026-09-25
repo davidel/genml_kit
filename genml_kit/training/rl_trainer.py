@@ -14,6 +14,7 @@ import torch
 from genml_kit.training.train_reporting import (MetricKind, metric, TrainReporting)
 from genml_kit.training.trainer import BaseTrainer
 from genml_kit.training.video_utils import write_video
+from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.utils.attr import get_attribute, MISSING
 
 
@@ -80,7 +81,7 @@ class RLTrainer(BaseTrainer):
     """Off-policy: warmup fill + interleaved acting + learning."""
     batch_size = getattr(self.args, "batch_size", 64)
     scaler = getattr(self.optimization, "scaler", None)
-    amp_dtype = getattr(self.args, "amp_dtype", None)
+    amp_dtype = amp_dtype_from_args(self.args)
 
     # Initialise environment (no-op after first epoch).
     self.pipeline.init_env(self.args)
@@ -252,7 +253,7 @@ class RLTrainer(BaseTrainer):
   def _train_epoch_ppo(self, epoch, saver, step, monitor):
     """On-policy: collect rollout \u2192 compute GAE \u2192 SGD epochs."""
     scaler = getattr(self.optimization, "scaler", None)
-    amp_dtype = getattr(self.args, "amp_dtype", None)
+    amp_dtype = amp_dtype_from_args(self.args)
 
     # Initialise environment (no-op after first epoch).
     self.pipeline.init_env(self.args)

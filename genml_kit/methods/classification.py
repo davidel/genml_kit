@@ -120,7 +120,10 @@ class ClassificationMethod(Method):
 
     The HF processor owns the normalization (image_mean/std) the
     classification data path must use, so this runs before the loaders
-    are built (lifecycle position 1).
+    are built (lifecycle position 1).  The resolved transforms are kept
+    on the method object (never stuffed into ``args``); the pipeline
+    reads them via ``method.train_transforms`` / ``.val_transforms`` /
+    ``.tta_transform``.
     """
     from genml_kit.models import load_processor
     from genml_kit.training.train_compat import resolve_augmentations
@@ -129,10 +132,8 @@ class ClassificationMethod(Method):
         image_size=args.image_size,
         cache_dir=getattr(args, "cache_dir", None),
     )
-    train_t, val_t, tta_t = resolve_augmentations(args, processor)
-    args.train_transforms = train_t
-    args.val_transforms = val_t
-    args.tta_transform = tta_t
+    self.train_transforms, self.val_transforms, self.tta_transform = \
+        resolve_augmentations(args, processor)
 
   def wire_data(self, args, pipeline):
     """Read the pipeline's label space and weights; build the criterion.

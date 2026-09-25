@@ -410,10 +410,13 @@ class RLPipeline(DataPipeline):
         seed=buffer_seed,
     )
 
-    # On-policy rollout buffer (used by PPO; ignored by DQN/SAC).
+    # On-policy rollout buffer (used by PPO; ignored by DQN/SAC).  The
+    # buffer size is read directly from the PPO flag -- the method's
+    # ``wire_data`` no longer aliases it onto ``args.rollout_len`` (see
+    # plans/FIX_FRAP.md).
     self.rollout_buffer = RolloutBuffer(
         obs_dim=obs_dim,
-        rollout_len=getattr(args, "rollout_len", 2048),
+        rollout_len=getattr(args, "ppo_rollout_len", 2048),
         action_dim=self._action_dim,
         device="cpu",
         seed=buffer_seed,

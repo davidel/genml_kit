@@ -153,14 +153,6 @@ class PPOMethod(Method):
     self._discrete = getattr(args, "ppo_discrete", True)
     self._action_dim = getattr(pipeline, "action_dim", None)
 
-    # The rollout length is read by ``RLPipeline.init_env`` from
-    # ``args.rollout_len`` (single source of truth for the buffer size).
-    # Expose the PPO-specific flag there so ``--ppo_rollout_len`` takes
-    # effect; without this mapping the flag was silently ignored and the
-    # buffer was always created with the 2048 default (historical bug).
-    if getattr(args, "ppo_rollout_len", None) is not None:
-      args.rollout_len = args.ppo_rollout_len
-
   def build_model(self, args, device):
     self._gamma = getattr(args, "ppo_gamma", 0.99)
     self._lam = getattr(args, "ppo_lam", 0.95)

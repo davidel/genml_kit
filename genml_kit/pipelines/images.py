@@ -194,8 +194,8 @@ class ImagesPipeline(DataPipeline):
         args.dataset,
         cache_dir=args.cache_dir,
         test_size=args.val_split,
-        train_transform=getattr(args, "train_transforms", None),
-        val_transform=getattr(args, "val_transforms", None),
+        train_transform=getattr(method, "train_transforms", None),
+        val_transform=getattr(method, "val_transforms", None),
         image_column=args.image_column,
         label_column=args.label_column,
         seed=args.seed,
@@ -217,34 +217,34 @@ class ImagesPipeline(DataPipeline):
 
     self.train_dataset = _ProxyAdapter(train_proxy)
     self.val_dataset = _ProxyAdapter(val_proxy) if val_proxy is not None else None
-    self.tta_transform = getattr(args, "tta_transform", None)
+    self.tta_transform = getattr(method, "tta_transform", None)
 
     data_generator = torch.Generator()
     if args.seed is not None:
       data_generator.manual_seed(args.seed)
     self.data_generator = data_generator
 
+    effective_sampler = args.sampler
+    if effective_sampler == "balanced" and not train_proxy.label_column:
+      logging.warning("--sampler balanced requires a label column; falling back to "
+                      "shuffle=True.")
+      effective_sampler = "none"
+
     sampler = None
-    _sampler_balanced = args.sampler == "balanced"
-    if args.sampler == "weighted" and train_proxy.label_column:
+    if effective_sampler == "weighted" and train_proxy.label_column:
       sampler = build_weighted_sampler(train_proxy.dataset,
                                        self.num_labels,
                                        train_proxy.label_column,
                                        args.sampler_weights,
                                        multipliers=self.class_multipliers)
-    elif _sampler_balanced:
-      if not train_proxy.label_column:
-        logging.warning("--sampler balanced requires a label column; falling back to "
-                        "shuffle=True.")
-        args.sampler = "none"
-      else:
-        from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
-        labels = train_proxy.dataset[train_proxy.label_column]
-        sampler = BalancedBatchSampler(
-            labels,
-            batch_size=args.batch_size,
-            samples_per_class=args.samples_per_class,
-        )
+    elif effective_sampler == "balanced":
+      from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
+      labels = train_proxy.dataset[train_proxy.label_column]
+      sampler = BalancedBatchSampler(
+          labels,
+          batch_size=args.batch_size,
+          samples_per_class=args.samples_per_class,
+      )
 
     self.train_loader = DataLoader(
         self.train_dataset,
@@ -310,7 +310,7 @@ class ImagesPipeline(DataPipeline):
     elif method_transform is not None:
       transform = method_transform
     else:
-      transform = getattr(args, "train_transforms", None)
+      transform = getattr(method, "train_transforms", None)
       if transform is None:
         transform = build_pretrain_transform(getattr(args, "image_size", 224))
 

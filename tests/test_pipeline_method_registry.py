@@ -14,6 +14,7 @@ Covers the plan (plans/GENERIC_PIPELINE.md s 11.1) unit-level surface:
 """
 
 import argparse
+import types
 
 import pytest
 import torch
@@ -196,13 +197,17 @@ class TestImagesPipelineLoader:
     args.sampler_weights = "frequency"
     # In production the CLI resolves these from the model processor; here
     # a simple resize->tensor transform stands in for the pipeline test.
-    args.train_transforms = build_pretrain_transform(args.image_size)
-    args.val_transforms = build_pretrain_transform(args.image_size)
-    args.tta_transform = None
+    # Transforms live on the *method* (plans/FIX_FRAP.md); the pipeline
+    # reads them from there, not from args.
+    method = types.SimpleNamespace(
+        train_transforms=build_pretrain_transform(args.image_size),
+        val_transforms=build_pretrain_transform(args.image_size),
+        tta_transform=None,
+    )
     args.needs_labels = True
 
     pipeline = ImagesPipeline()
-    loader = pipeline.build_loader(args, mode="train")
+    loader = pipeline.build_loader(args, mode="train", method=method)
     assert isinstance(loader, DataLoader)
     assert pipeline.num_labels == 2
     assert pipeline.train_loader is loader
@@ -227,9 +232,6 @@ class TestImagesPipelineLoader:
     args.batch_size = 4
     args.class_multipliers = ""
     args.sampler_weights = "frequency"
-    args.train_transforms = build_pretrain_transform(args.image_size)
-    args.val_transforms = build_pretrain_transform(args.image_size)
-    args.tta_transform = None
     args.needs_labels = True
 
     pipeline = ImagesPipeline()
@@ -251,9 +253,6 @@ class TestImagesPipelineLoader:
     args.batch_size = 4
     args.class_multipliers = ""
     args.sampler_weights = "frequency"
-    args.train_transforms = build_pretrain_transform(args.image_size)
-    args.val_transforms = build_pretrain_transform(args.image_size)
-    args.tta_transform = None
     args.needs_labels = True
 
     pipeline = ImagesPipeline()
@@ -268,8 +267,6 @@ class TestImagesPipelineLoader:
     args.label_column = "label"
     args.image_column = "image"
     args.needs_labels = False
-    args.train_transforms = None
-    args.val_transforms = None
     args.hf_token = None
     args.strict_datasets = False
 
