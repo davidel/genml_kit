@@ -9,6 +9,7 @@ from genml_kit.models.rl.qnetwork import (
     QNetwork,
     _MLPBackbone,
 )
+from genml_kit.models.rl.spaces import space_spec
 
 
 class TestMLPBackbone:
@@ -107,3 +108,41 @@ class TestRegistry:
     # Existing custom models still registered.
     assert is_custom_model("timm")
     assert is_custom_model("convvit")
+
+  def test_qnet_accepts_space(self):
+    """The RL factories accept a SpaceSpec instead of scalars."""
+
+    class _S:
+
+      def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+    space = space_spec(_S(shape=(10,)), _S(n=4))
+    model = load_model("rl/qnet", num_labels=0, space=space)
+    assert isinstance(model, QNetwork)
+    assert model(torch.randn(3, 10)).shape == (3, 4)
+
+  def test_qnet_dueling_accepts_space(self):
+
+    class _S:
+
+      def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+    space = space_spec(_S(shape=(8,)), _S(n=2))
+    model = load_model("rl/qnet_dueling", num_labels=0, space=space)
+    assert isinstance(model, QNetwork)
+    assert isinstance(model.online[1], DuelingQHead)
+
+  def test_implicit_space_override_wins_over_scalars(self):
+    """Passing both space and scalars: space is authoritative."""
+
+    class _S:
+
+      def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+    space = space_spec(_S(shape=(7,)), _S(n=3))
+    model = load_model("rl/qnet", num_labels=0, space=space, obs_dim=99, n_actions=1)
+    assert model.online[0].net[0].in_features == 7
+    assert model.online[-1].fc.out_features == 3

@@ -10,15 +10,18 @@ interface for maximum-entropy off-policy RL with:
 All math references ``rl/README.md`` Part 5 and §12–13.
 """
 
+import copy
 import math
 
 import torch
 
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
-from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.models.registry import load_model
 from genml_kit.models.rl.sac_model import SACModel
+from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.utils.attr import get_attribute, MISSING
+from genml_kit.utils.logging import fatal
 
 
 @METHODS.register
@@ -131,8 +134,6 @@ class SACMethod(Method):
       action_shape = get_attribute(pipeline, "env.action_space.shape")
     is_continuous = action_shape is not MISSING and action_shape != ()
     if not is_continuous:
-      from genml_kit.utils.logging import fatal
-
       fatal(
           "SAC supports continuous action spaces only.  Use --method dqn "
           "for discrete environments or --ppo-continuous for a continuous "
@@ -162,12 +163,47 @@ class SACMethod(Method):
     if self._target_entropy is None:
       self._target_entropy = -float(self._action_dim)
 
-    # Build SAC model container (actor + twin critics + targets).
-    model = SACModel.build(
-        obs_dim=self._pipeline.obs_dim,
-        action_dim=self._action_dim,
-        hidden_dim=256,
-    ).to(device)
+    # Build SAC model container (actor + twin critics + targets) via the
+    # registry.  The factory may return a single module -- used as the
+    # critic, with the default ``rl/actor_critic`` actor -- or a dict
+    # ``{"actor": ..., "critic": ...}`` supplying both parts.
+    sac_kwargs = {
+        k: v for k, v in getattr(args, "model_arg", {}).items() if k not in {
+            "sac_gamma", "sac_tau", "sac_alpha", "sac_auto_alpha", "sac_target_entropy",
+            "sac_critic_lr", "sac_actor_lr", "sac_alpha_lr"
+        }
+    }
+    model_name = getattr(args, "model", None)
+    if not model_name or model_name == "google/vit-base-patch16-224":
+      model_name = "rl/sac_critic"
+    result = load_model(
+        model_name,
+        num_labels=0,
+        space=self._pipeline.space,
+        device=device,
+        **sac_kwargs,
+    )
+    if isinstance(result, dict):
+      actor = result.get("actor")
+      critic = result.get("critic")
+      missing = [k for k in ("actor", "critic") if result.get(k) is None]
+      if missing:
+        fatal(
+            f"SAC model '{model_name}' dict is missing: {', '.join(missing)}",
+            ValueError,
+        )
+    else:
+      critic = result
+      actor = load_model(
+          "rl/actor_critic",
+          num_labels=0,
+          space=self._pipeline.space,
+          device=device,
+          **sac_kwargs,
+      )
+    q2 = copy.deepcopy(critic)  # twin, cloned exactly as today
+    model = SACModel(actor=actor, q1=critic, q2=q2).to(device)
+    model = self._apply_model_extras(args, model, device)
     return model
 
   def _get_alpha(self):

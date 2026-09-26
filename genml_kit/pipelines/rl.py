@@ -13,6 +13,7 @@ import torch
 
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
+from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import PIPELINES
@@ -191,8 +192,8 @@ class RLPipeline(DataPipeline):
     super().__init__(**kwargs)
     self.env = None
     self.replay_buffer = None
-    self._obs_dim = None
-    self._n_actions = None
+    # Single source of truth for obs/action dims; None until init_env runs.
+    self.space = None
     # Video capture (RL_VIDEO) - default for test pipelines that bypass init_env
     self._video_enabled = False
     # Observation normalization (E3) - defaults for test pipelines that bypass init_env
@@ -335,7 +336,6 @@ class RLPipeline(DataPipeline):
 
     Called once at the start of training by ``RLTrainer``.
     """
-    from genml_kit.utils.logging import fatal
     from genml_kit.utils.script import extern_call
 
     if self.env is not None:
@@ -352,43 +352,27 @@ class RLPipeline(DataPipeline):
     else:
       self.env = GymnasiumEnvWrapper(args.env_id, render_mode=render_mode)
 
-    obs_dim = getattr(args, "obs_dim", None)
-    if obs_dim is None:
-      # Try to infer from observation space.
-      obs_space = self.env.observation_space
-      if hasattr(obs_space, "shape"):
-        obs_dim = int(torch.tensor(obs_space.shape).prod())
-      else:
-        # Fatal: cannot infer obs_dim from this observation space.
-        fatal(
-            f"Cannot infer obs_dim from observation space {obs_space!r}; "
-            "pass --obs_dim explicitly", ValueError)
-    self._obs_dim = obs_dim
+    # Single source of truth for observation/action dims.  ``space_spec``
+    # is a pure function mirroring the old inline interrogation; the
+    # ``--obs_dim`` escape hatch is threaded through as the explicit
+    # override (see genml_kit/models/rl/spaces.py).
+    self.space = space_spec(
+        self.env.observation_space,
+        self.env.action_space,
+        obs_dim=getattr(args, "obs_dim", None),
+    )
 
     # Expose action_space for continuous support (A9)
     self.action_space = self.env.action_space
 
-    # Handle discrete vs continuous action space
-    n = getattr(self.env.action_space, "n", None)
-    shape = getattr(self.env.action_space, "shape", None)
-    if n is not None:
-      self._n_actions = int(n)
-      self._action_dim = None
-    elif shape is not None:
-      self._n_actions = None
-      self._action_dim = int(shape[0])
-    else:
-      # Fallback
-      self._n_actions = 2
-      self._action_dim = 2
-
+    obs_dim = self.space.obs_dim
     # Determine action dim, dtype and discrete flag for the replay buffer.
     # A continuous action space of size 1 (e.g. Pendulum) must NOT be
     # treated as discrete: the discrete/continuous split is decided by the
     # action-space type, not the action dimensionality.
-    is_continuous = self._action_dim is not None
+    is_continuous = self.space.action_dim is not None
     if is_continuous:
-      action_dim = self._action_dim
+      action_dim = self.space.action_dim
       action_dtype = np.float32
     else:
       action_dim = 1
@@ -419,7 +403,7 @@ class RLPipeline(DataPipeline):
     self.rollout_buffer = RolloutBuffer(
         obs_dim=obs_dim,
         rollout_len=getattr(args, "ppo_rollout_len", 2048),
-        action_dim=self._action_dim,
+        action_dim=self.space.action_dim,
         device="cpu",
         seed=buffer_seed,
     )
@@ -447,8 +431,8 @@ class RLPipeline(DataPipeline):
         "RLPipeline: obs_dim=%d, n_actions=%s, action_dim=%s, "
         "buffer_capacity=%d, obs_normalize=%s, reward_normalize=%s",
         obs_dim,
-        self._n_actions,
-        self._action_dim,
+        self.space.n_actions,
+        self.space.action_dim,
         self.replay_buffer.capacity,
         self._obs_normalize,
         self._reward_normalize,
@@ -558,15 +542,15 @@ class RLPipeline(DataPipeline):
 
   @property
   def obs_dim(self):
-    return self._obs_dim
+    return self.space.obs_dim if self.space is not None else None
 
   @property
   def n_actions(self):
-    return self._n_actions
+    return self.space.n_actions if self.space is not None else None
 
   @property
   def action_dim(self):
-    return self._action_dim
+    return self.space.action_dim if self.space is not None else None
 
   @property
   def buffer(self):

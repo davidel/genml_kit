@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 import genml_kit.pipelines.rl as rl
+from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.datasets.replay_buffer import Transition
@@ -62,8 +63,7 @@ class TestRLPipeline:
     # Directly inject a scripted env instead of going through args.
     env = _ScriptedEnv(obs_dim=obs_dim)
     pipeline.env = env
-    pipeline._obs_dim = obs_dim
-    pipeline._n_actions = env.action_space.n
+    pipeline.space = space_spec(env.observation_space, env.action_space)
     from genml_kit.datasets.replay_buffer import ReplayBufferDataset
     pipeline.replay_buffer = ReplayBufferDataset(
         obs_dim=obs_dim,
@@ -261,9 +261,10 @@ class TestInitEnvActionSpace:
     assert pipeline.replay_buffer.discrete is False
     assert pipeline.replay_buffer._action.shape == (10, 3)
 
-  def test_action_dim_property_matches_private_attribute(self):
+  def test_action_dim_property_delegates_to_space(self):
     pipeline = RLPipeline()
-    pipeline._action_dim = 1
+    pipeline.space = space_spec(_FakeSpace(shape=(4,)), _FakeSpace(shape=(1,)))
     assert pipeline.action_dim == 1
-    pipeline._action_dim = None
+    pipeline.space = space_spec(_FakeSpace(shape=(4,)), _FakeSpace(n=2))
     assert pipeline.action_dim is None
+    assert pipeline.n_actions == 2

@@ -173,7 +173,8 @@ def build_parser():
       "--model",
       type=str,
       default="google/vit-base-patch16-224",
-      help="HF model name/path or timm model (e.g. 'timm:eva02_base_patch14').",
+      help="HF model name/path or timm model (e.g. 'timm:eva02_base_patch14'). "
+      "RL methods accept registered factories (e.g. 'rl/qnet_dueling').",
   )
   parser.add_argument(
       "--model_arg",

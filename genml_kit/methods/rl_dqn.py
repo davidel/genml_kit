@@ -118,13 +118,26 @@ class DQNMethod(Method):
     self._ddqn = getattr(args, "dqn_ddqn", True)
     self._n_step = getattr(args, "dqn_n_step", 1)
 
-    # Model.
+    # Model: ``--model`` selects the registered factory (interface A);
+    # falling back to the two DQN defaults preserves today's behaviour
+    # when the user does not pass ``--model`` (the shared parser default
+    # is the vision model, which must not leak into RL runs).
+    model_name = getattr(args, "model", None)
+    if not model_name or model_name == "google/vit-base-patch16-224":
+      model_name = ("rl/qnet_dueling"
+                    if getattr(args, "dqn_dueling", False) else "rl/qnet")
+    dqn_kwargs = {
+        k: v for k, v in getattr(args, "model_arg", {}).items() if k not in {
+            "dqn_gamma", "dqn_tau", "dqn_epsilon_start", "dqn_epsilon_end",
+            "dqn_epsilon_decay_steps", "dqn_ddqn", "dqn_dueling", "dqn_n_step"
+        }
+    }
     model = load_model(
-        "rl/qnet_dueling" if getattr(args, "dqn_dueling", False) else "rl/qnet",
+        model_name,
         num_labels=0,
-        obs_dim=self._pipeline.obs_dim,
-        n_actions=self.n_actions,
+        space=self._pipeline.space,
         device=device,
+        **dqn_kwargs,
     )
     model = self._apply_model_extras(args, model, device)
     return model

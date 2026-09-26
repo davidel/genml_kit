@@ -74,11 +74,20 @@ class SACCritic(nn.Module):
 
 @MODELS.register("rl/sac_critic")
 def load_rl_sac_critic(
+    space=None,
     obs_dim=4,
     action_dim=2,
     hidden_dims=None,
     num_labels=0,
     **_kwargs,
 ):
-  """Factory registered as ``rl/sac_critic``."""
+  """Factory registered as ``rl/sac_critic``.
+
+  When *space* (a ``SpaceSpec``) is provided it is the single source of
+  truth for the sizes; the scalar fallbacks keep direct callers (unit
+  tests) working unchanged.
+  """
+  if space is not None:
+    obs_dim = space.obs_dim
+    action_dim = space.action_dim
   return SACCritic(obs_dim=obs_dim, action_dim=action_dim, hidden_dims=hidden_dims)

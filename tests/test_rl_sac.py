@@ -7,6 +7,7 @@ import torch
 
 from genml_kit.methods import METHODS
 from genml_kit.methods.rl_sac import SACMethod
+from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 
@@ -38,13 +39,11 @@ def _make_pipeline_and_method(obs_dim=4):
   pipeline = RLPipeline()
   env = _ScriptedEnv(obs_dim=obs_dim, max_episode_length=6, continuous=True)
   pipeline.env = env
-  pipeline._obs_dim = obs_dim
-  pipeline._n_actions = 2
+  pipeline.space = space_spec(env.observation_space, env.action_space)
   pipeline.replay_buffer = ReplayBufferDataset(
       obs_dim=obs_dim,
       capacity=50,
   )
-  pipeline._action_dim = 2
 
   method = METHODS.get("sac")()
   args = _make_args()
@@ -139,8 +138,7 @@ class TestSACMethod:
     pipeline = RLPipeline()
     env = _ScriptedEnv(obs_dim=4, max_episode_length=6, continuous=True)
     pipeline.env = env
-    pipeline._obs_dim = 4
-    pipeline._action_dim = 2
+    pipeline.space = space_spec(env.observation_space, env.action_space)
     pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
 
     method = METHODS.get("sac")()
@@ -154,10 +152,8 @@ class TestSACMethod:
     pipeline = RLPipeline()
     env = _ScriptedEnv(obs_dim=4, max_episode_length=6)
     pipeline.env = env
-    pipeline._obs_dim = 4
-    pipeline._n_actions = env.action_space.n
+    pipeline.space = space_spec(env.observation_space, env.action_space)
     pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
-    pipeline._action_dim = 2
 
     method = METHODS.get("sac")()
     args = _make_args()

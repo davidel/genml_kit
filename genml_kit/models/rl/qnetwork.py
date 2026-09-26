@@ -157,11 +157,23 @@ class QNetwork(nn.Module):
 
 
 @MODELS.register("rl/qnet")
-def load_rl_qnet(obs_dim=4, n_actions=2, hidden_dims=None, num_labels=0, **_kwargs):
+def load_rl_qnet(space=None,
+                 obs_dim=4,
+                 n_actions=2,
+                 hidden_dims=None,
+                 num_labels=0,
+                 **_kwargs):
   """Factory registered as ``rl/qnet`` (standard Q-head).
+
+  When *space* (a ``SpaceSpec``) is provided it is the single source of
+  truth for ``obs_dim`` / ``n_actions``; the scalar fallbacks keep direct
+  callers (unit tests) working unchanged.
 
   Returns the ``QNetwork`` module (no image processor for vector obs).
   """
+  if space is not None:
+    obs_dim = space.obs_dim
+    n_actions = space.n_actions
   return QNetwork(obs_dim=obs_dim,
                   n_actions=n_actions,
                   hidden_dims=hidden_dims,
@@ -169,15 +181,23 @@ def load_rl_qnet(obs_dim=4, n_actions=2, hidden_dims=None, num_labels=0, **_kwar
 
 
 @MODELS.register("rl/qnet_dueling")
-def load_rl_qnet_dueling(obs_dim=4,
+def load_rl_qnet_dueling(space=None,
+                         obs_dim=4,
                          n_actions=2,
                          hidden_dims=None,
                          num_labels=0,
                          **_kwargs):
   """Factory registered as ``rl/qnet_dueling`` (dueling Q-head).
 
+  When *space* (a ``SpaceSpec``) is provided it is the single source of
+  truth for ``obs_dim`` / ``n_actions``; the scalar fallbacks keep direct
+  callers (unit tests) working unchanged.
+
   Returns the ``QNetwork`` module (no image processor for vector obs).
   """
+  if space is not None:
+    obs_dim = space.obs_dim
+    n_actions = space.n_actions
   return QNetwork(obs_dim=obs_dim,
                   n_actions=n_actions,
                   hidden_dims=hidden_dims,

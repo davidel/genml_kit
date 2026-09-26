@@ -5,8 +5,6 @@ following the same pattern as QNetwork for DQN and ActorCritic for PPO.
 """
 
 import torch.nn as nn
-from genml_kit.models.rl.actor_critic import ActorCritic
-from genml_kit.models.rl.sac_critic import SACCritic
 
 
 class SACModel(nn.Module):
@@ -17,20 +15,6 @@ class SACModel(nn.Module):
     self.actor = actor
     self.q1 = q1
     self.q2 = q2
-
-  @classmethod
-  def build(cls, obs_dim, action_dim, hidden_dim=256):
-    """Factory: builds actor + twin critics + target copies."""
-    # ActorCritic with continuous action space has GaussianActor + backbone
-    actor = ActorCritic(
-        obs_dim,
-        action_dim=action_dim,
-        hidden_dims=[hidden_dim, hidden_dim],
-        discrete=False,
-    )
-    q1 = SACCritic(obs_dim, action_dim, hidden_dims=[hidden_dim, hidden_dim])
-    q2 = SACCritic(obs_dim, action_dim, hidden_dims=[hidden_dim, hidden_dim])
-    return cls(actor, q1, q2)
 
   def hard_update(self):
     """Hard update target networks: target = online."""

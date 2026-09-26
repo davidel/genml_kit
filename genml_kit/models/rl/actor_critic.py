@@ -423,6 +423,7 @@ class ActorCritic(nn.Module):
 
 @MODELS.register("rl/actor_critic")
 def load_actor_critic(
+    space=None,
     obs_dim=4,
     n_actions=None,
     action_dim=None,
@@ -432,7 +433,17 @@ def load_actor_critic(
     log_std_max=2.0,
     log_std_init=math.log(0.5),  # noqa: B008
     **_kwargs):
-  """Factory registered as ``rl/actor_critic``."""
+  """Factory registered as ``rl/actor_critic``.
+
+  When *space* (a ``SpaceSpec``) is provided it is the single source of
+  truth for the sizes and discreteness; the scalar fallbacks keep direct
+  callers (unit tests) working unchanged.
+  """
+  if space is not None:
+    obs_dim = space.obs_dim
+    discrete = space.is_discrete
+    n_actions = space.n_actions
+    action_dim = space.action_dim
   return ActorCritic(
       obs_dim=obs_dim,
       n_actions=n_actions if discrete else None,

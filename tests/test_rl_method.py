@@ -7,6 +7,7 @@ import torch
 
 from genml_kit.methods import METHODS
 from genml_kit.methods.rl_dqn import DQNMethod
+from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 
@@ -40,8 +41,7 @@ def _make_pipeline_and_method(obs_dim=4, capacity=100):
   pipeline = RLPipeline()
   env = _ScriptedEnv(obs_dim=obs_dim)
   pipeline.env = env
-  pipeline._obs_dim = obs_dim
-  pipeline._n_actions = env.action_space.n
+  pipeline.space = space_spec(env.observation_space, env.action_space)
   pipeline.replay_buffer = ReplayBufferDataset(
       obs_dim=obs_dim,
       capacity=capacity,

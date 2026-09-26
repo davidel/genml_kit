@@ -12,6 +12,7 @@ from genml_kit.methods.rl_dqn import DQNMethod
 from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.methods.rl_sac import SACMethod
 from genml_kit.models.rl.qnetwork import QNetwork
+from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.training.rl_trainer import RLTrainer
 from genml_kit.training.optim_factory import Optimization
@@ -53,8 +54,7 @@ class FakeRLPipeline(RLPipeline):
   def __init__(self):
     super().__init__()
     self.env = _ScriptedEnv(obs_dim=4)
-    self._obs_dim = 4
-    self._n_actions = 2
+    self.space = space_spec(self.env.observation_space, self.env.action_space)
     self.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=100)
 
 
@@ -71,15 +71,13 @@ class _TestRLPipeline(RLPipeline):
     self.env = _ScriptedEnv(obs_dim=obs_dim,
                             continuous=continuous,
                             action_dim=action_dim)
-    self._obs_dim = obs_dim
-    self._n_actions = action_dim if continuous else 2
-    self._action_dim = action_dim if continuous else None
+    self.space = space_spec(self.env.observation_space, self.env.action_space)
     # Expose action_space for continuous support
     self.action_space = self.env.action_space
 
     # Determine action dim and dtype for replay buffer
-    if self._action_dim is not None and self._action_dim > 1:
-      action_dim_rb = self._action_dim
+    if self.space.action_dim is not None and self.space.action_dim > 1:
+      action_dim_rb = self.space.action_dim
       action_dtype = np.float32
     else:
       action_dim_rb = 1
@@ -95,7 +93,7 @@ class _TestRLPipeline(RLPipeline):
     self.rollout_buffer = RolloutBuffer(
         obs_dim=obs_dim,
         rollout_len=rollout_len,
-        action_dim=self._action_dim,
+        action_dim=self.space.action_dim,
         device="cpu",
     )
 
@@ -1215,8 +1213,8 @@ class TestObservationNormalization:
 
     pipeline = RLPipeline()
     pipeline.env = _ScriptedEnv(obs_dim=4)
-    pipeline._obs_dim = 4
-    pipeline._n_actions = 2
+    pipeline.space = space_spec(pipeline.env.observation_space,
+                                pipeline.env.action_space)
     pipeline._obs_normalize = False
     pipeline._obs_norm_clip = 10.0
     pipeline.obs_rms = None
@@ -1242,8 +1240,8 @@ class TestObservationNormalization:
 
     pipeline = RLPipeline()
     pipeline.env = _ScriptedEnv(obs_dim=4)
-    pipeline._obs_dim = 4
-    pipeline._n_actions = 2
+    pipeline.space = space_spec(pipeline.env.observation_space,
+                                pipeline.env.action_space)
     pipeline._obs_normalize = True
     pipeline._obs_norm_clip = 10.0
     pipeline.obs_rms = RunningMeanStd(shape=(4,))
@@ -1261,8 +1259,8 @@ class TestObservationNormalization:
     # A fresh pipeline (fresh RMS) restores the saved statistics.
     pipeline2 = RLPipeline()
     pipeline2.env = _ScriptedEnv(obs_dim=4)
-    pipeline2._obs_dim = 4
-    pipeline2._n_actions = 2
+    pipeline2.space = space_spec(pipeline2.env.observation_space,
+                                 pipeline2.env.action_space)
     pipeline2._obs_normalize = True
     pipeline2._obs_norm_clip = 10.0
     pipeline2.obs_rms = RunningMeanStd(shape=(4,))
@@ -1280,8 +1278,8 @@ class TestObservationNormalization:
 
     pipeline = RLPipeline()
     pipeline.env = _ScriptedEnv(obs_dim=4)
-    pipeline._obs_dim = 4
-    pipeline._n_actions = 2
+    pipeline.space = space_spec(pipeline.env.observation_space,
+                                pipeline.env.action_space)
     pipeline._obs_normalize = True
     pipeline._obs_norm_clip = 10.0
     from genml_kit.pipelines.rl import RunningMeanStd

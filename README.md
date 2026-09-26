@@ -1578,6 +1578,49 @@ All RL methods use `eval_return` (mean undiscounted return over
 The trainer bypasses the DataLoader: it steps the environment directly and
 samples from a replay buffer (DQN/SAC) or re-uses a rollout buffer (PPO).
 
+### Custom RL models
+
+Every RL method resolves its network through the same model registry as the
+rest of the framework: `--model` selects a registered factory and
+`--model_arg key=value` forwards constructor kwargs.
+
+```
+# DQN: dueling Q-head (also the default for --dqn_dueling)
+genml-kit-train --pipeline rl --method dqn --model rl/qnet_dueling
+
+# DQN: configure the MLP width via --model_arg
+genml-kit-train --pipeline rl --method dqn \
+    --model rl/qnet --model_arg hidden_dims=[512,256]
+
+# PPO: wider actor-critic trunk
+genml-kit-train --pipeline rl --method ppo \
+    --model rl/actor_critic --model_arg hidden_dims=[64,64]
+
+# SAC: critic head width (the actor defaults to rl/actor_critic)
+genml-kit-train --pipeline rl --method sac --env_id Pendulum-v1 \
+    --model rl/sac_critic --model_arg hidden_dims=[256,256]
+```
+
+Registered RL factories (auto-discovered; see `MODELS.list_names()`):
+
+| Name | Returns | Notes |
+|---|---|---|
+| `rl/qnet` | `QNetwork` (flat Q-head) | DQN default |
+| `rl/qnet_dueling` | `QNetwork` (dueling Q-head) | `--dqn_dueling` shortcut |
+| `rl/actor_critic` | `ActorCritic` (shared backbone) | PPO default |
+| `rl/sac_critic` | `SACCritic` (single critic head) | SAC default |
+
+The methods pass a `SpaceSpec` (obs/action sizes derived from the env) to
+the factory, so a custom registered factory can accept the standard scalar
+kwargs (`obs_dim`, `n_actions`, `action_dim`, `hidden_dims`, ...) or the
+`space=` spec directly.  SAC additionally supports a *factory-return
+contract*: a factory may return a plain dict `{"actor": ..., "critic": ...}`
+to supply both networks (the method composes the twin critic via a deep
+copy).  As elsewhere in the framework there is **no** model-validation
+layer: an incompatible network fails loudly at first use (`act()` /
+`forward()`), and an unknown `--model` name falls through `load_model` to
+Hugging Face and fails at load time.
+
 ### Evaluation videos
 
 Pass `--record_eval_video` to record **one video per evaluation episode**

@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 import torch
 
+from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.training.video_utils import write_video
 
@@ -50,9 +51,7 @@ class _RenderableRLPipeline(RLPipeline):
   def __init__(self, obs_dim=4, continuous=False):
     super().__init__()
     self.env = _RenderableScriptedEnv(obs_dim=obs_dim, continuous=continuous)
-    self._obs_dim = obs_dim
-    self._n_actions = 2
-    self._action_dim = 2 if continuous else None
+    self.space = space_spec(self.env.observation_space, self.env.action_space)
     self.action_space = self.env.action_space
     # PPOMethod.wire_data (continuous) reads ``action_dim``, now provided
     # by the ``RLPipeline.action_dim`` property (no manual attribute needed).
@@ -200,8 +199,8 @@ class TestEvaluateRecordVideo:
     method = DQNMethod()
     pipeline = RLPipeline()
     pipeline.env = _ScriptedEnv(obs_dim=4)
-    pipeline._obs_dim = 4
-    pipeline._n_actions = 2
+    pipeline.space = space_spec(pipeline.env.observation_space,
+                                pipeline.env.action_space)
     method.wire_data(args, pipeline)
     model = method.build_model(args, device=torch.device("cpu"))
     metrics = method.evaluate(model, pipeline, num_episodes=2, record_video=True)

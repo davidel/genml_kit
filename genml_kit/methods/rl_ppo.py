@@ -167,17 +167,27 @@ class PPOMethod(Method):
     self._target_kl = getattr(args, "ppo_target_kl", None)
     self._env_steps = 0
 
+    # Model: ``--model`` selects the registered factory (interface A).
+    # The ``space`` spec (built from the env) decides obs/action sizes
+    # and discreteness; ``--ppo_log_std_*`` stay method-level knobs read
+    # here, and everything else in ``--model_arg`` is forwarded.
+    model_name = getattr(args, "model", None)
+    if not model_name or model_name == "google/vit-base-patch16-224":
+      model_name = "rl/actor_critic"
+    model_kwargs = {
+        k: v
+        for k, v in getattr(args, "model_arg", {}).items()
+        if k not in {"log_std_init", "log_std_min", "log_std_max"}
+    }
     model = load_model(
-        "rl/actor_critic",
+        model_name,
         num_labels=0,
-        obs_dim=self._pipeline.obs_dim,
-        n_actions=self.n_actions if self._discrete else None,
-        action_dim=self._action_dim if not self._discrete else None,
-        discrete=self._discrete,
+        space=self._pipeline.space,
+        device=device,
         log_std_init=getattr(args, "ppo_log_std_init", math.log(0.5)),
         log_std_min=getattr(args, "ppo_log_std_min", -10.0),
         log_std_max=getattr(args, "ppo_log_std_max", 2.0),
-        device=device,
+        **model_kwargs,
     )
     model = self._apply_model_extras(args, model, device)
     return model

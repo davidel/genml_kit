@@ -7,6 +7,7 @@ import torch
 
 from genml_kit.methods import METHODS
 from genml_kit.methods.rl_ppo import PPOMethod
+from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 
@@ -41,8 +42,7 @@ def _make_pipeline_and_method(obs_dim=4):
   pipeline = RLPipeline()
   env = _ScriptedEnv(obs_dim=obs_dim, max_episode_length=6)
   pipeline.env = env
-  pipeline._obs_dim = obs_dim
-  pipeline._n_actions = env.action_space.n
+  pipeline.space = space_spec(env.observation_space, env.action_space)
   pipeline.replay_buffer = ReplayBufferDataset(
       obs_dim=obs_dim,
       capacity=50,
@@ -52,8 +52,6 @@ def _make_pipeline_and_method(obs_dim=4):
       obs_dim=obs_dim,
       rollout_len=16,
   )
-  # Discrete.
-  pipeline._action_dim = None
 
   method = METHODS.get("ppo")()
   args = _make_args()
@@ -182,9 +180,7 @@ class TestPPOMethod:
     pipeline = RLPipeline()
     env = _ScriptedEnv(obs_dim=4, max_episode_length=6, continuous=True)
     pipeline.env = env
-    pipeline._obs_dim = 4
-    pipeline._action_dim = 2
-    pipeline._n_actions = 2
+    pipeline.space = space_spec(env.observation_space, env.action_space)
     pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
 
     method = METHODS.get("ppo")()
@@ -202,12 +198,10 @@ class TestPPOMethod:
 
   def test_continuous_mode(self):
     pipeline = RLPipeline()
-    env = _ScriptedEnv(obs_dim=4, max_episode_length=6)
+    env = _ScriptedEnv(obs_dim=4, max_episode_length=6, continuous=True)
     pipeline.env = env
-    pipeline._obs_dim = 4
-    pipeline._n_actions = 2
+    pipeline.space = space_spec(env.observation_space, env.action_space)
     pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
-    pipeline._action_dim = 2
 
     from genml_kit.datasets.rollout_buffer import RolloutBuffer
     pipeline.rollout_buffer = RolloutBuffer(
@@ -237,8 +231,7 @@ class TestPPOMethod:
     pipeline = RLPipeline()
     env = _ScriptedEnv(obs_dim=4, max_episode_length=6, continuous=True)
     pipeline.env = env
-    pipeline._obs_dim = 4
-    pipeline._action_dim = 2
+    pipeline.space = space_spec(env.observation_space, env.action_space)
     pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
     from genml_kit.datasets.rollout_buffer import RolloutBuffer
     pipeline.rollout_buffer = RolloutBuffer(
@@ -303,8 +296,7 @@ class TestPPOMethod:
     pipeline = RLPipeline()
     env = _ScriptedEnv(obs_dim=4, max_episode_length=6, continuous=True)
     pipeline.env = env
-    pipeline._obs_dim = 4
-    pipeline._action_dim = 2
+    pipeline.space = space_spec(env.observation_space, env.action_space)
     pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
     from genml_kit.datasets.rollout_buffer import RolloutBuffer
     pipeline.rollout_buffer = RolloutBuffer(
