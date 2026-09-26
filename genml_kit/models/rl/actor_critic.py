@@ -7,6 +7,8 @@ Phase 2 of ``plans/RL_PLAN.md`` (§6.4).  Provides shared-backbone
 - **Continuous actions:** ``GaussianActor`` (mean + log-std).
 """
 
+import math
+
 import torch
 import torch.nn as nn
 
@@ -133,7 +135,7 @@ class GaussianActor(nn.Module):
                action_dim,
                log_std_min=-10.0,
                log_std_max=2.0,
-               log_std_init=-0.6931471805599453):  # log(0.5) ~ -0.6931 (sigma=0.5).
+               log_std_init=math.log(0.5)):  # noqa: B008
     super().__init__()
     self.mean = nn.Linear(hidden_dim, action_dim)
     # Shared (state-independent) log-std, one scalar per action dim.
@@ -264,7 +266,7 @@ class ActorCritic(nn.Module):
                discrete=True,
                log_std_min=-10.0,
                log_std_max=2.0,
-               log_std_init=-0.6931471805599453):
+               log_std_init=math.log(0.5)):  # noqa: B008
     super().__init__()
     self.discrete = discrete
     self.backbone = _MLPBackbone(obs_dim, hidden_dims)
@@ -420,15 +422,16 @@ class ActorCritic(nn.Module):
 
 
 @register_model("rl/actor_critic")
-def load_actor_critic(obs_dim=4,
-                      n_actions=None,
-                      action_dim=None,
-                      hidden_dims=None,
-                      discrete=True,
-                      log_std_min=-10.0,
-                      log_std_max=2.0,
-                      log_std_init=-0.6931471805599453,
-                      **_kwargs):
+def load_actor_critic(
+    obs_dim=4,
+    n_actions=None,
+    action_dim=None,
+    hidden_dims=None,
+    discrete=True,
+    log_std_min=-10.0,
+    log_std_max=2.0,
+    log_std_init=math.log(0.5),  # noqa: B008
+    **_kwargs):
   """Factory registered as ``rl/actor_critic``."""
   return ActorCritic(
       obs_dim=obs_dim,

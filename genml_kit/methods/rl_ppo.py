@@ -7,6 +7,8 @@ objective, and optional entropy bonus.
 All math references ``rl/README.md`` Parts 4 and 11.
 """
 
+import math
+
 import torch
 
 from genml_kit.losses.rl import (
@@ -123,7 +125,7 @@ class PPOMethod(Method):
     group.add_argument(
         "--ppo_log_std_init",
         type=float,
-        default=-0.6931471805599453,
+        default=math.log(0.5),
         help="Initial log_std of the continuous Gaussian policy "
         "(log(sigma); default log(0.5) so sigma starts at 0.5). SOTA "
         "implementations initialize at sigma=1.0 (log_std=0.0) and rely "
@@ -172,7 +174,7 @@ class PPOMethod(Method):
         n_actions=self.n_actions if self._discrete else None,
         action_dim=self._action_dim if not self._discrete else None,
         discrete=self._discrete,
-        log_std_init=getattr(args, "ppo_log_std_init", -0.6931471805599453),
+        log_std_init=getattr(args, "ppo_log_std_init", math.log(0.5)),
         log_std_min=getattr(args, "ppo_log_std_min", -10.0),
         log_std_max=getattr(args, "ppo_log_std_max", 2.0),
         device=device,
