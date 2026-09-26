@@ -17,12 +17,12 @@ from genml_kit.losses.rl import (
     value_loss,
 )
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import register_method
+from genml_kit.methods.registry import METHODS
 from genml_kit.models.registry import load_model
 from genml_kit.pipelines.contracts import LossOutput
 
 
-@register_method
+@METHODS.register
 class PPOMethod(Method):
   """Proximal Policy Optimization (on-policy)."""
 

@@ -22,7 +22,7 @@ from genml_kit.datasets.transforms import DictFieldTransform
 from genml_kit.datasets.weighted_sampler import build_weighted_sampler
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
-from genml_kit.pipelines.registry import register_pipeline
+from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.training.labels import (
     compute_class_weights,
     fmt_weights,
@@ -70,7 +70,7 @@ class _DictAdapter(Dataset):
     }
 
 
-@register_pipeline
+@PIPELINES.register
 class ImagesPipeline(DataPipeline):
   """Image data pipeline: single dataset (train) or ensemble (pretrain)."""
 

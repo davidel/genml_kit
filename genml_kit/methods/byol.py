@@ -6,7 +6,7 @@ import torch
 from torchvision.transforms import v2
 
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import register_method
+from genml_kit.methods.registry import METHODS
 from genml_kit.models import load_model
 from genml_kit.models.byol import BYOL
 from genml_kit.pipelines.contracts import LossOutput
@@ -14,7 +14,7 @@ from genml_kit.augmentations.dual_view import DualViewTransform
 from genml_kit.training.model_utils import set_train_mode
 
 
-@register_method
+@METHODS.register
 class BYOLMethod(Method):
   """Self-supervised contrastive pre-training via BYOL."""
 

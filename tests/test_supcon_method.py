@@ -4,7 +4,7 @@ import argparse
 
 import torch
 
-from genml_kit.methods import get_method, list_methods
+from genml_kit.methods import METHODS
 from genml_kit.models.contrastive import ContrastiveEncoder
 from genml_kit.pipelines.contracts import DataBlob, LossOutput
 
@@ -25,16 +25,16 @@ class _FakeBackbone(torch.nn.Module):
 class TestSupConMethod:
 
   def test_registered(self):
-    assert "supcon" in list_methods()
-    cls = get_method("supcon")
+    assert "supcon" in METHODS.list_names()
+    cls = METHODS.get("supcon")
     assert cls is not None
 
   def test_needs_labels(self):
-    assert get_method("supcon").NEEDS_LABELS is True
+    assert METHODS.get("supcon").NEEDS_LABELS is True
 
   def test_add_args(self):
     parser = argparse.ArgumentParser()
-    method = get_method("supcon")()
+    method = METHODS.get("supcon")()
     method.add_args(parser)
     args = parser.parse_args([])
     assert args.proj_dim == 256
@@ -43,7 +43,7 @@ class TestSupConMethod:
 
   def test_train_step(self):
     parser = argparse.ArgumentParser()
-    method = get_method("supcon")()
+    method = METHODS.get("supcon")()
     method.add_args(parser)
     args = parser.parse_args([])
     model = ContrastiveEncoder(_FakeBackbone(out_dim=64),
@@ -61,7 +61,7 @@ class TestSupConMethod:
 
   def test_train_step_backward(self):
     parser = argparse.ArgumentParser()
-    method = get_method("supcon")()
+    method = METHODS.get("supcon")()
     method.add_args(parser)
     args = parser.parse_args([])
     model = ContrastiveEncoder(_FakeBackbone(out_dim=64),
@@ -78,7 +78,7 @@ class TestSupConMethod:
     assert has_grad
 
   def test_train_step_requires_labels(self):
-    method = get_method("supcon")()
+    method = METHODS.get("supcon")()
     model = ContrastiveEncoder(_FakeBackbone(out_dim=64), proj_dim=16, proj_hidden=32)
     model.temperature = 0.07
     import pytest
@@ -86,7 +86,7 @@ class TestSupConMethod:
       method.train_step(model, DataBlob(data=torch.randn(2, 3, 64, 64), meta={}), 0)
 
   def test_log_validation_is_noop(self):
-    method = get_method("supcon")()
+    method = METHODS.get("supcon")()
 
     class _Writer:
 
@@ -105,7 +105,7 @@ class TestSupConMethod:
 
   def test_checkpoint_state(self):
     parser = argparse.ArgumentParser()
-    method = get_method("supcon")()
+    method = METHODS.get("supcon")()
     method.add_args(parser)
     args = parser.parse_args([])
     state = method.get_checkpoint_state(None, args)

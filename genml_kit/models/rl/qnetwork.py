@@ -20,7 +20,7 @@ import copy
 import torch
 import torch.nn as nn
 
-from genml_kit.models.registry import register_model
+from genml_kit.models.registry import MODELS
 
 
 class QHead(nn.Module):
@@ -156,7 +156,7 @@ class QNetwork(nn.Module):
     self.target.load_state_dict(self.online.state_dict())
 
 
-@register_model("rl/qnet")
+@MODELS.register("rl/qnet")
 def load_rl_qnet(obs_dim=4, n_actions=2, hidden_dims=None, num_labels=0, **_kwargs):
   """Factory registered as ``rl/qnet`` (standard Q-head).
 
@@ -168,7 +168,7 @@ def load_rl_qnet(obs_dim=4, n_actions=2, hidden_dims=None, num_labels=0, **_kwar
                   dueling=False)
 
 
-@register_model("rl/qnet_dueling")
+@MODELS.register("rl/qnet_dueling")
 def load_rl_qnet_dueling(obs_dim=4,
                          n_actions=2,
                          hidden_dims=None,

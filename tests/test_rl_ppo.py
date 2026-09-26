@@ -5,7 +5,7 @@ import argparse
 import pytest
 import torch
 
-from genml_kit.methods import get_method
+from genml_kit.methods import METHODS
 from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
@@ -55,7 +55,7 @@ def _make_pipeline_and_method(obs_dim=4):
   # Discrete.
   pipeline._action_dim = None
 
-  method = get_method("ppo")()
+  method = METHODS.get("ppo")()
   args = _make_args()
   method.wire_data(args, pipeline)
   model = method.build_model(args, device=torch.device("cpu"))
@@ -65,7 +65,7 @@ def _make_pipeline_and_method(obs_dim=4):
 class TestPPOMethod:
 
   def test_registered(self):
-    assert get_method("ppo") is PPOMethod
+    assert METHODS.get("ppo") is PPOMethod
 
   def test_name_and_metric(self):
     assert PPOMethod.NAME == "ppo"
@@ -125,7 +125,7 @@ class TestPPOMethod:
     assert state["method"] == "ppo"
     assert state["env_steps"] == 999
 
-    method2 = get_method("ppo")()
+    method2 = METHODS.get("ppo")()
     method2.wire_data(args, _make_pipeline_and_method()[0])
     method2.build_model(args, device=torch.device("cpu"))
     method2.load_checkpoint_state(model, state, args)
@@ -187,7 +187,7 @@ class TestPPOMethod:
     pipeline._n_actions = 2
     pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
 
-    method = get_method("ppo")()
+    method = METHODS.get("ppo")()
     args = _make_args(ppo_discrete=False,
                       ppo_log_std_init=0.0,
                       ppo_log_std_min=-5.0,
@@ -216,7 +216,7 @@ class TestPPOMethod:
         action_dim=2,
     )
 
-    method = get_method("ppo")()
+    method = METHODS.get("ppo")()
     args = _make_args(ppo_discrete=False)
     method.wire_data(args, pipeline)
     method._action_dim = 2
@@ -247,7 +247,7 @@ class TestPPOMethod:
         action_dim=2,
     )
 
-    method = get_method("ppo")()
+    method = METHODS.get("ppo")()
     args = _make_args(ppo_discrete=False)
     method.wire_data(args, pipeline)
     method._discrete = False
@@ -313,7 +313,7 @@ class TestPPOMethod:
         action_dim=2,
     )
 
-    method = get_method("ppo")()
+    method = METHODS.get("ppo")()
     args = _make_args(ppo_discrete=False)
     method.wire_data(args, pipeline)
     model = method.build_model(args, device=torch.device("cpu"))
@@ -343,7 +343,7 @@ class TestPPOMethod:
     pipeline.init_env(args)
     assert pipeline.rollout_buffer.rollout_len == 32
 
-    method = get_method("ppo")()
+    method = METHODS.get("ppo")()
     method.wire_data(args, pipeline)
     # The hack is gone: wire_data must not invent args.rollout_len.
     assert not hasattr(args, "rollout_len")

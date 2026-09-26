@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import register_method
+from genml_kit.methods.registry import METHODS
 from genml_kit.models import load_model
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.training.model_utils import set_train_mode
@@ -128,7 +128,7 @@ def _make_block_mask(num_h, num_w, block_size_h, block_size_w, n_blocks, device)
   return mask
 
 
-@register_method
+@METHODS.register
 class IJEPAMethod(Method):
   """I-JEPA: Image-based Joint-Embedding Predictive Architecture."""
 

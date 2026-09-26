@@ -12,7 +12,7 @@ import contextlib
 import torch
 
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import register_method
+from genml_kit.methods.registry import METHODS
 from genml_kit.models import load_model
 from genml_kit.models.dino import DINO
 from genml_kit.pipelines.contracts import LossOutput
@@ -21,7 +21,7 @@ from genml_kit.training.model_utils import set_train_mode
 from genml_kit.utils.attr import get_attribute, MISSING
 
 
-@register_method
+@METHODS.register
 class DINOMethod(Method):
   """Self-distillation pre-training via DINO with multi-crop.
 

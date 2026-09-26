@@ -13,7 +13,7 @@ import torch.nn as nn
 from genml_kit.io.checkpointing import load_checkpoint_weights
 from genml_kit.models.convvit.model import CustomPatchTransformer
 from genml_kit.models.convvit.processor import ConvViTProcessor
-from genml_kit.models.registry import ModelOutput, register_model, register_processor
+from genml_kit.models.registry import MODELS, ModelOutput, PROCESSORS
 
 
 class ConvViTAdapter(nn.Module):
@@ -61,7 +61,7 @@ class ConvViTAdapter(nn.Module):
     return features
 
 
-@register_model("convvit")
+@MODELS.register("convvit")
 def load_convvit(
     *,
     num_labels,
@@ -157,7 +157,7 @@ def load_convvit(
   return wrapped
 
 
-@register_processor("convvit")
+@PROCESSORS.register("convvit")
 def load_convvit_processor(*, image_size=224, **kwargs):
   """Return a ConvViTProcessor for the given *image_size*."""
   return ConvViTProcessor(image_size=image_size)

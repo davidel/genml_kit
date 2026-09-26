@@ -1,43 +1,98 @@
-"""Generic class-based registry.
+"""Generic, decorator-aware registry.
 
-Provides a reusable ``Registry`` that reads ``cls.NAME`` and offers
-``register`` / ``get`` / ``build`` / ``list_names`` helpers.  Used by
-``genml_kit.methods.registry`` and ``genml_kit.pipelines.registry`` to
-eliminate boilerplate.
+A small reusable ``Registry`` keyed by name that supports both class and
+function registration, with or without an explicit name:
+
+- ``@registry.register``             name from ``NAME`` attribute or ``__name__``
+- ``@registry.register("name")``     explicit name
+- ``@registry.register(name="n")``   explicit name as keyword
+- ``registry.register(obj, name="n")`` direct call
+
+Entries are looked up with ``get`` / ``build`` / ``contains`` and removed
+with ``unregister``.  Duplicate and unknown names raise ``ValueError`` with
+stable messages listing the registered names.
+
+This is the single registry abstraction used by the method, pipeline,
+model and classifier registries.
 """
-
-import logging
 
 from genml_kit.utils.logging import fatal
 
 
 class Registry:
-  """Name-keyed registry for classes that expose a ``NAME`` attribute.
+  """Name-keyed registry for classes and functions.
 
-  Usage::
-
-      _METHODS = Registry("method")
-      register_method = _METHODS.register
+  Args:
+      name: Human-readable kind name used in errors and log messages
+          (e.g. ``"method"``, ``"model"``, ``"classifier"``).
   """
 
   def __init__(self, name):
     self._name = name
     self._entries = {}
 
-  def register(self, cls):
-    """Class decorator that reads ``cls.NAME``."""
-    entry_name = cls.NAME
-    if entry_name in self._entries:
+  # -- registration ------------------------------------------------------
+
+  def register(self, obj=None, *, name=None):
+    """Register an object, usable as a decorator or direct call.
+
+    Supported forms::
+
+        @registry.register
+        class Foo: ...                        # name = Foo.NAME or "Foo"
+
+        @registry.register("foo")
+        class Foo: ...                        # name = "foo"
+
+        @registry.register(name="foo")
+        def make_foo(): ...                   # name = "foo"
+
+        registry.register(make_foo, name="foo")  # direct call
+
+    The registered object is returned unchanged so the decorator form
+    preserves the original class/function.
+    """
+    if obj is None:
+      # @registry.register or @registry.register(name=...):
+      # return a decorator.
+      def _decorator(o):
+        return self._register(o, name)
+
+      return _decorator
+    if isinstance(obj, str) and name is None:
+      # @registry.register("foo"): obj is the explicit name.
+      def _decorator(o):
+        return self._register(o, obj)
+
+      return _decorator
+    return self._register(obj, name)
+
+  def _register(self, obj, name):
+    key = name or getattr(obj, "NAME", None) or obj.__name__
+    if key in self._entries:
       fatal(
-          f"Duplicate {self._name} name '{entry_name}'",
-          RuntimeError,
+          f"Duplicate {self._name} name '{key}'",
+          ValueError,
       )
-    self._entries[entry_name] = cls
-    logging.debug("Registered %s '%s'", self._name, entry_name)
-    return cls
+    self._entries[key] = obj
+    return obj
+
+  def unregister(self, name):
+    """Remove *name* from the registry (no-op if absent)."""
+    self._entries.pop(name, None)
+
+  # -- lookup ------------------------------------------------------------
+
+  def contains(self, name):
+    """Return ``True`` if *name* is registered."""
+    return name in self._entries
 
   def get(self, name):
-    """Look up a registered class by *name*."""
+    """Return the registered object for *name*.
+
+    Raises:
+        ValueError: If *name* is not registered.
+    """
     if name not in self._entries:
       available = ", ".join(sorted(self._entries)) or "(none)"
       fatal(
@@ -47,9 +102,8 @@ class Registry:
     return self._entries[name]
 
   def build(self, name, **kwargs):
-    """Instantiate a registered class with *kwargs*."""
+    """Instantiate the registered class for *name* with *kwargs*."""
     cls = self.get(name)
-    logging.info("Built %s '%s'", self._name, name)
     return cls(**kwargs)
 
   def list_names(self):

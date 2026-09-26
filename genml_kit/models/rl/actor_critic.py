@@ -12,7 +12,7 @@ import math
 import torch
 import torch.nn as nn
 
-from genml_kit.models.registry import register_model
+from genml_kit.models.registry import MODELS
 
 
 class _MLPBackbone(nn.Module):
@@ -421,7 +421,7 @@ class ActorCritic(nn.Module):
     return action, raw_action, log_prob, entropy, value
 
 
-@register_model("rl/actor_critic")
+@MODELS.register("rl/actor_critic")
 def load_actor_critic(
     obs_dim=4,
     n_actions=None,

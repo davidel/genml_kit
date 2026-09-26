@@ -4,8 +4,8 @@ import argparse
 
 import pytest
 
-from genml_kit.methods import get_method, list_methods
-from genml_kit.pipelines import list_pipelines
+from genml_kit.methods import METHODS
+from genml_kit.pipelines import PIPELINES
 from genml_kit.methods.rl_dqn import DQNMethod
 from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.methods.rl_sac import SACMethod
@@ -16,23 +16,23 @@ class TestRLRegistration:
   """Verify RL components are registered and don't collide."""
 
   def test_dqn_registered(self):
-    assert "dqn" in list_methods()
-    assert get_method("dqn") is DQNMethod
+    assert "dqn" in METHODS.list_names()
+    assert METHODS.get("dqn") is DQNMethod
 
   def test_ppo_registered(self):
-    assert "ppo" in list_methods()
-    assert get_method("ppo") is PPOMethod
+    assert "ppo" in METHODS.list_names()
+    assert METHODS.get("ppo") is PPOMethod
 
   def test_sac_registered(self):
-    assert "sac" in list_methods()
-    assert get_method("sac") is SACMethod
+    assert "sac" in METHODS.list_names()
+    assert METHODS.get("sac") is SACMethod
 
   def test_rl_pipeline_registered(self):
-    assert "rl" in list_pipelines()
+    assert "rl" in PIPELINES.list_names()
 
   def test_no_name_collision(self):
-    methods = list_methods()
-    pipelines = list_pipelines()
+    methods = METHODS.list_names()
+    pipelines = PIPELINES.list_names()
     for name in ("dqn", "ppo", "sac"):
       assert methods.count(name) == 1
     assert pipelines.count("rl") == 1

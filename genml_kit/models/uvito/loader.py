@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.io.checkpointing import load_checkpoint_weights
-from genml_kit.models.registry import ModelOutput, register_model, register_processor
+from genml_kit.models.registry import MODELS, ModelOutput, PROCESSORS
 from genml_kit.models.uvito.model import UVito
 
 
@@ -46,7 +46,7 @@ class UVitoAdapter(nn.Module):
       return self.model.backbone_features(pixel_values)
 
 
-@register_model("uvito")
+@MODELS.register("uvito")
 def load_uvito(
     *,
     num_labels,
@@ -110,7 +110,7 @@ def load_uvito(
   return wrapped
 
 
-@register_processor("uvito")
+@PROCESSORS.register("uvito")
 def load_uvito_processor(*, image_size=224, **kwargs):
   """Return a UVitoProcessor for the given *image_size*."""
   from genml_kit.models.uvito.processor import UVitoProcessor

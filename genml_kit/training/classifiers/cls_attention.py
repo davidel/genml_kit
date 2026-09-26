@@ -3,12 +3,12 @@
 import torch.nn as nn
 
 from genml_kit.models.attention_pooling import CLSGuidedAttentionPooling
-from genml_kit.training.classifiers import register_classifier
+from genml_kit.training.classifiers import CLASSIFIERS
 from genml_kit.training.classifiers.base import BaseClassifier
 from genml_kit.utils.transformer import build_transformer_encoder
 
 
-@register_classifier("cls_attention")
+@CLASSIFIERS.register("cls_attention")
 class Classifier(BaseClassifier):
   """Attention-pooled backbone features followed by a linear head.
 

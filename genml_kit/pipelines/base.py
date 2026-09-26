@@ -6,7 +6,7 @@ import abc
 class DataPipeline(abc.ABC):  # noqa: B024
   """Data side of training: loader + blob contract + device transfer.
 
-    Registered via @register_pipeline, constructed via build_pipeline(name).
+    Registered via @PIPELINES.register, constructed via build_pipeline(name).
     Does NOT build models or compute losses (that is Method's job).  The
     concrete pipeline caches its loaders on first build so the loop and the
     trainer can reference ``self.pipeline.train_loader`` / ``val_loader``

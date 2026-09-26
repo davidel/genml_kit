@@ -4,11 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from genml_kit.training.classifiers import (
-    _CLASSIFIERS,
-    build_classifier,
-    register_classifier,
-)
+from genml_kit.training.classifiers import CLASSIFIERS, build_classifier
 
 
 class TestBuildClassifier:
@@ -61,8 +57,8 @@ class TestBuildClassifier:
     assert "'hidden': 128" in caplog.text
 
   def test_registered_classifiers(self):
-    assert "mlp" in _CLASSIFIERS
-    assert "cls_attention" in _CLASSIFIERS
+    assert "mlp" in CLASSIFIERS._entries
+    assert "cls_attention" in CLASSIFIERS._entries
 
 
 class TestClsAttention:
@@ -111,11 +107,11 @@ class TestClsAttention:
 
 
 class TestRegisterClassifier:
-  """Tests for the register_classifier decorator."""
+  """Tests for the CLASSIFIERS.register decorator."""
 
   def test_register_new(self):
 
-    @register_classifier("_test_dummy")
+    @CLASSIFIERS.register("_test_dummy")
     class _Dummy(nn.Module):
 
       def __init__(self, num_labels, hidden_size, **kw):
@@ -128,13 +124,13 @@ class TestRegisterClassifier:
       def extract_features(self, hidden_states):
         return hidden_states[:, 0]
 
-    assert "_test_dummy" in _CLASSIFIERS
+    assert "_test_dummy" in CLASSIFIERS._entries
     # Clean up
-    del _CLASSIFIERS["_test_dummy"]
+    CLASSIFIERS.unregister("_test_dummy")
 
   def test_register_duplicate_raises(self):
-    with pytest.raises(ValueError, match="already registered"):
+    with pytest.raises(ValueError, match="Duplicate classifier name"):
 
-      @register_classifier("mlp")
+      @CLASSIFIERS.register("mlp")
       class _Dummy(nn.Module):
         pass

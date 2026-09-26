@@ -17,13 +17,13 @@ blob contract is honoured without changing the model's signature.
 
 from genml_kit.datasets.vo_pairs import VOPairMeta
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import register_method
+from genml_kit.methods.registry import METHODS
 from genml_kit.models.registry import load_model
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.training.vo.train_vo import STAGES, vo_losses
 
 
-@register_method
+@METHODS.register
 class VOPairMethod(Method):
   """VO similarity objective (supervised or photometric self-supervised).
 

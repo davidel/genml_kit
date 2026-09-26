@@ -14,9 +14,9 @@ import datasets as _datasets
 
 from genml_kit.datasets.hf_proxy import HFDatasetProxy  # noqa: F401
 from genml_kit.io.checkpointing import open_resume_context, parse_state_flags
-from genml_kit.methods import build_method, get_method, list_methods
+from genml_kit.methods import METHODS, build_method
 from genml_kit.models import load_model, load_processor  # noqa: F401
-from genml_kit.pipelines import build_pipeline, get_pipeline, list_pipelines
+from genml_kit.pipelines import PIPELINES, build_pipeline
 from genml_kit.pipelines.images import (  # noqa: F401
     build_pretrain_dataset, build_pretrain_transform, compute_class_weights,
 )
@@ -159,15 +159,15 @@ def build_parser():
       "--pipeline",
       type=str,
       default="images",
-      choices=list_pipelines(),
-      help="Data pipeline (available: {}).".format(", ".join(list_pipelines())),
+      choices=PIPELINES.list_names(),
+      help="Data pipeline (available: {}).".format(", ".join(PIPELINES.list_names())),
   )
   parser.add_argument(
       "--method",
       type=str,
       default="classification",
-      choices=list_methods(),
-      help="Objective (available: {}).".format(", ".join(list_methods())),
+      choices=METHODS.list_names(),
+      help="Objective (available: {}).".format(", ".join(METHODS.list_names())),
   )
   parser.add_argument(
       "--model",
@@ -274,10 +274,10 @@ def register_all_owners(parser):
     ``add_args`` raises ``ArgumentError`` here -- an explicit signal to
     rename one of the flags.
     """
-  for name in list_pipelines():
-    get_pipeline(name).add_args(parser)
-  for name in list_methods():
-    get_method(name).add_args(parser)
+  for name in PIPELINES.list_names():
+    PIPELINES.get(name).add_args(parser)
+  for name in METHODS.list_names():
+    METHODS.get(name).add_args(parser)
 
 
 def parse_args(argv=None):

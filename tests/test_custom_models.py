@@ -9,10 +9,10 @@ import torch.nn as nn
 from PIL import Image
 
 from genml_kit.models import (
+    MODELS,
     ModelOutput,
     is_custom_model,
     load_model,
-    register_model,
 )
 from genml_kit.models.convvit.model import CustomPatchTransformer
 from genml_kit.models.convvit.processor import ConvViTProcessor
@@ -70,22 +70,21 @@ class TestRegistry:
     assert is_custom_model("convvit") is True
 
   def test_register_duplicate_raises(self):
-    with pytest.raises(ValueError, match="already registered"):
+    with pytest.raises(ValueError, match="Duplicate model name"):
 
-      @register_model("convvit")
+      @MODELS.register("convvit")
       def _dummy(**kwargs):
         pass
 
   def test_custom_register_and_lookup(self):
 
-    @register_model("_test_model_xyz")
+    @MODELS.register("_test_model_xyz")
     def _load(**kwargs):
       return "model", "processor"
 
     assert is_custom_model("_test_model_xyz") is True
     # cleanup
-    from genml_kit.models.registry import _MODEL_REGISTRY
-    del _MODEL_REGISTRY["_test_model_xyz"]
+    MODELS.unregister("_test_model_xyz")
 
 
 class TestModelOutput:

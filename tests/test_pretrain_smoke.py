@@ -15,7 +15,7 @@ import torch
 from PIL import Image
 
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import register_method
+from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.utils.logging import GlogFormatter
 
@@ -34,7 +34,7 @@ class TinyBackbone(torch.nn.Module):
     return self.fc(self.conv(x).flatten(1))
 
 
-@register_method
+@METHODS.register
 class TinyMethod(Method):
   """Reconstruction-free stub method exercising the generic harness."""
 

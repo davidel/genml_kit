@@ -6,11 +6,11 @@ from torch.utils.data import DataLoader
 from genml_kit.datasets.vo_pairs import VOPairDataset
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
-from genml_kit.pipelines.registry import register_pipeline
+from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.utils.seed import seed_worker
 
 
-@register_pipeline
+@PIPELINES.register
 class VOPairPipeline(DataPipeline):
   """Synthetic VO pair pipeline (no external data).
 

@@ -2,11 +2,11 @@
 
 import torch.nn as nn
 
-from genml_kit.training.classifiers import register_classifier
+from genml_kit.training.classifiers import CLASSIFIERS
 from genml_kit.training.classifiers.base import BaseClassifier
 
 
-@register_classifier("mlp")
+@CLASSIFIERS.register("mlp")
 class Classifier(BaseClassifier):
   """Two-layer MLP classification head.
 

@@ -13,12 +13,12 @@ The ``classifier`` kwarg is the inline head spec parsed by
 import logging
 
 from genml_kit.models.cls_model_wrapper.model import ClsModelWrapper
-from genml_kit.models.registry import register_model
+from genml_kit.models.registry import MODELS
 from genml_kit.training.classifiers import parse_classifier_spec
 from genml_kit.utils.logging import fatal
 
 
-@register_model("cls_model_wrapper")
+@MODELS.register("cls_model_wrapper")
 def load_cls_model_wrapper(*,
                            backbone,
                            num_labels,

@@ -15,13 +15,13 @@ import math
 import torch
 
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import register_method
+from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.models.rl.sac_model import SACModel
 from genml_kit.utils.attr import get_attribute, MISSING
 
 
-@register_method
+@METHODS.register
 class SACMethod(Method):
   """Soft Actor-Critic (off-policy, continuous actions).
 

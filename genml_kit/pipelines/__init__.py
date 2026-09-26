@@ -7,12 +7,7 @@ becomes a general "Method".  See plans/GENERIC_PIPELINE.md (v4.2).
 
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob, LossOutput
-from genml_kit.pipelines.registry import (
-    build_pipeline,
-    get_pipeline,
-    list_pipelines,
-    register_pipeline,
-)
+from genml_kit.pipelines.registry import PIPELINES, build_pipeline
 
 
 def _register_builtins():
@@ -22,11 +17,9 @@ def _register_builtins():
 _register_builtins()
 
 __all__ = [
+    "PIPELINES",
     "DataBlob",
     "LossOutput",
     "DataPipeline",
     "build_pipeline",
-    "get_pipeline",
-    "list_pipelines",
-    "register_pipeline",
 ]

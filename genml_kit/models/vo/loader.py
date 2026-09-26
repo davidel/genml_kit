@@ -9,14 +9,14 @@ import collections
 
 import torch
 
-from genml_kit.models.registry import register_model
+from genml_kit.models.registry import MODELS
 from genml_kit.models.vo.processor import VOProcessor
 from genml_kit.models.vo.vo_similar import VOSimilarityConfig, VOSimilarityNet
 
 VOModelBundle = collections.namedtuple("VOModelBundle", ["model", "processor"])
 
 
-@register_model("vo/npu-small")
+@MODELS.register("vo/npu-small")
 def load_vo_npu_small(*, image_size=256, in_ch=1, cost_range=6, **kwargs):
   return _load_vo(
       VOSimilarityConfig(profile="npu-small",
@@ -25,7 +25,7 @@ def load_vo_npu_small(*, image_size=256, in_ch=1, cost_range=6, **kwargs):
                          cost_scale=8), image_size)
 
 
-@register_model("vo/edge-mid")
+@MODELS.register("vo/edge-mid")
 def load_vo_edge_mid(*, image_size=256, in_ch=1, cost_range=6, **kwargs):
   return _load_vo(
       VOSimilarityConfig(profile="edge-mid",
@@ -34,7 +34,7 @@ def load_vo_edge_mid(*, image_size=256, in_ch=1, cost_range=6, **kwargs):
                          cost_scale=8), image_size)
 
 
-@register_model("vo/station")
+@MODELS.register("vo/station")
 def load_vo_station(*, image_size=256, in_ch=3, cost_range=6, **kwargs):
   return _load_vo(
       VOSimilarityConfig(profile="station",

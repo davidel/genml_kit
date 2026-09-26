@@ -9,7 +9,7 @@ column name.  The base ``Method.log_validation`` is a silent no-op.
 import torch
 import torch.nn as nn
 
-from genml_kit.methods import get_method
+from genml_kit.methods import METHODS
 from genml_kit.pipelines.contracts import DataBlob
 
 
@@ -66,7 +66,7 @@ def _blob_loader(num_batches=1, batch_size=2, size=16):
 
 def test_base_log_validation_is_noop():
   """Methods without vis support log nothing (silent no-op)."""
-  method = get_method("dino")()
+  method = METHODS.get("dino")()
   writer = _Writer()
   loader = _blob_loader()
 
@@ -79,7 +79,7 @@ def test_base_log_validation_is_noop():
 
 def test_simmim_logs_recon_pair():
   """SimMIM logs one original + one reconstructed image."""
-  method = get_method("simmim")()
+  method = METHODS.get("simmim")()
   writer = _Writer()
   loader = _blob_loader(batch_size=2, size=16)
 
@@ -102,7 +102,7 @@ def test_simmim_logs_recon_pair():
 
 def test_simmim_logs_first_view_of_multiview():
   """A multi-view blob logs the first view only."""
-  method = get_method("simmim")()
+  method = METHODS.get("simmim")()
   writer = _Writer()
 
   class _Loader:

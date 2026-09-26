@@ -5,7 +5,7 @@ import argparse
 import pytest
 import torch
 
-from genml_kit.methods import get_method
+from genml_kit.methods import METHODS
 from genml_kit.methods.rl_dqn import DQNMethod
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
@@ -47,7 +47,7 @@ def _make_pipeline_and_method(obs_dim=4, capacity=100):
       capacity=capacity,
   )
 
-  method = get_method("dqn")()
+  method = METHODS.get("dqn")()
   args = _make_args()
   method.wire_data(args, pipeline)
   model = method.build_model(args, device=torch.device("cpu"))
@@ -57,7 +57,7 @@ def _make_pipeline_and_method(obs_dim=4, capacity=100):
 class TestDQNMethod:
 
   def test_registered(self):
-    assert get_method("dqn") is DQNMethod
+    assert METHODS.get("dqn") is DQNMethod
 
   def test_name_and_metric(self):
     assert DQNMethod.NAME == "dqn"
@@ -133,7 +133,7 @@ class TestDQNMethod:
     assert state["env_steps"] == 1234
 
     # Load into a fresh method.
-    method2 = get_method("dqn")()
+    method2 = METHODS.get("dqn")()
     method2.wire_data(args, pipeline)
     method2.build_model(args, device=torch.device("cpu"))
     method2.load_checkpoint_state(model, state, args)

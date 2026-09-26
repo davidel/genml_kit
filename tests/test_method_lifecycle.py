@@ -17,8 +17,9 @@ import torch
 
 import pytest
 
-from genml_kit.methods import get_method
+from genml_kit.methods import METHODS
 from genml_kit.methods.base import Method
+from genml_kit.models import MODELS
 from genml_kit.models.contrastive import ContrastiveEncoder
 from genml_kit.pipelines.contracts import LossOutput
 
@@ -146,7 +147,7 @@ class TestApplyModelExtras:
     # End-to-end through a real self-supervised method's build_model:
     # SupCon wraps (backbone + projection head) and the extras must reach
     # the backbone through the wrapper.
-    method = get_method("supcon")()
+    method = METHODS.get("supcon")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([
@@ -170,8 +171,8 @@ class TestApplyModelExtras:
     args.param_rename = None
     args.freeze = ""
     args.grad_checkpoint = False
-    with patch.dict("genml_kit.models.registry._MODEL_REGISTRY",
-                    {"fc-tiny": lambda **kwargs: _LinearBackbone(out_features=8)}):
+    with patch.object(MODELS, "_entries",
+                      {"fc-tiny": lambda **kwargs: _LinearBackbone(out_features=8)}):
       model = method.build_model(args, torch.device("cpu"))
     # The wrapper itself is now the PeftModel base (extras wrap the whole
     # ContrastiveEncoder so the backbone Linear is adapted through it).
@@ -195,7 +196,7 @@ class TestClassificationLifecycle:
   """wire_data -> build_model -> post_train contract (B3 step 4)."""
 
   def _method(self):
-    return get_method("classification")()
+    return METHODS.get("classification")()
 
   def _pipeline(self, num_labels=3):
     pipeline = argparse.Namespace()

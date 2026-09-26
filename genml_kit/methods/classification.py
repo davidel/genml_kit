@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import register_method
+from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.losses.focal import CombinedFocalLoss
 from genml_kit.training.labels import mixup_data
@@ -14,7 +14,7 @@ from genml_kit.training.model_utils import model_mode
 from genml_kit.utils.logging import fatal
 
 
-@register_method
+@METHODS.register
 class ClassificationMethod(Method):
   """Supervised image classification (HuggingFace / timm models).
 

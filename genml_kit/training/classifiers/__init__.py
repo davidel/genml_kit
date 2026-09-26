@@ -1,4 +1,4 @@
-"""Classifier registry — built-in and user-supplied classifier heads.
+"""Classifier registry -- built-in and user-supplied classifier heads.
 
 Usage::
 
@@ -18,9 +18,10 @@ import logging
 
 from genml_kit.utils.cli import _split_list_items, parse_value
 from genml_kit.utils.logging import fatal
+from genml_kit.utils.registry import Registry
 from genml_kit.utils.script import load_extern
 
-_CLASSIFIERS = {}
+CLASSIFIERS = Registry("classifier")
 
 
 def parse_classifier_spec(spec):
@@ -64,18 +65,6 @@ def parse_classifier_spec(spec):
   return name, kwargs
 
 
-def register_classifier(name):
-  """Decorator that registers a classifier class under *name*."""
-
-  def wrapper(cls):
-    if name in _CLASSIFIERS:
-      fatal(f"Classifier {name!r} already registered", ValueError)
-    _CLASSIFIERS[name] = cls
-    return cls
-
-  return wrapper
-
-
 def build_classifier(spec, num_labels, hidden_size, **kwargs):
   """Instantiate a classifier head.
 
@@ -99,16 +88,16 @@ def build_classifier(spec, num_labels, hidden_size, **kwargs):
       A classifier with a ``forward(hidden_states)`` interface.
   """
   cls = None
-  if spec in _CLASSIFIERS:
-    cls = _CLASSIFIERS[spec]
+  if CLASSIFIERS.contains(spec):
+    cls = CLASSIFIERS.get(spec)
     logging.info("Using registered classifier %r (%s)", spec, cls.__name__)
   elif spec.endswith(".py"):
     cls = load_extern(spec, interface="classifier")
     logging.info("Loaded external classifier from %s (%s)", spec, cls.__name__)
   else:
-    available = sorted(_CLASSIFIERS.keys())
+    available = ", ".join(CLASSIFIERS.list_names())
     fatal(
-        f"Unknown classifier {spec!r}. Available: {', '.join(available)}. "
+        f"Unknown classifier {spec!r}. Available: {available}. "
         f"Or provide a path to a .py file.",
         ValueError,
     )
@@ -117,7 +106,7 @@ def build_classifier(spec, num_labels, hidden_size, **kwargs):
 
 
 def _register_builtins():
-  """Import built-in classifiers so their ``@register_classifier`` fires."""
+  """Import built-in classifiers so their ``@CLASSIFIERS.register`` fires."""
   from genml_kit.training.classifiers import cls_attention, mlp  # noqa: F401
 
 

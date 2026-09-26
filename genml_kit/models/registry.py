@@ -1,22 +1,30 @@
-"""Model registry — unified loading for HF and custom models.
+"""Model registry - unified loading for HF and custom models.
 
 The registry exposes two entry points:
 
-- ``load_model(name, ...)``  — returns a ``torch.nn.Module``
-- ``load_processor(name, ...)`` — returns a processor object that
+- ``load_model(name, ...)``  -- returns a ``torch.nn.Module``
+- ``load_processor(name, ...)`` -- returns a processor object that
   exposes ``image_mean`` and ``image_std`` attributes.
 
 Both functions transparently dispatch to the appropriate backend
 (custom or HuggingFace) based on *name*.
+
+Custom model/processor loaders register themselves via the
+``MODELS`` / ``PROCESSORS`` registry instances::
+
+    from genml_kit.models.registry import MODELS
+
+    @MODELS.register("uvito")
+    def load_uvito(backbone, cache_dir, **kwargs): ...
 """
 
 import logging
 from collections import namedtuple
 
-from genml_kit.utils.logging import fatal
+from genml_kit.utils.registry import Registry
 
-_MODEL_REGISTRY = {}
-_PROCESSOR_REGISTRY = {}
+MODELS = Registry("model")
+PROCESSORS = Registry("processor")
 
 ParsedModelName = namedtuple(
     "ParsedModelName",
@@ -42,11 +50,11 @@ def parse_model_name(name):
   ParsedModelName
       A namedtuple with fields:
 
-      - **model** – The registered custom model name, or the full
+      - **model** -- The registered custom model name, or the full
         *name* when there is no colon.
-      - **backbone** – The HuggingFace backbone identifier (the part
+      - **backbone** -- The HuggingFace backbone identifier (the part
         after the colon), or ``None``.
-      - **processor** – The HuggingFace model identifier used to
+      - **processor** -- The HuggingFace model identifier used to
         load the processor.  Equals *backbone* when a colon is
         present, otherwise equals *name*.
   """
@@ -74,54 +82,9 @@ class ModelOutput:
     self.logits = logits
 
 
-def register_model(name):
-  """Decorator to register a custom model loader under *name*.
-
-    Usage::
-
-        @register_model("convvit")
-        def load_convvit(num_labels, id2label, label2id, image_size,
-                         device, checkpoint_path, **kwargs):
-            ...
-            return model
-    """
-
-  def wrapper(fn):
-    if name in _MODEL_REGISTRY:
-      fatal(f"Model '{name}' is already registered.", ValueError)
-    _MODEL_REGISTRY[name] = fn
-    return fn
-
-  return wrapper
-
-
-def register_processor(name):
-  """Decorator to register a custom processor loader under *name*.
-
-    The loader must return an object with ``image_mean`` and ``image_std``
-
-    attributes (list of floats).
-
-    Usage::
-
-        @register_processor("convvit")
-        def load_convvit_processor(image_size, **kwargs):
-            ...
-            return processor
-    """
-
-  def wrapper(fn):
-    if name in _PROCESSOR_REGISTRY:
-      fatal(f"Processor '{name}' is already registered.", ValueError)
-    _PROCESSOR_REGISTRY[name] = fn
-    return fn
-
-  return wrapper
-
-
 def is_custom_model(model_name):
   """Return *True* if *model_name* maps to a registered custom model."""
-  return model_name in _MODEL_REGISTRY
+  return MODELS.contains(model_name)
 
 
 def load_model(
@@ -136,10 +99,10 @@ def load_model(
     cache_dir=None,
     **kwargs,
 ):
-  """Load a model by *model_name* — custom or HuggingFace.
+  """Load a model by *model_name* -- custom or HuggingFace.
 
     Custom models are dispatched to the function registered via
-    ``@register_model``.  HuggingFace models are loaded via
+    ``MODELS.register``.  HuggingFace models are loaded via
     ``AutoModelForImageClassification``; ``num_labels == 0`` follows the
     timm convention and loads the headless backbone via ``AutoModel``.
 
@@ -152,11 +115,11 @@ def load_model(
 
   parsed = parse_model_name(model_name)
 
-  if parsed.model in _MODEL_REGISTRY:
+  if MODELS.contains(parsed.model):
     logging.info("Loading custom model '%s' from registry.", parsed.model)
     if parsed.backbone is not None:
       kwargs["backbone"] = parsed.backbone
-    return _MODEL_REGISTRY[parsed.model](
+    return MODELS.get(parsed.model)(
         num_labels=num_labels,
         id2label=id2label,
         label2id=label2id,
@@ -193,10 +156,10 @@ def load_processor(
     cache_dir=None,
     **kwargs,
 ):
-  """Load an image processor by *model_name* — custom or HuggingFace.
+  """Load an image processor by *model_name* -- custom or HuggingFace.
 
     Custom processors are dispatched to the function registered via
-    ``@register_processor``.  HuggingFace processors are loaded via
+    ``PROCESSORS.register``.  HuggingFace processors are loaded via
     ``AutoImageProcessor``.
 
     Supports the ``"model_name:hf_name"`` colon syntax used by custom
@@ -221,9 +184,9 @@ def load_processor(
   if parsed.backbone is not None:
     kwargs["backbone"] = parsed.backbone
   for name in dict.fromkeys([parsed.model, parsed.processor]):
-    if name in _PROCESSOR_REGISTRY:
+    if PROCESSORS.contains(name):
       logging.info("Loading custom processor '%s' from registry.", name)
-      return _PROCESSOR_REGISTRY[name](
+      return PROCESSORS.get(name)(
           image_size=image_size,
           **kwargs,
       )

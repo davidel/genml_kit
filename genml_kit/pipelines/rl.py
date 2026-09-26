@@ -15,7 +15,7 @@ from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
-from genml_kit.pipelines.registry import register_pipeline
+from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.pipelines.rl_normalize import ReturnNormalizer, RunningMeanStd
 from genml_kit.utils.signal import InterruptedException
 
@@ -181,7 +181,7 @@ class _ScriptedEnv:
     return obs.numpy()
 
 
-@register_pipeline
+@PIPELINES.register
 class RLPipeline(DataPipeline):
   """RL data pipeline: environment + replay buffer + eval rollout."""
 

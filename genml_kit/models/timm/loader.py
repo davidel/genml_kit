@@ -13,15 +13,12 @@ backbone use ``--model cls_model_wrapper:timm:<name>``.
 import logging
 from types import SimpleNamespace
 
-from genml_kit.models.registry import (
-    register_model,
-    register_processor,
-)
+from genml_kit.models.registry import MODELS, PROCESSORS
 from genml_kit.models.timm.model import TimmForClassification
 from genml_kit.models.timm.processor import TimmProcessor
 
 
-@register_model("timm")
+@MODELS.register("timm")
 def load_timm_model(
     *,
     backbone,
@@ -88,7 +85,7 @@ def load_timm_model(
   return wrapped
 
 
-@register_processor("timm")
+@PROCESSORS.register("timm")
 def load_timm_processor(*, backbone, image_size=224, **kwargs):
   """Return a :class:`TimmProcessor` for the given *image_size*.
 

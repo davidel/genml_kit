@@ -4,7 +4,7 @@ import argparse
 
 import torch
 
-from genml_kit.methods import get_method
+from genml_kit.methods import METHODS
 from genml_kit.models.dino import DINO
 from genml_kit.pipelines.contracts import DataBlob, LossOutput
 from genml_kit.augmentations.multicrop import MultiCropTransform
@@ -128,15 +128,15 @@ class TestDINOModule:
 class TestDINOMethod:
 
   def test_registered(self):
-    cls = get_method("dino")
+    cls = METHODS.get("dino")
     assert cls.NAME == "dino"
 
   def test_needs_labels(self):
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
     assert method.NEEDS_LABELS is False
 
   def test_add_args(self):
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
@@ -145,7 +145,7 @@ class TestDINOMethod:
     assert args.dino_local_num == 8
 
   def test_train_step_returns_lossoutput(self):
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
@@ -178,7 +178,7 @@ class TestDINOMethod:
     from genml_kit.augmentations.multicrop import MultiCropTransform
     from genml_kit.pipelines.images import ImagesPipeline
 
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
@@ -210,7 +210,7 @@ class TestDINOMethod:
     assert "loss" in out.metrics
 
   def test_checkpoint_roundtrip(self):
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
@@ -221,12 +221,12 @@ class TestDINOMethod:
     state = method.get_checkpoint_state(model, args)
     assert state["method"] == "dino"
     assert "center" in state
-    method2 = get_method("dino")()
+    method2 = METHODS.get("dino")()
     method2.load_checkpoint_state(model, state, args)
     assert method2._dino_momentum == args.dino_momentum
 
   def test_log_validation_is_noop(self):
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
 
     class _Writer:
 
@@ -245,7 +245,7 @@ class TestDINOMethod:
     assert True
 
   def test_build_transform(self):
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
     method._dino_global_size = 64
     method._dino_local_size = 32
     method._dino_local_num = 4
@@ -260,7 +260,7 @@ class TestDINOMethod:
     old code always returned the END momentum (1.0) because _total_steps
     was never set, freezing the teacher.
     """
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
     model = DINO(_FakeBackbone(out_dim=128),
                  proj_dim=32,
                  proj_hidden=64,
@@ -274,7 +274,7 @@ class TestDINOMethod:
 
   def test_momentum_missing_budget_falls_back_to_start(self):
     """Without a budget the teacher still MOVES (never pins to 1.0)."""
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
     model = DINO(_FakeBackbone(out_dim=128),
                  proj_dim=32,
                  proj_hidden=64,
@@ -288,7 +288,7 @@ class TestDINOMethod:
 
   def test_teacher_diverges_from_init_within_few_ema_steps(self):
     """A moving teacher must differ from its init after several EMA steps."""
-    method = get_method("dino")()
+    method = METHODS.get("dino")()
     model = DINO(_FakeBackbone(out_dim=128),
                  proj_dim=32,
                  proj_hidden=64,

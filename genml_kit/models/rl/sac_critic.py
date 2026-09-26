@@ -10,7 +10,7 @@ import copy
 import torch
 import torch.nn as nn
 
-from genml_kit.models.registry import register_model
+from genml_kit.models.registry import MODELS
 
 
 class SACCritic(nn.Module):
@@ -72,7 +72,7 @@ class SACCritic(nn.Module):
         pt.data.mul_(1.0 - tau).add_(p.data, alpha=tau)
 
 
-@register_model("rl/sac_critic")
+@MODELS.register("rl/sac_critic")
 def load_rl_sac_critic(
     obs_dim=4,
     action_dim=2,

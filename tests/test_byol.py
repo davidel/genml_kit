@@ -5,7 +5,7 @@ import argparse
 import pytest
 import torch
 
-from genml_kit.methods import get_method
+from genml_kit.methods import METHODS
 from genml_kit.models.byol import BYOL, _PredictorMLP
 from genml_kit.pipelines.contracts import DataBlob, LossOutput
 from genml_kit.losses.byol import byol_loss
@@ -103,15 +103,15 @@ class TestBYOLModule:
 class TestBYOLMethod:
 
   def test_registered(self):
-    cls = get_method("byol")
+    cls = METHODS.get("byol")
     assert cls.NAME == "byol"
 
   def test_needs_labels(self):
-    method = get_method("byol")()
+    method = METHODS.get("byol")()
     assert method.NEEDS_LABELS is False
 
   def test_add_args(self):
-    method = get_method("byol")()
+    method = METHODS.get("byol")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
@@ -119,7 +119,7 @@ class TestBYOLMethod:
     assert args.byol_momentum == 0.996
 
   def test_train_step_returns_lossoutput(self):
-    method = get_method("byol")()
+    method = METHODS.get("byol")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
@@ -138,18 +138,18 @@ class TestBYOLMethod:
     assert "loss" in out.metrics
 
   def test_checkpoint_roundtrip(self):
-    method = get_method("byol")()
+    method = METHODS.get("byol")()
     parser = argparse.ArgumentParser()
     method.add_args(parser)
     args = parser.parse_args([])
     state = method.get_checkpoint_state(None, args)
     assert state["method"] == "byol"
-    method2 = get_method("byol")()
+    method2 = METHODS.get("byol")()
     method2.load_checkpoint_state(None, state, args)
     assert method2._byol_momentum == 0.996
 
   def test_log_validation_is_noop(self):
-    method = get_method("byol")()
+    method = METHODS.get("byol")()
 
     class _Writer:
 

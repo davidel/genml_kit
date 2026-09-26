@@ -3,7 +3,7 @@
 import torch
 
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import register_method
+from genml_kit.methods.registry import METHODS
 from genml_kit.models import load_model
 from genml_kit.models.convvit.masked_encoder import ConvViTMaskedImageEncoder
 from genml_kit.models.simmim import SimMIM, simmim_loss, unpatchify
@@ -59,7 +59,7 @@ def make_mask(images, patch_size, mask_ratio, patch_size_multiplier=1):
   return mask
 
 
-@register_method
+@METHODS.register
 class SimMIMMethod(Method):
   """SimMIM: simple masked image modeling."""
 

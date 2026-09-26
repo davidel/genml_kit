@@ -5,7 +5,7 @@ import argparse
 import pytest
 import torch
 
-from genml_kit.methods import get_method
+from genml_kit.methods import METHODS
 from genml_kit.methods.rl_sac import SACMethod
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
@@ -46,7 +46,7 @@ def _make_pipeline_and_method(obs_dim=4):
   )
   pipeline._action_dim = 2
 
-  method = get_method("sac")()
+  method = METHODS.get("sac")()
   args = _make_args()
   method.wire_data(args, pipeline)
   model = method.build_model(args, device=torch.device("cpu"))
@@ -56,7 +56,7 @@ def _make_pipeline_and_method(obs_dim=4):
 class TestSACMethod:
 
   def test_registered(self):
-    assert get_method("sac") is SACMethod
+    assert METHODS.get("sac") is SACMethod
 
   def test_name_and_metric(self):
     assert SACMethod.NAME == "sac"
@@ -123,7 +123,7 @@ class TestSACMethod:
     assert state["env_steps"] == 500
     assert "log_alpha" in state
 
-    method2 = get_method("sac")()
+    method2 = METHODS.get("sac")()
     method2.wire_data(args, _make_pipeline_and_method()[0])
     method2.build_model(args, device=torch.device("cpu"))
     method2.load_checkpoint_state(model, state, args)
@@ -143,7 +143,7 @@ class TestSACMethod:
     pipeline._action_dim = 2
     pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
 
-    method = get_method("sac")()
+    method = METHODS.get("sac")()
     args = _make_args(sac_auto_alpha=False, sac_alpha=0.5)
     method.wire_data(args, pipeline)
     method.build_model(args, device=torch.device("cpu"))
@@ -159,7 +159,7 @@ class TestSACMethod:
     pipeline.replay_buffer = ReplayBufferDataset(obs_dim=4, capacity=50)
     pipeline._action_dim = 2
 
-    method = get_method("sac")()
+    method = METHODS.get("sac")()
     args = _make_args()
     with pytest.raises(ValueError, match="continuous"):
       method.wire_data(args, pipeline)

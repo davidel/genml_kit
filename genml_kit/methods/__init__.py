@@ -6,12 +6,7 @@ pre-training methods all register here.
 """
 
 from genml_kit.methods.base import Method
-from genml_kit.methods.registry import (
-    build_method,
-    get_method,
-    list_methods,
-    register_method,
-)
+from genml_kit.methods.registry import METHODS, build_method
 
 
 def _register_builtins():
@@ -25,9 +20,7 @@ def _register_builtins():
 _register_builtins()
 
 __all__ = [
+    "METHODS",
     "Method",
     "build_method",
-    "get_method",
-    "list_methods",
-    "register_method",
 ]

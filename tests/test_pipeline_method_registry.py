@@ -20,15 +20,12 @@ import pytest
 import torch
 from torch.utils.data import DataLoader
 
-from genml_kit.methods import build_method, get_method, list_methods
-from genml_kit.methods.registry import register_method
+from genml_kit.methods import METHODS, build_method
 from genml_kit.pipelines import (
+    PIPELINES,
     DataBlob,
     LossOutput,
     build_pipeline,
-    get_pipeline,
-    list_pipelines,
-    register_pipeline,
 )
 from genml_kit.pipelines.contracts import (
     DataBlob as ContractsDataBlob,
@@ -42,13 +39,13 @@ from genml_kit.pipelines.vo_pair import VOPairPipeline
 class TestPipelineRegistry:
 
   def test_list_includes_builtins(self):
-    names = list_pipelines()
+    names = PIPELINES.list_names()
     assert names == sorted(names)
     assert "images" in names
     assert "vo_pair" in names
 
   def test_get_returns_class(self):
-    cls = get_pipeline("images")
+    cls = PIPELINES.get("images")
     assert cls is ImagesPipeline
     assert issubclass(cls, DataPipeline)
 
@@ -58,17 +55,17 @@ class TestPipelineRegistry:
 
   def test_unknown_raises(self):
     with pytest.raises(ValueError, match="Unknown pipeline"):
-      get_pipeline("nope")
+      PIPELINES.get("nope")
 
   def test_duplicate_registration_raises(self):
 
-    @register_pipeline
+    @PIPELINES.register
     class _Dup(DataPipeline):
       NAME = "dup_pipeline"
 
-    with pytest.raises(RuntimeError, match="Duplicate pipeline name"):
+    with pytest.raises(ValueError, match="Duplicate pipeline name"):
 
-      @register_pipeline
+      @PIPELINES.register
       class _Dup2(DataPipeline):
         NAME = "dup_pipeline"
 
@@ -76,21 +73,21 @@ class TestPipelineRegistry:
 class TestMethodRegistry:
 
   def test_list_includes_all_seven(self):
-    methods = list_methods()
+    methods = METHODS.list_names()
     assert methods == sorted(methods)
     for name in ("byol", "classification", "dino", "ijepa", "simmim", "supcon",
                  "vo_pair"):
       assert name in methods
 
   def test_get_and_build(self):
-    cls = get_method("simmim")
+    cls = METHODS.get("simmim")
     assert cls.NAME == "simmim"
     instance = build_method("simmim")
     assert instance.NAME == "simmim"
 
   def test_unknown_raises(self):
     with pytest.raises(ValueError, match="Unknown method"):
-      get_method("nope")
+      METHODS.get("nope")
 
 
 class TestCustomRegistration:
@@ -98,7 +95,7 @@ class TestCustomRegistration:
 
   def test_register_custom_pipeline(self):
 
-    @register_pipeline
+    @PIPELINES.register
     class _Custom(DataPipeline):
       NAME = "custom_pipe"
 
@@ -107,7 +104,7 @@ class TestCustomRegistration:
   def test_register_custom_method(self):
     from genml_kit.methods.base import Method
 
-    @register_method
+    @METHODS.register
     class _Custom(Method):
       NAME = "custom_method"
 
@@ -409,7 +406,7 @@ class TestMetricDirection:
     # For every registered method, the first real metric (either 0.0 or 1.0)
     # must beat the declared initial sentinel.  This guards against a method
     # overriding only one of the two and breaking the invariant.
-    for name in list_methods():
+    for name in METHODS.list_names():
       method = build_method(name)
       sentinel = method.initial_best_metric
       assert method.has_metric_improved(0.0, sentinel) is True
