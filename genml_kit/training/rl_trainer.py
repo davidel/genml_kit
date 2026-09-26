@@ -134,11 +134,8 @@ class RLTrainer(BaseTrainer):
       # Act.
       action = self.method.act(self.model, obs, deterministic=False)
       # For continuous, step_env expects the full action array; for discrete, a scalar.
-      if is_continuous:
-        # action is already a 1D numpy array from SAC.act()
-        action_for_env = action
-      else:
-        action_for_env = int(action) if hasattr(action, 'item') else int(action)
+      # action is already a 1D numpy array from SAC.act()
+      action_for_env = action if is_continuous else int(action)
       next_obs, reward, done, info = self.pipeline.step_env(action_for_env)
       terminated = _terminated_from(info, done)
       self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done),
@@ -150,8 +147,7 @@ class RLTrainer(BaseTrainer):
       # Learn.
       batch = self.pipeline.replay_buffer.sample(batch_size)
       # Anneal beta for PER
-      if hasattr(self.pipeline.replay_buffer, 'anneal_beta'):
-        self.pipeline.replay_buffer.anneal_beta(self.method._env_steps)
+      maybe_call(self.pipeline.replay_buffer, "anneal_beta", self.method._env_steps)
       batch = self.pipeline.to_device(batch, self.device)
 
       with torch.amp.autocast(
