@@ -341,9 +341,10 @@ def _extract_backbone_features_impl(model, pixel_values):
   # 2. HF hidden states
   try:
     out = model(pixel_values=pixel_values, output_hidden_states=True)
-    if hasattr(out, "hidden_states") and out.hidden_states:
+    hidden_states = getattr(out, "hidden_states", None)
+    if hidden_states:
       # (B, N, D) or (B, D, H, W)
-      last = out.hidden_states[-1]
+      last = hidden_states[-1]
       if last.ndim == 4:
         # Spatial average-pool.
         return last.mean(dim=(2, 3))

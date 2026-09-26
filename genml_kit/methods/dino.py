@@ -18,6 +18,7 @@ from genml_kit.models.dino import DINO
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.augmentations.multicrop import MultiCropTransform
 from genml_kit.training.model_utils import set_train_mode
+from genml_kit.utils.attr import get_attribute, MISSING
 
 
 @register_method
@@ -240,14 +241,15 @@ class DINOMethod(Method):
         "momentum": self._momentum_start(),
         "final_momentum": self._momentum_end(),
     }
-    if hasattr(model, "loss"):
-      state["center"] = model.loss.center.clone()
+    center = get_attribute(model, "loss.center")
+    if center is not MISSING:
+      state["center"] = center.clone()
     return state
 
   def load_checkpoint_state(self, model, state, args):
     self._dino_momentum = state.get("momentum", args.dino_momentum)
     self._dino_final_momentum = state.get("final_momentum", args.dino_final_momentum)
-    if "center" in state and hasattr(model, "loss"):
+    if "center" in state:
       model.loss.center.copy_(state["center"])
 
   def validate(self, model, images, num_samples):

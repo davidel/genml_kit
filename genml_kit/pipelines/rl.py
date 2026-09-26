@@ -369,12 +369,14 @@ class RLPipeline(DataPipeline):
     self.action_space = self.env.action_space
 
     # Handle discrete vs continuous action space
-    if hasattr(self.env.action_space, 'n'):
-      self._n_actions = int(self.env.action_space.n)
+    n = getattr(self.env.action_space, "n", None)
+    shape = getattr(self.env.action_space, "shape", None)
+    if n is not None:
+      self._n_actions = int(n)
       self._action_dim = None
-    elif hasattr(self.env.action_space, 'shape'):
+    elif shape is not None:
       self._n_actions = None
-      self._action_dim = int(self.env.action_space.shape[0])
+      self._action_dim = int(shape[0])
     else:
       # Fallback
       self._n_actions = 2

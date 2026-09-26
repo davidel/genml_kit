@@ -64,8 +64,9 @@ class ClsModelWrapper(nn.Module):
     """
     if isinstance(raw, torch.Tensor):
       return raw
-    if hasattr(raw, "last_hidden_state"):
-      return raw.last_hidden_state
+    hidden = getattr(raw, "last_hidden_state", None)
+    if hidden is not None:
+      return hidden
     if isinstance(raw, dict) and "last_hidden_state" in raw:
       return raw["last_hidden_state"]
     fatal(

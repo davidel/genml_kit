@@ -19,6 +19,7 @@ import time
 import torch
 
 from genml_kit.training.optim_factory import report_lr
+from genml_kit.utils.attr import maybe_call, MISSING
 from genml_kit.utils.gpu import gpu_stats_str
 
 # How a Metric is folded across an epoch.
@@ -259,10 +260,11 @@ class TrainReporting:
             torch.cuda.memory_allocated(self._device) / 1024**2,
             global_step,
         )
-        if hasattr(torch.cuda, "utilization"):
+        utilization = maybe_call(torch.cuda, "utilization", self._device)
+        if utilization is not MISSING:
           self._writer.add_scalar(
               "GPU/utilization_pct",
-              torch.cuda.utilization(self._device),
+              utilization,
               global_step,
           )
 
@@ -428,10 +430,11 @@ class ImageTrainReporting(TrainReporting):
             torch.cuda.memory_allocated(self._device) / 1024**2,
             global_step,
         )
-        if hasattr(torch.cuda, "utilization"):
+        utilization = maybe_call(torch.cuda, "utilization", self._device)
+        if utilization is not MISSING:
           self._writer.add_scalar(
               "GPU/utilization_pct",
-              torch.cuda.utilization(self._device),
+              utilization,
               global_step,
           )
 

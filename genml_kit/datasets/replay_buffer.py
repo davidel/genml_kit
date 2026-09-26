@@ -148,8 +148,8 @@ class ReplayBufferDataset(Dataset):
     # Handle both scalar and array actions
     if self._discrete:
       # Discrete action: ensure scalar
-      action = (np.asarray(action, dtype=self._action.dtype).item() if hasattr(
-          np.asarray(action), "item") else action)
+      arr = np.asarray(action, dtype=self._action.dtype)
+      action = arr.item() if hasattr(arr, "item") else action
     else:
       # Continuous action: ensure it's a 1D array of shape (action_dim,)
       action = np.asarray(action, dtype=self._action.dtype).flatten()

@@ -15,7 +15,7 @@ from genml_kit.training.train_reporting import (MetricKind, metric, TrainReporti
 from genml_kit.training.trainer import BaseTrainer
 from genml_kit.training.video_utils import write_video
 from genml_kit.utils.args import amp_dtype_from_args
-from genml_kit.utils.attr import get_attribute, MISSING
+from genml_kit.utils.attr import get_attribute, maybe_call, MISSING
 
 
 def _terminated_from(info, done):
@@ -66,16 +66,11 @@ class RLTrainer(BaseTrainer):
     Returns:
         ``(avg_loss, new_step)``
     """
-    if getattr(self.method, "IS_ON_POLICY", False):
-      # D3: Step PPO scheduler if present
+    if self.method.IS_ON_POLICY:
       if self.optimization.scheduler is not None:
         self.optimization.scheduler.step()
       return self._train_epoch_ppo(epoch, saver, step, monitor)
     return self._train_epoch_offpolicy(epoch, saver, step, monitor)
-
-  # ------------------------------------------------------------------
-  # Off-policy: DQN / SAC
-  # ------------------------------------------------------------------
 
   def _train_epoch_offpolicy(self, epoch, saver, step, monitor):
     """Off-policy: warmup fill + interleaved acting + learning."""
@@ -90,15 +85,11 @@ class RLTrainer(BaseTrainer):
     obs = self._warmup_obs
     if obs is None:
       obs = self.pipeline.reset_env()
-    # Determine if continuous action space: Discrete has .n, Box has .shape
-    action_space = getattr(self.pipeline.env, 'action_space', None)
-    is_continuous = action_space is not None and hasattr(
-        action_space, 'shape') and getattr(action_space, 'shape', ()) != ()
-    action_dim = getattr(action_space, 'shape', (1,))[0] if is_continuous else 1
+    action_shape = get_attribute(self.pipeline, "env.action_space.shape")
+    is_continuous = action_shape is not MISSING and action_shape != ()
     while len(self.pipeline.replay_buffer) < self.args.warmup_steps:
       if is_continuous:
-        # Sample random continuous action from [-1, 1]
-        action = np.random.uniform(-1, 1, size=action_dim).astype(np.float32)
+        action = np.random.uniform(-1, 1, size=action_shape[0]).astype(np.float32)
       else:
         action = int(torch.randint(0, self.method.n_actions, (1,)).item())
       next_obs, reward, done, info = self.pipeline.step_env(action)
@@ -106,8 +97,7 @@ class RLTrainer(BaseTrainer):
       self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done),
                                        terminated)
       obs = next_obs if not done else self.pipeline.reset_env()
-      if hasattr(self.method, 'step_epsilon'):
-        self.method.step_epsilon()
+      maybe_call(self.method, "step_epsilon")
     self._warmup_obs = obs
 
     # D4: SAC hard-target sync, exactly ONCE after the first warmup fill.
@@ -120,12 +110,10 @@ class RLTrainer(BaseTrainer):
     # guard: "SAC: Hard target update after warmup complete" logged once
     # per epoch, with the critic bootstrapping off its own drifting weights.
     if (not self._targets_synced and hasattr(self.method, '_get_alpha') and
-        hasattr(self.model, 'hard_update')):
-      self.model.hard_update()
+        maybe_call(self.model, "hard_update") is not MISSING):
       self._targets_synced = True
       logging.info("SAC: Hard target update after warmup complete")
 
-    # Phase 2: interleaved acting + learning.
     total_loss = 0.0
     batches = 0
 
@@ -139,9 +127,8 @@ class RLTrainer(BaseTrainer):
     )
 
     # Determine if continuous action space (needed for step_env)
-    action_space = getattr(self.pipeline.env, 'action_space', None)
-    is_continuous = action_space is not None and hasattr(
-        action_space, 'shape') and getattr(action_space, 'shape', ()) != ()
+    action_shape = get_attribute(self.pipeline, "env.action_space.shape")
+    is_continuous = action_shape is not MISSING and action_shape != ()
 
     for _step in range(self.args.steps_per_epoch):
       # Act.
@@ -156,8 +143,7 @@ class RLTrainer(BaseTrainer):
       terminated = _terminated_from(info, done)
       self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done),
                                        terminated)
-      if hasattr(self.method, 'step_epsilon'):
-        self.method.step_epsilon()
+      maybe_call(self.method, "step_epsilon")
 
       obs = next_obs if not done else self.pipeline.reset_env()
 
@@ -175,28 +161,25 @@ class RLTrainer(BaseTrainer):
       ):
         loss_out = self.method.train_step(self.model, batch, step)
 
-      # D2: NaN guard - check for NaN loss before backward
       if torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any():
         logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
         continue
 
-      # PER: Update priorities if supported
-      if hasattr(self.pipeline.replay_buffer, 'update_priorities') and \
-         hasattr(loss_out, 'td_errors') and loss_out.td_errors is not None:
+      update_priorities = get_attribute(self.pipeline.replay_buffer,
+                                        "update_priorities")
+      td_errors = get_attribute(loss_out, "td_errors")
+      if update_priorities is not MISSING and td_errors is not MISSING and \
+         td_errors is not None:
         indices = batch.get('indices')
         if indices is not None:
-          td_errors = loss_out.td_errors.detach().cpu().numpy()
-          new_priorities = np.abs(td_errors) + 1e-6
-          self.pipeline.replay_buffer.update_priorities(indices.numpy(), new_priorities)
+          new_priorities = np.abs(td_errors.detach().cpu().numpy()) + 1e-6
+          update_priorities(indices.numpy(), new_priorities)
 
       self._apply_grad(loss_out, scaler, amp_dtype)
 
-      # D2: Gradient norm logging
       if self.writer is not None and hasattr(self.method, 'apply_grad'):
-        # For SAC with custom apply_grad, gradients are already applied
         pass
       elif self.writer is not None and self.optimization.optimizer is not None:
-        # Log gradient norm
         total_norm = 0.0
         for p in self.model.parameters():
           if p.grad is not None:
@@ -218,10 +201,12 @@ class RLTrainer(BaseTrainer):
       # are monotonic counters, so they report their last value in the epoch
       # summary rather than a meaningless mean over the ramp.
       extra = {}
-      if hasattr(self.method, "_epsilon"):
-        extra["epsilon"] = metric("epsilon", self.method._epsilon)
-      if hasattr(self.method, "_get_alpha"):
-        extra["alpha"] = metric("alpha", self.method._get_alpha())
+      epsilon = get_attribute(self.method, "_epsilon")
+      if epsilon is not MISSING:
+        extra["epsilon"] = metric("epsilon", epsilon)
+      alpha = maybe_call(self.method, "_get_alpha")
+      if alpha is not MISSING:
+        extra["alpha"] = metric("alpha", alpha)
       extra["env_steps"] = metric("env_steps", self.method._env_steps, MetricKind.LAST,
                                   ".0f")
       extra["buffer_size"] = metric("buffer_size", len(self.pipeline.replay_buffer),
@@ -246,10 +231,6 @@ class RLTrainer(BaseTrainer):
     reporter.summary()
     return reporter.epoch_avg_loss(), step
 
-  # ------------------------------------------------------------------
-  # On-policy: PPO
-  # ------------------------------------------------------------------
-
   def _train_epoch_ppo(self, epoch, saver, step, monitor):
     """On-policy: collect rollout \u2192 compute GAE \u2192 SGD epochs."""
     scaler = getattr(self.optimization, "scaler", None)
@@ -262,7 +243,6 @@ class RLTrainer(BaseTrainer):
     rollout_len = rollout.rollout_len
     obs = getattr(self, "_ppo_obs", None)
 
-    # Phase 1: collect rollout.
     rollout.reset()
     obs = self.pipeline.reset_env() if obs is None else obs
     episode_count = 0
@@ -291,7 +271,6 @@ class RLTrainer(BaseTrainer):
       rollout.add(obs, action, log_prob, reward, value, float(done), raw_action,
                   terminated)
 
-      # Compute V(s_{t+1}) for GAE bootstrap at this step.
       with torch.no_grad():
         next_obs_t = torch.as_tensor(next_obs, dtype=torch.float32).unsqueeze(0)
         next_values[i] = self.model.get_value(next_obs_t).item()
@@ -319,7 +298,6 @@ class RLTrainer(BaseTrainer):
     # B5: track env steps collected in this rollout
     self.method._env_steps += rollout_len
 
-    # Phase 2: multiple SGD epochs over the rollout.
     total_loss = 0.0
     batches = 0
     mini_batch_size = self.method._mini_batch_size
@@ -359,16 +337,13 @@ class RLTrainer(BaseTrainer):
           if kl is not None and kl > target_kl:
             stop_epoch = True
 
-        # D2: NaN guard - check for NaN loss before backward
         if torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any():
           logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
           continue
 
         self._apply_grad(loss_out, scaler, amp_dtype)
 
-        # D2: Gradient norm logging
         if self.writer is not None and self.optimization.optimizer is not None:
-          # Log gradient norm
           total_norm = 0.0
           for p in self.model.parameters():
             if p.grad is not None:
@@ -431,11 +406,12 @@ class RLTrainer(BaseTrainer):
     methods without a custom ``apply_grad`` trained unclipped.  Clipping is
     applied here now, *before* the optimizer step.
     """
-    if hasattr(self.method, "apply_grad"):
-      self.method.apply_grad(loss, scaler, amp_dtype, self.optimization)
-    else:
+    if maybe_call(self.method, "apply_grad", loss, scaler, amp_dtype,
+                  self.optimization) is MISSING:
       # loss is a LossOutput namedtuple; extract the scalar loss tensor
-      loss_tensor = loss.loss if hasattr(loss, 'loss') else loss
+      loss_tensor = get_attribute(loss, "loss")
+      if loss_tensor is MISSING:
+        loss_tensor = loss
       self.optimization.optimizer.zero_grad(set_to_none=True)
       if scaler is not None:
         scaler.scale(loss_tensor).backward()

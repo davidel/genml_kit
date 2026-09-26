@@ -18,6 +18,7 @@ from genml_kit.methods.base import Method
 from genml_kit.methods.registry import register_method
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.models.rl.sac_model import SACModel
+from genml_kit.utils.attr import get_attribute, MISSING
 
 
 @register_method
@@ -125,11 +126,10 @@ class SACMethod(Method):
     # SAC is a continuous-action algorithm (Gaussian policy + twin
     # Q-critics over (obs, action) vectors).  Refuse discrete envs
     # loudly instead of silently building a bogus continuous policy.
-    action_space = getattr(pipeline, "action_space", None)
-    if action_space is None:
-      action_space = getattr(getattr(pipeline, "env", None), "action_space", None)
-    is_continuous = (action_space is not None and hasattr(action_space, "shape") and
-                     getattr(action_space, "shape", ()) != ())
+    action_shape = get_attribute(pipeline, "action_space.shape")
+    if action_shape is MISSING:
+      action_shape = get_attribute(pipeline, "env.action_space.shape")
+    is_continuous = action_shape is not MISSING and action_shape != ()
     if not is_continuous:
       from genml_kit.utils.logging import fatal
 
@@ -139,7 +139,7 @@ class SACMethod(Method):
           "PPO run.",
           ValueError,
       )
-    self._action_dim = int(action_space.shape[0])
+    self._action_dim = int(action_shape[0])
     self._env_steps = 0
 
   def build_model(self, args, device):

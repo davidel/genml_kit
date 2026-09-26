@@ -164,7 +164,7 @@ class BaseTrainer:
           batch_idx=step_in_epoch,
           batch_size=batch_size,
           loss_value=loss.item(),
-          logits=loss_out.logits if hasattr(loss_out, "logits") else None,
+          logits=getattr(loss_out, "logits", None),
           targets=targets,
           global_step=step,
           report_now=(step_in_epoch + 1 == total_batches),

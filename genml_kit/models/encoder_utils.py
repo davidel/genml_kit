@@ -76,7 +76,8 @@ def encode_with_backbone(encoder, images):
     # to a plain forward pass.
     pass
   raw = encoder(images)
-  if hasattr(raw, "logits"):
+  logits = getattr(raw, "logits", None)
+  if logits is not None:
     pooler = getattr(raw, "pooler_output", None)
     if pooler is not None:
       return pooler
@@ -84,5 +85,5 @@ def encode_with_backbone(encoder, images):
     if last_hidden is not None:
       return last_hidden.mean(dim=1)
     # Any .logits-only container (registry.ModelOutput).
-    return raw.logits
+    return logits
   return raw
