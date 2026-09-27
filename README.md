@@ -26,6 +26,7 @@ in [`vo/README.md`](vo/README.md).
 - [Inference Guide](#inference-guide)
 - [Tips & Pitfalls](#tips--pitfalls)
 - [Gradient Monitor](#gradient-monitor)
+- [Custom Losses](#custom-losses)
 - [Custom Models](#custom-models)
 - [References And Further Reading](#references-and-further-reading)
 - [Development](#development)
@@ -716,7 +717,8 @@ genml_kit generalizes this in three directions via `CombinedFocalLoss`:
 - **Soft targets.** With Mixup (below) $`q`$ is the blend
   $`\lambda\, y_i + (1-\lambda)\, y_j`$, and the sum keeps both classes'
   terms weighted by $`\lambda`$ and $`1-\lambda`$.
-- **Label smoothing** (`--label_smoothing`): the one-hot target is replaced by
+- **Label smoothing** (via `--loss_args '{"label_smoothing": ...}'`):
+  the one-hot target is replaced by
   $`q_c = 1 - \varepsilon + \varepsilon/C`$ for the true class and
   $`\varepsilon/C`$ for the others. The model is no longer asked to drive
   $`p_c \to 1`$ exactly, which reduces overconfidence and improves
@@ -933,7 +935,7 @@ $$
 \mathcal{L}_{\text{focal}} = -(1 - p_t)^{\gamma} \log(p_t)
 $$
 
-where $`\gamma`$ (`--focal_gamma`) down-weights easy examples: when
+where $`\gamma`$ (via `--loss_args '{"gamma": ...}'`) down-weights easy examples: when
 $`p_t \to 1`$ the factor $`(1-p_t)^{\gamma} \to 0`$, so already-confident,
 easy examples receive almost no weight and training focuses on hard ones.
 With $`\gamma = 0`$ the factor is 1 for every example and the loss is plain
@@ -982,8 +984,8 @@ automatically better.
 **Tips:**
 - Start with `--lr 3e-5` for full fine-tuning, `1e-3` for head-only training.
 - Use `--mixup_alpha 0.2` for small datasets — it helps prevent overfitting.
-- `--focal_gamma 2.0` down-weights easy examples, useful when classes are
-  imbalanced.
+- `--loss_args '{"gamma": 2.0}'` down-weights easy examples, useful when
+  classes are imbalanced.
 - `--class_multipliers "rare_class=3.0"` increases the loss weight for
   safety-critical or otherwise priority classes.
 
@@ -1040,8 +1042,8 @@ resume point.
 | `--batch_size` | `32` | Batch size. |
 | `--lr` | `3e-5` | Peak learning rate. |
 | `--weight_decay` | `0.01` | Weight decay. |
-| `--label_smoothing` | `0.0` | Label smoothing factor. |
-| `--focal_gamma` | `0.0` | Focal loss gamma (`0` = disabled). Down-weights easy examples. |
+| `--loss` | `None` | Loss spec: registered name (`focal`, `supcon`, or the RL bundles `ppo`/`sac`/`dqn`) or a path/URL to a `.py` script defining `build_loss(**kwargs)`. `None` (default) selects the method's built-in loss. |
+| `--loss_args` | `{}` | JSON kwargs forwarded to the loss builder. Example: `'{"gamma": 1.0, "label_smoothing": 0.1}'`. |
 | `--class_multipliers` | `""` | Per-class priority multipliers. Example: `"cat=3.0,dog=1.0"`. |
 | `--sampler` | `none` | Training sampler: `none` (shuffle), `weighted` (WeightedRandomSampler for class imbalance), or `balanced` (equal samples per class per batch; batch_size need not divide evenly). |
 | `--sampler_weights` | `frequency` | Weight mode for `--sampler weighted`: `frequency` (inverse-freq), `multipliers` (--class_multipliers), or `combined` (freq × multipliers). |
@@ -1468,6 +1470,54 @@ direction (`UP`/`DOWN`/`---`), percentage change, and min/max values.
 
 ---
 
+## Custom Losses
+
+Losses are resolved through the `LOSSES` registry
+(`genml_kit.losses.registry.load_loss`).  A loss spec is either a
+registered name (`focal`, `supcon`, or the RL bundles `ppo`, `sac`,
+`dqn`) or a path/URL to a `.py` script defining `build_loss(**kwargs)`:
+
+```python
+# my_loss.py
+import torch.nn as nn
+
+class MyLoss(nn.Module):
+  def __init__(self, alpha=1.0):
+    super().__init__()
+    self.alpha = alpha
+
+  def forward(self, logits, targets):
+    return self.alpha * nn.functional.cross_entropy(logits, targets)
+
+def build_loss(alpha=1.0, **kwargs):
+  """Protocol: return a callable (logits, targets) -> tensor."""
+  return MyLoss(alpha=alpha)
+```
+
+```bash
+genml-kit-train --model google/vit-base-patch16-224 \
+  --loss ./my_loss.py --loss_args '{"alpha": 2.0}' ...
+```
+
+**RL losses** work the same way but return a *bundle* (dict of
+callables); the script's entries are merged over the method's built-in
+bundle (the method passes its own name as the merge base: `ppo`, `sac`,
+or `dqn`), so a script may override just one loss and inherit the rest:
+
+```python
+# my_ppo_entropy.py
+def build_loss(**kwargs):
+  return {"entropy": lambda ent: ent.mean() * 2.0}  # override only entropy
+```
+
+```bash
+genml-kit-train --method ppo --loss ./my_ppo_entropy.py ...
+```
+
+The built-in bundles are merged over (`ppo`: `policy`/`value`/`entropy`;
+`sac`: `q`/`policy`/`alpha`; `dqn`: `td`).  The `--loss_args` JSON
+kwargs are forwarded to `build_loss(**kwargs)`.
+
 ## Custom Models
 
 genml_kit supports any HuggingFace `AutoModelForImageClassification` model,
@@ -1492,6 +1542,46 @@ any timm model via `timm:<name>`, and custom architectures registered in
 3. The model must expose `.forward(pixel_values=images)` → object with `.logits`,
    and `config.id2label` / `config.label2id`.
 4. CLI overrides via `--model_arg KEY=VALUE` are forwarded to the loader.
+
+### External Model Scripts
+
+Instead of registering a model inside the source tree, you can point
+`--model` at a `.py` file (or HTTP/HTTPS URL).  The script must define
+`create_model`:
+
+```python
+# my_model.py
+import torch.nn as nn
+
+class Tiny(nn.Module):
+  def __init__(self, num_labels, hidden=128):
+    super().__init__()
+    self.net = nn.Sequential(nn.Linear(784, hidden), nn.ReLU(),
+                             nn.Linear(hidden, num_labels))
+
+  def forward(self, pixel_values):
+    return pixel_values
+
+def create_model(num_labels, image_size=224, id2label=None, label2id=None,
+                 checkpoint_path=None, device="cpu", **kwargs):
+  """Protocol: return a torch.nn.Module."""
+  return Tiny(num_labels=num_labels, hidden=kwargs.get("hidden", 128))
+```
+
+```bash
+genml-kit-train --model ./my_model.py --loss focal ...
+```
+
+The script is **fully responsible for weight loading**: when
+`checkpoint_path` is provided (inference), call
+`genml_kit.io.checkpointing.load_checkpoint_weights(checkpoint_path, model, ...)`
+inside `create_model`, mirroring the ConvViT/UViTO loaders.  In training
+`checkpoint_path` is `None` (random init) and the global `--source_checkpoint`
+/ `--resume` paths apply uniformly after `create_model` returns.
+
+An optional `create_processor(image_size=224, **kwargs)` may be defined
+for the processor; it must return an object exposing `image_mean` /
+`image_std`.
 
 ### Custom Classifiers
 

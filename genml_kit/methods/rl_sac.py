@@ -15,6 +15,7 @@ import math
 
 import torch
 
+from genml_kit.losses import load_loss
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.models.registry import load_model
@@ -59,6 +60,17 @@ class SACMethod(Method):
   NAME = "sac"
   METRIC_KEY = "eval_return"
   NEEDS_LABELS = False
+
+  def _ensure_losses(self):
+    """Lazily initialise the loss bundle if ``build_model`` did not.
+
+    ``build_model`` normally populates ``self._losses`` from the shared
+    ``--loss`` / ``--loss_args``.  Some callers (unit-test doubles,
+    direct train_step users) never call it; fall back to the built-in
+    ``'sac'`` bundle so ``train_step`` always has a loss.
+    """
+    if not hasattr(self, "_losses") or self._losses is None:
+      self._losses = load_loss("sac", protocol="sac")
 
   @classmethod
   def get_trainer_class(cls):
@@ -149,6 +161,14 @@ class SACMethod(Method):
     self._auto_alpha = getattr(args, "sac_auto_alpha", True)
     # Global grad-norm clip for the three SAC optimizers (0 disables).
     self._grad_clip = getattr(args, "grad_clip", 0.0) or 0.0
+
+    # Loss bundle: the shared ``--loss`` may select a registered bundle
+    # ('sac') or an external script; partial script bundles are merged
+    # over the built-in bundle (see genml_kit.losses.registry.load_loss).
+    # ``None`` (default) selects the method's built-in ``'sac'`` bundle.
+    loss_spec = getattr(args, "loss", None) or "sac"
+    loss_kwargs = dict(getattr(args, "loss_args", None) or {})
+    self._losses = load_loss(loss_spec, protocol="sac", **loss_kwargs)
 
     # Temperature alpha.  The *learned* parameter is ``log_alpha`` (its
     # exponential is the temperature used everywhere else); optimising the
@@ -354,6 +374,7 @@ class SACMethod(Method):
         Returns individual losses for the three optimizers. The trainer's
         apply_grad hook will step each optimizer separately.
         """
+    self._ensure_losses()
     data = blob if isinstance(blob, dict) else blob.data
 
     obs = data["obs"]
@@ -379,14 +400,14 @@ class SACMethod(Method):
       soft_target = rewards + self._gamma * (1.0 - terminated) * (
           min_q_next - alpha_detached * next_log_prob)
 
-    # Twin Q losses.
+    # Twin Q losses -- from the loss bundle.
     action = data["action"]
     q1_pred = model.q1.get_value(obs, action)
     q2_pred = model.q2.get_value(obs, action)
-    from genml_kit.losses.rl import sac_q_loss
+    q_loss_fn = self._losses["q"]
 
-    q1_loss = sac_q_loss(q1_pred, soft_target)
-    q2_loss = sac_q_loss(q2_pred, soft_target)
+    q1_loss = q_loss_fn(q1_pred, soft_target)
+    q2_loss = q_loss_fn(q2_pred, soft_target)
     critic_loss = q1_loss + q2_loss
 
     # Freeze the critic *parameters* (not the graph!).  ``requires_grad_
@@ -412,9 +433,8 @@ class SACMethod(Method):
     q1_new = model.q1.get_value(obs, new_action)
     q2_new = model.q2.get_value(obs, new_action)
     min_q_new = torch.min(q1_new, q2_new)
-    from genml_kit.losses.rl import sac_policy_loss
 
-    actor_loss = sac_policy_loss(new_log_prob, min_q_new, alpha)
+    actor_loss = self._losses["policy"](new_log_prob, min_q_new, alpha)
 
     # Re-enable critic gradients.
     for p in model.q1.net.parameters():
@@ -424,8 +444,6 @@ class SACMethod(Method):
 
     alpha_loss = torch.tensor(0.0, device=obs.device)
     if self._auto_alpha:
-      from genml_kit.losses.rl import sac_alpha_loss
-
       # Pass ``log_alpha`` (the parameter the alpha optimiser actually
       # updates), NOT ``alpha = exp(log_alpha)`` (invariant 3 in the class
       # docstring).  With ``coef = log_alpha`` the gradient is simply the
@@ -434,8 +452,8 @@ class SACMethod(Method):
       # creating a spurious attractor that drives alpha -> 0.
       # Detach log_prob so no gradient flows back into the policy net here
       # (the temperature update must only affect ``log_alpha``).
-      alpha_loss = sac_alpha_loss(new_log_prob.detach(), self._target_entropy,
-                                  self._log_alpha)
+      alpha_loss = self._losses["alpha"](new_log_prob.detach(), self._target_entropy,
+                                         self._log_alpha)
 
     # B5: track env steps for logging (1 env step per train_step in off-policy).
     self._env_steps += 1

@@ -9,7 +9,8 @@ import random
 
 import torch
 
-from genml_kit.losses.rl import td_loss, td_target
+from genml_kit.losses import load_loss
+from genml_kit.losses.rl import td_target
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.models.registry import load_model
@@ -23,6 +24,17 @@ class DQNMethod(Method):
   NAME = "dqn"
   METRIC_KEY = "eval_return"
   NEEDS_LABELS = False
+
+  def _ensure_losses(self):
+    """Lazily initialise the loss bundle if ``build_model`` did not.
+
+    ``build_model`` normally populates ``self._losses`` from the shared
+    ``--loss`` / ``--loss_args``.  Some callers (unit-test doubles,
+    direct train_step users) never call it; fall back to the built-in
+    ``'dqn'`` bundle so ``train_step`` always has a loss.
+    """
+    if not hasattr(self, "_losses") or self._losses is None:
+      self._losses = load_loss("dqn", protocol="dqn")
 
   @classmethod
   def get_trainer_class(cls):
@@ -102,6 +114,14 @@ class DQNMethod(Method):
 
   def build_model(self, args, device):
     """Build the Q-network and initialise epsilon schedule."""
+    # Loss bundle: the shared ``--loss`` may select a registered bundle
+    # ('dqn') or an external script; partial script bundles are merged
+    # over the built-in bundle (see genml_kit.losses.registry.load_loss).
+    # ``None`` (default) selects the method's built-in ``'dqn'`` bundle.
+    loss_spec = getattr(args, "loss", None) or "dqn"
+    loss_kwargs = dict(getattr(args, "loss_args", None) or {})
+    self._losses = load_loss(loss_spec, protocol="dqn", **loss_kwargs)
+
     # Epsilon schedule state.
     self._eps_start = getattr(args, "dqn_epsilon_start", 1.0)
     self._eps_end = getattr(args, "dqn_epsilon_end", 0.02)
@@ -188,6 +208,7 @@ class DQNMethod(Method):
 
   def train_step(self, model, blob, global_step, *, labels=None):
     """Compute the TD loss (pure learning — no env interaction)."""
+    self._ensure_losses()
     data = blob if isinstance(blob, dict) else blob.data
 
     obs = data["obs"]
@@ -215,10 +236,10 @@ class DQNMethod(Method):
         terminated=terminated,
     )
 
-    # TD loss.
+    # TD loss -- from the loss bundle.
     # Compute per-sample TD errors for PER priority updates
     td_errors = q - target.detach()
-    loss = td_loss(q, target, reduction="mean")
+    loss = self._losses["td"](q, target, reduction="mean")
 
     metrics = {
         "td_loss": loss.detach(),

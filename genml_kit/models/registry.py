@@ -22,9 +22,17 @@ import logging
 from collections import namedtuple
 
 from genml_kit.utils.registry import Registry
+from genml_kit.utils.script import load_extern
 
 MODELS = Registry("model")
 PROCESSORS = Registry("processor")
+
+
+def _is_script_spec(name):
+  """Return *True* if *name* is a script path/URL rather than a model name."""
+  return bool(name) and (name.endswith(".py") or name.startswith(
+      ("http://", "https://")))
+
 
 ParsedModelName = namedtuple(
     "ParsedModelName",
@@ -99,16 +107,42 @@ def load_model(
     cache_dir=None,
     **kwargs,
 ):
-  """Load a model by *model_name* -- custom or HuggingFace.
+  """Load a model by *model_name* -- custom, script, or HuggingFace.
 
     Custom models are dispatched to the function registered via
     ``MODELS.register``.  HuggingFace models are loaded via
     ``AutoModelForImageClassification``; ``num_labels == 0`` follows the
     timm convention and loads the headless backbone via ``AutoModel``.
 
+    External scripts: if *model_name* is a ``.py`` path or HTTP(S) URL
+    the script must define ``create_model(num_labels, image_size,
+    id2label, label2id, checkpoint_path, device, **kwargs)`` returning
+    a ``torch.nn.Module``.  The script is fully responsible for weight
+    loading: when *checkpoint_path* is truthy (inference) it should
+    call ``genml_kit.io.checkpointing.load_checkpoint_weights`` inside
+    ``create_model``, mirroring the ConvViT/UViTO registered loaders.
+    In training *checkpoint_path* is ``None`` (random init) and the
+    global ``--source_checkpoint`` / ``--resume`` paths apply after
+    ``create_model`` returns.
+
     Returns:
         ``torch.nn.Module``
     """
+  # External script protocol (checked before parse_model_name: script
+  # specs are not registered names and may contain ':' on Windows).
+  if _is_script_spec(model_name):
+    create_model = load_extern(model_name, "create_model")
+    logging.info("Loading external model from %s", model_name)
+    return create_model(
+        num_labels=num_labels,
+        id2label=id2label,
+        label2id=label2id,
+        image_size=image_size,
+        checkpoint_path=checkpoint_path,
+        device=device,
+        **kwargs,
+    )
+
   # Keep this import local so importing the registry does not eagerly load
   # the Transformers dependency.
   from transformers import AutoModel, AutoModelForImageClassification
@@ -156,11 +190,17 @@ def load_processor(
     cache_dir=None,
     **kwargs,
 ):
-  """Load an image processor by *model_name* -- custom or HuggingFace.
+  """Load an image processor by *model_name* -- custom, script, or HuggingFace.
 
     Custom processors are dispatched to the function registered via
     ``PROCESSORS.register``.  HuggingFace processors are loaded via
     ``AutoImageProcessor``.
+
+    External scripts: if *model_name* is a ``.py`` path or HTTP(S) URL
+    the script may define ``create_processor(image_size, **kwargs)``
+    returning an object exposing ``image_mean`` / ``image_std``.  When
+    the script omits ``create_processor`` a ``ValueError`` is raised
+    (matching the ``load_extern`` contract).
 
     Supports the ``"model_name:hf_name"`` colon syntax used by custom
     models (e.g. ``"cls_model_wrapper:google/vit-base-patch16-224"``).
@@ -174,6 +214,12 @@ def load_processor(
     Returns:
         processor object with ``image_mean`` / ``image_std`` attributes.
     """
+  # External script protocol (checked before parse_model_name).
+  if _is_script_spec(model_name):
+    create_processor = load_extern(model_name, "create_processor")
+    logging.info("Loading external processor from %s", model_name)
+    return create_processor(image_size=image_size, **kwargs)
+
   # Local to avoid top-level import.
   from transformers import AutoImageProcessor
 

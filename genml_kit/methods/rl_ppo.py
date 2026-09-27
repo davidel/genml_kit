@@ -11,11 +11,7 @@ import math
 
 import torch
 
-from genml_kit.losses.rl import (
-    clipped_surrogate,
-    entropy_bonus,
-    value_loss,
-)
+from genml_kit.losses import load_loss
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.models.registry import load_model
@@ -30,6 +26,17 @@ class PPOMethod(Method):
   METRIC_KEY = "eval_return"
   NEEDS_LABELS = False
   IS_ON_POLICY = True
+
+  def _ensure_losses(self):
+    """Lazily initialise the loss bundle if ``build_model`` did not.
+
+    ``build_model`` normally populates ``self._losses`` from the shared
+    ``--loss`` / ``--loss_args``.  Some callers (unit-test doubles,
+    direct train_step users) never call it; fall back to the built-in
+    ``'ppo'`` bundle so ``train_step`` always has a loss.
+    """
+    if not hasattr(self, "_losses") or self._losses is None:
+      self._losses = load_loss("ppo", protocol="ppo")
 
   @classmethod
   def get_trainer_class(cls):
@@ -167,6 +174,14 @@ class PPOMethod(Method):
     self._target_kl = getattr(args, "ppo_target_kl", None)
     self._env_steps = 0
 
+    # Loss bundle: the shared ``--loss`` may select a registered bundle
+    # ('ppo') or an external script; partial script bundles are merged
+    # over the built-in bundle (see genml_kit.losses.registry.load_loss).
+    # ``None`` (default) selects the method's built-in ``'ppo'`` bundle.
+    loss_spec = getattr(args, "loss", None) or "ppo"
+    loss_kwargs = dict(getattr(args, "loss_args", None) or {})
+    self._losses = load_loss(loss_spec, protocol="ppo", **loss_kwargs)
+
     # Model: ``--model`` selects the registered factory (interface A).
     # The ``space`` spec (built from the env) decides obs/action sizes
     # and discreteness; ``--ppo_log_std_*`` stay method-level knobs read
@@ -257,6 +272,7 @@ class PPOMethod(Method):
     extra noise into the policy gradient.  This method therefore assumes
     ``data["advantage"]`` is already normalized.
     """
+    self._ensure_losses()
     data = blob if isinstance(blob, dict) else blob.data
 
     obs = data["obs"]
@@ -276,25 +292,29 @@ class PPOMethod(Method):
         action=eval_action,
     )
 
-    # Policy loss (clipped surrogate).
+    # Policy loss (clipped surrogate) -- from the loss bundle.
     ratio = (new_log_probs - old_log_probs).exp()
-    pg_loss = clipped_surrogate(ratio, advantages, self._clip_eps)
+    policy_loss = self._losses["policy"]
+    pg_loss = policy_loss(ratio, advantages, self._clip_eps)
 
-    # Value loss.
-    v_loss = value_loss(new_values,
-                        returns,
-                        old_values=None,
-                        clip_eps=self._vf_clip_eps)
+    # Value loss (clipped or plain MSE) -- from the loss bundle.
+    value_loss_fn = self._losses["value"]
+    v_loss = value_loss_fn(new_values,
+                           returns,
+                           old_values=None,
+                           clip_eps=self._vf_clip_eps)
 
     # Entropy bonus: ``entropy`` here is the *distribution entropy*
     # (B,) from ``get_action_and_value`` (for continuous policies it is
     # ``dist.entropy().sum(dim=-1)``; for discrete ``dist.entropy()``).
     # ``entropy_bonus`` returns the *positive* mean entropy ``H`` so that
     #   loss = pg + value_coef * v - entropy_coef * H
-    # maximises the policy entropy (standard PPO convention)::
+    # maximises the policy entropy (standard PPO convention):
     #   d(loss)/dH = -entropy_coef < 0.
     # Defensive fallback (entropy is None): estimate from sampled log-prob.
-    ent = entropy_bonus(new_log_probs) if entropy is None else entropy_bonus(entropy)
+    entropy_loss_fn = self._losses["entropy"]
+    ent = entropy_loss_fn(new_log_probs) if entropy is None else entropy_loss_fn(
+        entropy)
 
     # Combined loss (PPO objective + value + entropy bonus).
     loss = pg_loss + self._value_coef * v_loss - self._entropy_coef * ent

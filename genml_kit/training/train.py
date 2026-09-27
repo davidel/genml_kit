@@ -35,6 +35,7 @@ from genml_kit.training.trainer import (  # noqa: F401 (compat export)
 from genml_kit.utils.args import (
     add_checkpoint_args,
     add_logging_args,
+    add_loss_args,
     add_optimization_args,
     add_source_checkpoint_args,
     add_training_state_args,
@@ -292,6 +293,7 @@ def parse_args(argv=None):
                           state_save="opt,sched,amp",
                           state_load="opt,sched,amp")
   add_logging_args(parser)
+  add_loss_args(parser)
   add_source_checkpoint_args(parser)
 
   opt = parser.add_argument_group("optimizer")

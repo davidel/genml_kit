@@ -8,10 +8,29 @@ two CLIs cannot drift again.
 """
 
 import argparse
+import json
 
 import torch
 
 _AMP_DTYPES = {"float16": torch.float16, "bfloat16": torch.bfloat16}
+
+
+def json_dict_type(value):
+  """Argparse type converter: a JSON string that must parse to a dict.
+
+  Used for the ``--loss_args`` flag.  ``None``/empty maps to ``{}``; a
+  JSON non-dict (e.g. ``"[]"``) raises ``ArgumentTypeError`` so the CLI
+  fails fast instead of silently building a wrong loss.
+  """
+  if not value:
+    return {}
+  try:
+    data = json.loads(value)
+  except json.JSONDecodeError as e:
+    raise argparse.ArgumentTypeError(f"Invalid JSON: {e}") from e
+  if not isinstance(data, dict):
+    raise argparse.ArgumentTypeError("Expected a JSON object (dict).")
+  return data
 
 
 def amp_dtype_from_args(args):
@@ -150,6 +169,33 @@ def add_source_checkpoint_args(parser):
       "and REPLACE may use $1, $2, \u2026 for capture groups. "
       "Applied before shape-based alignment. "
       "Example: 'encoder\\\\\\\\.(.*);model\\\\\\\\.$1'.",
+  )
+
+
+def add_loss_args(parser):
+  """Add the shared ``--loss`` / ``--loss_args`` flags.
+
+  ``--loss`` is a generic/global concept: any method (classification,
+  PPO, SAC, DQN, ...) resolves it through the ``LOSSES`` registry.  The
+  default is ``None`` and each method selects its own built-in bundle
+  when unset (e.g. ``'focal'`` for classification, ``'ppo'`` for PPO).
+  ``--loss_args`` is a JSON dict forwarded to the loss builder.
+  """
+  parser.add_argument(
+      "--loss",
+      type=str,
+      default=None,
+      help="Loss spec: registered name or a path/URL to a .py script "
+      "defining build_loss(**kwargs).  None (default) selects the "
+      "method's built-in loss (e.g. 'focal' for classification, 'ppo' "
+      "for PPO).",
+  )
+  parser.add_argument(
+      "--loss_args",
+      type=json_dict_type,
+      default=None,
+      help="JSON kwargs forwarded to the loss builder, e.g. "
+      "'{\"gamma\": 1.0, \"label_smoothing\": 0.1}'.",
   )
 
 

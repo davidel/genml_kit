@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
-from genml_kit.losses.focal import CombinedFocalLoss
+from genml_kit.losses import load_loss
 from genml_kit.training.labels import mixup_data
 from genml_kit.training.model_utils import model_mode
 from genml_kit.utils.logging import fatal
@@ -41,14 +41,6 @@ class ClassificationMethod(Method):
                        type=float,
                        default=0.0,
                        help="Mixup interpolation strength (0 disables).")
-    group.add_argument("--focal_gamma",
-                       type=float,
-                       default=0.0,
-                       help="Focal loss gamma (0 disables focal modulation).")
-    group.add_argument("--label_smoothing",
-                       type=float,
-                       default=0.0,
-                       help="Label smoothing for the focal loss.")
     group.add_argument("--train_augmentation_script",
                        type=str,
                        default=None,
@@ -201,20 +193,21 @@ class ClassificationMethod(Method):
     self._mixup = float(alpha)
 
   def build_criterion(self, args, class_weights=None):
-    """Construct the classifier criterion from parsed args."""
-    if args.focal_gamma > 0 and args.label_smoothing > 0:
-      logging.warning(
-          "Both --focal_gamma (%.1f) and --label_smoothing (%.2f) are > 0. "
-          "Focal loss and label smoothing conflict. Proceeding anyway -- "
-          "monitor for instability.",
-          args.focal_gamma,
-          args.label_smoothing,
-      )
-    self._criterion = CombinedFocalLoss(
-        weights=class_weights,
-        gamma=args.focal_gamma,
-        label_smoothing=args.label_smoothing,
-    )
+    """Construct the classifier criterion from ``--loss`` / ``--loss_args``.
+
+    ``--loss`` may be a registered name (e.g. ``"focal"``) or a path/URL
+    to an external ``.py`` script defining ``build_loss(**kwargs)``; when
+    ``None`` the built-in ``"focal"`` is used.  ``--loss_args`` is a JSON
+    dict forwarded to the builder; the label space weight tensor
+    (``class_weights``) is always injected unless the spec already
+    carries a ``weights`` key.
+    """
+    kwargs = dict(getattr(args, "loss_args", None) or {})
+    if class_weights is not None:
+      kwargs.setdefault("weights", class_weights)
+    spec = getattr(args, "loss", None) or "focal"
+    self._criterion = load_loss(spec, **kwargs)
+    logging.info("Criterion: %s", self._criterion)
     return self._criterion
 
   def evaluate(self, model, loader, device, to_device):
