@@ -13,7 +13,6 @@ the ``nn.Module`` classes free of gymnasium imports.
 from collections import namedtuple
 
 # Fields
-# -------
 # obs_shape:   (4,) for a vector env; (3, 84, 84) for an image env.
 # obs_dim:     ``prod(obs_shape)`` -- the MLP input size.
 # n_actions:   int for a Discrete action space, None for continuous.

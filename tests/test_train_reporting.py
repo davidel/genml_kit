@@ -64,11 +64,6 @@ def _dummy_batch(batch_size=4, num_classes=3, num_correct=4):
   return logits, targets
 
 
-# ---------------------------------------------------------------------------
-# ImageTrainReporting tests (logits + targets)
-# ---------------------------------------------------------------------------
-
-
 def test_init_counters_are_zero():
   r = _make_reporter()
   assert r._total_loss == 0.0
@@ -322,11 +317,6 @@ def test_image_report_now_false_on_boundary_still_logs():
   assert r._window_samples == 4
   r.step(1, 4, 1.0, 1, logits=logits, targets=targets)
   assert r._window_samples == 0
-
-
-# ---------------------------------------------------------------------------
-# Base TrainReporting tests (no logits, no targets)
-# ---------------------------------------------------------------------------
 
 
 def test_base_init_counters_are_zero():

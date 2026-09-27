@@ -366,7 +366,6 @@ class SACMethod(Method):
 
     alpha = self._get_alpha()
 
-    # --- Critic update (twin soft Q-learning) ---
     with torch.no_grad():
       next_action, _, next_log_prob, _, _ = model.actor.get_action_and_value(next_obs)
       # Target networks are plain Sequential modules; call forward directly.
@@ -390,7 +389,6 @@ class SACMethod(Method):
     q2_loss = sac_q_loss(q2_pred, soft_target)
     critic_loss = q1_loss + q2_loss
 
-    # --- Actor update ---
     # Freeze the critic *parameters* (not the graph!).  ``requires_grad_
     # (False)`` on the weights stops actor-loss gradient from reaching the
     # critic optimiser's parameters, while leaving ``dQ/da`` intact below.
@@ -424,7 +422,6 @@ class SACMethod(Method):
     for p in model.q2.net.parameters():
       p.requires_grad_(True)
 
-    # --- Alpha update ---
     alpha_loss = torch.tensor(0.0, device=obs.device)
     if self._auto_alpha:
       from genml_kit.losses.rl import sac_alpha_loss

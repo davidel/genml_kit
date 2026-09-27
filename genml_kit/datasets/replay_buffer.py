@@ -113,10 +113,6 @@ class ReplayBufferDataset(Dataset):
     # D5: Independent RNG for reproducible sampling
     self._rng = np.random.default_rng(seed)
 
-  # ------------------------------------------------------------------
-  # Public API
-  # ------------------------------------------------------------------
-
   def push(self, obs, action, reward, next_obs, done, terminated=None):
     """Add a single transition to the buffer.
 
@@ -321,10 +317,6 @@ class ReplayBufferDataset(Dataset):
           "beta": self._beta,
       })
     return stats
-
-  # ------------------------------------------------------------------
-  # Dataset protocol
-  # ------------------------------------------------------------------
 
   def __len__(self):
     return self._size

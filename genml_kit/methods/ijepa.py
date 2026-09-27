@@ -280,7 +280,7 @@ class IJEPA(nn.Module):
     _B, _C, H, W = images.shape
     patch_size = self.student.patch_size
 
-    # -- Random crops (source and target views): each view stays (B, C, H, W).
+    # Random crops (source and target views): each view stays (B, C, H, W).
     source_size = int(min(H, W) * 0.5)
     target_size = int(min(H, W) * 0.85)
     source_size = max(source_size, patch_size * 2)
@@ -303,16 +303,16 @@ class IJEPA(nn.Module):
         target_crop[1]:target_crop[1] + target_crop[3],
     ]
 
-    # -- Source: full context through student.
+    # Source: full context through student.
     # Student encoder: (B, C, Hs, Ws) -> (B, N_s, D) patch features.
     z_s = self.student(source_view)
 
-    # -- Target: full view through teacher (no grad).
+    # Target: full view through teacher (no grad).
     # Teacher encoder: (B, C, Ht, Wt) -> (B, N_t, D) patch features.
     with torch.no_grad():
       z_t = self.teacher(target_view)
 
-    # -- Block mask on target space.
+    # Block mask on target space.
     # Target grid height.
     t_h = target_view.shape[2] // patch_size
     # Target grid width.
@@ -332,7 +332,7 @@ class IJEPA(nn.Module):
     # Flatten the masked positions: (N_t,) -> (M,).
     mask_indices = mask.nonzero(as_tuple=False).squeeze(1)
 
-    # -- Predict masked target embeddings from source context.
+    # Predict masked target embeddings from source context.
     # (B, N_s, D)
     context = z_s
     # Broadcast mask indices over the batch: (M,) -> (B, M).
@@ -340,7 +340,7 @@ class IJEPA(nn.Module):
     # Predictor: (B, N_s, D) context + (B, M) indices -> (B, M, D).
     z_pred = self.predictor(context, idx_expanded)
 
-    # -- Loss: L2 between prediction and teacher target.
+    # Loss: L2 between prediction and teacher target.
     # Gather teacher targets at the masked positions: (B, N_t, D) -> (B, M, D).
     z_t_masked = z_t[:, mask_indices, :]
     # Scalar MSE loss over (B, M, D), scaled by self.weight.

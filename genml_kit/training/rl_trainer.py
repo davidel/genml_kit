@@ -385,10 +385,6 @@ class RLTrainer(BaseTrainer):
     reporter.summary()
     return reporter.epoch_avg_loss(), step
 
-  # ------------------------------------------------------------------
-  # Shared helpers
-  # ------------------------------------------------------------------
-
   def _apply_grad(self, loss, scaler, amp_dtype):
     """Backward + optimizer step (shared by all RL flows).
 

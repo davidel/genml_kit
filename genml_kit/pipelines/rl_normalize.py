@@ -146,10 +146,6 @@ class ReturnNormalizer(torch.nn.Module):
     # via ``reset_per_episode()`` / ``update``.
     self.register_buffer("running_return", torch.zeros(()))
 
-  # ------------------------------------------------------------------
-  # Public API
-  # ------------------------------------------------------------------
-
   def reset_per_episode(self):
     """Reset the per-episode running-return accumulator to zero."""
 
@@ -186,10 +182,6 @@ class ReturnNormalizer(torch.nn.Module):
     reward = torch.as_tensor(reward, dtype=torch.float32)
     self.running_return = self.gamma * self.running_return + reward
     self.ret_rms.update(self.running_return.unsqueeze(0))
-
-  # ------------------------------------------------------------------
-  # Checkpointing
-  # ------------------------------------------------------------------
 
   def state_dict(self):  # noqa: D102 - overrides nn.Module
     return {

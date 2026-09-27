@@ -31,8 +31,6 @@ class Registry:
     self._name = name
     self._entries = {}
 
-  # -- registration ------------------------------------------------------
-
   def register(self, obj=None, *, name=None):
     """Register an object, usable as a decorator or direct call.
 
@@ -80,8 +78,6 @@ class Registry:
   def unregister(self, name):
     """Remove *name* from the registry (no-op if absent)."""
     self._entries.pop(name, None)
-
-  # -- lookup ------------------------------------------------------------
 
   def contains(self, name):
     """Return ``True`` if *name* is registered."""

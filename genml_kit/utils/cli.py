@@ -27,27 +27,22 @@ def parse_value(s):
        element recursively converted via ``parse_value``
     6. Everything else is returned as a ``str``.
     """
-  # Bool check
   if s.lower() in ("true", "false"):
     return s.lower() == "true"
 
-  # None check
   if s.lower() == "none":
     return None
 
-  # Int check
   try:
     return int(s)
   except ValueError:
     pass
 
-  # Float check
   try:
     return float(s)
   except ValueError:
     pass
 
-  # List check — explicit brackets or parens
   stripped = s.strip()
   if (stripped.startswith("[") and stripped.endswith("]")) or \
      (stripped.startswith("(") and stripped.endswith(")")):
@@ -57,7 +52,6 @@ def parse_value(s):
     items = [parse_value(item.strip()) for item in _split_list_items(inner)]
     return items
 
-  # Fallback: raw string
   return s
 
 

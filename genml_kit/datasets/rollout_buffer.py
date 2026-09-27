@@ -157,10 +157,6 @@ class RolloutBuffer(Dataset):
     adv = (adv - adv.mean()) / (adv.std() + eps)
     self._advantages.copy_(adv)
 
-  # ------------------------------------------------------------------
-  # Dataset protocol
-  # ------------------------------------------------------------------
-
   def __len__(self):
     return self._rollout_len if self._filled else self._ptr
 
