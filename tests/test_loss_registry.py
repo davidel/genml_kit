@@ -13,14 +13,6 @@ from genml_kit.methods.classification import ClassificationMethod
 from genml_kit.utils.args import json_dict_type
 
 
-def _write_script(body):
-  """Write *body* to a temp .py file; return its path."""
-  fd, path = tempfile.mkstemp(suffix=".py")
-  with os.fdopen(fd, "w") as f:
-    f.write(body)
-  return path
-
-
 class TestBuiltinLosses:
 
   def test_default_is_focal(self):
@@ -53,23 +45,29 @@ class TestBuiltinLosses:
 class TestScriptLoss:
 
   def test_script_loss(self):
-    path = _write_script("import torch.nn as nn\n"
-                         "class MyLoss(nn.Module):\n"
-                         "  def __init__(self, alpha):\n"
-                         "    super().__init__()\n"
-                         "    self.alpha = alpha\n"
-                         "  def forward(self, logits, targets):\n"
-                         "    return logits.mean()\n"
-                         "def build_loss(alpha=1.0, **kwargs):\n"
-                         "  return MyLoss(alpha=alpha)\n")
-    loss = load_loss(path, alpha=2.5)
-    assert isinstance(loss, torch.nn.Module)
-    assert loss.alpha == 2.5
+    with tempfile.TemporaryDirectory() as tmpdir:
+      path = os.path.join(tmpdir, "script.py")
+      with open(path, "w") as f:
+        f.write("import torch.nn as nn\n"
+                "class MyLoss(nn.Module):\n"
+                "  def __init__(self, alpha):\n"
+                "    super().__init__()\n"
+                "    self.alpha = alpha\n"
+                "  def forward(self, logits, targets):\n"
+                "    return logits.mean()\n"
+                "def build_loss(alpha=1.0, **kwargs):\n"
+                "  return MyLoss(alpha=alpha)\n")
+      loss = load_loss(path, alpha=2.5)
+      assert isinstance(loss, torch.nn.Module)
+      assert loss.alpha == 2.5
 
   def test_script_missing_build_loss(self):
-    path = _write_script("def not_build_loss():\n    pass\n")
-    with pytest.raises(ValueError):
-      load_loss(path)
+    with tempfile.TemporaryDirectory() as tmpdir:
+      path = os.path.join(tmpdir, "script.py")
+      with open(path, "w") as f:
+        f.write("def not_build_loss():\n    pass\n")
+      with pytest.raises(ValueError):
+        load_loss(path)
 
   def test_script_url_dispatch(self, monkeypatch):
     # A URL string triggers the script branch, not the registry lookup.
@@ -108,16 +106,19 @@ class TestArgsHelpers:
       json_dict_type("[1, 2]")
 
   def test_build_criterion_script(self):
-    path = _write_script("import torch.nn as nn\n"
-                         "class MyLoss(nn.Module):\n"
-                         "  def forward(self, logits, targets):\n"
-                         "    return logits.mean()\n"
-                         "def build_loss(**kwargs):\n"
-                         "  return MyLoss()\n")
-    args = argparse.Namespace(loss=path, loss_args=None)
-    method = ClassificationMethod()
-    criterion = method.build_criterion(args)
-    assert isinstance(criterion, torch.nn.Module)
+    with tempfile.TemporaryDirectory() as tmpdir:
+      path = os.path.join(tmpdir, "script.py")
+      with open(path, "w") as f:
+        f.write("import torch.nn as nn\n"
+                "class MyLoss(nn.Module):\n"
+                "  def forward(self, logits, targets):\n"
+                "    return logits.mean()\n"
+                "def build_loss(**kwargs):\n"
+                "  return MyLoss()\n")
+      args = argparse.Namespace(loss=path, loss_args=None)
+      method = ClassificationMethod()
+      criterion = method.build_criterion(args)
+      assert isinstance(criterion, torch.nn.Module)
 
   def test_build_criterion_default(self):
     args = argparse.Namespace(loss=None, loss_args=None)
