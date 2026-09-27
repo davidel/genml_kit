@@ -31,6 +31,7 @@ from genml_kit.datasets.rollout_buffer import RolloutBuffer
 from genml_kit.methods.rl_dqn import DQNMethod
 from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.methods.rl_sac import SACMethod
+from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.training.optim_factory import Optimization
 from genml_kit.training.rl_trainer import RLTrainer
@@ -56,6 +57,14 @@ class _ScriptedPipeline(RLPipeline):
     self._n_actions = None if continuous else 2
     self._action_dim = action_dim if continuous else None
     self.action_space = self.env.action_space
+    # Seed the space spec manually: this pipeline bypasses init_env()
+    # (it wires its own env/buffers to avoid gymnasium), so the
+    # single source of truth that RL methods read in wire_data /
+    # build_model is otherwise left as None.
+    self.space = space_spec(
+        self.env.observation_space,
+        self.env.action_space,
+    )
     if continuous:
       self.replay_buffer = ReplayBufferDataset(obs_dim=4,
                                                capacity=10_000,
