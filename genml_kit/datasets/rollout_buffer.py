@@ -9,6 +9,8 @@ for the PPO training epochs.
 import torch
 from torch.utils.data import Dataset
 
+from genml_kit.utils.logging import fatal
+
 
 class RolloutBuffer(Dataset):
   """Fixed-length on-policy rollout storage.
@@ -160,8 +162,8 @@ class RolloutBuffer(Dataset):
   def __len__(self):
     return self._rollout_len if self._filled else self._ptr
 
-  def __getitem__(self, idx):
-    """Return a single timestep as a dict (DataLoader-compatible)."""
+  def _build_item_dict(self, idx):
+    """Build an item/batch dict from buffer arrays at *idx*."""
     item = {
         "obs": self._obs[idx],
         "action": self._actions[idx],
@@ -173,6 +175,10 @@ class RolloutBuffer(Dataset):
     if self._raw_actions is not None:
       item["raw_action"] = self._raw_actions[idx]
     return item
+
+  def __getitem__(self, idx):
+    """Return a single timestep as a dict (DataLoader-compatible)."""
+    return self._build_item_dict(idx)
 
   def to(self, device):
     """Move all tensors to *device* (in-place)."""
@@ -224,20 +230,8 @@ class RolloutBuffer(Dataset):
     else:
       # D5: Use independent RNG for reproducible sampling
       idx = torch.randint(n, (batch_size,), generator=self._rng)
-    batch = {
-        "obs": self._obs[idx],
-        "action": self._actions[idx],
-        "log_prob": self._log_probs[idx],
-        "advantage": self._advantages[idx],
-        "return": self._returns[idx],
-        "value": self._values[idx],
-    }
-    if self._raw_actions is not None:
-      # Raw (pre-tanh) actions are only stored for continuous policies;
-      # without them the PPO ratio is computed against squashed actions
-      # while ``old_log_prob`` refers to raw actions (see docstring).
-      batch["raw_action"] = self._raw_actions[idx]
-    return batch
+      batch = self._build_item_dict(idx)
+      return batch
 
   # Alias for backward compatibility
   get_batch = sample
@@ -312,47 +306,41 @@ class RolloutBuffer(Dataset):
   def device(self):
     return self._device
 
+  # State dict field mapping: (state_key, attribute_name)
+  _STATE_FIELDS = [
+      ("obs", "_obs"),
+      ("actions", "_actions"),
+      ("raw_actions", "_raw_actions"),
+      ("log_probs", "_log_probs"),
+      ("rewards", "_rewards"),
+      ("values", "_values"),
+      ("dones", "_dones"),
+      ("terminated", "_terminated"),
+      ("advantages", "_advantages"),
+      ("returns", "_returns"),
+      ("next_values", "_next_values"),
+      ("ptr", "_ptr"),
+      ("filled", "_filled"),
+      ("obs_dim", "_obs_dim"),
+      ("action_dim", "_action_dim"),
+      ("rollout_len", "_rollout_len"),
+      ("device", "_device"),
+  ]
+
   def state_dict(self):
-    """Return state dict for checkpointing."""
-    return {
-        "obs": self._obs,
-        "actions": self._actions,
-        "raw_actions": self._raw_actions,
-        "log_probs": self._log_probs,
-        "rewards": self._rewards,
-        "values": self._values,
-        "dones": self._dones,
-        "terminated": self._terminated,
-        "advantages": self._advantages,
-        "returns": self._returns,
-        "next_values": self._next_values,
-        "ptr": self._ptr,
-        "filled": self._filled,
-        "obs_dim": self._obs_dim,
-        "action_dim": self._action_dim,
-        "rollout_len": self._rollout_len,
-        "device": self._device,
-        "rng_state": self._rng.get_state(),
-    }
+    """Return a serializable checkpoint dict."""
+    d = {k: getattr(self, attr) for k, attr in self._STATE_FIELDS}
+    d["rng_state"] = self._rng.get_state()
+    return d
 
   def load_state_dict(self, state):
     """Load state from checkpoint."""
-    self._obs = state["obs"]
-    self._actions = state["actions"]
+    for k, attr in self._STATE_FIELDS:
+      if k not in state:
+        fatal(f"Missing key '{k}' in state_dict", KeyError)
+      setattr(self, attr, state[k])
+    # Optional fields with defaults (backward compat)
     self._raw_actions = state.get("raw_actions", self._raw_actions)
-    self._log_probs = state["log_probs"]
-    self._rewards = state["rewards"]
-    self._values = state["values"]
-    self._dones = state["dones"]
     self._terminated = state.get("terminated", self._terminated)
-    self._advantages = state["advantages"]
-    self._returns = state["returns"]
-    self._next_values = state["next_values"]
-    self._ptr = state["ptr"]
-    self._filled = state["filled"]
-    self._obs_dim = state["obs_dim"]
-    self._action_dim = state["action_dim"]
-    self._rollout_len = state["rollout_len"]
-    self._device = state["device"]
     if "rng_state" in state:
       self._rng.set_state(state["rng_state"])

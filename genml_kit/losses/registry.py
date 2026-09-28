@@ -25,18 +25,12 @@ import logging
 
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.registry import Registry
-from genml_kit.utils.script import load_extern
+from genml_kit.utils.script import load_extern, is_script_spec
 
 LOSSES = Registry("loss")
 
 # Canonical built-in default (a registered name, not a sentinel).
 DEFAULT_LOSS = "focal"
-
-
-def _is_script_spec(spec):
-  """Return *True* if *spec* looks like a script path/URL rather than a name."""
-  return bool(spec) and (spec.endswith(".py") or spec.startswith(
-      ("http://", "https://")))
 
 
 def _load_loss_script(spec, **kwargs):
@@ -70,7 +64,7 @@ def load_loss(spec=DEFAULT_LOSS, *, protocol=None, **kwargs):
   """
   if spec is None:
     spec = DEFAULT_LOSS
-  if _is_script_spec(spec):
+  if is_script_spec(spec):
     built = _load_loss_script(spec, **kwargs)
     return _merge_loss_bundle(built, protocol, kwargs)
   if LOSSES.contains(spec):

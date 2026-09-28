@@ -1611,8 +1611,8 @@ The head is selected through `--model_arg`, not a dedicated flag:
 ```
 
 The `classifier` value is an inline spec: the head name (a registered
-built-in — `mlp`, `cls_attention` — or a path to a `.py` file defining a
-`Classifier` class), optionally followed by `:key=value,...` kwargs. Values
+built-in \u2014 `mlp`, `cls_attention` \u2014 or a path to a `.py` file defining a
+`create_classifier(num_labels, hidden_size, **kwargs)` function), optionally followed by `:key=value,...` kwargs. Values
 are parsed as int/float/bool, and bracketed lists such as
 `cls_slice=(0, 1)` work. A head is required: `cls_model_wrapper` fails fast
 with a clear message when `classifier` is missing. Models that embed their

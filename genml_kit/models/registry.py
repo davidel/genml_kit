@@ -22,17 +22,10 @@ import logging
 from collections import namedtuple
 
 from genml_kit.utils.registry import Registry
-from genml_kit.utils.script import load_extern
+from genml_kit.utils.script import load_extern, is_script_spec
 
 MODELS = Registry("model")
 PROCESSORS = Registry("processor")
-
-
-def _is_script_spec(name):
-  """Return *True* if *name* is a script path/URL rather than a model name."""
-  return bool(name) and (name.endswith(".py") or name.startswith(
-      ("http://", "https://")))
-
 
 ParsedModelName = namedtuple(
     "ParsedModelName",
@@ -130,7 +123,7 @@ def load_model(
     """
   # External script protocol (checked before parse_model_name: script
   # specs are not registered names and may contain ':' on Windows).
-  if _is_script_spec(model_name):
+  if is_script_spec(model_name):
     create_model = load_extern(model_name, "create_model")
     logging.info("Loading external model from %s", model_name)
     return create_model(
@@ -215,7 +208,7 @@ def load_processor(
         processor object with ``image_mean`` / ``image_std`` attributes.
     """
   # External script protocol (checked before parse_model_name).
-  if _is_script_spec(model_name):
+  if is_script_spec(model_name):
     create_processor = load_extern(model_name, "create_processor")
     logging.info("Loading external processor from %s", model_name)
     return create_processor(image_size=image_size, **kwargs)

@@ -9,7 +9,7 @@ Usage::
 A classifier spec can be:
 
 * A registered name (e.g. ``"mlp"``).
-* A path/URL to a ``.py`` file defining a ``Classifier`` class.
+* A path/URL to a ``.py`` file defining a ``create_classifier()`` function.
 * An inline spec ``"name:key=value,..."`` parsed by
   :func:`parse_classifier_spec`.
 """
@@ -19,7 +19,7 @@ import logging
 from genml_kit.utils.cli import _split_list_items, parse_value
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.registry import Registry
-from genml_kit.utils.script import load_extern
+from genml_kit.utils.script import load_extern, is_script_spec
 
 CLASSIFIERS = Registry("classifier")
 
@@ -87,13 +87,13 @@ def build_classifier(spec, num_labels, hidden_size, **kwargs):
   torch.nn.Module
       A classifier with a ``forward(hidden_states)`` interface.
   """
-  cls = None
+  cls_builder = None
   if CLASSIFIERS.contains(spec):
-    cls = CLASSIFIERS.get(spec)
-    logging.info("Using registered classifier %r (%s)", spec, cls.__name__)
-  elif spec.endswith(".py"):
-    cls = load_extern(spec, interface="classifier")
-    logging.info("Loaded external classifier from %s (%s)", spec, cls.__name__)
+    cls_builder = CLASSIFIERS.get(spec)
+    logging.info("Using registered classifier %r (%s)", spec, cls_builder.__name__)
+  elif is_script_spec(spec):
+    cls_builder = load_extern(spec, "create_classifier")
+    logging.info("Loaded external classifier from %s", spec)
   else:
     available = ", ".join(CLASSIFIERS.list_names())
     fatal(
@@ -102,7 +102,7 @@ def build_classifier(spec, num_labels, hidden_size, **kwargs):
         ValueError,
     )
   logging.info("Classifier kwargs: %s", kwargs)
-  return cls(num_labels=num_labels, hidden_size=hidden_size, **kwargs)
+  return cls_builder(num_labels=num_labels, hidden_size=hidden_size, **kwargs)
 
 
 def _register_builtins():

@@ -15,7 +15,7 @@ from genml_kit.io.checkpointing import restore_training_state
 from genml_kit.methods.base import Method
 from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.utils.logging import fatal
-from genml_kit.utils.script import extern_call
+from genml_kit.utils.script import extern_call, is_script_spec
 
 
 # Everything needed to drive the training loop: the param groups (as
@@ -361,7 +361,7 @@ def create_optimizer(params, *, name="AdamW", lr=1e-4, weight_decay=0.01, **kwar
   ``weight_decay`` keyword arguments are ignored because each group
   already carries its own values.
   """
-  if name is not None and name.endswith(".py"):
+  if name is not None and is_script_spec(name):
     return _load_optimizer_script(params,
                                   name,
                                   lr=lr,
@@ -465,7 +465,7 @@ def create_scheduler(optimizer, *, name=None, epochs=100, base_lr=1e-4, **kwargs
     logging.info("No scheduler requested.")
     return None
 
-  if name.endswith(".py"):
+  if is_script_spec(name):
     return _load_scheduler_script(optimizer,
                                   name,
                                   epochs=epochs,

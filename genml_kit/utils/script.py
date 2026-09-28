@@ -6,6 +6,16 @@ import urllib.request
 from genml_kit.utils.logging import fatal
 
 
+def is_script_spec(spec: str) -> bool:
+  """Return True if *spec* looks like a script path or URL.
+
+    A script spec is either:
+    - A local path ending in ``.py``
+    - An HTTP/HTTPS URL
+    """
+  return spec.endswith(".py") or spec.startswith(("http://", "https://"))
+
+
 def _load_script(path_or_url):
   """Fetch, compile and execute a Python script, returning its namespace.
 
