@@ -229,4 +229,3 @@ class TestExtrasInvoked:
     # would have non-zero bias with probability 1).
     assert model.online[0].net[0].bias.detach().abs().sum().item() == 0.0
     assert model.online[0].net[0].bias.detach().abs().max().item() == 0.0
-

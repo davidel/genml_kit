@@ -43,8 +43,8 @@ class TestReturnNormalizer:
 
   def test_discounted_return_accumulation(self):
     norm = ReturnNormalizer(gamma=0.9)
-    norm.update(1.0)      # running_return = 1.0
-    norm.update(1.0)      # running_return = 0.9*1.0 + 1.0 = 1.9
+    norm.update(1.0)  # running_return = 1.0
+    norm.update(1.0)  # running_return = 0.9*1.0 + 1.0 = 1.9
     assert _almost(float(norm.running_return), 1.9)
     # Stats updated with the running-return trajectory, not raw rewards.
     assert norm.ret_rms.count.item() >= 2
