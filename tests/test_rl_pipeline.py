@@ -211,6 +211,33 @@ class _FakeEnv:
     self.action_space = action_space
 
 
+class TestGymnasiumEnvWrapper:
+
+  def test_step_preserves_termination_flags(self, monkeypatch):
+
+    class FakeGymEnv:
+      observation_space = _FakeSpace(shape=(4,))
+      action_space = _FakeSpace(n=2)
+
+      def step(self, action):
+        return np.zeros(4), 1.0, False, True, {}
+
+    class FakeGym:
+
+      @staticmethod
+      def make(env_id, render_mode=None):
+        return FakeGymEnv()
+
+    monkeypatch.setitem(__import__("sys").modules, "gymnasium", FakeGym)
+    wrapper = rl.GymnasiumEnvWrapper("fake")
+
+    _, _, done, info = wrapper.step(0)
+
+    assert done is True
+    assert info["terminated"] is False
+    assert info["truncated"] is True
+
+
 def _fake_env_factory(obs_shape, action_space):
   """Return a callable matching GymnasiumEnvWrapper(env_id, render_mode=...)."""
 

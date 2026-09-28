@@ -6,10 +6,12 @@ Both scripts import these functions rather than maintaining separate copies.
 
 import io
 import logging
+import ntpath
 import os
 import re
 import tarfile
 import tempfile
+from pathlib import PurePosixPath
 
 import torch
 
@@ -86,6 +88,27 @@ def serialize_lora_state(model):
     return blob
 
 
+def _extract_lora_archive(tar, destination):
+  """Extract a LoRA archive safely by validating members manually.
+
+  Does not rely on ``tarfile``'s ``filter=`` argument (only available on
+  Python >= 3.12): we always iterate the members ourselves, which gives the
+  same safety guarantees on every supported Python version, and is also
+  compatible with code that wraps ``TarFile.extractall``.
+  """
+  members = tar.getmembers()
+  for member in members:
+    name = member.name
+    path = PurePosixPath(name)
+    if (path.is_absolute() or ".." in path.parts or "\\" in name or
+        ntpath.splitdrive(name)[0]):
+      raise ValueError(f"Unsafe path in LoRA archive: {name!r}")
+    if not (member.isdir() or member.isfile()):
+      raise ValueError(f"Unsupported LoRA archive member: {name!r}")
+
+  tar.extractall(destination, members)
+
+
 def deserialize_lora_state(model, blob):
   """Restore PEFT adapter state from a tar blob.
 
@@ -101,7 +124,7 @@ def deserialize_lora_state(model, blob):
   with tempfile.TemporaryDirectory() as tmpdir:
     buf = io.BytesIO(blob)
     with tarfile.open(fileobj=buf, mode="r") as tar:
-      tar.extractall(tmpdir, filter="data")
+      _extract_lora_archive(tar, tmpdir)
     # When the model is already a PeftModel (e.g. resume_checkpoint called
     # after apply_lora), PeftModel.from_pretrained would double-wrap it,
     # producing mangled keys like "base_model.model.base_model.model.*".

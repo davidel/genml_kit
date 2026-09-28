@@ -54,6 +54,9 @@ class GymnasiumEnvWrapper:
     """Execute *action* and return ``(obs, reward, done, info)``."""
     obs, reward, terminated, truncated, info = self.env.step(action)
     done = terminated or truncated
+    info = dict(info)
+    info["terminated"] = terminated
+    info["truncated"] = truncated
     return obs, reward, done, info
 
   def render_frame(self):

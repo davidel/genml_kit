@@ -1,12 +1,15 @@
 """Tests for LoRA / PEFT support."""
 
+import io
 import re
+import tarfile
 
 import pytest
 import torch
 import torch.nn as nn
 from peft import LoraConfig, PeftModel, get_peft_model
 
+import genml_kit.io.checkpointing as checkpointing
 from genml_kit.io.checkpointing import (
     checkpoint_dict,
     deserialize_lora_state,
@@ -59,6 +62,21 @@ class TestSerializeDeserialize:
         assert key in restored_sd, f"Missing adapter key after restore: {key}"
         assert torch.equal(orig_sd[key],
                            restored_sd[key]), (f"Adapter mismatch for {key}")
+
+  def test_deserialize_rejects_tar_path_traversal(self, tmp_path):
+    archive = io.BytesIO()
+    outside_name = f"{tmp_path.name}_outside.txt"
+    with tarfile.open(fileobj=archive, mode="w") as tar:
+      member = tarfile.TarInfo(f"../{outside_name}")
+      content = b"not safe"
+      member.size = len(content)
+      tar.addfile(member, io.BytesIO(content))
+
+    with (tarfile.open(fileobj=io.BytesIO(archive.getvalue()), mode="r") as
+          tar, pytest.raises(ValueError, match="Unsafe path")):
+      checkpointing._extract_lora_archive(tar, str(tmp_path))
+
+    assert not (tmp_path.parent / outside_name).exists()
 
   def test_serialize_non_peftmodel_raises(self):
     model = nn.Linear(10, 5)

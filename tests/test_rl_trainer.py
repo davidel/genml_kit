@@ -376,7 +376,17 @@ class TestRLTrainerEndToEnd:
         best_metric=float("-inf"),
         global_step=0,
     )
+    original_get_value = model.get_value
+    input_devices = []
+
+    def track_input_device(obs):
+      input_devices.append(obs.device)
+      return original_get_value(obs)
+
+    model.get_value = track_input_device
     result = trainer.run()
+    assert input_devices
+    assert all(device == torch.device("cpu") for device in input_devices)
     assert result.completed_epoch == 0
     ckpt_files = list(tmp_path.glob("ppo_ckpt*.pt"))
     assert len(ckpt_files) >= 1

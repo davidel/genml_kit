@@ -94,11 +94,11 @@ def td_loss(pred_q, target, reduction="mean"):
 def gae(rewards, values, next_values, dones, gamma, lam, terminated=None):
   """Compute Generalized Advantage Estimation (GAE).
 
-  Implements the backward recurrence from ``rl/README.md`` §10.3:
+  Implements the backward recurrence from ``rl/README.md`` §10.3, using
+  separate masks for bootstrapping and trace continuation:
 
-    A_t = δ_t + γ λ (1 − d_t) A_{t+1}
-
-  where δ_t = r_t + γ (1 − d_t) V(s_{t+1}) − V(s_t).
+    δ_t = r_t + γ (1 − terminated_t) V(s_{t+1}) − V(s_t)
+    A_t = δ_t + γ λ (1 − done_t) A_{t+1}
 
   All inputs are (T,) or (T, 1) tensors over a single rollout
   (T = rollout length).
@@ -106,15 +106,13 @@ def gae(rewards, values, next_values, dones, gamma, lam, terminated=None):
   Args:
     rewards:     (T,) immediate rewards.
     values:      (T,) value estimates V(s_t).
-    next_values: (T,) value estimates V(s_{t+1}) (bootstrapped from
-                 the critic at the next state; zero-padded at episode
-                 boundaries).
+    next_values: (T,) value estimates V(s_{t+1}) from the critic.
     dones:       (T,) float flags (0.0 / 1.0).
     gamma:       discount factor.
     lam:         GAE lambda (typically 0.95).
-    terminated:  optional (T,) float tensor — true MDP end flags.  When
-                 given, ``(1 − terminated)`` is used as the bootstrap mask
-                 instead of ``(1 − dones)``.
+    terminated:  optional (T,) float tensor — true MDP end flags. When
+                 given, ``(1 − terminated)`` is used for bootstrapping while
+                 ``(1 − dones)`` always stops the trace at episode boundaries.
 
   Returns:
     advantages: (T,) GAE advantage estimates.
@@ -131,14 +129,17 @@ def gae(rewards, values, next_values, dones, gamma, lam, terminated=None):
   advantages = torch.zeros_like(rewards)
   last_gae = 0.0
 
-  # Bootstrap mask: use the true-termination flag when available, so a
-  # *truncated* step (dones=1 but terminated=0) still bootstraps.
-  mask = 1.0 - dones if terminated is None else 1.0 - terminated
+  # Use the true-termination flag for bootstrapping when available, so a
+  # truncated step still bootstraps its final observation. The GAE trace
+  # must stop at the episode boundary to avoid crossing into the next
+  # episode in the rollout. Legacy callers without ``terminated`` use done
+  # for both masks, preserving their historical behavior.
+  bootstrap_mask = 1.0 - dones if terminated is None else 1.0 - terminated
+  trace_mask = 1.0 - dones
 
   for t in reversed(range(T)):
-    non_terminal = mask[t]
-    delta = rewards[t] + gamma * next_values[t] * non_terminal - values[t]
-    last_gae = delta + gamma * lam * non_terminal * last_gae
+    delta = (rewards[t] + gamma * next_values[t] * bootstrap_mask[t] - values[t])
+    last_gae = delta + gamma * lam * trace_mask[t] * last_gae
     advantages[t] = last_gae
 
   returns = advantages + values

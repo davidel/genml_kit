@@ -268,7 +268,8 @@ class RLTrainer(BaseTrainer):
                   terminated)
 
       with torch.no_grad():
-        next_obs_t = torch.as_tensor(next_obs, dtype=torch.float32).unsqueeze(0)
+        next_obs_t = torch.as_tensor(next_obs, dtype=torch.float32,
+                                     device=self.device).unsqueeze(0)
         next_values[i] = self.model.get_value(next_obs_t).item()
 
       total_reward += reward

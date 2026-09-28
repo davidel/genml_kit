@@ -58,29 +58,25 @@ class TestGAE:
     assert adv.shape == (T,)
     assert ret.shape == (T,)
 
-  def test_terminated_truncated_bootstrap(self):
-    """Truncation (done=1, terminated=0) keeps the bootstrap in GAE."""
-    T = 2
-    rewards = torch.zeros(T)
-    values = torch.zeros(T)
-    # V(s') = 1.
-    # Done=1 everywhere: the old code would mask out the bootstrap.
-    next_values = torch.ones(T)
-    dones = torch.ones(T)
-    # terminated=0 everywhere: both steps are truncations, not MDP ends.
-    terminated = torch.zeros(T)
+  def test_truncated_step_bootstraps_without_crossing_episode(self):
+    """Truncation bootstraps V(s') but stops the following episode's trace."""
+    rewards = torch.zeros(2)
+    values = torch.zeros(2)
+    next_values = torch.tensor([1.0, 10.0])
+    dones = torch.tensor([1.0, 0.0])
+    terminated = torch.zeros(2)
 
-    adv, ret = gae(rewards,
-                   values,
-                   next_values,
-                   dones,
-                   gamma=0.9,
-                   lam=0.95,
-                   terminated=terminated)
-    # delta[t] = 0 + 0.9 * 1.0 * 1 - 0 = 0.9.
-    # adv[1] = delta[1] = 0.9; adv[0] = delta[0] + 0.9*0.95*0.9 = 0.9 + 0.7695.
-    assert adv[1] == pytest.approx(0.9, abs=1e-4)
-    assert adv[0] == pytest.approx(0.9 + 0.9 * 0.95 * 0.9, abs=1e-4)
+    adv, _ = gae(rewards,
+                 values,
+                 next_values,
+                 dones,
+                 gamma=0.9,
+                 lam=0.95,
+                 terminated=terminated)
+
+    # Step 0 bootstraps its final observation (0.9) but does not include
+    # step 1's advantage from the reset episode.
+    assert torch.allclose(adv, torch.tensor([0.9, 9.0]), atol=1e-5)
 
   def test_terminated_masks_bootstrap(self):
     """A true termination (terminated=1) masks the bootstrap like done."""
