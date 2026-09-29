@@ -119,6 +119,68 @@ def test_image_step_accumulates_window():
   assert r._window_labels == targets.tolist()
 
 
+def test_image_omits_accuracy_when_no_labels(caplog):
+  """A non-classification method must not print top1/macro_f1.
+
+  Regression: the step line hardcoded "top1=0.00% macro_f1=0.00%" for
+  every method, so VO logged a permanent meaningless accuracy of zero.
+  """
+  from genml_kit.training.train_reporting import metric
+  r = _make_reporter(log_every=2)
+  extra = {"mce": metric("mce", 0.25), "dlog_s": metric("dlog_s", 0.1)}
+  with caplog.at_level(logging.INFO):
+    r.step(0, 4, 1.0, 0, extra_metrics=extra)
+    r.step(1, 4, 1.0, 1, extra_metrics=extra)
+  assert "train [2/10]" in caplog.text
+  assert "top1=" not in caplog.text
+  assert "macro_f1=" not in caplog.text
+
+
+def test_image_renders_extra_metrics_in_both_lines(caplog):
+  """Method metrics must reach the step line and the epoch summary."""
+  from genml_kit.training.train_reporting import metric
+  r = _make_reporter(log_every=2)
+  extra = {"mce": metric("mce", 0.25), "dlog_s": metric("dlog_s", 0.1)}
+  with caplog.at_level(logging.INFO):
+    r.step(0, 4, 1.0, 0, extra_metrics=extra)
+    r.step(1, 4, 1.0, 1, extra_metrics=extra)
+    r.summary()
+  assert "mce=0.2500" in caplog.text
+  assert "dlog_s=0.1000" in caplog.text
+  # Epoch summary repeats them (average of the windowed values).
+  assert caplog.text.count("mce=0.2500") >= 2
+
+
+def test_image_keeps_accuracy_when_labels_present(caplog):
+  """Classification must keep both accuracy tokens, unchanged."""
+  r = _make_reporter(log_every=2)
+  logits, targets = _dummy_batch()
+  with caplog.at_level(logging.INFO):
+    r.step(0, 4, 1.0, 0, logits=logits, targets=targets)
+    r.step(1, 4, 1.0, 1, logits=logits, targets=targets)
+  assert "top1=" in caplog.text
+  assert "macro_f1=" in caplog.text
+
+
+def test_image_window_and_epoch_accuracy_can_differ():
+  """The two top1 numbers stay distinct -- they are not the same metric.
+
+  Step 0 is perfect, step 1 is all wrong.  The window resets on the
+  log boundary, so after step 1 the window sees only the bad batch
+  while the epoch average still remembers the good one.
+  """
+  r = _make_reporter(log_every=1)
+  all_right, targets_r = _dummy_batch(batch_size=4, num_correct=4)
+  all_wrong, targets_w = _dummy_batch(batch_size=4, num_correct=0)
+  r.step(0, 4, 1.0, 0, logits=all_right, targets=targets_r)
+  r.step(1, 4, 1.0, 1, logits=all_wrong, targets=targets_w)
+  window = r._window_accuracy()
+  _, epoch = r.epoch_avg_loss()
+  assert window == 0.0
+  assert epoch == 50.0
+  assert window != epoch
+
+
 def test_image_log_triggered_on_boundary(caplog):
   r = _make_reporter(log_every=3)
   logits, targets = _dummy_batch()

@@ -29,7 +29,7 @@ from genml_kit.io.checkpointing import (
 )
 from genml_kit.training.grad_monitor import create_grad_monitor
 from genml_kit.utils.args import amp_dtype_from_args
-from genml_kit.training.train_reporting import ImageTrainReporting
+from genml_kit.training.train_reporting import ImageTrainReporting, metric
 from genml_kit.training.model_utils import set_train_mode
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
@@ -160,6 +160,24 @@ class BaseTrainer:
           batch_size = data.shape[0]
         targets = blob.meta.get("labels", None) if isinstance(blob.meta, dict) else None
 
+      # Surface the method's per-component loss metrics (mce, dlog_s,
+      # dtheta, conf, ...).  These are already returned by every method's
+      # train_step; without this they were dropped on the floor for the
+      # image/pretraining/VO path and never reached the log or
+      # TensorBoard.  Only the RL trainer was building extra_metrics.
+      #
+      # "loss" is skipped: it is already rendered from loss_value above,
+      # and several methods re-emit it inside metrics, which would print
+      # the loss twice.
+      extra_metrics = None
+      if getattr(loss_out, "metrics", None):
+        extra_metrics = {
+            name: metric(name, value)
+            for name, value in loss_out.metrics.items()
+            if name != "loss"
+        }
+        extra_metrics = extra_metrics or None
+
       reporter.step(
           batch_idx=step_in_epoch,
           batch_size=batch_size,
@@ -168,6 +186,7 @@ class BaseTrainer:
           targets=targets,
           global_step=step,
           report_now=(step_in_epoch + 1 == total_batches),
+          extra_metrics=extra_metrics,
       )
 
     reporter.summary()

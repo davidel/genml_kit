@@ -302,7 +302,10 @@ class ImageTrainReporting(TrainReporting):
         throughput_unit=throughput_unit,
     )
 
-    # Image-specific cumulative counters.
+    # Image-specific cumulative counters.  ``_has_accuracy`` stays False
+    # until a step actually provides logits/targets (or a top1 metric),
+    # so methods without a classification head do not print accuracy.
+    self._has_accuracy = False
     self._correct_top1 = 0
 
     # Image-specific window buffers.
@@ -341,11 +344,13 @@ class ImageTrainReporting(TrainReporting):
       self._window_correct += (preds == targets).sum().item()
       self._window_preds.extend(preds.cpu().tolist())
       self._window_labels.extend(targets.cpu().tolist())
+      self._has_accuracy = True
     elif extra_metrics and "top1" in extra_metrics:
       # Fallback: use top1 from method metrics (already a percentage).
       top1_val = extra_metrics["top1"].value
       self._correct_top1 += int(top1_val * batch_size / 100.0)
       self._window_correct += int(top1_val * batch_size / 100.0)
+      self._has_accuracy = True
 
     super().step(
         batch_idx=batch_idx,
@@ -356,6 +361,21 @@ class ImageTrainReporting(TrainReporting):
         extra_metrics=extra_metrics,
     )
 
+  def _window_accuracy(self):
+    """Top-1 accuracy over the current window (percent)."""
+    if self._window_samples <= 0:
+      return 0.0
+    return self._window_correct / self._window_samples * 100.0
+
+  def _window_macro_f1(self):
+    """Macro-F1 over the current window's predictions (percent)."""
+    if not self._window_preds:
+      return 0.0
+    from sklearn.metrics import f1_score
+    return f1_score(
+        self._window_labels, self._window_preds, average="macro",
+        zero_division=0) * 100.0
+
   def epoch_avg_loss(self):
     """Return ``(avg_loss, top1_accuracy)`` tuple."""
     avg_loss = super().epoch_avg_loss()
@@ -363,36 +383,45 @@ class ImageTrainReporting(TrainReporting):
             100.0 if self._total_samples else 0.0)
     return avg_loss, top1
 
+  def _extra_str(self):
+    """Render the latest value of every extra metric as name=value pairs.
+
+    Shared by ``summary`` and ``_log_step`` so the epoch line and the
+    per-step line list the same metrics.  ``top1`` is skipped because it
+    is already rendered from the accuracy counters above -- mirroring the
+    guard the TensorBoard block uses.
+    """
+    return "".join(f" {name}={m.value:{m.fmt}}" for name, m in self._extra.items()
+                   if name != "top1")
+
   def summary(self):
-    """Log image-specific summary and return ``(avg_loss, top1)``."""
+    """Log image-specific summary and return ``(avg_loss, top1)``.
+
+    ``top1`` is the epoch accuracy.  It is only present when the run
+    actually tracked accuracy -- a method with no classification head
+    would otherwise print a permanent, misleading 0.00%.
+    """
     avg_loss, top1 = self.epoch_avg_loss()
     elapsed = time.time() - self._start_time
     gpu = gpu_stats_str(self._device)
     parts = [
         f"loss={avg_loss:.4f}",
-        f"top1={top1:.2f}%",
-        f"time={elapsed:.1f}s",
     ]
+    if self._has_accuracy:
+      parts.append(f"top1={top1:.2f}%")
+    parts.append(f"time={elapsed:.1f}s")
+    parts.append(self._extra_str())
     if gpu:
       parts.append(gpu)
     logging.info("  Train Summary: " + " ".join(parts))
     return avg_loss, top1
 
   def _log_step(self, batch_idx, global_step):
-    """Emit windowed log line including accuracy and macro-F1."""
+    """Emit the windowed log line, plus accuracy when the method has it."""
     elapsed = time.time() - self._last_log_time
     w_samples = self._window_samples
     throughput = w_samples / elapsed if elapsed > 0 else 0.0
     w_loss = self._window_loss / w_samples if w_samples > 0 else 0.0
-    w_top1 = (self._window_correct / w_samples * 100.0 if w_samples > 0 else 0.0)
-
-    # Window macro F1.
-    w_macro_f1 = 0.0
-    if self._window_preds:
-      from sklearn.metrics import f1_score
-      w_macro_f1 = f1_score(
-          self._window_labels, self._window_preds, average="macro",
-          zero_division=0) * 100.0
 
     # Cumulative metrics.
     avg_loss, top1 = self.epoch_avg_loss()
@@ -401,12 +430,16 @@ class ImageTrainReporting(TrainReporting):
     gpu = gpu_stats_str(self._device)
     lr_str = report_lr(self._optimizer, writer=self._writer, step=global_step)
 
-    # Console log.
+    # Console log.  Accuracy is appended only when this run actually
+    # tracked it: a method with no classification head would otherwise
+    # print a permanent, meaningless top1=0.00% / macro_f1=0.00%.
     msg = (f"  train [{batch_idx + 1}/{self._total_batches}]"
-           f" loss={w_loss:.4f} ({avg_loss:.4f})"
-           f" top1={w_top1:.2f}% ({top1:.2f}%)"
-           f" macro_f1={w_macro_f1:.2f}%"
-           f" img/s={throughput:.0f}")
+           f" loss={w_loss:.4f} ({avg_loss:.4f})")
+    if self._has_accuracy:
+      msg += f" top1={self._window_accuracy():.2f}% ({top1:.2f}%)"
+      msg += f" macro_f1={self._window_macro_f1():.2f}%"
+    msg += f" img/s={throughput:.0f}"
+    msg += self._extra_str()
     if gpu:
       msg += f" {gpu}"
     msg += f" {lr_str}"
@@ -415,10 +448,11 @@ class ImageTrainReporting(TrainReporting):
     # TensorBoard scalars.
     if self._writer is not None:
       self._writer.add_scalar("Train/loss", w_loss, global_step)
-      self._writer.add_scalar("Train/top1", w_top1, global_step)
-      self._writer.add_scalar("Train/macro_f1", w_macro_f1, global_step)
+      if self._has_accuracy:
+        self._writer.add_scalar("Train/top1", self._window_accuracy(), global_step)
+        self._writer.add_scalar("Train/macro_f1", self._window_macro_f1(), global_step)
+        self._writer.add_scalar("Train/top1_avg", top1, global_step)
       self._writer.add_scalar("Train/loss_avg", avg_loss, global_step)
-      self._writer.add_scalar("Train/top1_avg", top1, global_step)
       self._writer.add_scalar("Train/throughput", throughput, global_step)
       for name, m in self._extra.items():
         if name == "top1":
