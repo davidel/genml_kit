@@ -1,8 +1,17 @@
-"""Sliced VO evaluation: terrain x range-bin x augmentation x AGL config.
+"""Sliced VO evaluation: terrain x range-bin breakdowns.
 
 Renders one text table per slice with the utils/table formatter (repo
-style).  Model-side batch metrics live in ``train_vo.evaluate_vo``; this
-module groups item-level records by metadata slice.
+style).  The model-side metrics come from
+``train_vo.vo_metrics_from_output`` -- the same function the training
+validation path uses -- so a number in a slice table and a number in the
+training log are produced by identical code.
+
+Two error columns are reported per slice:
+
+* ``mce_px``    -- the *model's* corner reprojection error.
+* ``gt_fit_px`` -- how far the ground-truth similarity fit itself moves
+  the frame corners, i.e. the magnitude of the motion being estimated.
+  Reported as a reference scale for the model column.
 """
 
 import collections
@@ -10,99 +19,107 @@ import math
 
 import torch
 
-from genml_kit.training.vo.train_vo import VOMetrics
+from genml_kit.geometry.similarity import (
+    SimilarityParams,
+    corner_residual,
+)
+from genml_kit.training.vo.train_vo import VOMetrics, vo_metrics_from_output
 from genml_kit.utils.table import format_table
 
-EvalRow = collections.namedtuple("EvalRow",
-                                 ["slice", "n", "mce", "dlog_s", "dtheta", "conf_mae"])
+EvalRow = collections.namedtuple(
+    "EvalRow", ["slice", "n", "mce", "dlog_s", "dtheta", "conf_mae", "gt_fit_mce"])
+
+# VOMetrics fields, accumulated in this order.
+_FIELDS = ("mce", "dlog_s", "dtheta", "conf_mae")
 
 
-def evaluate_sliced(model, dataset, device, group_key="terrain"):
-  """Evaluate per slice of ``group_key`` and render a text table.
+def evaluate_sliced(dataset, predict, group_key="terrain", image_size=64):
+  """Evaluate per slice of *group_key* and render a text table.
 
   Args:
-      model: the VO network.
-      dataset: indexed VO dataset (meta with 'gt' present).
-      device: torch device.
-      group_key: metadata field to slice by ('terrain' or 'range_bin').
+      dataset: indexed VO dataset; each item carries ``meta`` with
+          ``gt`` (a dict of 0-dim tensors: log_s, theta, t),
+          ``gt_residual`` and *group_key*.
+      predict: callable ``item -> VOModelOutput`` producing a
+          single-item (leading batch of 1) prediction.  The caller is
+          responsible for eval mode / no_grad; this function only
+          groups and averages.
+      group_key: metadata field to slice on, e.g. ``"terrain"`` or
+          ``"range_bin"``.
+      image_size: frame size in pixels; sets the corners used for the
+          GT-fit reference column.
 
   Returns:
-      (list of EvalRow, list of formatted table lines).
+      (rows, table): one :class:`EvalRow` per slice, and the rendered
+      text lines.  ``EvalRow.mce`` is model error, ``EvalRow.gt_fit_mce``
+      the ground-truth-fit reference.
+
+  Note:
+      Previously ``(model, dataset, device, group_key)``.  The *model*
+      and *device* arguments were never used: the error columns guarded
+      on ``"pred" not in item``, which is never true for items from
+      ``VOPairDataset``, so ``dlog_s`` / ``dtheta`` / ``conf_mae``
+      always came back ``NaN``.  An explicit *predict* callable makes
+      the prediction path visible and testable.
   """
-  del device
-  groups = collections.OrderedDict()
-  for idx in range(len(dataset)):
-    item = dataset[idx]
-    key = str(getattr(item["meta"], group_key))
-    groups.setdefault(key, []).append(item)
+  groups = collections.defaultdict(list)
+  for index in range(len(dataset)):
+    item = dataset[index]
+    groups[getattr(item["meta"], group_key)].append(item)
+
   rows = []
-  for key, items in groups.items():
-    metrics = VOMetrics(
-        mce=_mean_gt_corner_error(items),
-        dlog_s=_nan_mean([_dlog_s(item) for item in items]),
-        dtheta=_nan_mean([_dtheta(item) for item in items]),
-        conf_mae=_nan_mean([_conf_mae(item) for item in items]),
-    )
+  for key in sorted(groups):
+    items = groups[key]
+    accum = collections.defaultdict(list)
+    for item in items:
+      out = predict(item)
+      metrics = vo_metrics_from_output(out, _batched_gt(item["meta"].gt),
+                                       item["meta"].gt_residual.reshape(1))
+      for name in _FIELDS:
+        accum[name].append(getattr(metrics, name))
+    means = VOMetrics(**{
+        name: sum(values) / len(values) for name, values in accum.items()
+    })
     rows.append(
-        EvalRow(key, len(items), metrics.mce, metrics.dlog_s, metrics.dtheta,
-                metrics.conf_mae))
-  table = format_table(["slice", "n", "mce_px", "dlog_s", "dtheta_deg", "conf_mae"], [[
-      row.slice,
-      str(row.n), f"{row.mce:.2f}", f"{row.dlog_s:.4f}",
-      f"{row.dtheta * 180.0 / math.pi:.2f}", f"{row.conf_mae:.3f}"
-  ] for row in rows])
+        EvalRow(key, len(items), means.mce, means.dlog_s, means.dtheta, means.conf_mae,
+                _gt_fit_mce(items, image_size)))
+
+  # format_table needs every cell as a str: the slice key may be an int
+  # (group_key="range_bin").
+  table = format_table(
+      ["slice", "n", "mce_px", "gt_fit_px", "dlog_s", "dtheta_deg", "conf_mae"], [[
+          str(row.slice),
+          str(row.n), f"{row.mce:.2f}", f"{row.gt_fit_mce:.2f}", f"{row.dlog_s:.4f}",
+          f"{row.dtheta * 180.0 / math.pi:.2f}", f"{row.conf_mae:.3f}"
+      ] for row in rows])
   return rows, table
 
 
-def _dlog_s(item):
-  if "pred" not in item:
-    return float("nan")
-  return abs(item["pred"].log_s.item() - item["meta"].gt["log_s"].item())
+def _batched_gt(gt):
+  """Turn a per-item ``gt`` dict into batch-of-1 tensors.
+
+  ``log_s``/``theta`` are 0-dim per item, while ``t`` is already (1, 2);
+  reshape only the 0-dim ones so ``t`` is not double-batched.
+  """
+  return {
+      key: (value.reshape(1) if value.dim() == 0 else value)
+      for key, value in gt.items()
+  }
 
 
-def _dtheta(item):
-  if "pred" not in item:
-    return float("nan")
-  delta = item["pred"].theta.item() - item["meta"].gt["theta"].item()
-  return abs((delta + math.pi) % (2 * math.pi) - math.pi)
+def _gt_fit_mce(items, image_size):
+  """How far the GT similarity fit itself moves the frame corners.
 
-
-def _conf_mae(item):
-  if "pred" not in item:
-    return float("nan")
-  return abs(item["pred"]["conf"].item() - item["meta"].gt_residual.item())
-
-
-def _mean_gt_corner_error(items):
-  """Mean corner reprojection error of the GT fit itself (sanity metric)."""
-  total = 0.0
-  for item in items:
-    gt = item["meta"].gt
-    mat = _build_matrix(gt["log_s"], gt["theta"], gt["t"])
-    total += _corner_error_from_matrix(mat).item()
-  return total / max(len(items), 1)
-
-
-def _nan_mean(values):
-  valid = [v for v in values if not math.isnan(v)]
-  if not valid:
-    return float("nan")
-  return sum(valid) / len(valid)
-
-
-def _build_matrix(log_s, theta, t):
-  s = torch.exp(log_s)
-  c, si = torch.cos(theta), torch.sin(theta)
-  return torch.tensor([
-      [s * c, -s * si, t[0]],
-      [s * si, s * c, t[1]],
-      [0.0, 0.0, 1.0],
-  ])
-
-
-def _corner_error_from_matrix(mat):
-  corners = torch.tensor([[0.0, 0.0], [63.0, 0.0], [63.0, 63.0], [0.0, 63.0]])
-  ones = torch.ones(4, 1)
-  pts = torch.cat([corners, ones], dim=1)
-  proj = (mat @ pts.T).T[:, :2]
-  return (proj - corners).norm(dim=1).mean()
+  Uses the same corner reprojection as the model metric, but with the
+  ground-truth parameters, and with identity as the target.  The corner
+  layout is derived from *image_size* -- a hardcoded size would silently
+  report a different quantity at any other resolution.
+  """
+  log_s = torch.stack([item["meta"].gt["log_s"] for item in items])
+  theta = torch.stack([item["meta"].gt["theta"] for item in items])
+  t = torch.stack([item["meta"].gt["t"] for item in items])
+  side = float(image_size) - 1.0
+  corners = torch.tensor([[0.0, 0.0], [side, 0.0], [side, side],
+                          [0.0, side]]).unsqueeze(0).expand(len(items), -1, -1)
+  params = SimilarityParams(log_s=log_s, theta=theta, t=t)
+  return corner_residual(params, corners, corners).mean().item()

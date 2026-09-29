@@ -40,13 +40,13 @@ def test_network_forward_backward_shapes():
   a = torch.rand(2, 1, 128, 128)
   b = torch.rand(2, 1, 128, 128)
   out = net(a, b)
-  assert out["params"].log_s.shape == (2,)
-  assert out["params"].theta.shape == (2,)
-  assert out["params"].t.shape == (2, 2)
-  assert out["corners"].shape == (2, 4, 2)
-  assert out["dc"].shape == (2, 4, 2)
-  assert out["conf"].shape == (2, 2)
-  loss = out["params"].log_s.sum() + out["conf"].sum()
+  assert out.params.log_s.shape == (2,)
+  assert out.params.theta.shape == (2,)
+  assert out.params.t.shape == (2, 2)
+  assert out.corners.shape == (2, 4, 2)
+  assert out.dc.shape == (2, 4, 2)
+  assert out.conf.shape == (2, 2)
+  loss = out.params.log_s.sum() + out.conf.sum()
   loss.backward()
 
 
@@ -65,9 +65,9 @@ def test_network_output_is_valid_similarity():
   a = torch.rand(3, 1, 128, 128)
   b = torch.rand(3, 1, 128, 128)
   out = net(a, b)
-  src = out["corners"]
+  src = out.corners
   # Exaggerate the offsets.
-  dst = src + out["dc"] * 100.0
+  dst = src + out.dc * 100.0
   from genml_kit.geometry.similarity import umeyama_similarity
   params = umeyama_similarity(src, dst)
   scale = torch.exp(params.log_s)
@@ -107,12 +107,12 @@ def test_corner_head_shapes_and_slice():
   a = torch.rand(2, 1, 64, 64)
   b = torch.rand(2, 1, 64, 64)
   out = net(a, b)
-  assert out["params"].log_s.shape == (2,)
-  assert out["params"].theta.shape == (2,)
-  assert out["params"].t.shape == (2, 2)
-  assert out["corners"].shape == (2, 4, 2)
-  assert out["dc"].shape == (2, 4, 2)
-  assert out["conf"].shape == (2, 2)
+  assert out.params.log_s.shape == (2,)
+  assert out.params.theta.shape == (2,)
+  assert out.params.t.shape == (2, 2)
+  assert out.corners.shape == (2, 4, 2)
+  assert out.dc.shape == (2, 4, 2)
+  assert out.conf.shape == (2, 2)
   # The MLP output width must equal the encoder's final stage width.
   final_width = dict(net.encoder.named_parameters())["stages.7.0.weight"].shape[0]
   assert net.corner_mlp[0].in_features == final_width

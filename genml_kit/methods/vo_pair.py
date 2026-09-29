@@ -15,12 +15,18 @@ from ``blob.data`` and calls ``model(image_a, image_b)`` -- the s 6
 blob contract is honoured without changing the model's signature.
 """
 
+import collections
+
 from genml_kit.datasets.vo_pairs import VOPairMeta
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.models.registry import load_model
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.training.vo.train_vo import STAGES, vo_losses
+
+# What train_step/evaluate pass to vo_losses: the model's similarity
+# estimate and its confidence head (namedtuple for ``pred.params`` access).
+VOPrediction = collections.namedtuple("VOPrediction", ["params", "conf"])
 
 
 @METHODS.register
@@ -104,10 +110,10 @@ class VOPairMethod(Method):
         "image_a": image_a,
         "image_b": image_b,
         "meta": VOPairMeta(**blob.meta),
-        "corners": out["corners"],
-        "dc": out["dc"],
+        "corners": out.corners,
+        "dc": out.dc,
     }
-    pred = {"params": out["params"], "conf": out["conf"]}
+    pred = VOPrediction(params=out.params, conf=out.conf)
     loss, parts = vo_losses(pred, batch, self._cfg, self._stage)
     metrics = {k: v.detach() for k, v in parts.items()}
     return LossOutput(loss=loss, metrics=metrics)
@@ -115,15 +121,18 @@ class VOPairMethod(Method):
   def evaluate(self, model, loader, device, to_device):
     """Return ``{"mce": ...}`` over the loader (DataBlob items).
 
-    Mirrors ``evaluate_vo``'s aggregation (kept inline because the
-    DataBlob payload differs from a raw ``VOPairDataset`` dict batch).
+    Same aggregation as ``evaluate_vo``; both call
+    ``vo_metrics_from_output`` so the metric definitions cannot drift.
+    What differs is only how the GT is reached -- here the collated
+    ``blob.meta`` dict, there the per-item ``VOPairMeta`` namedtuple.
     """
     import torch
-    import torch.nn.functional as f
 
-    from genml_kit.geometry.similarity import corner_residual, wrap_angle
     from genml_kit.training.model_utils import model_mode
-    from genml_kit.training.vo.train_vo import VOMetrics
+    from genml_kit.training.vo.train_vo import (
+        VOMetrics,
+        vo_metrics_from_output,
+    )
 
     sums = torch.zeros(4, dtype=torch.float64)
     count = 0
@@ -132,15 +141,9 @@ class VOPairMethod(Method):
         blob = to_device(blob, device)
         image_a, image_b = blob.data
         out = model(image_a, image_b)
-        corners = out["corners"]
-        mce = corner_residual(out["params"], corners, corners + out["dc"]).mean()
-        gt = blob.meta["gt"]
-        dlog_s = (out["params"].log_s - gt["log_s"]).abs().mean()
-        dtheta = wrap_angle(out["params"].theta - gt["theta"]).abs().mean()
-        conf = f.smooth_l1_loss(out["conf"][:, 0], blob.meta["gt_residual"])
+        metrics = vo_metrics_from_output(out, blob.meta["gt"], blob.meta["gt_residual"])
         sums += torch.tensor(
-            [mce.item(), dlog_s.item(),
-             dtheta.item(), conf.item()],
+            [metrics.mce, metrics.dlog_s, metrics.dtheta, metrics.conf_mae],
             dtype=torch.float64)
         count += 1
     if count == 0:

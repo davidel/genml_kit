@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from genml_kit.geometry.similarity import SimilarityParams
+from genml_kit.models.vo.vo_similar import VOModelOutput
 from genml_kit.training.vo.train_vo import (
     STAGES,
     photometric_residual,
@@ -43,14 +44,14 @@ def _batch(log_s=0.1, theta=0.2, t=(1.0, -1.0), residual=0.4):
 
 
 def _pred(batch, log_s, theta, t, conf=0.3):
-  return {
-      "params":
-          SimilarityParams(log_s=torch.tensor([log_s], requires_grad=True),
-                           theta=torch.tensor([theta], requires_grad=True),
-                           t=torch.tensor([t], requires_grad=True)),
-      "conf":
-          torch.tensor([[conf]], requires_grad=True),
-  }
+  return VOModelOutput(
+      params=SimilarityParams(log_s=torch.tensor([log_s], requires_grad=True),
+                              theta=torch.tensor([theta], requires_grad=True),
+                              t=torch.tensor([t], requires_grad=True)),
+      corners=batch["corners"],
+      dc=torch.zeros_like(batch["corners"]),
+      conf=torch.tensor([[conf]], requires_grad=True),
+  )
 
 
 def test_stages_constant_matches_plan():
@@ -73,7 +74,7 @@ def test_photometric_stage_adds_photo_part():
   assert "photo" in parts
   assert torch.isfinite(total)
   total.backward()
-  assert pred["params"].log_s.grad is not None
+  assert pred.params.log_s.grad is not None
 
 
 def test_loss_zero_for_exact_prediction():
@@ -81,7 +82,7 @@ def test_loss_zero_for_exact_prediction():
   batch = _batch(log_s=0.3, theta=0.5, t=(2.0, 3.0), residual=0.0)
   pred = _pred(batch, 0.3, 0.5, (2.0, 3.0))
   from genml_kit.geometry.similarity import params_to_matrix
-  mat = params_to_matrix(pred["params"].log_s, pred["params"].theta, pred["params"].t)
+  mat = params_to_matrix(pred.params.log_s, pred.params.theta, pred.params.t)
   ones = torch.ones_like(batch["corners"][..., :1])
   batch["corners_dst"] = (
       mat @ torch.cat([batch["corners"], ones], dim=-1).transpose(1, 2)).transpose(

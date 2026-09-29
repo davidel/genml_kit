@@ -8,6 +8,7 @@ from genml_kit.models.vo.loader import (
 )
 from genml_kit.models.vo.processor import VOProcessor
 from genml_kit.models.vo.vo_similar import (
+    VOModelOutput,
     VOSimilarityConfig,
     VOSimilarityNet,
     correlate,
@@ -15,6 +16,7 @@ from genml_kit.models.vo.vo_similar import (
 
 __all__ = [
     "VOModelBundle",
+    "VOModelOutput",
     "VOProcessor",
     "VOSimilarityConfig",
     "VOSimilarityNet",

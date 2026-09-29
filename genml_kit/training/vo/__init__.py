@@ -7,6 +7,7 @@ from genml_kit.training.vo.train_vo import (
     evaluate_vo,
     photometric_residual,
     vo_losses,
+    vo_metrics_from_output,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "evaluate_vo",
     "photometric_residual",
     "vo_losses",
+    "vo_metrics_from_output",
 ]

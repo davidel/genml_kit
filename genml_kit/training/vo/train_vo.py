@@ -29,11 +29,41 @@ VOMetrics = collections.namedtuple("VOMetrics", [
 STAGES = {"supervised": 0, "photometric": 1}
 
 
+def vo_metrics_from_output(out, gt, gt_residual, src=None, dst=None):
+  """Model-side VO metrics from a model output and its ground truth.
+
+  The single implementation of the four VO metrics.  Both evaluation
+  paths funnel through here: :meth:`VOPairMethod.evaluate` (DataBlob
+  batches) and :func:`evaluate_vo` (raw dataset dicts) differ only in
+  how they reach the tensors, not in what they compute.
+
+  Args:
+      out: ``VOModelOutput`` from ``VOSimilarityNet.forward``.
+      gt: mapping with ``log_s`` / ``theta`` / ``t`` (batched tensors).
+      gt_residual: (B,) irreducible residual of the GT fit.
+      src: (B, 4, 2) reference corners; defaults to ``out.corners``.
+      dst: (B, 4, 2) target corners; defaults to ``out.corners + out.dc``.
+
+  Returns:
+      VOMetrics of batch means (mce in pixels, dtheta in radians).
+  """
+  src = out.corners if src is None else src
+  dst = (out.corners + out.dc) if dst is None else dst
+  mce = corner_residual(out.params, src, dst).mean()
+  dlog_s = (out.params.log_s - gt["log_s"]).abs().mean()
+  dtheta = wrap_angle(out.params.theta - gt["theta"]).abs().mean()
+  conf = f.smooth_l1_loss(out.conf[:, 0], gt_residual)
+  return VOMetrics(mce=mce.item(),
+                   dlog_s=dlog_s.item(),
+                   dtheta=dtheta.item(),
+                   conf_mae=conf.item())
+
+
 def vo_losses(pred, batch, cfg, stage):
   """Loss for one batch.
 
   Args:
-      pred: dict from ``VOSimilarityNet.forward``.
+      pred: ``VOModelOutput`` from ``VOSimilarityNet.forward``.
       batch: dict from ``VOPairDataset`` (collated); needs 'image_a',
           'image_b' and 'meta' with 'gt' (log_s, theta, t) and
           'gt_residual'.
@@ -44,12 +74,12 @@ def vo_losses(pred, batch, cfg, stage):
   Returns:
       (scalar loss tensor, dict of loss components for logging).
   """
-  params = pred["params"]
+  params = pred.params
   gt = batch["meta"].gt
   mce = corner_residual(params, _src(batch), _dst(batch)).mean()
   dlog_s = (params.log_s - gt["log_s"]).abs().mean()
   dtheta = wrap_angle(params.theta - gt["theta"]).abs().mean()
-  conf = f.smooth_l1_loss(pred["conf"][:, 0], batch["meta"].gt_residual)
+  conf = f.smooth_l1_loss(pred.conf[:, 0], batch["meta"].gt_residual)
   total = mce + cfg.w_log_s * dlog_s + cfg.w_theta * dtheta \
       + cfg.w_conf * conf
   parts = {
@@ -131,15 +161,10 @@ def evaluate_vo(model, loader, device):
       image_a = batch["image_a"].to(device)
       image_b = batch["image_b"].to(device)
       out = model(image_a, image_b)
-      corners = out["corners"]
-      mce = corner_residual(out["params"], corners, corners + out["dc"]).mean()
-      gt = batch["meta"].gt
-      dlog_s = (out["params"].log_s - gt["log_s"]).abs().mean()
-      dtheta = wrap_angle(out["params"].theta - gt["theta"]).abs().mean()
-      conf = f.smooth_l1_loss(out["conf"][:, 0], batch["meta"].gt_residual)
+      metrics = vo_metrics_from_output(out, batch["meta"].gt, batch["meta"].gt_residual)
       sums += torch.tensor(
-          [mce.item(), dlog_s.item(),
-           dtheta.item(), conf.item()], dtype=torch.float64)
+          [metrics.mce, metrics.dlog_s, metrics.dtheta, metrics.conf_mae],
+          dtype=torch.float64)
       count += 1
   if count == 0:
     return VOMetrics()

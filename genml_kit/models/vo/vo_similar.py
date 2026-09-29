@@ -17,6 +17,12 @@ VOSimilarityConfig = collections.namedtuple(
     "VOSimilarityConfig", ["profile", "in_ch", "cost_range", "cost_scale"],
     defaults=["npu-small", 1, 6, 8])
 
+# What forward() returns.  A namedtuple (not a dict) so consumers write
+# ``out.params`` -- and so a mistyped key raises AttributeError at the
+# call site instead of returning None deep inside a loss.
+VOModelOutput = collections.namedtuple("VOModelOutput",
+                                       ["params", "corners", "dc", "conf"])
+
 _PROFILES = {
     # profile:    (stage widths,           blocks/stage)
     "npu-small": ((16, 32, 64, 128), (2, 2, 2, 2)),
@@ -101,10 +107,9 @@ class VOSimilarityNet(nn.Module):
   the output is always a *valid* similarity (any rotation, any positive
   scale) -- the network cannot emit an invalid (theta, s) pair.
 
-  forward() returns a plain dict (not a namedtuple), consumed by name in
-  the loss functions:
+  forward() returns a :class:`VOModelOutput` namedtuple:
 
-  * ``params``: ``(B, 3)`` similarity as ``(theta, s, tx, ty)``.
+  * ``params``: ``SimilarityParams`` -- the closed-form similarity fit.
   * ``corners``: ``(B, 4, 2)`` reference corner coordinates in pixels.
   * ``dc``: ``(B, 4, 2)`` predicted corner deltas (in pixels).
   * ``conf``: ``(B, 2)`` predicted confidence pair.
@@ -162,4 +167,4 @@ class VOSimilarityNet(nn.Module):
     params = umeyama_similarity(src, src + deltas)
     # Confidence pair: (B, 10) -> (B, 2).
     conf = head_out[:, 8:10]
-    return {"params": params, "corners": src, "dc": deltas, "conf": conf}
+    return VOModelOutput(params=params, corners=src, dc=deltas, conf=conf)
