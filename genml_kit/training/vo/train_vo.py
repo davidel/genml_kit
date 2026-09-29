@@ -16,6 +16,7 @@ import torch
 import torch.nn.functional as f
 
 from genml_kit.geometry.similarity import corner_residual, wrap_angle
+from genml_kit.training.model_utils import model_mode
 
 VOMetrics = collections.namedtuple("VOMetrics", [
     "mce",
@@ -112,7 +113,6 @@ def photometric_residual(image_a, image_b, params, eps=1e-6):
   return 1.0 - zncc
 
 
-@torch.no_grad()
 def evaluate_vo(model, loader, device):
   """Mean metrics over one loader; corners come from the model output.
 
@@ -124,23 +124,23 @@ def evaluate_vo(model, loader, device):
   Returns:
       VOMetrics with the means over the loader.
   """
-  model.eval()
   sums = torch.zeros(4, dtype=torch.float64)
   count = 0
-  for batch in loader:
-    image_a = batch["image_a"].to(device)
-    image_b = batch["image_b"].to(device)
-    out = model(image_a, image_b)
-    corners = out["corners"]
-    mce = corner_residual(out["params"], corners, corners + out["dc"]).mean()
-    gt = batch["meta"].gt
-    dlog_s = (out["params"].log_s - gt["log_s"]).abs().mean()
-    dtheta = wrap_angle(out["params"].theta - gt["theta"]).abs().mean()
-    conf = f.smooth_l1_loss(out["conf"][:, 0], batch["meta"].gt_residual)
-    sums += torch.tensor(
-        [mce.item(), dlog_s.item(),
-         dtheta.item(), conf.item()], dtype=torch.float64)
-    count += 1
+  with model_mode(model, "eval"), torch.no_grad():
+    for batch in loader:
+      image_a = batch["image_a"].to(device)
+      image_b = batch["image_b"].to(device)
+      out = model(image_a, image_b)
+      corners = out["corners"]
+      mce = corner_residual(out["params"], corners, corners + out["dc"]).mean()
+      gt = batch["meta"].gt
+      dlog_s = (out["params"].log_s - gt["log_s"]).abs().mean()
+      dtheta = wrap_angle(out["params"].theta - gt["theta"]).abs().mean()
+      conf = f.smooth_l1_loss(out["conf"][:, 0], batch["meta"].gt_residual)
+      sums += torch.tensor(
+          [mce.item(), dlog_s.item(),
+           dtheta.item(), conf.item()], dtype=torch.float64)
+      count += 1
   if count == 0:
     return VOMetrics()
   sums /= count

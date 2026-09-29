@@ -122,12 +122,12 @@ class VOPairMethod(Method):
     import torch.nn.functional as f
 
     from genml_kit.geometry.similarity import corner_residual, wrap_angle
+    from genml_kit.training.model_utils import model_mode
     from genml_kit.training.vo.train_vo import VOMetrics
 
-    model.eval()
     sums = torch.zeros(4, dtype=torch.float64)
     count = 0
-    with torch.no_grad():
+    with model_mode(model, "eval"), torch.no_grad():
       for blob in loader:
         blob = to_device(blob, device)
         image_a, image_b = blob.data
