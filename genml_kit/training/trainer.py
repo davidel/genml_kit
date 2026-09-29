@@ -314,7 +314,7 @@ class BaseTrainer:
                             global_step=self.global_step,
                             **self.ckpt_extra(self.best_metric, self.global_step))
             logging.info(f"New best {self.best_metric_key}: "
-                         f"{best_metric:.2f} -> {self.best_metric:.2f}")
+                         f"{best_metric:.4f} -> {self.best_metric:.4f}")
 
           self.epoch_end()
           # Epoch fully done: train, validate, hooks.

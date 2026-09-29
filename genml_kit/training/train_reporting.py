@@ -384,15 +384,34 @@ class ImageTrainReporting(TrainReporting):
     return avg_loss, top1
 
   def _extra_str(self):
-    """Render the latest value of every extra metric as name=value pairs.
+    """Render every extra metric as name=value pairs, honouring its kind.
 
     Shared by ``summary`` and ``_log_step`` so the epoch line and the
     per-step line list the same metrics.  ``top1`` is skipped because it
     is already rendered from the accuracy counters above -- mirroring the
     guard the TensorBoard block uses.
+
+    ``AVERAGE`` metrics report their epoch mean from
+    ``_extra_totals``/``_extra_counts``; ``LAST`` metrics (monotonic
+    counters such as ``env_steps``) report their final value from
+    ``_extra``.  Printing ``_extra`` for every metric regardless of kind
+    made the epoch summary report the *last batch* of a 625-step epoch,
+    which for a pixel-domain metric like VO's ``mce`` is far too noisy to
+    read as an epoch statistic -- and sat next to a true epoch mean
+    (``loss=``) with silently different semantics.  The base
+    ``TrainReporting.summary`` already aggregated this way; this override
+    was the outlier.
     """
-    return "".join(f" {name}={m.value:{m.fmt}}" for name, m in self._extra.items()
-                   if name != "top1")
+    parts = []
+    for name, m in self._extra.items():
+      if name == "top1":
+        continue
+      if name in self._extra_totals and self._extra_counts.get(name, 0):
+        value = self._extra_totals[name] / self._extra_counts[name]
+      else:
+        value = m.value
+      parts.append(f" {name}={value:{m.fmt}}")
+    return "".join(parts)
 
   def summary(self):
     """Log image-specific summary and return ``(avg_loss, top1)``.

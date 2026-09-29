@@ -9,6 +9,8 @@ v4.2: the best-checkpoint cycle is keyed off ``method.METRIC_KEY`` and
 ``best_<metric_key>`` and the loop never negates.
 """
 
+import logging
+
 import torch
 
 from genml_kit.pipelines.contracts import DataBlob, LossOutput
@@ -195,6 +197,46 @@ def test_minimizing_metric_improves_downward(tmp_path):
   trainer.run()
   assert trainer.best_metric is not None
   assert trainer.best_metric < float("inf")
+
+
+def test_new_best_line_keeps_subpixel_precision(tmp_path, caplog):
+  """The "New best" line must not round a pixel metric to 0.00.
+
+  Real VO mce values sit in the 1e-3..1e-1 range, so the old ``.2f``
+  format printed ``0.00 -> 0.00`` every epoch even when the underlying
+  value improved materially.  The fake method below therefore returns
+  sub-pixel values, matching the production metric's scale.
+  """
+
+  class _SubpixelMce(MinimizingFakeMethod):
+    """Reports a realistic, monotonically improving sub-pixel mce."""
+
+    def __init__(self):
+      super().__init__()
+      self._vals = [0.0032, 0.0028, 0.0025]
+      self._i = 0
+
+    def evaluate(self, model, loader, device, to_device):
+      v = self._vals[min(self._i, len(self._vals) - 1)]
+      self._i += 1
+      return {"mce": v, "loss": 0.01}
+
+  pipeline = FakePipeline(torch.zeros(4, 3, 8, 8))
+  # Validation must run, otherwise the best-metric cycle never fires.
+  pipeline.val_loader = _WrappedLoader(
+      [DataBlob(data=torch.zeros(4, 3, 8, 8), meta={"labels": torch.zeros(4)})])
+  trainer = _make_trainer(tmp_path, method=_SubpixelMce(), pipeline=pipeline)
+  # Seed the sentinel the fresh-run branch would use, so the first
+  # epoch's mce counts as an improvement and the line actually fires.
+  trainer.best_metric = float("inf")
+  with caplog.at_level(logging.INFO):
+    trainer.run()
+  new_best = [ln for ln in caplog.text.splitlines() if "New best" in ln]
+  assert new_best, "expected a 'New best' line"
+  body = "\n".join(new_best)
+  # The real regression: sub-pixel mce collapsed to a constant.
+  assert "0.00 -> 0.00" not in body
+  assert "0.0032 -> 0.0028" in body
 
 
 def test_extras_flow_into_checkpoints(tmp_path):

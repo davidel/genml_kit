@@ -151,6 +151,42 @@ def test_image_renders_extra_metrics_in_both_lines(caplog):
   assert caplog.text.count("mce=0.2500") >= 2
 
 
+def test_image_summary_averages_extra_metrics(caplog):
+  """AVERAGE extra metrics report the epoch mean, not the last batch.
+
+  Regression test: the step line legitimately shows the most recent
+  batch, but the epoch summary must aggregate.  It previously printed
+  ``_extra`` for every metric regardless of ``MetricKind``, so a
+  625-step epoch reported only its final batch -- and sat beside a true
+  epoch mean (``loss=``) with different, unstated semantics.
+  """
+  from genml_kit.training.train_reporting import metric
+  r = _make_reporter(log_every=100)
+  for i, v in enumerate([1.0, 2.0, 3.0, 100.0]):
+    r.step(i, 4, 1.0, i, extra_metrics={"mce": metric("mce", v)})
+  with caplog.at_level(logging.INFO):
+    r.summary()
+  # Mean is 26.5; the last batch alone would print 100.0000.
+  assert "mce=26.5000" in caplog.text
+  assert "mce=100.0000" not in caplog.text
+
+
+def test_image_summary_last_metric_still_not_averaged(caplog):
+  """LAST extra metrics keep reporting their final value."""
+  from genml_kit.training.train_reporting import MetricKind, metric
+  r = _make_reporter(log_every=100)
+  for i, v in enumerate([100, 200, 300]):
+    r.step(i,
+           4,
+           1.0,
+           i,
+           extra_metrics={"env_steps": metric("env_steps", v, MetricKind.LAST, ".0f")})
+  with caplog.at_level(logging.INFO):
+    r.summary()
+  assert "env_steps=300" in caplog.text
+  assert "env_steps=200" not in caplog.text
+
+
 def test_image_keeps_accuracy_when_labels_present(caplog):
   """Classification must keep both accuracy tokens, unchanged."""
   r = _make_reporter(log_every=2)
