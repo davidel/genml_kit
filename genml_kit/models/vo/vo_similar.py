@@ -14,8 +14,8 @@ from torch import nn
 from genml_kit.geometry.similarity import umeyama_similarity
 
 VOSimilarityConfig = collections.namedtuple(
-    "VOSimilarityConfig", ["profile", "in_ch", "cost_range", "cost_scale"],
-    defaults=["npu-small", 1, 6, 8])
+    "VOSimilarityConfig", ["profile", "in_ch", "cost_range", "cost_scale", "norm"],
+    defaults=["npu-small", 1, 6, 8, "instance"])
 
 # What forward() returns.  A namedtuple (not a dict) so consumers write
 # ``out.params`` -- and so a mistyped key raises AttributeError at the
@@ -30,29 +30,79 @@ _PROFILES = {
     "station": ((48, 96, 192, 384), (3, 3, 4, 4)),
 }
 
+# Normalization options for the encoder, cheapest first.  See
+# ``_conv_block`` for why the stack needs one at all.
+_NORMS = {
+    "none": lambda ch: nn.Identity(),
+    # Per-sample statistics only: no running buffers, so a checkpoint
+    # carries no mean/var and inference never depends on the batch the
+    # frame happened to be evaluated in.  This is the property that
+    # matters for a VO front-end, which runs frame by frame on device.
+    "instance": lambda ch: InstanceNorm2d(ch),
+    "batch": lambda ch: nn.BatchNorm2d(ch),
+}
 
-def _conv_block(in_ch, out_ch, stride):
-  """Plain conv + ReLU: NPU-friendly by construction (no norm layers)."""
-  return nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, stride=stride, padding=1),
-                       nn.ReLU(inplace=True))
+
+class InstanceNorm2d(nn.InstanceNorm2d):
+  """InstanceNorm that tolerates a 1x1 spatial map.
+
+  Four stride-2 stages put a 16px input at 1x1, and torch's InstanceNorm
+  raises there because normalizing a single element is undefined (its mean
+  is that element, so the variance is zero).  Skipping the normalization is
+  faithful rather than a workaround -- there is nothing to normalize -- and
+  it keeps small ``--image_size`` values usable.  ``track_running_stats``
+  is off, so eval and train take the same path.
+  """
+
+  def forward(self, x):
+    if x.shape[-2] * x.shape[-1] <= 1:
+      return x
+    return super().forward(x)
+
+
+def _conv_block(in_ch, out_ch, stride, norm="instance"):
+  """Conv + norm + ReLU.
+
+  The norm layer is load-bearing, not decoration.  The old stack was plain
+  conv + ReLU on the stated grounds that it was NPU-friendly, and that
+  choice collapsed the features: an unnormalized ReLU stack fed a
+  positive-DC image (mean ~0.47) accumulates that DC layer over layer
+  while the texture -- the only carrier of motion information -- is
+  low-pass filtered away, so the between-sample variance of the final
+  feature map fell to 2.1e-11.  The head's globally pooled input was then
+  identical for every image pair, the head could only emit its bias, and
+  mce sat at the identity baseline (~62 px at 64px images) for five epochs
+  until AdamW's weight decay happened to erode the DC.
+
+  Normalizing fixes the cause instead of waiting for the decay: at 4000
+  steps mce reaches 4.8 px, against 21.2 px for the unnormalized stack.
+  """
+  layers = [nn.Conv2d(in_ch, out_ch, 3, stride=stride, padding=1)]
+  if norm != "none":
+    layers.append(_NORMS[norm](out_ch))
+  layers.append(nn.ReLU(inplace=True))
+  return nn.Sequential(*layers)
 
 
 class _Encoder(nn.Module):
-  """Strided conv/ReLU stack producing features at 1/cost_scale.
+  """Strided conv/norm/ReLU stack producing features at 1/cost_scale.
 
   Each stage starts with a stride-2 conv (halving the spatial size) and
   continues with stride-1 convs at the same resolution; the final stage
   width must match the MLP input width expected by ``VOSimilarityNet``.
+
+  Four stride-2 stages put the features at 1/16 of the input regardless of
+  ``cost_scale``, which is a correlation search *radius* and not a stride.
   """
 
-  def __init__(self, in_ch, widths, blocks):
+  def __init__(self, in_ch, widths, blocks, norm="instance"):
     super().__init__()
     stages = []
     current = in_ch
     for width, count in zip(widths, blocks):
       for index in range(count):
         stride = 2 if index == 0 else 1
-        stages.append(_conv_block(current, width, stride))
+        stages.append(_conv_block(current, width, stride, norm))
         current = width
     self.stages = nn.Sequential(*stages)
 
@@ -120,7 +170,7 @@ class VOSimilarityNet(nn.Module):
     self.cfg = config
     widths, blocks = _PROFILES[config.profile]
     self.scale = config.cost_scale
-    self.encoder = _Encoder(config.in_ch, widths, blocks)
+    self.encoder = _Encoder(config.in_ch, widths, blocks, config.norm)
     # Learnable gain converting the head's normalized output into pixel
     # corner deltas.  vo/README.md s14 and s16.1 require those deltas --
     # and therefore L_mce -- to be in pixels.

@@ -2,6 +2,7 @@
 
 import torch
 
+from genml_kit.datasets.vo_pairs import VOPairDataset
 from genml_kit.geometry.similarity import params_to_matrix
 from genml_kit.models.vo.vo_similar import (
     VOSimilarityConfig,
@@ -33,6 +34,69 @@ def test_correlate_zero_outside_frame():
   assert vol[0, 0, 0, 0].item() == 0.0
   # (dy, dx) = (0, 0) everywhere inside frame -> score 1.
   assert vol[0, 4, :, :].min().item() == 1.0
+
+
+def test_encoder_features_depend_on_image_content():
+  """Encoder output must vary between samples, or the head cannot regress.
+
+  Regression test for the mce plateau.  The unnormalized conv+ReLU stack
+  collapsed to a fixed DC pattern: between-sample variance of the final
+  feature map fell to 2.1e-11, the head's globally pooled input was
+  identical for every pair, and mce sat at the identity baseline for five
+  epochs.  Normalization is what keeps this variance alive.
+  """
+  ds = VOPairDataset(length=8, size=(64, 64), seed=0)
+  a = torch.stack([ds[i]["image_a"] for i in range(4)])
+
+  torch.manual_seed(0)
+  net = VOSimilarityNet(VOSimilarityConfig())
+  with torch.no_grad():
+    feats = net.encoder(a)
+  between = feats.mean(dim=(2, 3)).var(dim=0, unbiased=False).mean()
+  # The unnormalized stack scored 2.1e-11 here; 1e-6 leaves four orders of
+  # margin while still failing loudly on a collapse.
+  assert between > 1e-6, (
+      f"encoder output is sample-independent (between-sample variance "
+      f"{between:.2e}); the head cannot produce a sample-dependent answer")
+
+
+def test_norm_is_configurable_and_instance_has_no_running_stats():
+  """The norm choice is selectable, and instance mode stays batch-free."""
+  for norm in ("instance", "batch", "none"):
+    net = VOSimilarityNet(VOSimilarityConfig(norm=norm))
+    out = net(torch.rand(2, 1, 64, 64), torch.rand(2, 1, 64, 64))
+    assert out.params.log_s.shape == (2,)
+  inst = VOSimilarityNet(VOSimilarityConfig(norm="instance"))
+  running = [n for n, _ in inst.named_buffers() if "running" in n]
+  assert not running, f"instance norm must not carry running stats: {running}"
+
+
+def test_small_input_collapses_to_one_by_one_features():
+  """A 16px input reaches a 1x1 map after four stride-2 stages.
+
+  torch's InstanceNorm raises on a single spatial element, so the model
+  must tolerate it rather than refusing to run at small --image_size.
+  """
+  net = VOSimilarityNet(VOSimilarityConfig())
+  out = net(torch.rand(2, 1, 16, 16), torch.rand(2, 1, 16, 16))
+  assert out.params.log_s.shape == (2,)
+
+
+def test_instance_norm_output_is_batch_size_invariant():
+  """A single frame must score the same alone as inside a batch.
+
+  BatchNorm would break this: its statistics depend on the other samples
+  in the batch, which is wrong for a front-end that runs frame by frame.
+  """
+  torch.manual_seed(0)
+  net = VOSimilarityNet(VOSimilarityConfig(norm="instance"))
+  net.eval()
+  a = torch.cat([torch.rand(1, 1, 64, 64) + i for i in range(4)], dim=0)
+  b = torch.cat([torch.rand(1, 1, 64, 64) + i for i in range(4)], dim=0)
+  with torch.no_grad():
+    batched = net(a, b).params.log_s
+    single = torch.cat([net(a[i:i + 1], b[i:i + 1]).params.log_s for i in range(4)])
+  assert torch.allclose(batched, single, atol=1e-5)
 
 
 def test_network_forward_backward_shapes():
