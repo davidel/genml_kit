@@ -138,8 +138,22 @@ class TrainReporting:
     batch_size : int
         Number of samples in this micro-batch.
     loss_value : float
-        **Unscaled** loss for this micro-batch
-        (i.e. ``loss.item() * batch_size * grad_accum_steps``).
+        Loss for this micro-batch as a **per-sample mean** -- i.e. the
+        mean over the batch dimension, which is what every method's loss
+        already is (``F.cross_entropy`` with default reduction, the
+        ``.mean()`` terms of ``vo_losses``, the RL objectives).  The
+        reporter applies the sample weighting itself using the
+        ``batch_size`` passed alongside, so ``epoch_avg_loss`` is the
+        true per-sample mean of the epoch.
+
+        It previously documented an *unscaled* loss
+        (``loss.item() * batch_size * grad_accum_steps``) while the
+        arithmetic here expected a sum over samples, and the trainer
+        passed a mean.  Sum-of-means divided by sample count made every
+        reported loss too small by exactly ``batch_size`` -- invisible
+        for classification, but for VO it put ``loss`` below its own
+        ``mce`` component, which cannot happen since all loss terms are
+        non-negative.
     global_step : int
         Running optimizer-step counter (for TensorBoard x-axis).
     report_now : bool
@@ -151,13 +165,16 @@ class TrainReporting:
         "epsilon", 0.5)}``).  Values must be :class:`Metric` instances, which
         carry the accumulation semantics and print format.
     """
-    # Cumulative epoch-level counters.
-    self._total_loss += loss_value
+    # Cumulative epoch-level counters.  ``loss_value`` is a per-sample
+    # mean, so weight it by the samples it covers; otherwise the epoch
+    # mean would be a sum of means divided by a sample count.
+    self._total_loss += loss_value * batch_size
     self._total_samples += batch_size
 
-    # Window buffers.
+    # Window buffers (same weighting, so the step line's loss= and the
+    # summary's loss= are both per-sample means).
     self._window_samples += batch_size
-    self._window_loss += loss_value
+    self._window_loss += loss_value * batch_size
 
     # Record the latest value per extra metric (drives both the per-step
     # line and the epoch summary), and fold ``AVERAGE`` metrics into the

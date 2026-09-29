@@ -1,12 +1,14 @@
 """Unit tests for the VO training/evaluation pieces."""
 
 import collections
+import logging
 
 import pytest
 import torch
 
 from genml_kit.geometry.similarity import SimilarityParams
 from genml_kit.models.vo.vo_similar import VOModelOutput
+from genml_kit.training.train_reporting import ImageTrainReporting, metric
 from genml_kit.training.vo.train_vo import (
     STAGES,
     photometric_residual,
@@ -117,6 +119,44 @@ def test_loss_zero_for_exact_prediction():
   assert parts["mce"].item() == pytest.approx(0.0, abs=1e-5)
   assert parts["dlog_s"].item() == pytest.approx(0.0, abs=1e-6)
   assert parts["dtheta"].item() == pytest.approx(0.0, abs=1e-6)
+
+
+def test_reported_loss_is_never_below_its_mce_component(caplog):
+  """The reported loss must be >= mce, since every VO term is >= 0.
+
+  This is the invariant that exposed the reporting bug: the reporter
+  was dividing a per-sample mean by the sample count, so ``loss`` came
+  out 32x too small and sat *below* its own ``mce`` component -- which
+  is impossible, since ``loss = mce + w*dlog_s + w*dtheta + w*conf``
+  with all non-negative terms.  In production this is what a real run
+  showed: ``loss=0.5272`` next to ``mce=16.5492``.
+  """
+  opt = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=0.1)
+  mce = 16.55
+  # loss = mce + 1.0*0.1545 + 1.0*0.0392 + 0.5*0.2520
+  true_loss = mce + 0.1545 + 0.0392 + 0.1260
+  r = ImageTrainReporting(total_batches=1,
+                          log_every=100,
+                          writer=None,
+                          device=torch.device("cpu"),
+                          optimizer=opt,
+                          throughput_unit="img/s")
+  with caplog.at_level(logging.INFO):
+    r.step(batch_idx=0,
+           batch_size=32,
+           loss_value=true_loss,
+           logits=None,
+           targets=None,
+           global_step=0,
+           report_now=True,
+           extra_metrics={"mce": metric("mce", mce)})
+    reported, _ = r.summary()
+  # Both the step line and the summary must carry the true per-sample
+  # loss, and it can never sit below its own non-negative mce component.
+  for token in ("loss=16.8697", "mce=16.5500"):
+    assert token in caplog.text
+  assert reported == pytest.approx(true_loss)
+  assert reported >= mce, f"loss={reported} cannot be below mce={mce}"
 
 
 def test_mce_is_large_for_a_wrong_prediction():

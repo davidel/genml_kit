@@ -10,6 +10,7 @@ These are white-box tests: they deliberately assert on the private
 import logging
 from unittest.mock import MagicMock
 
+import pytest
 import torch
 
 
@@ -89,14 +90,69 @@ def test_init_stores_references():
 
 
 def test_image_step_accumulates_loss():
+  """_total_loss is a sample-weighted SUM; _total_samples the divisor.
+
+  ``loss_value`` is a per-sample mean, so each step contributes
+  ``loss_value * batch_size``.  The sum is not itself a reportable
+  quantity -- ``epoch_avg_loss`` divides it out -- but it is what makes
+  the epoch mean correct and batch-size invariant.
+  """
   r = _make_reporter(log_every=100)
   logits, targets = _dummy_batch(batch_size=4)
   r.step(0, 4, 2.5, 0, logits=logits, targets=targets)
-  assert r._total_loss == 2.5
+  assert r._total_loss == pytest.approx(2.5 * 4)
   assert r._total_samples == 4
   r.step(1, 4, 1.0, 1, logits=logits, targets=targets)
-  assert r._total_loss == 3.5
+  assert r._total_loss == pytest.approx((2.5 + 1.0) * 4)
   assert r._total_samples == 8
+  # The reportable value is the true per-sample mean, not mean/batch_size.
+  avg, _ = r.epoch_avg_loss()
+  assert avg == pytest.approx((2.5 + 1.0) / 2)
+
+
+def _epoch_avg(per_sample_means, batch_sizes):
+  """Feed a reporter and return its reported epoch mean."""
+  r = _make_reporter(total_batches=len(per_sample_means), log_every=10000)
+  for i, (m, bs) in enumerate(zip(per_sample_means, batch_sizes)):
+    r.step(batch_idx=i,
+           batch_size=bs,
+           loss_value=m,
+           logits=None,
+           targets=None,
+           global_step=i,
+           report_now=False)
+  return r.epoch_avg_loss()[0]
+
+
+def test_epoch_avg_loss_is_batch_size_invariant():
+  """The reported loss must not depend on the batch size used.
+
+  ``step()`` takes a per-sample mean, so weighting by the samples it
+  covers makes the epoch mean identical whether the loader yields
+  batches of 8 or 128.  Before the weighting, the reported value was
+  the mean divided by ``batch_size`` and moved with it.
+  """
+  means = [16.87, 16.50, 17.10]
+  reference = _epoch_avg(means, [32, 32, 32])
+  for bs in (8, 16, 64, 128):
+    assert _epoch_avg(means, [bs] * 3) == pytest.approx(reference)
+  assert reference == pytest.approx(sum(means) / 3)
+
+
+def test_epoch_avg_loss_weights_ragged_batches_by_sample_count():
+  """A short final batch must not be over-weighted.
+
+  ``drop_last=False`` yields a final batch smaller than the rest.
+  Averaging the batch *means* equally would over-weight that batch; the
+  sample weighting makes the result the true per-sample mean.
+  """
+  means = [16.87, 16.50, 17.10]
+  sizes = [32, 32, 11]
+  got = _epoch_avg(means, sizes)
+  expected = sum(m * s for m, s in zip(means, sizes)) / sum(sizes)
+  assert got == pytest.approx(expected)
+  # Distinct from the naive equal-weight mean, which over-counts batch 3.
+  assert got != pytest.approx(sum(means) / 3)
 
 
 def test_image_step_accumulates_top1():
@@ -112,7 +168,7 @@ def test_image_step_accumulates_window():
   logits, targets = _dummy_batch(batch_size=4, num_correct=2)
   r.step(0, 4, 2.0, 0, logits=logits, targets=targets)
   assert r._window_samples == 4
-  assert r._window_loss == 2.0
+  assert r._window_loss == pytest.approx(2.0 * 4)
   assert r._window_correct == 2
   assert len(r._window_preds) == 4
   assert len(r._window_labels) == 4
@@ -256,7 +312,7 @@ def test_image_window_resets_after_log():
   assert r._window_preds == []
   assert r._window_labels == []
   assert r._total_samples == 4
-  assert r._total_loss == 3.0
+  assert r._total_loss == pytest.approx(3.0 * 4)
   assert r._correct_top1 == 2
 
 
@@ -280,9 +336,11 @@ def test_image_log_metrics_are_correct(caplog):
     r.step(0, 4, 4.0, 0, logits=logits, targets=targets)
     r.step(1, 4, 2.0, 1, logits=logits, targets=targets)
 
-  lines = [ln for ln in caplog.text.splitlines() if "loss=0.7500" in ln]
+  # Windowed mean of the two per-sample means (4.0, 2.0) is 3.0 --
+  # sample-weighted, so equal batch sizes make it their average.
+  lines = [ln for ln in caplog.text.splitlines() if "loss=3.0000" in ln]
   assert len(lines) >= 1
-  assert "0.7500" in caplog.text
+  assert "0.7500" not in caplog.text  # the old mean/batch_size value
   assert "100.00%" in caplog.text
 
 
@@ -292,7 +350,9 @@ def test_image_summary_returns_correct_values():
   r.step(0, 4, 4.0, 0, logits=logits, targets=targets)
   r.step(1, 4, 2.0, 1, logits=logits, targets=targets)
   avg_loss, top1 = r.summary()
-  assert abs(avg_loss - 0.75) < 1e-6
+  # Mean of the two per-sample means; equal batch sizes, so the plain
+  # average is also the sample-weighted one.
+  assert abs(avg_loss - 3.0) < 1e-6
   assert abs(top1 - 75.0) < 1e-6
 
 
@@ -404,7 +464,9 @@ def test_image_single_batch_epoch():
   logits, targets = _dummy_batch(batch_size=2, num_correct=2)
   r.step(0, 2, 1.5, 0, logits=logits, targets=targets, report_now=True)
   avg_loss, top1 = r.summary()
-  assert abs(avg_loss - 0.75) < 1e-6
+  # A single batch: the per-sample mean IS the epoch mean, whatever the
+  # batch size.  It previously reported 1.5/2 = 0.75.
+  assert abs(avg_loss - 1.5) < 1e-6
   assert abs(top1 - 100.0) < 1e-6
 
 
@@ -429,10 +491,10 @@ def test_base_init_counters_are_zero():
 def test_base_step_accumulates_loss():
   r = _make_base_reporter(log_every=100)
   r.step(0, 4, 2.5, 0)
-  assert r._total_loss == 2.5
+  assert r._total_loss == pytest.approx(2.5 * 4)
   assert r._total_samples == 4
   r.step(1, 4, 1.0, 1)
-  assert r._total_loss == 3.5
+  assert r._total_loss == pytest.approx((2.5 + 1.0) * 4)
   assert r._total_samples == 8
 
 
@@ -489,7 +551,7 @@ def test_base_summary_returns_float():
   r.step(0, 4, 4.0, 0)
   r.step(1, 4, 2.0, 1)
   avg_loss = r.summary()
-  assert abs(avg_loss - 0.75) < 1e-6
+  assert abs(avg_loss - 3.0) < 1e-6
 
 
 def test_base_no_tensorboard_calls_when_writer_none():
