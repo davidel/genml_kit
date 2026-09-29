@@ -103,7 +103,7 @@ def test_residual_shrinks_toward_nadir():
     ])
     h_b = look_at_ground_h(-50.0 * dist_b, np.array([0.0, pitch_b, yaw]), _camera(),
                            (64, 64))
-    _, residual = homography_to_similarity(h_b @ np.linalg.inv(h_a), (64, 64))
+    _, residual, _, _ = homography_to_similarity(h_b @ np.linalg.inv(h_a), (64, 64))
     residuals[pitch_deg] = residual
   assert residuals[30.0] > residuals[45.0] > residuals[70.0]
   assert residuals[70.0] < 0.5

@@ -29,7 +29,7 @@ VOMetrics = collections.namedtuple("VOMetrics", [
 STAGES = {"supervised": 0, "photometric": 1}
 
 
-def vo_metrics_from_output(out, gt, gt_residual, src=None, dst=None):
+def vo_metrics_from_output(out, gt, gt_residual, src, dst, *, gt_corners_dst=None):
   """Model-side VO metrics from a model output and its ground truth.
 
   The single implementation of the four VO metrics.  Both evaluation
@@ -41,15 +41,30 @@ def vo_metrics_from_output(out, gt, gt_residual, src=None, dst=None):
       out: ``VOModelOutput`` from ``VOSimilarityNet.forward``.
       gt: mapping with ``log_s`` / ``theta`` / ``t`` (batched tensors).
       gt_residual: (B,) irreducible residual of the GT fit.
-      src: (B, 4, 2) reference corners; defaults to ``out.corners``.
-      dst: (B, 4, 2) target corners; defaults to ``out.corners + out.dc``.
+      src: (B, 4, 2) reference corners.  **Required.**
+      dst: (B, 4, 2) ground-truth target corners.  **Required.**
+      gt_corners_dst: optional (B, 4, 2) *homography* destinations, used
+          instead of ``dst`` when available.  vo/README.md s6 defines MCE
+          against where the corners truly land, and the similarity family
+          cannot absorb foreshortening, so the similarity-fit ``dst``
+          carries a systematic bias that this removes.
+
+  ``src`` and ``dst`` are deliberately positional and required.  They
+  previously defaulted to ``out.corners`` / ``out.corners + out.dc`` --
+  both *predicted* -- which silently produced a self-consistency
+  residual with no ground truth in it, and a nearly constant ~0.03
+  regardless of how wrong the prediction actually was.  Making them
+  required means a caller cannot get that version by accident again.
 
   Returns:
       VOMetrics of batch means (mce in pixels, dtheta in radians).
   """
-  src = out.corners if src is None else src
-  dst = (out.corners + out.dc) if dst is None else dst
-  mce = corner_residual(out.params, src, dst).mean()
+  if src is None or dst is None:
+    raise ValueError("vo_metrics_from_output requires ground-truth corners: mce is "
+                     "defined against the truth (vo/README.md s6), not against the "
+                     "prediction's own corner offsets.")
+  target = dst if gt_corners_dst is None else gt_corners_dst
+  mce = corner_residual(out.params, src, target).mean()
   dlog_s = (out.params.log_s - gt["log_s"]).abs().mean()
   dtheta = wrap_angle(out.params.theta - gt["theta"]).abs().mean()
   conf = f.smooth_l1_loss(out.conf[:, 0], gt_residual)
@@ -95,16 +110,50 @@ def vo_losses(pred, batch, cfg, stage):
   return total, parts
 
 
+def _gt_corners(meta, device=None):
+  """Return ``(src, dst)`` pixel corners from a meta object, batched.
+
+  Both sides of the mean corner error of vo/README.md s6.  Raises when
+  the meta predates the ``corners_src``/``corners_dst`` fields rather
+  than silently falling back to the prediction -- a fallback here would
+  restore exactly the bug these fields were added to fix.
+  """
+  src = getattr(meta, "corners_src", None)
+  dst = getattr(meta, "corners_dst", None)
+  if src is None or dst is None:
+    raise ValueError("VOPairMeta is missing corners_src/corners_dst; mce cannot be "
+                     "computed without ground-truth corners (vo/README.md s6).")
+  if device is not None:
+    src, dst = src.to(device), dst.to(device)
+  return src, dst
+
+
 def _src(batch):
-  """Reference corners from the collated batch (B, 4, 2)."""
+  """Reference corners from the collated batch (B, 4, 2).
+
+  Prefers the ground-truth pixel corners carried in the meta; falls back
+  to the network's own reference corners only when a caller builds a
+  batch without them (unit tests that construct minimal dicts).
+  """
+  meta = batch["meta"]
+  corners_src = getattr(meta, "corners_src", None)
+  if corners_src is not None:
+    return corners_src
   return batch["corners"]
 
 
 def _dst(batch):
-  """Target corners: the collated 'corners_dst' if present, else the
-  network's own corner offsets (training-time semantics)."""
-  if "corners_dst" in batch:
-    return batch["corners_dst"]
+  """Ground-truth target corners (B, 4, 2), in pixels.
+
+  This is the ``dst`` side of the mean corner error of vo/README.md s6.
+  It used to fall back to ``corners + dc`` -- the network's own
+  prediction -- which made ``L_mce`` a self-consistency residual with no
+  ground truth in it.
+  """
+  meta = batch["meta"]
+  corners_dst = getattr(meta, "corners_dst", None)
+  if corners_dst is not None:
+    return corners_dst
   return batch["corners"] + batch["dc"]
 
 
@@ -161,7 +210,8 @@ def evaluate_vo(model, loader, device):
       image_a = batch["image_a"].to(device)
       image_b = batch["image_b"].to(device)
       out = model(image_a, image_b)
-      metrics = vo_metrics_from_output(out, batch["meta"].gt, batch["meta"].gt_residual)
+      metrics = vo_metrics_from_output(out, batch["meta"].gt, batch["meta"].gt_residual,
+                                       *_gt_corners(batch["meta"], device))
       sums += torch.tensor(
           [metrics.mce, metrics.dlog_s, metrics.dtheta, metrics.conf_mae],
           dtype=torch.float64)

@@ -23,7 +23,8 @@ from genml_kit.geometry.similarity import (
     SimilarityParams,
     corner_residual,
 )
-from genml_kit.training.vo.train_vo import VOMetrics, vo_metrics_from_output
+from genml_kit.training.vo.train_vo import (VOMetrics, _gt_corners,
+                                            vo_metrics_from_output)
 from genml_kit.utils.table import format_table
 
 EvalRow = collections.namedtuple(
@@ -73,8 +74,10 @@ def evaluate_sliced(dataset, predict, group_key="terrain", image_size=64):
     accum = collections.defaultdict(list)
     for item in items:
       out = predict(item)
+      src, dst = _gt_corners(item["meta"])
       metrics = vo_metrics_from_output(out, _batched_gt(item["meta"].gt),
-                                       item["meta"].gt_residual.reshape(1))
+                                       item["meta"].gt_residual.reshape(1),
+                                       src.unsqueeze(0), dst.unsqueeze(0))
       for name in _FIELDS:
         accum[name].append(getattr(metrics, name))
     means = VOMetrics(**{

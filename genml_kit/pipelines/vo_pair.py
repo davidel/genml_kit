@@ -40,7 +40,10 @@ class VOPairPipeline(DataPipeline):
     Each item is ``{"image_a", "image_b", "meta": VOPairMeta}``.  The two
     frames stack to ``(B, C, H, W)`` each; the VOPairMeta fields become
     batched tensors in ``blob.meta``: ``gt`` (dict of tensors),
-    ``gt_residual``, ``terrain`` and ``range_bin``.
+    ``gt_residual``, ``terrain``, ``range_bin`` and the ground-truth
+    pixel corners ``corners_src`` / ``corners_dst``.  The last two are
+    the two sides of the mean corner error (vo/README.md s6); without
+    them ``mce`` has nothing to measure against.
     """
     data_a = torch.stack([b["image_a"] for b in batch])
     data_b = torch.stack([b["image_b"] for b in batch])
@@ -51,6 +54,10 @@ class VOPairPipeline(DataPipeline):
         "terrain": [b["meta"].terrain for b in batch],
         "range_bin":
             torch.tensor([b["meta"].range_bin for b in batch], dtype=torch.long),
+        "corners_src":
+            torch.stack([b["meta"].corners_src for b in batch]),
+        "corners_dst":
+            torch.stack([b["meta"].corners_dst for b in batch]),
     }
     for key in ("log_s", "theta", "t"):
       meta["gt"][key] = torch.stack([b["meta"].gt[key] for b in batch])

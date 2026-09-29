@@ -16,8 +16,20 @@ import torch
 
 from genml_kit.geometry.similarity import umeyama_similarity
 
-VOPairMeta = collections.namedtuple("VOPairMeta",
-                                    ["gt", "gt_residual", "terrain", "range_bin"])
+# ``corners_src`` / ``corners_dst`` are the four image corners in *pixel*
+# coordinates and where they truly land, i.e. the two sides of the mean
+# corner error of vo/README.md s6.  ``corners_dst`` comes from the
+# homography, not from the similarity fit, so the irreducible
+# foreshortening residual (``gt_residual``) stays visible instead of being
+# folded away.
+VOPairMeta = collections.namedtuple("VOPairMeta", [
+    "gt",
+    "gt_residual",
+    "terrain",
+    "range_bin",
+    "corners_src",
+    "corners_dst",
+])
 
 
 def look_at_ground_h(cam_pos, cam_rpy, cam, _size):
@@ -104,7 +116,15 @@ def homography_to_similarity(h, size):
       size: (W, H) of the image.
 
   Returns:
-      (sim_params dict with log_s/theta/t tensors, residual_px float).
+      (sim_params dict with log_s/theta/t tensors, residual_px float,
+       corners float64 (4, 2), mapped float64 (4, 2)).
+
+  The two corner arrays are the integer source corners and their
+  true homography-mapped destinations, both in *pixel* coordinates
+  (vo/README.md s11.4 convention).  They are what the mean corner error
+  of s6 is defined against, so they are returned rather than discarded;
+  previously only the fitted parameters survived, which left the loss
+  and the metric with no ground-truth corners to compare against.
   """
   width, height = size
   corners = np.array([
@@ -128,7 +148,7 @@ def homography_to_similarity(h, size):
       "theta": fit.theta[0].item(),
       "t": fit.t[0].tolist(),
   }
-  return sim, residual
+  return sim, residual, src[0], dst[0]
 
 
 def params_to_matrix_np(log_s, theta, t):
@@ -312,7 +332,8 @@ class VOPairDataset:
     h_b = look_at_ground_h(cam_b, rpy_b, self._cam, self._size)
     frame_a = self._render(base, h_a)
     frame_b = self._render(base, h_b)
-    sim, residual = homography_to_similarity(h_b @ np.linalg.inv(h_a), self._size)
+    sim, residual, corners_src, corners_dst = homography_to_similarity(
+        h_b @ np.linalg.inv(h_a), self._size)
     gt = {
         "log_s": torch.tensor(sim["log_s"]),
         "theta": torch.tensor(sim["theta"]),
@@ -325,5 +346,7 @@ class VOPairDataset:
                       terrain=self._terrain,
                       range_bin=int(
                           np.clip(np.searchsorted([0.1, 0.2, 0.3], abs(motion["dx"])),
-                                  0, 3)))
+                                  0, 3)),
+                      corners_src=corners_src.to(torch.float32),
+                      corners_dst=corners_dst.to(torch.float32))
     return {"image_a": image_a, "image_b": image_b, "meta": meta}

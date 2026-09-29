@@ -121,6 +121,20 @@ class VOSimilarityNet(nn.Module):
     widths, blocks = _PROFILES[config.profile]
     self.scale = config.cost_scale
     self.encoder = _Encoder(config.in_ch, widths, blocks)
+    # Learnable gain converting the head's normalized output into pixel
+    # corner deltas.  vo/README.md s14 and s16.1 require those deltas --
+    # and therefore L_mce -- to be in pixels.
+    #
+    # The old basis was derived from the encoder's feature map instead
+    # (``size = feat/2``, then ``* cost_scale``), which made it
+    # image_size/8, centered on zero, and dependent on encoder stride
+    # rather than on the image.  ``cost_scale`` is a correlation search
+    # *radius*, not a length, and the encoder's four stride-2 stages put
+    # features at H/16 regardless of it, so that basis was never a pixel
+    # count.  Initialising the gain to the old effective scale (8.0,
+    # i.e. image/8) keeps the head's starting output magnitude so it
+    # does not have to relearn a much larger range from scratch.
+    self.pixel_gain = nn.Parameter(torch.tensor(float(self.scale * 8.0)))
     self.ref_corners = nn.Buffer(torch.tensor([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0],
                                                [-1.0, 1.0]]),
                                  persistent=False)
@@ -137,32 +151,34 @@ class VOSimilarityNet(nn.Module):
   def forward(self, a, b):
     # B = batch, H = W for square frames; C = final encoder width
     # (e.g. 128 for the default npu-small profile).
-    # Siamese encode: (B, in_ch, H, W) -> (B, C, H/8, W/8) per frame.
+    # Siamese encode: (B, in_ch, H, W) -> (B, C, H/16, W/16) per frame.
     fa = self.encoder(a)
     fb = self.encoder(b)
-    # Correlation volume: (B, C, H/8, W/8) x (B, C, H/8, W/8) ->
-    # (B, (2R+1)^2, H/8, W/8), score per displacement (dy, dx).
+    # Correlation volume: (B, C, H/16, W/16) x (B, C, H/16, W/16) ->
+    # (B, (2R+1)^2, H/16, W/16), score per displacement (dy, dx).
     vol = correlate(fa, fb, self.cfg.cost_range)
     # Concatenate volume with reference features and refine with a 1x1
-    # conv: (B, C + (2R+1)^2, H/8, W/8) -> (B, C, H/8, W/8).
+    # conv: (B, C + (2R+1)^2, H/16, W/16) -> (B, C, H/16, W/16).
     feats = self.head(torch.cat([vol, fa], dim=1))
-    # Global average pooling: (B, C, H/8, W/8) -> (B, C).
+    # Global average pooling: (B, C, H/16, W/16) -> (B, C).
     pooled = feats.mean(dim=(2, 3))
-    # Reference corners in normalized coords, broadcast over the batch:
-    # (4, 2) -> (B, 4, 2).
-    corners = self.ref_corners.unsqueeze(0).expand(a.shape[0], -1, -1)
     # Corner MLP reads the pooled vector: (B, C) -> (B, 10); the first 8
     # values are corner deltas (4 corners x 2), the last 2 the confidence
     # pair.
     head_out = self.corner_mlp(pooled)
-    # Split off per-corner deltas: (B, 10) -> (B, 4, 2).
-    deltas = head_out[:, :8].view(-1, 4, 2)
-    # Feature-map extent (H/8, W/8) maps the normalized corners to pixels.
-    size = torch.tensor(
-        [fa.shape[-1], fa.shape[-2]], device=a.device, dtype=deltas.dtype) / 2.0
-    # Pixels: normalized corner * half-extent * scale + half-extent
-    # (shift to the frame center): (B, 4, 2) stays (B, 4, 2).
-    src = corners * size.unsqueeze(0) * self.scale + size.unsqueeze(0)
+    # Split off per-corner deltas: (B, 10) -> (B, 4, 2), scaled from the
+    # head's normalized output into pixels.
+    deltas = head_out[:, :8].view(-1, 4, 2) * self.pixel_gain
+    # Reference corners in *pixel* coordinates, built from the input
+    # shape: the integer-corner convention of vo/README.md s11.4, which
+    # is also what ``homography_to_similarity`` uses to build the ground
+    # truth (genml_kit.datasets.vo_pairs).  Deliberately independent of
+    # the feature map: the corner basis is a property of the image, not
+    # of the encoder stride.
+    height, width = a.shape[-2], a.shape[-1]
+    src = self.ref_corners.new_tensor([[0.0, 0.0], [width - 1, 0.0],
+                                       [width - 1, height - 1], [0.0, height - 1]
+                                      ]).unsqueeze(0).expand(a.shape[0], -1, -1)
     # Closed-form Umeyama least-squares similarity from src to src + deltas.
     params = umeyama_similarity(src, src + deltas)
     # Confidence pair: (B, 10) -> (B, 2).

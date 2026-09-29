@@ -106,10 +106,16 @@ class VOPairMethod(Method):
     # (see module docstring: deviation from the plan's forward-tuple item).
     image_a, image_b = blob.data
     out = model(image_a, image_b)
+    # Reconstruct the per-item meta namedtuple from the collated dict.
+    # blob.meta also carries "gt", so it is unpacked explicitly rather
+    # than splatted into VOPairMeta(**...).
+    collated = dict(blob.meta)
+    gt = collated.pop("gt")
+    meta = VOPairMeta(gt=gt, **collated)
     batch = {
         "image_a": image_a,
         "image_b": image_b,
-        "meta": VOPairMeta(**blob.meta),
+        "meta": meta,
         "corners": out.corners,
         "dc": out.dc,
     }
@@ -141,7 +147,12 @@ class VOPairMethod(Method):
         blob = to_device(blob, device)
         image_a, image_b = blob.data
         out = model(image_a, image_b)
-        metrics = vo_metrics_from_output(out, blob.meta["gt"], blob.meta["gt_residual"])
+        # blob.meta is the *collate dict*, not a VOPairMeta, so the two
+        # ground-truth corner fields are read directly.  They are the
+        # two sides of the mean corner error (vo/README.md s6).
+        metrics = vo_metrics_from_output(out, blob.meta["gt"], blob.meta["gt_residual"],
+                                         blob.meta["corners_src"],
+                                         blob.meta["corners_dst"])
         sums += torch.tensor(
             [metrics.mce, metrics.dlog_s, metrics.dtheta, metrics.conf_mae],
             dtype=torch.float64)

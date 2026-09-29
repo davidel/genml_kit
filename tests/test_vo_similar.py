@@ -95,6 +95,40 @@ def test_profile_param_counts_ordered():
   assert counts[0] < counts[1] < counts[2]
 
 
+def test_corners_are_true_pixel_corners():
+  """out.corners must be the image corners in pixels, at any size.
+
+  vo/README.md s14/s16.1 require corner deltas -- and therefore MCE --
+  to be in pixels.  The basis used to be derived from the encoder's
+  feature map (``feat/2 * cost_scale``), giving corners spanning
+  ``image/8`` centered on zero rather than ``[0, W-1]``.  That silently
+  made every "mce" value meaningless as a pixel error.
+  """
+  net = VOSimilarityNet(VOSimilarityConfig())
+  net.eval()
+  for img in (32, 64, 128):
+    with torch.no_grad():
+      out = net(torch.rand(1, 1, img, img), torch.rand(1, 1, img, img))
+    expected = torch.tensor([[0.0, 0.0], [img - 1.0, 0.0], [img - 1.0, img - 1.0],
+                             [0.0, img - 1.0]])
+    assert torch.allclose(out.corners[0], expected), f"img={img}"
+
+
+def test_pixel_gain_is_learnable_and_gradients_flow():
+  """The pixel-space gain must be a real parameter, not a constant.
+
+  Option 3 keeps the head's internal normalized output and learns the
+  conversion to pixels, so the gradient of the loss must reach it.
+  """
+  net = VOSimilarityNet(VOSimilarityConfig())
+  assert isinstance(net.pixel_gain, torch.nn.Parameter)
+  out = net(torch.rand(2, 1, 64, 64), torch.rand(2, 1, 64, 64))
+  (out.params.log_s.sum() + out.dc.sum()).backward()
+  assert net.pixel_gain.grad is not None
+  assert torch.isfinite(net.pixel_gain.grad).all()
+  assert net.pixel_gain.grad.abs().item() > 0.0
+
+
 def test_corner_head_shapes_and_slice():
   """The corner MLP maps pooled features to 10 values: 8 deltas + 2 conf.
 
