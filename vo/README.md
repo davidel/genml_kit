@@ -2910,5 +2910,5 @@ is used here.  Every entry is a public, checkable source.
 
 The Markdown + KaTeX rendering rules for this document (inline math,
 display math, escaping, operators, pitfalls) are centralized in
-[`docs/MARKDOWN_LATEX.txt`](docs/MARKDOWN_LATEX.txt).
+[`docs/MARKDOWN_LATEX.txt`](../docs/MARKDOWN_LATEX.txt).
 

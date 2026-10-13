@@ -289,6 +289,32 @@ class TestDetectLabelColumn:
 
 class TestLoadAndSplit:
 
+  def test_uses_existing_validation_split(self):
+    train_mod = _import_train()
+    train_ds = _make_synthetic_dataset(n=12)
+    validation_ds = _make_synthetic_dataset(n=5)
+    raw = datasets.DatasetDict({
+        "train": train_ds,
+        "validation": validation_ds,
+    })
+
+    train_proxy, val_proxy = train_mod.load_and_split_dataset(
+        "fake_dataset", loader=lambda *a, **k: raw)
+
+    assert len(train_proxy.dataset) == len(train_ds)
+    assert len(val_proxy.dataset) == len(validation_ds)
+
+  def test_splits_train_when_no_validation_or_test_split(self):
+    train_mod = _import_train()
+    train_ds = _make_synthetic_dataset(n=20)
+    raw = datasets.DatasetDict({"train": train_ds})
+
+    train_proxy, val_proxy = train_mod.load_and_split_dataset(
+        "fake_dataset", test_size=0.25, seed=42, loader=lambda *a, **k: raw)
+
+    assert len(train_proxy.dataset) == 15
+    assert len(val_proxy.dataset) == 5
+
   def test_preserves_original_label_column_name(self):
     train_mod = _import_train()
     raw = _make_synthetic_dataset(label_col="dx", image_col="image")

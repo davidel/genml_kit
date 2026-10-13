@@ -804,7 +804,7 @@ genml-kit-train --model google/vit-base-patch16-224 \
                 --epochs 5 \
                 --batch_size 32 \
                 --lr 3e-5 \
-                --image_size 448
+                --image_size 224
 ```
 
 ### With A Custom Classifier Head

@@ -99,7 +99,8 @@ def load_and_split_dataset(
         ),
     )
 
-  # DatasetDict: validate and ensure train/test splits exist.
+  # DatasetDict: validate and select existing train/validation splits, or
+  # create a validation split from training data when none is supplied.
   for split_name in raw:
     detected_image_column = image_column or HFDatasetProxy.detect_image_column(
         raw[split_name])
@@ -111,17 +112,22 @@ def load_and_split_dataset(
       )
 
   splits = set(raw.keys())
-  if "train" not in splits or "test" not in splits:
-    if "train" in splits:
-      split = raw["train"].train_test_split(test_size=test_size, seed=seed)
-      raw = _datasets.DatasetDict(split)
-    elif len(splits) == 1:
-      only = next(iter(splits))
-      split = raw[only].train_test_split(test_size=test_size, seed=seed)
-      raw = _datasets.DatasetDict(split)
+  if "train" in splits:
+    train_split = raw["train"]
+    if "validation" in splits:
+      val_split = raw["validation"]
+    elif "test" in splits:
+      val_split = raw["test"]
     else:
-      names = list(raw.keys())
-      raw = _datasets.DatasetDict({"train": raw[names[0]], "test": raw[names[1]]})
+      split = train_split.train_test_split(test_size=test_size, seed=seed)
+      train_split, val_split = split["train"], split["test"]
+  elif len(splits) == 1:
+    only = next(iter(splits))
+    split = raw[only].train_test_split(test_size=test_size, seed=seed)
+    train_split, val_split = split["train"], split["test"]
+  else:
+    names = list(raw.keys())
+    train_split, val_split = raw[names[0]], raw[names[1]]
 
   logging.info(
       "Using image column: %s%s",
@@ -135,13 +141,13 @@ def load_and_split_dataset(
   )
   return (
       HFDatasetProxy(
-          raw["train"],
+          train_split,
           transform=train_transform,
           image_column=image_column,
           label_column=label_column,
       ),
       HFDatasetProxy(
-          raw["test"],
+          val_split,
           transform=val_transform,
           image_column=image_column,
           label_column=label_column,
