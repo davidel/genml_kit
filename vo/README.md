@@ -721,7 +721,7 @@ to the depth.  Three consequences that drive everything later:
 
 $$
 \large
-\frac{W}{2} = f\\,\tan\alpha_{\max}\,\Longrightarrow\, \alpha_{\max} = \mathop{\mathrm{arctan}}\left(\frac{W}{2f}\right),\qquad \mathrm{FOV}_h = 2\,\mathop{\mathrm{arctan}}\left(\frac{W}{2f}\right).
+\frac{W}{2} = f\\,\tan\alpha_{\max}\\,\Longrightarrow\\, \alpha_{\max} = \mathop{\mathrm{arctan}}\left(\frac{W}{2f}\right),\qquad \mathrm{FOV}_h = 2\\,\mathop{\mathrm{arctan}}\left(\frac{W}{2f}\right).
 $$
 
 For $`f_{x} = 1000`$, $`W = 2000`$: $`FOV_{h} = 2 \mathop{\mathrm{arctan}}(1) = 90^{\circ}`$ — the worked
@@ -2398,7 +2398,7 @@ independent, then for any matrix $`F`$,
 
 $$
 \large
-F x + w \;\sim\; \mathcal{N}\bigl(F \mu,\; F P F^\top + Q\bigr) .
+F x + w \\;\sim\\; \mathcal{N}\bigl(F \mu,\\; F P F^\top + Q\bigr) .
 $$
 
 This is the entire *predict* step: apply $`F`$ to the mean and propagate the
@@ -2454,7 +2454,7 @@ $$
 (A + U C V)^{-1} = A^{-1} - A^{-1} U (C^{-1} + V A^{-1} U)^{-1} V A^{-1} ,
 $$
 
-with $`A = P, \; U = H^\top, \; C = R, \; V = H`$, and define the Kalman gain
+with $`A = P, \\; U = H^\top, \\; C = R, \\; V = H`$, and define the Kalman gain
 
 $$
 \large
@@ -2478,7 +2478,7 @@ $$
 = \mu + K (z - H \mu) ,
 $$
 
-which is exactly the update equation of §25.2, $`\mu^{+} = \mu + K\,(\text{innovation})`$.
+which is exactly the update equation of §25.2, $`\mu^{+} = \mu + K\\,(\text{innovation})`$.
 Here $`P = P_{k}^{-}`$ is the **predicted (prior) covariance** and $`P^{+} = P_{k}^{+}`$
 the **corrected (posterior) covariance**; the superscripts denote "before" and
 "after" the measurement update.
@@ -2496,7 +2496,7 @@ $`K`$ recovers the same gain:
 
 $$
 \large
-\frac{\partial}{\partial K}\mathop{\mathrm{tr}}\bigl(P - KHP - P H^\top K^\top + K (H P H^\top + R) K^\top\bigr) = 0 \;\Longrightarrow\; K = P H^\top (H P H^\top + R)^{-1} .
+\frac{\partial}{\partial K}\mathop{\mathrm{tr}}\bigl(P - KHP - P H^\top K^\top + K (H P H^\top + R) K^\top\bigr) = 0 \\;\Longrightarrow\\; K = P H^\top (H P H^\top + R)^{-1} .
 $$
 
 So the whole update step is "add two quadratics and complete the square, then
@@ -2509,31 +2509,31 @@ into the loop the front-end's contract feeds.  The *predict* step is the lemma
 above applied with $`F = F_{k-1}`$; the *update* step is the derivation above
 (Prior $`=`$ the prediction).
 
-*Predict* (from the previous corrected estimate $`\hat{x}_{k-1}, \; P_{k-1}`$):
+*Predict* (from the previous corrected estimate $`\hat{x}_{k-1}, \\; P_{k-1}`$):
 
 $$
 \large
-\hat{x}_{k}^{-} = F_{k-1}\, \hat{x}_{k-1},
+\hat{x}_{k}^{-} = F_{k-1}\\; \hat{x}_{k-1},
 \qquad
-P_{k}^{-} = F_{k-1}\, P_{k-1}\, F_{k-1}^{\top} + Q_{k-1} .
+P_{k}^{-} = F_{k-1}\\, P_{k-1}\\, F_{k-1}^{\top} + Q_{k-1} .
 $$
 
 *Update* (with measurement $`z_{k}`$ and Jacobian $`H_{k}`$):
 
 $$
 \large
-y_{k} = z_{k} - H_{k}\, \hat{x}_{k}^{-},
+y_{k} = z_{k} - H_{k}\\; \hat{x}_{k}^{-},
 \qquad
-S_{k} = H_{k}\, P_{k}^{-}\, H_{k}^{\top} + R_{k},
+S_{k} = H_{k}\\, P_{k}^{-}\\, H_{k}^{\top} + R_{k},
 $$
 
 $$
 \large
-K_{k} = P_{k}^{-}\, H_{k}^{\top}\, S_{k}^{-1},
+K_{k} = P_{k}^{-}\\, H_{k}^{\top}\\, S_{k}^{-1},
 \qquad
-\hat{x}_{k} = \hat{x}_{k}^{-} + K_{k}\, y_{k},
+\hat{x}_{k} = \hat{x}_{k}^{-} + K_{k}\\; y_{k},
 \qquad
-P_{k} = (I - K_{k} H_{k})\, P_{k}^{-} .
+P_{k} = (I - K_{k} H_{k})\\, P_{k}^{-} .
 $$
 
 The innovation $`y_{k}`$ and its covariance $`S_{k}`$ are exactly the quantities
