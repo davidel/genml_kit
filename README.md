@@ -305,7 +305,7 @@ an exponential moving average:
 
 $$
 \large
-\xi \leftarrow m \, \xi + (1 - m) \, \theta
+\xi \leftarrow m \\, \xi + (1 - m) \\, \theta
 $$
 
 where $`m`$ is the momentum (`--teacher_momentum`) and the arrow denotes
@@ -367,7 +367,7 @@ Fix one example $`i`$, called the *anchor*. Its *positive set* is
 
 $$
 \large
-\mathcal{P}(i) = \{\, j : j \neq i \text{ and } y_j = y_i \,\}
+\mathcal{P}(i) = \{\\, j : j \neq i \text{ and } y_j = y_i \\,\}
 $$
 
 i.e. all other examples in the batch that share the anchor's class label
@@ -424,7 +424,7 @@ they are meant to be confident) and a larger student temperature (softer
 [Emerging Properties in Self-Supervised Vision Transformers](https://arxiv.org/abs/2104.14294), ICCV 2021.
 One backbone is instantiated twice. The **student** $`f_\theta`$ is trained by
 gradient descent; the **teacher** $`f_\xi`$ is the EMA copy of the student
-($`\xi \leftarrow m\,\xi + (1-m)\,\theta`$, as in I-JEPA above, ramped from
+($`\xi \leftarrow m\\,\xi + (1-m)\\,\theta`$, as in I-JEPA above, ramped from
 `--dino_momentum` 0.996 to `--dino_final_momentum` 1.0). Each image is cut
 into 2 **global** crops plus `--dino_local_num` (8) small **local** crops:
 the teacher sees only global views, the student sees all of them, so the
@@ -437,7 +437,7 @@ $`c \in \mathbb{R}^{D}`$ updated once per step,
 
 $$
 \large
-c \leftarrow m_c \, c + (1 - m_c) \cdot \frac{1}{B}\sum_{i=1}^{B} f_\xi(x_i)
+c \leftarrow m_c \\, c + (1 - m_c) \cdot \frac{1}{B}\sum_{i=1}^{B} f_\xi(x_i)
 $$
 
 (`--dino_center_momentum` 0.9), and the loss is the cross-entropy between the
@@ -446,7 +446,7 @@ averaged over all (teacher global, student crop) pairings:
 
 $$
 \large
-\mathcal{L} = - \sum_{j} p_{\xi,j} \, \log p_{\theta,j}
+\mathcal{L} = - \sum_{j} p_{\xi,j} \\, \log p_{\theta,j}
 $$
 
 Centering and sharpening are the two anti-collapse mechanisms: centering
@@ -715,7 +715,7 @@ true class survives and the loss reduces to the familiar $`-\log p(y \mid x)`$.
 genml_kit generalizes this in three directions via `CombinedFocalLoss`:
 
 - **Soft targets.** With Mixup (below) $`q`$ is the blend
-  $`\lambda\, y_i + (1-\lambda)\, y_j`$, and the sum keeps both classes'
+  $`\lambda\\, y_i + (1-\lambda)\\, y_j`$, and the sum keeps both classes'
   terms weighted by $`\lambda`$ and $`1-\lambda`$.
 - **Label smoothing** (via `--loss_args '{"label_smoothing": ...}'`):
   the one-hot target is replaced by
@@ -862,7 +862,7 @@ schedule is (introduced by Howard & Ruder, [Universal Language Model Fine-tuning
 
 $$
 \large
-\text{lr}(\text{layer}) = \text{lr}_{\text{base}} \cdot d^{\,L - \text{layer}}
+\text{lr}(\text{layer}) = \text{lr}_{\text{base}} \cdot d^{\\,L - \text{layer}}
 $$
 
 where:
@@ -950,8 +950,8 @@ The loss for one example is
 
 $$
 \large
-\mathcal{L} = \left(1 - p_t\right)^{\gamma} \sum_{c=1}^{C} w_c\, q_c
-\left(-\log p_c\right), \qquad p_t = \sum_{c=1}^{C} q_c\, p_c
+\mathcal{L} = \left(1 - p_t\right)^{\gamma} \sum_{c=1}^{C} w_c\\, q_c
+\left(-\log p_c\right), \qquad p_t = \sum_{c=1}^{C} q_c\\, p_c
 $$
 
 Two details matter for the reader combining these flags:

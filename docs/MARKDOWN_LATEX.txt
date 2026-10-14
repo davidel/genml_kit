@@ -401,13 +401,16 @@ If ANY item on the checklist in section 10 fails, or ANY check in the
 scripts in section 11 reports a problem, fix the file BEFORE you commit
 or publish it.
 
-The two symptoms to recognize:
+The symptoms to recognize:
   - a KaTeX error message ("Missing open brace ...", "Unknown
     operator ...") means Markdown already mangled the math content;
     inspect the bytes around the offending span.
   - raw "$...$" / "$$...$$" text visible in the rendered page means
     math-block detection failed; look for line-start markers,
     malformed backticks, or emphasis/bold crossing span boundaries.
+  - a COMMA suddenly visible inside a rendered formula (for example
+    "$\,$" showing up as a comma) means Markdown ate the backslash of
+    an escaped punctuation command; see item 3.
 
 With the checklist and the scripts, none of these problems should ever
 reach a reviewer again.
