@@ -62,8 +62,6 @@ class SegmentationMethod(Method):
                        help="Path/URL to a script defining "
                        "create_seg_transform(image_size, is_train).")
 
-  # -- Lifecycle hooks -------------------------------------------------------
-
   def prepare_transforms(self, args, device):
     """Build the paired train/val transforms from the model processor.
 
@@ -136,8 +134,6 @@ class SegmentationMethod(Method):
     )
     return self._apply_model_extras(args, model, device)
 
-  # -- Core steps ------------------------------------------------------------
-
   def train_step(self, model, blob, global_step, *, labels=None):
     images = blob.data
     mask = blob.meta.get("mask")
@@ -180,8 +176,6 @@ class SegmentationMethod(Method):
     metrics["loss"] = total_loss / max(n_batches, 1)
     return metrics
 
-  # -- Checkpointing ---------------------------------------------------------
-
   def get_checkpoint_state(self, model, args):
     return {
         "method": "segmentation",
@@ -193,8 +187,6 @@ class SegmentationMethod(Method):
     if state and state.get("num_classes"):
       self._num_classes = state["num_classes"]
       self._id2label = state.get("id2label", self._id2label)
-
-  # -- Helpers ---------------------------------------------------------------
 
   def _ignore_index(self):
     """Return the CE ignore index (``-100`` when ignoring is disabled)."""

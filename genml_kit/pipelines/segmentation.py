@@ -205,8 +205,6 @@ class SegmentationPipeline(DataPipeline):
                            mask_column=mask_col,
                            mask_map=mask_map))
 
-  # -- Mask class map -------------------------------------------------------
-
   @staticmethod
   def _class_map_cache_dir(args):
     """Resolve the class-map cache directory.

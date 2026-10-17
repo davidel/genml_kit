@@ -175,7 +175,6 @@ class TestMaskMapCache:
 
   def test_cache_dir_fallback(self, tmp_path, monkeypatch):
     from genml_kit.pipelines.segmentation import SegmentationPipeline
-    # --cache_dir unset -> ~/.cache/genml_kit (if writeable).
     home = str(tmp_path / "home")
     os.makedirs(home, exist_ok=True)
     monkeypatch.setenv("HOME", home)
