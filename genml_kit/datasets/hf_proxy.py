@@ -4,8 +4,25 @@ import logging
 
 import datasets
 import numpy as np
+from PIL import Image
 
 from genml_kit.utils.logging import fatal
+
+
+def _is_array_feature(feat):
+  """Return True for pre-decoded array image features.
+
+  Covers ``datasets.Sequence(Value(\"uint8\"))`` (possibly nested) and
+  ``datasets.Array3D``, which hold raw image arrays rather than file
+  references.
+  """
+  if isinstance(feat, datasets.Array3D):
+    return True
+  if isinstance(feat, datasets.Sequence):
+    inner = feat.feature
+    return _is_array_feature(inner) if isinstance(inner, type(feat)) else isinstance(
+        inner, datasets.Value)
+  return False
 
 
 class HFDatasetProxy:
@@ -57,16 +74,33 @@ class HFDatasetProxy:
       "channel",
   })
 
+  MASK_COLUMN_NAMES = frozenset({
+      "mask",
+      "masks",
+      "label",
+      "labels",
+      "annotation",
+      "annotations",
+      "segmentation",
+      "segmentations",
+      "seg_mask",
+      "ground_truth",
+      "gt",
+      "target",
+  })
+
   def __init__(self,
                hf_dataset,
                transform=None,
                image_column=None,
                label_column=None,
-               mask_column=None):
+               mask_column=None,
+               mask_map=None):
     self._image_col = image_column or self.detect_image_column(hf_dataset)
     self.dataset = self.normalize_image_column(hf_dataset, self._image_col)
     self._mask_col = mask_column
     self._label_col = None
+    self._mask_map = mask_map
 
     if self._mask_col is not None:
       # A mask column makes this a segmentation source: normalise it as an
@@ -92,10 +126,17 @@ class HFDatasetProxy:
       # co-process image and mask.  (The classification path keeps the
       # ``(image, label)`` tuple contract.)
       mask = item[self._mask_col]
-      if hasattr(mask, "convert"):
-        mask = np.array(mask.convert("L"), dtype=np.int64)
-      elif not isinstance(mask, np.ndarray):
-        mask = np.asarray(mask, dtype=np.int64)
+      arr = mask if isinstance(mask, np.ndarray) else np.asarray(mask)
+      # A mask_map is provided when the pipeline compacted a sparse or
+      # RGB mask: remap raw pixel values / RGB triplets to dense ids.
+      if self._mask_map is not None:
+        arr = self._apply_mask_map(arr, self._mask_map)
+      elif arr.ndim == 3:
+        # No map (standalone proxy): collapse RGB to single-channel.
+        arr = np.asarray(Image.fromarray(arr).convert("L"), dtype=np.int64)
+      else:
+        arr = arr.astype(np.int64)
+      mask = arr
       if self._transform is not None:
         return self._transform({"image": image, "mask": mask})
       return {"image": image, "mask": mask}
@@ -104,6 +145,65 @@ class HFDatasetProxy:
     if self._transform is not None:
       image = self._transform(image)
     return image, label
+
+  @staticmethod
+  def _apply_mask_map(arr, mask_map):
+    """Remap raw mask pixel values / RGB triplets to compact ids.
+
+    Args:
+        arr: ``(H, W)`` single-channel or ``(H, W, 3)`` RGB mask array.
+        mask_map: ``{raw_key: compact_id}`` where *raw_key* is either an
+            int (single-channel) or a 3-tuple (RGB triplet).
+
+    Returns:
+        ``(H, W)`` int64 array with compact ids.
+
+    Raises:
+        ValueError: if a raw value/triplet is missing from *mask_map*
+            (a val-only id that never appeared in the training scan).
+    """
+    if arr.ndim == 3:
+      h, w, _ = arr.shape
+      flat_keys = arr.reshape(-1, 3)
+      out = np.empty(flat_keys.shape[0], dtype=np.int64)
+      for i in range(flat_keys.shape[0]):
+        key = tuple(int(v) for v in flat_keys[i])
+        if key not in mask_map:
+          fatal(f"Mask value {key} not in the class map (val-only id?)", ValueError)
+        out[i] = mask_map[key]
+      return out.reshape(h, w)
+    out = np.empty(arr.size, dtype=np.int64)
+    flat = arr.ravel()
+    for i in range(flat.size):
+      raw = int(flat[i])
+      if raw not in mask_map:
+        fatal(f"Mask value {raw} not in the class map (val-only id?)", ValueError)
+      out[i] = mask_map[raw]
+    return out.reshape(arr.shape)
+
+  @staticmethod
+  def detect_mask_column(dataset):
+    """Return the name of the mask column, or ``None``.
+
+        Detection priority:
+          1. Column named ``"mask"`` with ``datasets.Image`` feature.
+          2. Any column with ``datasets.Image`` feature and a known mask
+             name.
+          3. Column matching a known mask name.
+        """
+    features = dataset.features
+
+    if "mask" in features and isinstance(features["mask"], datasets.Image):
+      return "mask"
+
+    for name in features:
+      if (name in HFDatasetProxy.MASK_COLUMN_NAMES and
+          isinstance(features[name], datasets.Image)):
+        return name
+
+    for name in HFDatasetProxy.MASK_COLUMN_NAMES:
+      if name in features:
+        return name
 
   @property
   def mask_column(self):
@@ -170,6 +270,14 @@ class HFDatasetProxy:
         if isinstance(feat, datasets.Value) and feat.dtype == "string":
           return name
 
+    # Array features (e.g. pixel_values as Sequence(Value('uint8')) or
+    # Array3D) are pre-decoded image tensors; a known image name is enough.
+    for name in HFDatasetProxy.KNOWN_IMAGE_NAMES:
+      if name in features:
+        feat = features[name]
+        if _is_array_feature(feat):
+          return name
+
   @staticmethod
   def normalize_image_column(dataset, image_column=None):
     """Cast the selected image column to ``datasets.Image`` when needed.
@@ -189,6 +297,16 @@ class HFDatasetProxy:
     feat = dataset.features[image_col]
     if isinstance(feat, datasets.Value) and feat.dtype == "string":
       dataset = dataset.cast_column(image_col, datasets.Image())
+    elif _is_array_feature(feat):
+      # Pre-decoded array (e.g. pixel_values): convert to Image so the
+      # downstream code sees a PIL-decodable column (H,W[,C]).
+      def _to_image(arr):
+        arr = np.asarray(arr)
+        if arr.dtype != np.uint8:
+          arr = arr.astype(np.uint8)
+        return Image.fromarray(arr)
+
+      dataset = dataset.map(lambda row: {image_col: _to_image(row[image_col])})
     return dataset
 
   @staticmethod

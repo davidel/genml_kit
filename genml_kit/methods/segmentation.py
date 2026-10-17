@@ -223,11 +223,18 @@ class SegmentationMethod(Method):
     return inferred
 
   def _infer_num_classes(self, pipeline):
-    """Scan a few training masks for the maximum label id.
+    """Return the number of classes from the pipeline's mask map.
 
-    Ignored pixels (``--seg_ignore_index``) are excluded so a ``255`` void
-    label cannot inflate the class count.
+    The pipeline compacts raw mask ids (sparse / RGB / 1-based) into a
+    dense ``[0, C)`` set during a full pre-scan, so ``C = len(map)``
+    exactly.  When no map was built (e.g. the segfolder path), fall back
+    to scanning a few loader masks for the maximum label id -- ignored
+    pixels (``--seg_ignore_index``) are excluded so a ``255`` void label
+    cannot inflate the count.
     """
+    if getattr(pipeline, "mask_map", None):
+      return len(pipeline.mask_map)
+
     loader = pipeline.train_loader
     if loader is None:
       fatal(
