@@ -13,6 +13,7 @@ by the training and inference harnesses.
 import genml_kit.models.cls_model_wrapper  # noqa: F401
 import genml_kit.models.convvit  # noqa: F401
 import genml_kit.models.rl  # noqa: F401
+import genml_kit.models.seg_model_wrapper  # noqa: F401
 import genml_kit.models.timm  # noqa: F401
 import genml_kit.models.uvito  # noqa: F401
 import genml_kit.models.vo  # noqa: F401

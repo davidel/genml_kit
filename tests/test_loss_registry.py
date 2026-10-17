@@ -41,6 +41,17 @@ class TestBuiltinLosses:
     dqn = load_loss("dqn")
     assert "td" in dqn
 
+  def test_dice_ce_registered(self):
+    from genml_kit.losses.segmentation import DiceCELoss
+
+    assert LOSSES.contains("dice_ce")
+    loss = load_loss("dice_ce", weight=2.0, ignore_index=255)
+    assert isinstance(loss, DiceCELoss)
+    assert loss.weight == 2.0
+    logits = torch.randn(2, 3, 8, 8)
+    target = torch.randint(0, 3, (2, 8, 8))
+    assert torch.isfinite(loss(logits, target))
+
 
 class TestScriptLoss:
 

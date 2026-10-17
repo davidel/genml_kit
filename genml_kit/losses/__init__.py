@@ -31,14 +31,22 @@ from genml_kit.losses.rl import (
     td_target,
     value_loss,
 )
+from genml_kit.losses.segmentation import (
+    DiceCELoss,
+    dice_ce_loss,
+    dice_loss,
+)
 
 __all__ = [
     "CombinedFocalLoss",
     "DEFAULT_LOSS",
     "DINOLoss",
+    "DiceCELoss",
     "LOSSES",
     "byol_loss",
     "clipped_surrogate",
+    "dice_ce_loss",
+    "dice_loss",
     "entropy_bonus",
     "gae",
     "load_loss",

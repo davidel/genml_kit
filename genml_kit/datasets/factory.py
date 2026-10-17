@@ -17,7 +17,9 @@ def parse_dataset_specs(names, image_column="image", label_column=None, split="t
   Args:
       names: Sequence of dataset specs; a spec starting with
           ``imagefolder/`` refers to a local ``ImageFolder`` tree, a spec
-          that is an existing directory path is treated the same way,
+          starting with ``segfolder/`` refers to a local paired
+          ``images/`` + ``masks/`` segmentation tree, a spec that is an
+          existing directory path is treated as an ``ImageFolder``, and
           anything else is a HuggingFace dataset name.  Blank entries
           are skipped.
       image_column: Image column for HuggingFace sources.
@@ -40,6 +42,8 @@ def parse_dataset_specs(names, image_column="image", label_column=None, split="t
       continue
     if name.startswith("imagefolder/"):
       configs.append({"name": name.split("/", 1)[1], "source": "imagefolder"})
+    elif name.startswith("segfolder/"):
+      configs.append({"name": name.split("/", 1)[1], "source": "segfolder"})
     elif os.path.isdir(name):
       configs.append({"name": name, "source": "imagefolder"})
     else:

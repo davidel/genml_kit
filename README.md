@@ -28,6 +28,7 @@ in [`vo/README.md`](vo/README.md).
 - [Gradient Monitor](#gradient-monitor)
 - [Custom Losses](#custom-losses)
 - [Custom Models](#custom-models)
+- [Semantic Segmentation](#semantic-segmentation)
 - [References And Further Reading](#references-and-further-reading)
 - [Development](#development)
 - [License](#license)
@@ -150,11 +151,11 @@ reuse the same hook.
 | Module | Contents |
 |---|---|
 | `genml_kit.training` | `train.py` and `infer.py` CLI harnesses, `optim_factory.py` (optimizers, LLRD, schedulers), `model_utils.py` (loading, freezing, feature extraction), `param_align.py`, `eval.py` + `metrics.py`, `grad_monitor.py`, `train_reporting.py`, `tta.py`, `xgb_utils.py` + `xgb_pipeline.py`, `classifiers/` (pluggable heads) |
-| `genml_kit.methods` | objective-side registry (classification, vo_pair, SimMIM, I-JEPA, DINO, BYOL, SupCon) |
-| `genml_kit.losses` | shared loss library (focal, NT-Xent contrastive, DINO self-distillation, BYOL) |
+| `genml_kit.methods` | objective-side registry (classification, segmentation, vo_pair, SimMIM, I-JEPA, DINO, BYOL, SupCon) |
+| `genml_kit.losses` | shared loss library (focal, Dice+CE segmentation, NT-Xent contrastive, DINO self-distillation, BYOL) |
 | `genml_kit.augmentations` | objective-level transforms (dual-view, multi-crop) |
-| `genml_kit.models` | model/processor registry; `timm/`, `convvit/`, `uvito/`, `cls_model_wrapper/` backends; `processors/base.py` |
-| `genml_kit.datasets` | `hf_proxy.py` (HuggingFace → PyTorch bridge), `image_folder.py`, `ensemble.py`, `field_dataset.py`, `balanced_sampler.py`, `weighted_sampler.py`, `retry.py`, `vo_pairs.py` (synthetic VO pairs) |
+| `genml_kit.models` | model/processor registry; `timm/`, `convvit/`, `uvito/`, `cls_model_wrapper/`, `seg_model_wrapper/` backends; `decoders/` (pluggable segmentation decoders); `processors/base.py` |
+| `genml_kit.datasets` | `hf_proxy.py` (HuggingFace → PyTorch bridge), `image_folder.py`, `seg_folder.py` (paired image/mask), `ensemble.py`, `field_dataset.py`, `balanced_sampler.py`, `weighted_sampler.py`, `retry.py`, `vo_pairs.py` (synthetic VO pairs) |
 | `genml_kit.geometry` | `similarity.py` (2-D similarity algebra, batched differentiable Umeyama, backward-map warp) — the math behind the visual-odometry front-end lives in [`vo/README.md`](vo/README.md) |
 | `genml_kit.io` | `checkpointing.py` (atomic saves, LoRA state, remote fetch), `storage_utils.py` (S3 / GCS / R2) |
 | `genml_kit.utils` | glog-style logging, CLI arg groups, seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers |
@@ -1620,6 +1621,92 @@ own head (`convvit`, `uvito`, `timm:<name>`) do not accept this kwarg — for
 a custom head on a HuggingFace backbone use `cls_model_wrapper` instead.
 `genml-kit-infer` needs the same `--model_arg classifier=...` to rebuild the
 head before loading the checkpoint weights.
+
+---
+
+## Semantic Segmentation
+
+Segmentation predicts a class for **every pixel**: an image `(B, 3, H, W)`
+goes in and per-pixel logits `(B, num_classes, H, W)` come out.  `genml_kit`
+models this as `encoder + decoder`: the encoder is any hierarchical timm
+backbone (ResNet / ConvNeXt / Swin / MiT) emitting a feature pyramid, and
+the decoder fuses that pyramid back up to full resolution (with skip
+connections for `unet`/`fpn`).
+
+### Quick start
+
+```bash
+genml_kit-train \
+  --pipeline segmentation --method segmentation \
+  --dataset segfolder:/data/voc2012 \
+  --model seg_wrapper:timm/resnet34 \
+  --model_arg decoder=unet:depth=4 \
+  --loss dice_ce \
+  --image_size 512 --batch_size 8 --epochs 40
+```
+
+The layout expected by `segfolder/` is a paired tree:
+
+```
+/data/voc2012/images/2007_000032.jpg
+/data/voc2012/masks/2007_000032.png
+```
+
+or, for a corpus with named splits, `train/`, `val/` and `test/`
+sub-directories each containing `images/` + `masks/`.  Image and mask are
+matched on the file stem (case-insensitive) and a mismatch fails fast.
+
+HuggingFace datasets that carry a mask feature are used with `--mask_column`:
+
+```bash
+genml_kit-train --pipeline segmentation --method segmentation \
+  --dataset scene_parse_150 --mask_column annotation \
+  --model seg_wrapper:timm/convnext_tiny --model_arg decoder=fpn
+```
+
+### Encoder + decoder
+
+`--model seg_wrapper:<backbone>` selects the encoder; the decoder is chosen
+with `--model_arg decoder=<spec>`.  Built-in decoders:
+
+| Decoder | Skip connections | Notes |
+|---|---|---|
+| `unet` | yes (all levels) | Classic U-Net top-down fusion; `depth=N` selects the deepest N encoder levels |
+| `fpn` | yes (additive) | Feature-pyramid fusion into one high-resolution map |
+| `linear` | no | 1×1 conv + bilinear upsample; good baseline, ViT-friendly |
+
+The decoder spec accepts `:key=value` kwargs (`decoder=unet:depth=4,decoder_channels=256`)
+and, like classifier heads, a path to a `.py` file defining
+`create_decoder(in_channels, num_classes, **kwargs)` where `in_channels` is
+the probed per-level encoder channel list.
+
+### Training from scratch vs. fine-tuning
+
+The decoder is always randomly initialized and trained from scratch; the
+encoder is what you initialise.  Options, in increasing order of GPU cost:
+
+- **Pretrained encoder (recommended):** `seg_wrapper` loads timm ImageNet
+  weights by default (`pretrained=False` disables this).
+- **Reuse a self-supervised checkpoint:** pre-train with SimMIM / I-JEPA /
+  DINO, then load the encoder with `--source_checkpoint <ckpt>` (see
+  [From A Pre-Trained Checkpoint](#from-a-pre-trained-checkpoint)).
+- **CNN encoder with a frozen backbone:** `--freeze 'decoder.*'` keeps the
+  decoder trainable and freezes everything else.
+- **Transformer encoder with LoRA:** `--lora` (PEFT discovers the
+  `q_proj`/`k_proj`/`v_proj` projections automatically).  CNN encoders are
+  almost all `Conv2d`, so LoRA does not apply to them — use `--freeze`.
+
+### Loss and metric
+
+The default criterion is `dice_ce` (Dice + cross-entropy), selectable via
+`--loss dice_ce`; the validation metric is **mean IoU** (`miou`, maximize,
+also reporting `mdice` and `pixel_acc`).  The class count is inferred from
+the training masks (ignoring `--seg_ignore_index`, default 255) unless
+`--seg_num_classes` overrides it.  Pixels equal to `--seg_ignore_index` are
+excluded from both the loss and the metric.
+
+Note that some backbones (e.g. plain ViT, Swin) require their native input
+resolution (224) and reject other sizes.
 
 ---
 

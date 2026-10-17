@@ -98,6 +98,7 @@ def load_model(
     device="cpu",
     checkpoint_path=None,
     cache_dir=None,
+    task=None,
     **kwargs,
 ):
   """Load a model by *model_name* -- custom, script, or HuggingFace.
@@ -106,6 +107,9 @@ def load_model(
     ``MODELS.register``.  HuggingFace models are loaded via
     ``AutoModelForImageClassification``; ``num_labels == 0`` follows the
     timm convention and loads the headless backbone via ``AutoModel``.
+    When *task* is ``"segmentation"`` the HuggingFace path uses
+    ``AutoModelForSemanticSegmentation`` instead (its ``.logits`` are
+    ``(B, C, H/4, W/4)`` and are upsampled by the segmentation method).
 
     External scripts: if *model_name* is a ``.py`` path or HTTP(S) URL
     the script must define ``create_model(num_labels, image_size,
@@ -162,6 +166,18 @@ def load_model(
     # self-supervised pre-training paths.
     logging.info("Loading headless HuggingFace model '%s'.", parsed.model)
     model = AutoModel.from_pretrained(parsed.model, cache_dir=cache_dir)
+  elif task == "segmentation":
+    from transformers import AutoModelForSemanticSegmentation
+
+    logging.info("Loading HuggingFace segmentation model '%s'.", parsed.model)
+    model = AutoModelForSemanticSegmentation.from_pretrained(
+        parsed.model,
+        num_labels=num_labels,
+        id2label=id2label,
+        label2id=label2id,
+        cache_dir=cache_dir,
+        ignore_mismatched_sizes=True,
+    )
   else:
     logging.info("Loading HuggingFace model '%s'.", parsed.model)
     model = AutoModelForImageClassification.from_pretrained(

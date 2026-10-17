@@ -792,3 +792,40 @@ class TestExtractBackboneFeatures:
     # Count hooks after — should be the same
     n_hooks_after = len(model.classifier._forward_hooks)
     assert n_hooks_after == n_hooks_before
+
+
+class TestSegWrapperLoader:
+  """seg_wrapper: encoder backbone + pluggable decoder via the registry."""
+
+  def test_loads_timm_encoder_and_decoder(self):
+    model = load_model(
+        "seg_wrapper:timm/resnet18",
+        num_labels=4,
+        image_size=64,
+        device=torch.device("cpu"),
+        decoder="unet:depth=4",
+        pretrained=False,
+    )
+    out = model(pixel_values=torch.randn(2, 3, 64, 64))
+    # Per-pixel logits at the finest encoder resolution.
+    assert out.logits.shape == (2, 4, 16, 16)
+    assert model.config.num_labels == 4
+
+  def test_num_labels_from_id2label_when_zero(self):
+    model = load_model(
+        "seg_wrapper:timm/resnet18",
+        num_labels=0,
+        id2label={
+            0: "a",
+            1: "b"
+        },
+        image_size=64,
+        device=torch.device("cpu"),
+        decoder="linear",
+        pretrained=False,
+    )
+    assert model.num_labels == 2
+
+  def test_missing_backbone_raises(self):
+    with pytest.raises(ValueError):
+      load_model("seg_wrapper", num_labels=2, image_size=64, device=torch.device("cpu"))

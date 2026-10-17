@@ -51,6 +51,24 @@ def supcon_loss(*, temperature=0.07, **kwargs):
   return _supcon
 
 
+@LOSSES.register("dice_ce")
+def dice_ce_criterion(*, weight=1.0, ignore_index=255, eps=1.0, **kwargs):
+  """Dice + cross-entropy criterion for semantic segmentation.
+
+  Args:
+    weight: Relative weight of the cross-entropy term.
+    ignore_index: Label value excluded from both terms (``< 0`` disables).
+    eps: Dice smoothing constant.
+
+  Returns:
+    ``DiceCELoss`` instance callable as ``(logits, target)`` where
+    ``logits`` is ``(B, C, H, W)`` and ``target`` is ``(B, H, W)``.
+  """
+  from genml_kit.losses.segmentation import DiceCELoss
+
+  return DiceCELoss(weight=weight, ignore_index=ignore_index, eps=eps)
+
+
 @LOSSES.register("ppo")
 def ppo_loss_bundle(*, clip_eps=0.2, vf_clip_eps=0.5, **kwargs):
   """Default PPO loss bundle (policy + value + entropy).
@@ -98,6 +116,7 @@ def dqn_loss_bundle(*, reduction="mean", **kwargs):
 
 # Import-time registration hook: re-exported by genml_kit.losses.
 __all__ = [
+    "dice_ce_criterion",
     "dqn_loss_bundle",
     "focal_loss",
     "ppo_loss_bundle",

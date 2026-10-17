@@ -3,6 +3,7 @@
 import logging
 
 import datasets
+import numpy as np
 
 from genml_kit.utils.logging import fatal
 
@@ -56,11 +57,25 @@ class HFDatasetProxy:
       "channel",
   })
 
-  def __init__(self, hf_dataset, transform=None, image_column=None, label_column=None):
+  def __init__(self,
+               hf_dataset,
+               transform=None,
+               image_column=None,
+               label_column=None,
+               mask_column=None):
     self._image_col = image_column or self.detect_image_column(hf_dataset)
     self.dataset = self.normalize_image_column(hf_dataset, self._image_col)
-    self._label_col = label_column or self.detect_label_column(self.dataset)
-    self.dataset = self.normalize_labels(self.dataset, self._label_col)
+    self._mask_col = mask_column
+    self._label_col = None
+
+    if self._mask_col is not None:
+      # A mask column makes this a segmentation source: normalise it as an
+      # image feature and skip label detection entirely.
+      self.dataset = self.normalize_image_column(self.dataset, self._mask_col)
+    else:
+      self._label_col = label_column or self.detect_label_column(self.dataset)
+      self.dataset = self.normalize_labels(self.dataset, self._label_col)
+
     self._transform = transform
 
   def __len__(self):
@@ -69,12 +84,31 @@ class HFDatasetProxy:
   def __getitem__(self, idx):
     item = self.dataset[idx]
     image = item[self._image_col]
-    label = item[self._label_col]
     if hasattr(image, "convert"):
       image = image.convert("RGB")
+
+    if self._mask_col is not None:
+      # Segmentation mode: return a dict so the paired transform can
+      # co-process image and mask.  (The classification path keeps the
+      # ``(image, label)`` tuple contract.)
+      mask = item[self._mask_col]
+      if hasattr(mask, "convert"):
+        mask = np.array(mask.convert("L"), dtype=np.int64)
+      elif not isinstance(mask, np.ndarray):
+        mask = np.asarray(mask, dtype=np.int64)
+      if self._transform is not None:
+        return self._transform({"image": image, "mask": mask})
+      return {"image": image, "mask": mask}
+
+    label = item[self._label_col]
     if self._transform is not None:
       image = self._transform(image)
     return image, label
+
+  @property
+  def mask_column(self):
+    """Return the mask column name, or ``None`` for non-segmentation data."""
+    return self._mask_col
 
   @property
   def has_labels(self):
