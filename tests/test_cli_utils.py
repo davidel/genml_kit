@@ -144,3 +144,23 @@ class TestKVPairAction:
     args = parser.parse_args(
         ["--model_arg", "a=1", "--model_arg", "b=2", "--model_arg", "c=3"])
     assert args.model_arg == {"a": 1, "b": 2, "c": 3}
+
+  def test_spec_value_with_colon_and_equals(self):
+    """A single token whose value is an inline spec (segmentation decoder).
+
+    Regression test: commit 393cb45 dropped ``nargs="+"`` from the
+    ``--model_arg`` flag in ``train.py``, which made KVPairAction iterate
+    the token string character-by-character and fail with
+    ``Expected KEY=VALUE pair, got: 'd'``.  The documented form
+    ``--model_arg decoder=unet:depth=4`` must parse as one key whose
+    value contains a ``:`` and an ``=``.
+    """
+    parser = self._make_parser()
+    args = parser.parse_args(["--model_arg", "decoder=unet:depth=4"])
+    assert args.model_arg == {"decoder": "unet:depth=4"}
+
+  def test_mixed_repeatable_and_spec(self):
+    """``--model_arg`` accepts several space-separated tokens at once."""
+    parser = self._make_parser()
+    args = parser.parse_args(["--model_arg", "embed_dim=512", "num_heads=8"])
+    assert args.model_arg == {"embed_dim": 512, "num_heads": 8}

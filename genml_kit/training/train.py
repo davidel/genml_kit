@@ -185,9 +185,14 @@ def build_parser():
   )
   parser.add_argument(
       "--model_arg",
+      nargs="+",
       action=KVPairAction,
       default=None,
-      help="Model constructor kwargs: --model_arg key=value --model_arg k2=v2.",
+      metavar="KEY=VALUE",
+      help="Override model configuration (repeatable). "
+      "Example: --model_arg depth=6 num_heads=8. For "
+      "--model cls_model_wrapper:<hf_name> the classifier head travels "
+      "here too: --model_arg classifier=mlp:hidden=512,dropout=0.3",
   )
   parser.add_argument(
       "--grad_checkpoint",
@@ -312,9 +317,14 @@ def parse_args(argv=None):
                    "layer-wise decay (flat LR); set e.g. 0.85 to enable.")
   opt.add_argument(
       "--lr_group",
+      nargs="+",
       action=KVPairAction,
       default=None,
-      help="Per-group LRs: --lr_group layer_name=lr ...",
+      metavar="REGEX=LR",
+      help="Per-parameter-group learning rates. "
+      "E.g. --lr_group 'backbone.*=1e-5' 'classifier.*=1e-3'. "
+      "Regexes matched against named_parameters(); first match wins. "
+      "Unmatched trainable params use --lr.",
   )
   opt.add_argument(
       "--optimizer",
@@ -324,9 +334,12 @@ def parse_args(argv=None):
   )
   opt.add_argument(
       "--opt_arg",
+      nargs="+",
       action=KVPairAction,
       default=None,
-      help="Optimizer constructor kwargs.",
+      metavar="KEY=VALUE",
+      help="Extra optimizer kwargs (repeatable). "
+      "Example: --opt_arg betas=0.9,0.999 momentum=0.9",
   )
   opt.add_argument(
       "--scheduler",
@@ -337,9 +350,12 @@ def parse_args(argv=None):
   )
   opt.add_argument(
       "--sched_arg",
+      nargs="+",
       action=KVPairAction,
       default=None,
-      help="Scheduler constructor kwargs.",
+      metavar="KEY=VALUE",
+      help="Extra scheduler kwargs (repeatable). "
+      "Example: --sched_arg T_max=50 eta_min=1e-6",
   )
   parser.add_argument(
       "--save_every",
