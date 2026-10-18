@@ -102,6 +102,18 @@ class TestSegLosses:
     val = dice_loss(logits, target, ignore_index=255)
     assert torch.isfinite(val)
 
+  def test_ignored_pixels_do_not_create_phantom_class(self):
+    """Void pixels are one-hot encoded as class 0, but must not count as a
+    present class in the Dice mean (regression: they used to)."""
+    logits = torch.zeros(1, 2, 4, 4)
+    logits[:, 1] = 10.0  # confident foreground = class 1
+    clean = torch.ones(1, 4, 4, dtype=torch.long)
+    dirty = clean.clone()
+    dirty[0, 0, 0] = 255  # one void pixel -> phantom class 0 if unweighted
+    d_clean = dice_loss(logits, clean, ignore_index=255)
+    d_dirty = dice_loss(logits, dirty, ignore_index=255)
+    assert torch.allclose(d_clean, d_dirty, atol=1e-4)
+
 
 class TestIoUMeter:
 

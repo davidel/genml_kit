@@ -16,6 +16,8 @@ Usage::
 import numpy as np
 import torch
 
+from genml_kit.utils.seg import upsample_to
+
 
 class IoUMeter:
   """Incremental per-class IoU / Dice / accuracy accumulator.
@@ -46,12 +48,8 @@ class IoUMeter:
         match *target* when needed).
       target: ``(B, H, W)`` integer label map.
     """
-    if logits.shape[-2:] != target.shape[-2:]:
-      # Align to the mask grid: (B, C, h, w) -> (B, C, H, W).
-      logits = torch.nn.functional.interpolate(logits,
-                                               size=target.shape[-2:],
-                                               mode="bilinear",
-                                               align_corners=False)
+    # Align to the mask grid: (B, C, h, w) -> (B, C, H, W) when needed.
+    logits = upsample_to(logits, target.shape[-2:])
     # Per-pixel class ids: (B, C, H, W) -> (B, H, W).
     preds = logits.argmax(dim=1)
     self._add_confusion(preds.reshape(-1), target.reshape(-1))

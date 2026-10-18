@@ -22,10 +22,10 @@ statically.
 import abc
 from collections import namedtuple
 
-import torch
 import torch.nn as nn
 
 from genml_kit.utils.logging import fatal
+from genml_kit.utils.seg import upsample_to
 
 # One feature-pyramid level: ``(feature, stride)`` where ``feature`` is
 # ``(B, C, H, W)`` and ``stride`` is the input-to-feature downsampling
@@ -127,15 +127,7 @@ class BaseDecoder(nn.Module, abc.ABC):
     """
 
 
-def upsample_to(logits, size):
-  """Bilinearly resize *logits* to ``(H, W) = size`` when they differ.
-
-  HF segmentation models commonly emit ``(B, C, H/4, W/4)``; the loss and
-  metric need full-resolution logits to match the mask.
-  """
-  if logits.shape[-2:] == tuple(size):
-    return logits
-  return torch.nn.functional.interpolate(logits,
-                                         size=tuple(size),
-                                         mode="bilinear",
-                                         align_corners=False)
+# ``upsample_to`` is re-exported for backwards compatibility; the
+# implementation lives in a model-package-free module so the metrics and
+# method can share it without importing ``genml_kit.models``.
+__all__ = ["EncoderLevel", "EncoderPyramid", "BaseDecoder", "upsample_to"]

@@ -199,11 +199,13 @@ class SegmentationPipeline(DataPipeline):
     return (HFDatasetProxy(train_raw,
                            image_column=image_col,
                            mask_column=mask_col,
-                           mask_map=mask_map),
+                           mask_map=mask_map,
+                           mask_ignore_index=ignore_index),
             HFDatasetProxy(val_raw,
                            image_column=image_col,
                            mask_column=mask_col,
-                           mask_map=mask_map))
+                           mask_map=mask_map,
+                           mask_ignore_index=ignore_index))
 
   @staticmethod
   def _class_map_cache_dir(args):

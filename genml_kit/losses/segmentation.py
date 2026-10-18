@@ -58,9 +58,12 @@ def dice_loss(logits, target, *, ignore_index=255, eps=1.0):
   cardinality = torch.sum((probs + one_hot) * valid, dim=dims)
 
   dice_per_class = (2.0 * intersection + eps) / (cardinality + eps)
-  # Average only over classes that actually occur (else background-only
-  # batches would pull the mean toward 1 and hide poor foreground Dice).
-  present = (torch.sum(one_hot, dim=dims) > 0).to(torch.float32)
+  # Average only over classes that actually occur *in the valid region*
+  # (else background-only batches would pull the mean toward 1 and hide
+  # poor foreground Dice).  Weighting by ``valid`` is essential: ignored
+  # pixels are one-hot encoded as class 0, so summing ``one_hot`` alone
+  # would count class 0 as present whenever the batch has any void pixel.
+  present = (torch.sum(one_hot * valid, dim=dims) > 0).to(torch.float32)
   denom = torch.clamp(present.sum(), min=1.0)
   mean_dice = torch.sum(dice_per_class * present) / denom
   return 1.0 - mean_dice

@@ -95,12 +95,14 @@ class HFDatasetProxy:
                image_column=None,
                label_column=None,
                mask_column=None,
-               mask_map=None):
+               mask_map=None,
+               mask_ignore_index=None):
     self._image_col = image_column or self.detect_image_column(hf_dataset)
     self.dataset = self.normalize_image_column(hf_dataset, self._image_col)
     self._mask_col = mask_column
     self._label_col = None
     self._mask_map = mask_map
+    self._mask_ignore_index = mask_ignore_index
 
     if self._mask_col is not None:
       # A mask column makes this a segmentation source: normalise it as an
@@ -130,7 +132,7 @@ class HFDatasetProxy:
       # A mask_map is provided when the pipeline compacted a sparse or
       # RGB mask: remap raw pixel values / RGB triplets to dense ids.
       if self._mask_map is not None:
-        arr = self._apply_mask_map(arr, self._mask_map)
+        arr = self._apply_mask_map(arr, self._mask_map, self._mask_ignore_index)
       elif arr.ndim == 3:
         # No map (standalone proxy): collapse RGB to single-channel.
         arr = np.asarray(Image.fromarray(arr).convert("L"), dtype=np.int64)
@@ -147,38 +149,50 @@ class HFDatasetProxy:
     return image, label
 
   @staticmethod
-  def _apply_mask_map(arr, mask_map):
+  def _apply_mask_map(arr, mask_map, ignore_index=None):
     """Remap raw mask pixel values / RGB triplets to compact ids.
 
     Args:
         arr: ``(H, W)`` single-channel or ``(H, W, 3)`` RGB mask array.
         mask_map: ``{raw_key: compact_id}`` where *raw_key* is either an
             int (single-channel) or a 3-tuple (RGB triplet).
+        ignore_index: Label value (or, for RGB masks, any channel value)
+            marking a void pixel.  The class-map scan excludes it, so it is
+            passed through unchanged instead of being treated as a missing
+            key.  ``None`` or a negative value disables this handling.
 
     Returns:
         ``(H, W)`` int64 array with compact ids.
 
     Raises:
         ValueError: if a raw value/triplet is missing from *mask_map*
-            (a val-only id that never appeared in the training scan).
+            and is not the ignore marker (a val-only id that never
+            appeared in the training scan).
     """
+    ignore = ignore_index if (ignore_index is not None and ignore_index >= 0) else None
     if arr.ndim == 3:
       h, w, _ = arr.shape
       flat_keys = arr.reshape(-1, 3)
       out = np.empty(flat_keys.shape[0], dtype=np.int64)
       for i in range(flat_keys.shape[0]):
         key = tuple(int(v) for v in flat_keys[i])
-        if key not in mask_map:
+        if key in mask_map:
+          out[i] = mask_map[key]
+        elif ignore is not None and any(v == ignore for v in key):
+          out[i] = ignore
+        else:
           fatal(f"Mask value {key} not in the class map (val-only id?)", ValueError)
-        out[i] = mask_map[key]
       return out.reshape(h, w)
     out = np.empty(arr.size, dtype=np.int64)
     flat = arr.ravel()
     for i in range(flat.size):
       raw = int(flat[i])
-      if raw not in mask_map:
+      if raw in mask_map:
+        out[i] = mask_map[raw]
+      elif ignore is not None and raw == ignore:
+        out[i] = ignore
+      else:
         fatal(f"Mask value {raw} not in the class map (val-only id?)", ValueError)
-      out[i] = mask_map[raw]
     return out.reshape(arr.shape)
 
   @staticmethod

@@ -126,6 +126,30 @@ class TestMaskRemap:
     with pytest.raises(ValueError):
       HFDatasetProxy._apply_mask_map(mask, {0: 0})
 
+  def test_void_255_passed_through(self):
+    """The ignore marker (excluded from the map by the scan) is passed
+    through instead of fataling (regression: it used to crash on load)."""
+    mask = np.array([[0, 1], [1, 255]], dtype=np.uint8)
+    out = HFDatasetProxy._apply_mask_map(mask, {0: 0, 1: 1}, ignore_index=255)
+    assert out.tolist() == [[0, 1], [1, 255]]
+
+  def test_void_rgb_passed_through(self):
+    mask = np.array([[[0, 0, 0], [255, 0, 0]], [[0, 255, 0], [255, 255, 255]]],
+                    dtype=np.uint8)
+    out = HFDatasetProxy._apply_mask_map(mask, {
+        (0, 0, 0): 0,
+        (255, 0, 0): 1,
+        (0, 255, 0): 2
+    },
+                                         ignore_index=255)
+    assert out.tolist() == [[0, 1], [2, 255]]
+
+  def test_void_not_mapped_without_ignore_index(self):
+    """Without an ignore index, a missing key still fatals."""
+    mask = np.array([[255]], dtype=np.uint8)
+    with pytest.raises(ValueError):
+      HFDatasetProxy._apply_mask_map(mask, {0: 0}, ignore_index=-1)
+
 
 class TestMaskMapCache:
 

@@ -26,6 +26,7 @@ from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.training.seg_metrics import IoUMeter
 from genml_kit.utils.logging import fatal
+from genml_kit.utils.seg import upsample_to
 
 
 @METHODS.register
@@ -254,9 +255,4 @@ def _match_mask_size(logits, mask):
   HF segmentation models emit ``(B, C, H/4, W/4)`` logits; the loss and
   metric need full-resolution maps to match the mask.
   """
-  if logits.shape[-2:] == mask.shape[-2:]:
-    return logits
-  return torch.nn.functional.interpolate(logits,
-                                         size=mask.shape[-2:],
-                                         mode="bilinear",
-                                         align_corners=False)
+  return upsample_to(logits, mask.shape[-2:])
