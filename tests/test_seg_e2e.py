@@ -162,6 +162,8 @@ def test_freeze_keeps_encoder_params_fixed(tmp_path):
 @pytest.mark.slow
 def test_segmentation_learns_a_simple_pattern(tmp_path):
   """Slow smoke test: the model overfits a trivial foreground/background split."""
+  torch.manual_seed(0)
+  np.random.seed(0)
   size = 32
   rng = np.random.default_rng(0)
   (tmp_path / "images").mkdir()
@@ -177,12 +179,20 @@ def test_segmentation_learns_a_simple_pattern(tmp_path):
     Image.fromarray(mask).save(tmp_path / "masks" / f"{i}.png")
 
   args, pipeline, method, model = _build(tmp_path, image_size=size)
+
+  # Baseline before any training (the model is randomly initialized).  The
+  # default train transforms include scale jitter (RandomResizedCrop), so
+  # the absolute miou after a fixed number of steps is seed-dependent;
+  # assert on the improvement from this baseline instead of an absolute.
+  baseline = method.evaluate(model, pipeline.val_loader, args.device,
+                             pipeline.to_device)["miou"]
+
   blob = pipeline.to_device(next(iter(pipeline.train_loader)), args.device)
   opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-  for _ in range(30):
+  for _ in range(100):
     out = method.train_step(model, blob, 0)
     opt.zero_grad()
     out.loss.backward()
     opt.step()
   metrics = method.evaluate(model, pipeline.val_loader, args.device, pipeline.to_device)
-  assert metrics["miou"] > 0.3
+  assert metrics["miou"] - baseline > 0.2
