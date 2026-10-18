@@ -13,6 +13,62 @@ import torch.nn.functional as F
 
 from genml_kit.utils.logging import fatal
 
+# Fixed qualitative palette used to colorize class maps for TensorBoard
+# overlays.  20 distinct hues (plus black for the ignore/void class) keep
+# adjacent labels separable without a matplotlib dependency.
+_PALETTE = np.array(
+    [
+        [0, 0, 0],  # 0  void / background
+        [255, 0, 0],  # 1
+        [0, 255, 0],  # 2
+        [0, 0, 255],  # 3
+        [255, 255, 0],  # 4
+        [0, 255, 255],  # 5
+        [255, 0, 255],  # 6
+        [192, 192, 192],  # 7
+        [128, 0, 0],  # 8
+        [128, 128, 0],  # 9
+        [0, 128, 0],  # 10
+        [128, 0, 128],  # 11
+        [0, 128, 128],  # 12
+        [0, 0, 128],  # 13
+        [255, 128, 0],  # 14
+        [255, 0, 128],  # 15
+        [128, 255, 0],  # 16
+        [0, 255, 128],  # 17
+        [128, 0, 255],  # 18
+        [0, 128, 255],  # 19
+    ],
+    dtype=np.uint8)
+
+
+def class_mask_to_rgb(mask, ignore_index=None):
+  """Colorize a compact ``(H, W)`` class-id map as an ``(H, W, 3)`` uint8 RGB image.
+
+  Used to render ground-truth / predicted masks in TensorBoard overlays.
+  ids are looked up in a fixed 20-entry palette; ids at or beyond it wrap,
+  and the ignore marker (e.g. ``255``) is drawn black (void).
+
+  Parameters
+  ----------
+  mask : numpy.ndarray
+    ``(H, W)`` array of dense ``[0, C)`` class ids.
+  ignore_index : int or None
+    Value marking void pixels (drawn black).  ``None`` disables.
+
+  Returns
+  -------
+  numpy.ndarray
+    ``(H, W, 3)`` ``uint8`` RGB.
+  """
+  import numpy as np
+
+  arr = np.asarray(mask)
+  if ignore_index is not None:
+    arr = arr.copy()
+    arr[arr == ignore_index] = 0
+  return _PALETTE[arr % len(_PALETTE)]
+
 
 def upsample_to(logits, size):
   """Bilinearly resize *logits* to ``(H, W) = size`` when they differ.

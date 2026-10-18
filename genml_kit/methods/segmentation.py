@@ -12,6 +12,7 @@ any dataset without a separate ``--num_classes`` flag.  An explicit
 
 import logging
 
+import numpy as np
 import torch
 from torchvision.transforms import v2
 
@@ -24,9 +25,10 @@ from genml_kit.losses import load_loss
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.training.model_utils import model_mode
 from genml_kit.training.seg_metrics import IoUMeter
 from genml_kit.utils.logging import fatal
-from genml_kit.utils.seg import upsample_to
+from genml_kit.utils.seg import class_mask_to_rgb, upsample_to
 
 
 @METHODS.register
@@ -177,6 +179,58 @@ class SegmentationMethod(Method):
     metrics["loss"] = total_loss / max(n_batches, 1)
     return metrics
 
+  def log_validation(self,
+                     model,
+                     loader,
+                     to_device,
+                     writer,
+                     global_step,
+                     device,
+                     num_samples=8):
+    """Log image / GT-mask / predicted-mask overlays to TensorBoard.
+
+    Called by the trainer when ``--vis_every`` hits; without this override
+    the base class is a no-op and the flag silently does nothing for
+    segmentation.
+
+    Renders a fixed grid of up to ``num_samples`` rows, each showing the
+    input image, the ground-truth mask and the predicted class map, all
+    colorized through the shared palette so class ``C > 20`` still renders.
+
+    Runs the model in eval mode (``model_mode(model, "eval")``) and
+    restores the previous training state afterwards.
+    """
+    if writer is None or loader is None:
+      return
+    n = max(2, min(int(num_samples), 8))
+    rows = []
+    with model_mode(model, "eval"), torch.no_grad():
+      for blob in loader:
+        for i in range(min(n - len(rows), blob.data.shape[0])):
+          images = blob.data[i:i + 1]
+          mask = blob.meta["mask"][i]
+          images = images.to(device)
+          mask = mask.to(device)
+          out = model(pixel_values=images)
+          logits = _match_mask_size(out.logits, mask)
+          pred = logits.argmax(dim=1)[0]
+          # (H, W, 3) uint8 RGB for both maps.
+          mask_rgb = np.asarray(
+              class_mask_to_rgb(mask.cpu().numpy(), self._ignore_index()))
+          pred_rgb = np.asarray(
+              class_mask_to_rgb(pred.cpu().numpy(), self._ignore_index()))
+          # Image: (1, 3, H, W) -> (3, H, W) float, normalized back.
+          img = _denormalize_image(images[0])
+
+          rows.append(_overlay_row(img, mask_rgb, pred_rgb))
+          if len(rows) >= n:
+            break
+        if len(rows) >= n:
+          break
+    if rows:
+      grid = np.concatenate(rows, axis=0)  # (n*H, 3*W, 3) uint8
+      writer.add_image("seg/overlay", grid, global_step)
+
   def get_checkpoint_state(self, model, args):
     return {
         "method": "segmentation",
@@ -256,3 +310,31 @@ def _match_mask_size(logits, mask):
   metric need full-resolution maps to match the mask.
   """
   return upsample_to(logits, mask.shape[-2:])
+
+
+def _denormalize_image(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
+  """Undo ImageNet-style normalization on a ``(C, H, W)`` tensor.
+
+  Returns a ``(C, H, W)`` float tensor.  The default mean/std match the HF
+  processors used by the segmentation pipeline; the method's own processor
+  stats are not stored on the method, so this is a visual best-effort.
+  """
+  mean = np.asarray(mean, dtype=np.float32).reshape(3, 1, 1)
+  std = np.asarray(std, dtype=np.float32).reshape(3, 1, 1)
+  return image * torch.as_tensor(std, device=image.device) \
+      + torch.as_tensor(mean, device=image.device)
+
+
+def _overlay_row(image, mask_rgb, pred_rgb):
+  """Concatenate one image / GT / prediction row for the overlay grid.
+
+  *image* is ``(C, H, W)`` float; the masks are ``(H, W, 3)`` uint8.  The
+  image is clipped and converted to uint8 without alpha compositing; the
+  maps are placed side-by-side so every class is visible and comparable.
+
+  Returns an ``(H, 3 * W, 3)`` uint8 array.
+  """
+  # (3, H, W) -> (H, W, 3)
+  img = np.transpose(image.detach().cpu().numpy(), (1, 2, 0))
+  img = np.clip(img * 255.0, 0, 255).astype(np.uint8)
+  return np.concatenate([img, mask_rgb, pred_rgb], axis=1)

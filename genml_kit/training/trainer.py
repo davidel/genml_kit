@@ -206,7 +206,13 @@ class BaseTrainer:
     key = self.method.METRIC_KEY
     val = metrics[key]
     if self.writer is not None:
-      self.writer.add_scalar(f"val/{key}", val, self.epoch)
+      # Log every scalar metric the method reports (loss, mdice, pixel_acc,
+      # per-class aggregates, ...) so nothing computed by ``evaluate`` is
+      # dropped on the floor.  Non-scalar values (e.g. ``per_class_iou``
+      # lists) are skipped -- they carry no TensorBoard scalar meaning.
+      for name, value in metrics.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+          self.writer.add_scalar(f"val/{name}", value, self.epoch)
     return val
 
   def has_metric_improved(self, old, new):
