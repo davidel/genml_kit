@@ -1664,6 +1664,73 @@ genml_kit-train --pipeline segmentation --method segmentation \
   --model seg_wrapper:timm/convnext_tiny --model_arg decoder=fpn
 ```
 
+### Class-id compaction
+
+Masks are expected to carry integer class ids, but the ids do **not** have
+to be dense.  The pipeline scans every mask (train **and** val, so a class
+that only appears in validation is still mapped) and compacts whatever ids
+it finds into a dense `[0, C)` range:
+
+| Source id | Compact id |
+|---|---|
+| 12 | 0 |
+| 17 | 1 |
+| 255 (= ignore) | dropped |
+
+- **segfolder path:** the mapping is rebuilt on every run (a full scan)
+  and remapped through `apply_mask_map` on every access.
+- **HuggingFace path:** the `{raw → compact}` map is cached to disk under
+  `<cache_dir>/seg_class_maps/segclassmap__<hash>.json`, or
+  `~/.cache/genml_kit/seg_class_maps/` when no `--cache_dir` is given
+  (falling back to a temp dir if that is unwritable).  The cache is keyed
+  on the dataset spec **and** a content hash of the masks themselves, so
+  editing a mask invalidates the entry even if the spec string is
+  unchanged.
+
+The class count reported by training (and the default for
+`--seg_num_classes`) is the **compact** count, i.e. the number of
+distinct ids found after dropping `--seg_ignore_index` (`len(mask_map)`).
+(The count falls back to `max_label + 1` over a sample of loader masks
+only when the pipeline did not build a mask map, e.g. a method wired
+without the segmentation pipeline.)
+
+### Data augmentation
+
+The default transforms for the `segmentation` method (in
+`genml_kit/datasets/transforms.py`) are split into a geometric stage and
+a photometric stage:
+
+- **Geometric stage** — applied to the image **and** the mask together,
+  so they always stay pixel-aligned:
+  - `v2.RandomResizedCrop(image_size, scale=(0.5, 2.0),
+    ratio=(0.75, 4/3))`
+  - `v2.RandomHorizontalFlip(p=0.5)`
+- **Photometric stage** — applied to the **image only** (masks contain
+  class ids, never color):
+  - `v2.RandomApply([v2.ColorJitter(brightness=0.4, contrast=0.6,
+    saturation=0.8, hue=0.1)], p=0.8)`
+
+Validation is deterministic: `v2.Resize(image_size, BICUBIC)` then
+`CenterCrop(image_size)`.
+
+The geometric/photometric split is a correctness contract: geometric ops
+go through `tv_tensors.Mask`, so torchvision issues one random draw per
+sample and the mask gets the same crop/translation as the image; color
+ops never see the mask.
+
+To take full control, pass `--seg_augmentation_script <path>.py` pointing
+at a module that defines
+
+```python
+def create_seg_transform(image_size: int, *, is_train: bool):
+  ...
+```
+
+When set, the script **owns the whole paired transform** (image + mask),
+including normalization (the model processor's `image_mean`/`image_std`
+are *not* applied automatically in this mode), and is loaded lazily so a
+plain run never imports it.
+
 ### Encoder + decoder
 
 `--model seg_wrapper:<backbone>` selects the encoder; the decoder is chosen
@@ -1705,8 +1772,27 @@ the training masks (ignoring `--seg_ignore_index`, default 255) unless
 `--seg_num_classes` overrides it.  Pixels equal to `--seg_ignore_index` are
 excluded from both the loss and the metric.
 
+### Validation overlays
+
+Set `--vis_every N` to have the trainer call the method's
+`log_validation` every N epochs, which logs a `seg/overlay` TensorBoard
+grid of **image / ground-truth mask / predicted mask** rows (8 samples by
+default) into the run's log dir (default `<checkpoint_dir>/logs`, see
+`--log_dir`).  The masks are rendered with a fixed 20-hue palette; the
+ignore class (`--seg_ignore_index`, or 255) renders black.  Overlays use
+the *current* model state, so they double as a quick training-progress
+check (e.g. whether the decoder is learning the class layout before the
+mIoU catches up).
+
 Note that some backbones (e.g. plain ViT, Swin) require their native input
 resolution (224) and reject other sizes.
+
+### Inference
+
+`genml-kit-infer` is classification-only today: it predicts a top-K label
+for each image and does **not** emit per-pixel masks.  For segmentation,
+use the validation loop (mIoU + overlays above) or the checkpoint's
+weights directly.
 
 ---
 
