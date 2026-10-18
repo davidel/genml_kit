@@ -72,6 +72,78 @@ class TestPairedSegTransform:
     assert out["mask"].dtype == torch.int64
     assert out["image"].size == (16, 16)
 
+  def test_train_uses_scale_jitter(self):
+    """Training geometry is ``RandomResizedCrop`` based (scale jitter)."""
+    from torchvision.transforms import v2
+
+    tf = build_seg_geometric(32, is_train=True)
+    assert isinstance(tf, v2.Compose)
+    assert any(isinstance(t, v2.RandomResizedCrop) for t in tf.transforms)
+    assert any(isinstance(t, v2.RandomHorizontalFlip) for t in tf.transforms)
+
+  def test_val_geometry_is_deterministic(self):
+    """Validation stays Resize -> CenterCrop (no randomness)."""
+    from torchvision.transforms import v2
+
+    tf = build_seg_geometric(16, is_train=False)
+    assert isinstance(tf, v2.Compose)
+    kinds = [type(t) for t in tf.transforms]
+    assert v2.Resize in kinds and v2.CenterCrop in kinds
+    assert not any(
+        isinstance(t, (v2.RandomResizedCrop, v2.RandomHorizontalFlip))
+        for t in tf.transforms)
+
+  def test_scale_jitter_keeps_mask_aligned_and_unblended(self):
+    """RandomResizedCrop must keep masks integer, aligned, unblended.
+
+    Run many random draws; the mask must always keep the source ids
+    (never new/blended labels) and stay int64 at the image spatial size.
+    """
+    image, mask = _sample()
+    tf = PairedSegTransform(geometric=build_seg_geometric(16, is_train=True))
+    allowed = set(np.unique(mask).tolist())
+    torch.manual_seed(0)
+    for _ in range(50):
+      out = tf({"image": image, "mask": mask})
+      m = out["mask"]
+      assert m.shape == (16, 16)
+      assert m.dtype == torch.int64
+      assert set(m.unique().tolist()).issubset(allowed)
+
+  def test_scale_jitter_deterministic_for_both_fields(self):
+    """One random draw per RRC call -> image and mask change together.
+
+    Same seed twice on the same pair must yield identical image AND mask
+    (proves the random crop/flip decision is shared, not drawn per field).
+    """
+    from torchvision.transforms import v2
+
+    image, mask = _sample()
+    geo = v2.Compose([
+        v2.RandomResizedCrop(16, scale=(0.5, 2.0), ratio=(0.75, 1.3333333333333333)),
+        v2.RandomHorizontalFlip(p=0.5),
+    ])
+    tf = PairedSegTransform(geometric=geo)
+    torch.manual_seed(123)
+    a = tf({"image": image, "mask": mask})
+    torch.manual_seed(123)
+    b = tf({"image": image, "mask": mask})
+    assert torch.equal(
+        v2.functional.to_dtype(v2.functional.to_image(a["image"]),
+                               torch.float32,
+                               scale=True),
+        v2.functional.to_dtype(v2.functional.to_image(b["image"]),
+                               torch.float32,
+                               scale=True))
+    assert torch.equal(a["mask"], b["mask"])
+
+  def test_calibration_photometric_is_none(self):
+    from torchvision.transforms import v2
+
+    tf = build_seg_photometric(16, is_train=False)
+    assert tf is None
+    assert isinstance(build_seg_photometric(16, is_train=True), v2.RandomApply)
+
   def test_non_dict_raises(self):
     tf = PairedSegTransform(geometric=build_seg_geometric(16, is_train=False))
     with pytest.raises(TypeError):

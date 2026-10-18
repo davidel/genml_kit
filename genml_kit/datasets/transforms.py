@@ -162,26 +162,43 @@ class PairedSegTransform(nn.Module):
 def build_seg_geometric(image_size, *, is_train):
   """Default geometric transforms (image + mask) for segmentation.
 
+  Training uses scale jitter via ``RandomResizedCrop`` (random crop of
+  a 0.5-2.0x area region, ratio 3/4-4/3, resized to image_size) plus a
+  horizontal flip, following the standard SOTA segmentation recipe;
+  validation uses the deterministic ``Resize -> CenterCrop`` path.
+  The paired transform applies geometry to image and mask together, and
+  torchvision v2 keeps ``tv_tensors.Mask`` pixel-aligned with the image
+  (masks are resampled with nearest interpolation).
+
   Args:
     image_size: Target spatial size.
-    is_train: When True, add a horizontal flip.
+    is_train: When True, use scale jitter + flip; otherwise a fixed
+      resize + center crop.
 
   Returns:
     A ``torchvision.transforms.v2`` callable usable on the paired dict.
   """
   from torchvision.transforms.functional import InterpolationMode
 
-  ops = [
+  if is_train:
+    return v2.Compose([
+        v2.RandomResizedCrop(image_size,
+                             scale=(0.5, 2.0),
+                             ratio=(0.75, 1.3333333333333333)),
+        v2.RandomHorizontalFlip(p=0.5),
+    ])
+  return v2.Compose([
       v2.Resize(image_size, interpolation=InterpolationMode.BICUBIC),
       v2.CenterCrop(image_size),
-  ]
-  if is_train:
-    ops.append(v2.RandomHorizontalFlip(p=0.5))
-  return v2.Compose(ops)
+  ])
 
 
 def build_seg_photometric(image_size, *, is_train):
   """Default photometric transforms (image only) for segmentation.
+
+  Training applies a moderate color jitter at p=0.8 (brighter/darker,
+  contrast and saturation changes, slight hue shift) to make the model
+  robust to illumination differences; validation applies none.
 
   Args:
     image_size: Target spatial size (kept for symmetry with the geometric
@@ -194,4 +211,4 @@ def build_seg_photometric(image_size, *, is_train):
   if not is_train:
     return None
   return v2.RandomApply(
-      [v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)], p=0.3)
+      [v2.ColorJitter(brightness=0.4, contrast=0.6, saturation=0.8, hue=0.1)], p=0.8)
