@@ -197,6 +197,22 @@ class TestMaskMapCache:
     assert 255 not in m
     assert m == {1: 0}
 
+  def test_content_change_invalidates_cache(self, tmp_path):
+    """B11: same spec, changed mask bytes -> content hash differs -> rebuild."""
+    p, args, name = self._pipeline(tmp_path)
+    ds1 = _make_ds(masks=[Image.fromarray(np.array([[1, 2]], dtype=np.uint8))],
+                   mask_col="label")
+    m1 = p._load_or_build_mask_map(args, name, "image", "label", 255, ds1)
+    assert m1 == {1: 0, 2: 1}
+    # Same column names/spec, but the mask *content* changes (a class
+    # disappears and a new one appears).  The old cache (content-hashed)
+    # must not be reused.
+    ds2 = _make_ds(masks=[Image.fromarray(np.array([[3, 4]], dtype=np.uint8))],
+                   mask_col="label")
+    m2 = p._load_or_build_mask_map(args, name, "image", "label", 255, ds2)
+    assert m2 == {3: 0, 4: 1}
+    assert m1 != m2
+
   def test_cache_dir_fallback(self, tmp_path, monkeypatch):
     from genml_kit.pipelines.segmentation import SegmentationPipeline
     home = str(tmp_path / "home")

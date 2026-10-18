@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from genml_kit.utils.logging import fatal
+from genml_kit.utils.seg import apply_mask_map
 
 
 def _is_array_feature(feat):
@@ -152,48 +153,10 @@ class HFDatasetProxy:
   def _apply_mask_map(arr, mask_map, ignore_index=None):
     """Remap raw mask pixel values / RGB triplets to compact ids.
 
-    Args:
-        arr: ``(H, W)`` single-channel or ``(H, W, 3)`` RGB mask array.
-        mask_map: ``{raw_key: compact_id}`` where *raw_key* is either an
-            int (single-channel) or a 3-tuple (RGB triplet).
-        ignore_index: Label value (or, for RGB masks, any channel value)
-            marking a void pixel.  The class-map scan excludes it, so it is
-            passed through unchanged instead of being treated as a missing
-            key.  ``None`` or a negative value disables this handling.
-
-    Returns:
-        ``(H, W)`` int64 array with compact ids.
-
-    Raises:
-        ValueError: if a raw value/triplet is missing from *mask_map*
-            and is not the ignore marker (a val-only id that never
-            appeared in the training scan).
+    Thin wrapper over :func:`genml_kit.utils.seg.apply_mask_map` kept
+    for backwards compatibility.
     """
-    ignore = ignore_index if (ignore_index is not None and ignore_index >= 0) else None
-    if arr.ndim == 3:
-      h, w, _ = arr.shape
-      flat_keys = arr.reshape(-1, 3)
-      out = np.empty(flat_keys.shape[0], dtype=np.int64)
-      for i in range(flat_keys.shape[0]):
-        key = tuple(int(v) for v in flat_keys[i])
-        if key in mask_map:
-          out[i] = mask_map[key]
-        elif ignore is not None and any(v == ignore for v in key):
-          out[i] = ignore
-        else:
-          fatal(f"Mask value {key} not in the class map (val-only id?)", ValueError)
-      return out.reshape(h, w)
-    out = np.empty(arr.size, dtype=np.int64)
-    flat = arr.ravel()
-    for i in range(flat.size):
-      raw = int(flat[i])
-      if raw in mask_map:
-        out[i] = mask_map[raw]
-      elif ignore is not None and raw == ignore:
-        out[i] = ignore
-      else:
-        fatal(f"Mask value {raw} not in the class map (val-only id?)", ValueError)
-    return out.reshape(arr.shape)
+    return apply_mask_map(arr, mask_map, ignore_index)
 
   @staticmethod
   def detect_mask_column(dataset):

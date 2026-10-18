@@ -76,6 +76,75 @@ class TestLoadSegFolder:
       load_segfolder(tmp_path, split="test")
 
 
+class TestSegfolderClassCompaction:
+  """B4: the segfolder path gets the same dense class-id compaction as HF."""
+
+  def _pipeline(self, tmp_path, **kwargs):
+    from genml_kit.pipelines.segmentation import SegmentationPipeline
+    import argparse
+
+    p = SegmentationPipeline()
+    args = argparse.Namespace(cache_dir=str(tmp_path / "cache"), **kwargs)
+    return p, args
+
+  def test_sparse_1based_ids_compacted(self, tmp_path):
+    # Masks carry raw ids {10, 200} (sparse / 1-based-ish); the pipeline
+    # must compact them to [0, 2) rather than infer max+1 = 201.
+    _write_pair(tmp_path, "a", mask_value=10)
+    _write_pair(tmp_path, "b", mask_value=200)
+    p, args = self._pipeline(tmp_path, val_split=0.0)
+    train, val = p._load_segfolder(str(tmp_path), args)
+    assert p.mask_map == {10: 0, 200: 1}
+    assert set(train[0]["mask"].ravel()) <= {0, 1}
+    assert set(val[0]["mask"].ravel()) <= {0, 1}
+
+  def test_void_255_excluded_and_passed_through(self, tmp_path):
+
+    def write_with_void(stem):
+      from PIL import Image as _I
+
+      (tmp_path / "images").mkdir(parents=True, exist_ok=True)
+      (tmp_path / "masks").mkdir(parents=True, exist_ok=True)
+      _I.fromarray(np.zeros((4, 4, 3),
+                            dtype=np.uint8)).save(tmp_path / "images" / f"{stem}.png")
+      _I.fromarray(np.array([[0, 255], [1, 255]],
+                            dtype=np.uint8)).save(tmp_path / "masks" / f"{stem}.png")
+
+    write_with_void("a")
+    write_with_void("b")  # second sample so a derived val split exists
+    p, args = self._pipeline(tmp_path, val_split=0.0)
+    train, _val = p._load_segfolder(str(tmp_path), args)
+    # 0 and 1 compact to [0, 2); 255 stays 255 (void).
+    mask = train[0]["mask"]
+    assert p.mask_map == {0: 0, 1: 1}
+    assert set(mask.ravel()) == {0, 1, 255}
+
+  def test_val_only_id_is_covered(self, tmp_path):
+    # A raw id that appears only in validation must be *included* in the
+    # map (the scan covers train + val), exactly like the HF path -- it
+    # never fatals.
+    train_root = tmp_path / "train"
+    val_root = tmp_path / "val"
+    _write_pair(train_root, "a", mask_value=1)
+    _write_pair(val_root, "b", mask_value=9)
+    p, args = self._pipeline(tmp_path, val_split=0.0)
+    train, val = p._load_segfolder(str(tmp_path), args)
+    assert p.mask_map == {1: 0, 9: 1}
+    assert set(train[0]["mask"].ravel()) == {0}
+    assert set(val[0]["mask"].ravel()) == {1}
+
+  def test_class_appearing_later_still_counted(self, tmp_path):
+    # A class that appears only in a late mask (beyond an old max-batches
+    # scan window) must still be present after the full pre-scan (B4).
+    for i in range(40):
+      _write_pair(tmp_path, f"m{i}", mask_value=1)
+    _write_pair(tmp_path, "late", mask_value=7)
+    p, args = self._pipeline(tmp_path, val_split=0.0)
+    train, _val = p._load_segfolder(str(tmp_path), args)
+    assert p.mask_map == {1: 0, 7: 1}
+    assert len(p.mask_map) == 2
+
+
 class TestParseDatasetSpecs:
 
   def test_segfolder_prefix(self):

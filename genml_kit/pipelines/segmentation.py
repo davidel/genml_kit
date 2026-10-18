@@ -24,11 +24,11 @@ present, a geometric-only default keeps image and mask aligned.
 """
 
 import hashlib
-import json
 import logging
 import os
 import tempfile
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 
@@ -44,6 +44,12 @@ from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
+from genml_kit.utils.seg import (
+    apply_mask_map,
+    build_mask_map,
+    load_mask_map_cache,
+    save_mask_map_cache,
+)
 
 
 class _SegTransformAdapter(Dataset):
@@ -64,6 +70,31 @@ class _SegTransformAdapter(Dataset):
     if self._transform is None:
       return dict(row)
     return self._transform(dict(row))
+
+
+class _MaskRemapAdapter(Dataset):
+  """Remap raw mask ids through *mask_map* on every access.
+
+  Used by the segfolder path to give it the same dense ``[0, C)`` mask
+  contract the HF path gets from :class:`HFDatasetProxy`.
+  """
+
+  def __init__(self, dataset, mask_map, ignore_index=None):
+    self._dataset = dataset
+    self._mask_map = mask_map
+    self._ignore_index = ignore_index
+
+  def __len__(self):
+    return len(self._dataset)
+
+  def __getitem__(self, idx):
+    row = self._dataset[idx]
+    if isinstance(row, (tuple, list)):
+      image, mask = row
+      row = {"image": image, "mask": mask}
+    row = dict(row)
+    row["mask"] = apply_mask_map(row["mask"], self._mask_map, self._ignore_index)
+    return row
 
 
 @PIPELINES.register
@@ -157,17 +188,37 @@ class SegmentationPipeline(DataPipeline):
   def _load_segfolder(self, root, args):
     splits = load_segfolder(root)
     if "val" in splits:
-      return splits["train"], splits["val"]
-    # No explicit val split: derive one from the train set.
-    train_full = splits["train"]
-    n_val = max(1, int(len(train_full) * getattr(args, "val_split", 0.2)))
-    n_train = len(train_full) - n_val
-    if n_train <= 0:
-      fatal("SegmentationPipeline: val_split leaves no training samples", ValueError)
-    logging.info("SegmentationPipeline: deriving %d val / %d train samples", n_val,
-                 n_train)
-    generator = torch.Generator().manual_seed(getattr(args, "seed", 0) or 0)
-    return random_split(train_full, [n_train, n_val], generator=generator)
+      train_raw, val_raw = splits["train"], splits["val"]
+    else:
+      # No explicit val split: derive one from the train set.
+      train_full = splits["train"]
+      n_val = max(1, int(len(train_full) * getattr(args, "val_split", 0.2)))
+      n_train = len(train_full) - n_val
+      if n_train <= 0:
+        fatal("SegmentationPipeline: val_split leaves no training samples", ValueError)
+      logging.info("SegmentationPipeline: deriving %d val / %d train samples", n_val,
+                   n_train)
+      generator = torch.Generator().manual_seed(getattr(args, "seed", 0) or 0)
+      train_raw, val_raw = random_split(train_full, [n_train, n_val],
+                                        generator=generator)
+
+    # B4: give the segfolder path the same dense class-id compaction as HF.
+    # A full scan over *all* masks (train + val, mirrors
+    # `_load_or_build_mask_map`) builds the {raw -> compact} map so that a
+    # sparse / 1-based id set compacts to [0, C) and a class split entirely
+    # into validation is still covered (never fatal).  Both returned
+    # datasets remap through the shared `apply_mask_map`.
+    ignore_index = getattr(args, "seg_ignore_index", 255)
+    all_masks = [
+        np.asarray(s[i]["mask"]) for s in (train_raw, val_raw) for i in range(len(s))
+    ]
+    mask_map, _ = build_mask_map(all_masks, ignore_index=ignore_index)
+    if not mask_map:
+      fatal("SegmentationPipeline: no class ids found in segfolder masks", ValueError)
+    self.mask_map = mask_map
+
+    return (_MaskRemapAdapter(train_raw, mask_map, ignore_index),
+            _MaskRemapAdapter(val_raw, mask_map, ignore_index))
 
   def _load_hf(self, args, name):
     import datasets as _datasets
@@ -232,10 +283,17 @@ class SegmentationPipeline(DataPipeline):
     return d
 
   @staticmethod
-  def _class_map_cache_path(args, name, image_col, mask_col):
-    """Return the cache file path for a dataset spec."""
+  def _class_map_cache_path(args, name, image_col, mask_col, content_hash=None):
+    """Return the cache file path for a dataset spec.
+
+    The file name embeds a short digest of the spec *and*, when given, a
+    content hash of the underlying masks (B11), so any change to the data
+    (not just the spec) invalidates the cache.
+    """
     ignore_index = getattr(args, "seg_ignore_index", 255)
     spec = "|".join([name, image_col, mask_col, str(ignore_index)])
+    if content_hash:
+      spec = "|".join([spec, content_hash])
     digest = hashlib.sha256(spec.encode("utf-8")).hexdigest()[:16]
     return os.path.join(SegmentationPipeline._class_map_cache_dir(args),
                         f"segclassmap__{digest}.json")
@@ -251,100 +309,64 @@ class SegmentationPipeline(DataPipeline):
     """
     import numpy as np
 
-    cache_path = self._class_map_cache_path(args, name, image_col, mask_col)
     splits = raw.values() if hasattr(raw, "values") else [raw]
     n = sum(len(s) for s in splits)
-    if os.path.exists(cache_path):
-      try:
-        with open(cache_path) as f:
-          payload = json.load(f)
-        key_type = payload.get("key_type", "int")
-        mapping = {}
-        for k, v in payload["raw_to_compact"].items():
-          if key_type == "rgb":
-            key = tuple(int(x) for x in k.strip("()").split(","))
-          else:
-            key = int(k)
-          mapping[key] = int(v)
-        # Reject caches built from a different mask count (e.g. an older
-        # train-only scan when val ids were added to the spec).  A stale
-        # cache is not an error: it is simply rebuilt below.
-        if payload.get("total_masks") != n:
-          logging.info(
-              "SegmentationPipeline: cached class map is stale "
-              "(%s masks, expected %s); rescanning", payload.get("total_masks"), n)
-          mapping = None
-        else:
-          logging.info(
-              "SegmentationPipeline: using cached class map (%d classes) "
-              "from %s", len(mapping), cache_path)
-          self.mask_map = mapping
-          return mapping
-      except (OSError, ValueError, KeyError, AttributeError) as exc:
-        logging.warning(
-            "SegmentationPipeline: cached class map unreadable (%s); "
-            "rescanning", exc)
+
+    def iter_masks():
+      """Yield every raw mask array across splits."""
+      for split in splits:
+        for i in range(len(split)):
+          yield np.asarray(split[i][mask_col])
+
+    # B11: content hash over a cheap descriptor of every mask (count +
+    # per-mask shape/dtype + byte hash), so data edits invalidate the cache
+    # even when the spec string (name/columns/ignore index) is unchanged.
+    import hashlib as _hashlib
+
+    h = _hashlib.sha256()
+    h.update(str(n).encode("utf-8"))
+    seen = 0
+    for arr in iter_masks():
+      h.update(str(arr.shape).encode("utf-8"))
+      h.update(str(arr.dtype).encode("utf-8"))
+      h.update(_hashlib.sha256(arr.tobytes()).hexdigest().encode("utf-8"))
+      seen += 1
+    content_hash = h.hexdigest()[:16]
+
+    cache_path = self._class_map_cache_path(args, name, image_col, mask_col,
+                                            content_hash)
+
+    cached = load_mask_map_cache(cache_path, n)
+    if cached is not None:
+      logging.info(
+          "SegmentationPipeline: using cached class map (%d classes) "
+          "from %s", len(cached), cache_path)
+      self.mask_map = cached
+      return cached
+
     logging.info(
         "SegmentationPipeline: scanning %d masks to build the "
         "class-id map (one-time, may take a moment)...", n)
-
-    raw_keys = set()
-    rgb = False
-    seen = 0
     import time
     t0 = time.time()
-    for split in splits:
-      for i in range(len(split)):
-        row = split[i]
-        mask = row[mask_col]
-        arr = np.asarray(mask)
-        if arr.ndim == 3:
-          rgb = True
-          h, w, _ = arr.shape
-          flat = arr.reshape(-1, 3)
-          for j in range(flat.shape[0]):
-            key = tuple(int(v) for v in flat[j])
-            if any(v == ignore_index for v in key):
-              continue
-            raw_keys.add(key)
-        else:
-          for v in np.unique(arr):
-            if int(v) == ignore_index:
-              continue
-            raw_keys.add(int(v))
-        seen += 1
-
-    raw_keys = sorted(raw_keys)
-    if rgb:
-      mask_map = {key: idx for idx, key in enumerate(raw_keys)}
-      logging.info(
-          "SegmentationPipeline: RGB mask detected; mapped %d unique "
-          "triplets to classes in %.1fs", len(mask_map),
-          time.time() - t0)
-    else:
-      mask_map = {int(key): idx for idx, key in enumerate(raw_keys)}
-      logging.info("SegmentationPipeline: %d classes from %d masks in %.1fs",
-                   len(mask_map), seen,
-                   time.time() - t0)
+    mask_map, key_type = build_mask_map(iter_masks(), ignore_index=ignore_index)
+    logging.info("SegmentationPipeline: %d classes from %d masks in %.1fs",
+                 len(mask_map), seen,
+                 time.time() - t0)
 
     self.mask_map = mask_map
-    try:
-      payload = {
-          "dataset": name,
-          "image_column": image_col,
-          "mask_column": mask_col,
-          "ignore_index": ignore_index,
-          "key_type": "rgb" if rgb else "int",
-          "total_masks": n,
-          "raw_to_compact": {
-              str(k): int(v) for k, v in mask_map.items()
-          },
-      }
-      with open(cache_path, "w") as f:
-        json.dump(payload, f, sort_keys=True)
-      logging.info("SegmentationPipeline: cached class map to %s", cache_path)
-    except OSError as exc:
-      logging.warning("SegmentationPipeline: could not cache class map (%s)", exc)
+    save_mask_map_cache(
+        cache_path, {
+            "dataset": name,
+            "image_column": image_col,
+            "mask_column": mask_col,
+            "ignore_index": ignore_index,
+            "key_type": key_type,
+            "total_masks": n,
+            "raw_to_compact": {
+                str(k): int(v) for k, v in mask_map.items()
+            },
+        })
     return mask_map
 
   @staticmethod
