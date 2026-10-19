@@ -10,10 +10,14 @@ or, when the corpus has named splits::
     <root>/<split>/images/<stem>.<ext>
     <root>/<split>/masks/<stem>.png
 
-Images are decoded as RGB PIL images; masks are decoded as single-channel
-``numpy.ndarray`` of ``int64`` (class ids).  ``__getitem__`` returns a
-dict ``{"image": PIL.Image, "mask": np.ndarray}`` so the paired transform
-can co-process the two fields.
+Images are decoded as RGB PIL images; masks are decoded as ``int64``
+``numpy.ndarray`` class ids.  Palette (``P``), grayscale (``L``) and 16-bit
+(``I;16``) masks all yield an ``(H, W)`` array.  A true RGB mask is kept as
+``(H, W, 3)`` so the pipeline can remap colour triplets via
+:func:`genml_kit.utils.seg.apply_mask_map`; a mask with any other channel
+count is rejected as ambiguous.  ``__getitem__`` returns a dict
+``{"image": PIL.Image, "mask": np.ndarray}`` so the paired transform can
+co-process the two fields.
 
 The extension list is shared with :mod:`genml_kit.datasets.image_folder`
 so both local loaders recognise the same image formats.
@@ -129,13 +133,25 @@ class SegFolderDataset:
 
     def load(i):
       image = Image.open(self._image_paths[i]).convert("RGB")
-      mask = np.array(Image.open(self._mask_paths[i]), dtype=np.int64)
+      with Image.open(self._mask_paths[i]) as handle:
+        mask = np.array(handle, dtype=np.int64)
       return image, mask
 
     (image, mask), _ = getitem_retry(idx, load, n)
-    # Masks may be HxW or HxWx1 depending on the encoder; normalise to HxW.
+    # Palette ('P'), grayscale ('L') and 16-bit ('I;16') masks all decode to
+    # (H, W) class-id maps and are returned as-is.  A true RGB mask stays
+    # (H, W, 3) so ``apply_mask_map`` can remap colour triplets instead of
+    # silently keeping channel 0 (which collapses distinct colours onto a
+    # single id).  Any other channel count is ambiguous, so reject it rather
+    # than guess.
     if mask.ndim == 3:
-      mask = mask[..., 0]
+      if mask.shape[-1] == 1:
+        mask = mask[..., 0]
+      elif mask.shape[-1] != 3:
+        fatal(
+            f"SegFolderDataset: mask '{self._mask_paths[idx]}' has "
+            f"{mask.shape[-1]} channels; expected a single-channel class-id "
+            "map or a 3-channel RGB mask.", ValueError)
     return {"image": image, "mask": mask}
 
 

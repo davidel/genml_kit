@@ -75,7 +75,10 @@ def dice_ce_loss(logits, target, *, weight=1.0, ignore_index=255, eps=1.0):
   Args:
     logits: ``(B, C, H, W)`` raw scores.
     target: ``(B, H, W)`` integer label map.
-    weight: Relative weight of the cross-entropy term.
+    weight: Multiplier on the *cross-entropy* term only; the Dice term always
+      keeps weight 1.0.  This is a single mixing scalar between the two loss
+      components -- it is **not** a per-class loss weighting (class weights
+      belong to the individual losses, e.g. ``F.cross_entropy(weight=...)``).
     ignore_index: Label value excluded from both terms (``< 0`` disables).
     eps: Smoothing constant forwarded to :func:`dice_loss`.
 
@@ -95,6 +98,12 @@ class DiceCELoss(torch.nn.Module):
   Keeping this a module (rather than a bare function) mirrors how the
   other registered supervised criteria (``focal``) are exposed and lets
   the loss be moved to a device or serialized like any other criterion.
+
+  Args:
+    weight: Multiplier on the cross-entropy term only (see
+      :func:`dice_ce_loss`); not a per-class weighting.
+    ignore_index: Label value excluded from both terms (``< 0`` disables).
+    eps: Smoothing constant forwarded to :func:`dice_loss`.
   """
 
   def __init__(self, weight=1.0, ignore_index=255, eps=1.0):

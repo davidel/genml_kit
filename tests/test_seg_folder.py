@@ -54,6 +54,44 @@ class TestSegFolderDataset:
     ds = SegFolderDataset(tmp_path)
     assert len(ds) == 1
 
+  def test_palette_mask_stays_2d(self, tmp_path):
+    """A palette ('P') PNG decodes to (H, W) indices, not a 3-D array."""
+    _write_pair(tmp_path, "a")
+    mask = np.zeros((8, 8), dtype=np.uint8)
+    mask[0, :] = 1
+    pal = Image.fromarray(mask, mode="P")
+    pal.putpalette([0, 0, 0, 255, 0, 0] + [0] * (256 * 3 - 6))
+    pal.save(tmp_path / "masks" / "a.png")
+
+    item = SegFolderDataset(tmp_path)[0]
+    assert item["mask"].ndim == 2
+    assert item["mask"].shape == (8, 8)
+    assert set(item["mask"].ravel().tolist()) == {0, 1}
+
+  def test_rgb_mask_keeps_channel_axis(self, tmp_path):
+    """True RGB masks must not be silently collapsed to channel 0."""
+    _write_pair(tmp_path, "a")
+    rgb = np.zeros((8, 8, 3), dtype=np.uint8)
+    rgb[0, :] = (255, 0, 0)
+    rgb[1, :] = (0, 255, 0)
+    Image.fromarray(rgb).save(tmp_path / "masks" / "a.png")
+
+    item = SegFolderDataset(tmp_path)[0]
+    assert item["mask"].shape == (8, 8, 3)
+    # Both colours survive; collapsing to channel 0 would merge them.
+    triples = {tuple(px) for px in item["mask"].reshape(-1, 3).tolist()}
+    assert (255, 0, 0) in triples
+    assert (0, 255, 0) in triples
+
+  def test_rgba_mask_is_rejected(self, tmp_path):
+    """An ambiguous 4-channel mask fails loudly instead of guessing."""
+    _write_pair(tmp_path, "a")
+    rgba = np.zeros((8, 8, 4), dtype=np.uint8)
+    Image.fromarray(rgba, mode="RGBA").save(tmp_path / "masks" / "a.png")
+
+    with pytest.raises(ValueError, match="4 channels"):
+      SegFolderDataset(tmp_path)[0]
+
 
 class TestLoadSegFolder:
 
