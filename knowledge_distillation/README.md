@@ -709,6 +709,29 @@ This keeps the *policy* of which layers to distil out of `train_step`, so the
 method reads as orchestration and the matching logic is unit-testable in
 isolation.
 
+**Resolution.** Shipped as `genml_kit/models/layer_match.py`, with two public
+helpers and a `namedtuple` result:
+
+- `iter_named_layers(model, pattern=None)` — enumerate `(name, module)` pairs
+  in registration order (numeric for `ModuleList`/`Sequential`), de-duplicated
+  by identity, with an optional `re.search`-style filter.  Fewer than one
+  candidate raises `ValueError`.
+- `match_layers(teacher_layers, student_layers, strategy="uniform", pattern=None)`
+  → `list[LayerPair]`, where `LayerPair = namedtuple("LayerPair", ["teacher",
+  "student"])` and each field holds the **`nn.Module`** so the caller can
+  register a forward hook directly.
+
+Strategies: `"by_index"` (positional zip; requires equal depth), `"uniform"`
+(evenly spaced indices `round(i·(m−1)/(k−1))` spanning both depths, always
+including the first and last layer, so the deepest features are never dropped)
+and `"by_name"` (pairs on the regex-matched key, tolerating differing path
+prefixes).  Matched layers are logged at INFO, skipped ones at WARNING; a
+pairing that yields **zero** pairs raises `ValueError` (a mis-typed pattern).
+The `by_name` matcher is self-contained here rather than reusing
+`training/param_align.py`, whose exact-shape premise is the opposite of the
+cross-depth pairing distillation needs (and because `models → training` would
+invert the existing layering).  Covered by `tests/test_layer_match.py`.
+
 ## 27. Acceptance Criteria For The Refactor
 
 The distillation PR is only mergeable when all of the following hold:
@@ -810,8 +833,11 @@ The distillation PR is only mergeable when all of the following hold:
   (§9).
 - `genml_kit/losses/contrastive.py` — the pairwise-similarity pattern that the
   relation-KD loss parallels (§11).
-- `genml_kit/io/checkpointing.py` — the regex parameter-renaming style reused by
-  `match_layers` (§26).
+- `genml_kit/io/checkpointing.py` — the regex parameter-renaming style
+  (`re.search` / `re.sub`) whose semantics the `by_name` match key follows
+  (§26).
+- `genml_kit/models/layer_match.py` — the shipped `iter_named_layers` /
+  `match_layers` helpers (§26).
 
 ## Appendix D: Math Rendering Reference
 
