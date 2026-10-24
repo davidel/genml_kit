@@ -683,6 +683,15 @@ document and test that contract: a teacher and student whose backbones return
 *differently shaped* outputs must fail loudly, not silently produce a
 shape-mismatched L2 loss that broadcasts.
 
+**Resolution.** The contract is now documented in the `encoder_utils` module
+docstring and on `encode_with_backbone` (the bare branch returns the encoder
+output *verbatim*; an un-pooled result is the caller's responsibility), and a
+shared guard `require_matching_features(*features, names=None)` raises
+`ValueError` unless every feature tensor shares exactly one shape. Feature
+distillation will call it on the $`(h_s, h_t)`$ pair so the broadcasting trap
+fails loudly. Covered by `tests/test_encoder_utils.py`
+(`TestBareRawFallbackContract`, `TestRequireMatchingFeatures`).
+
 ## 26. Extract The Layer-Matching Helper
 
 FitNets and attention transfer need to pair a *teacher* layer $`\ell`$ with a
@@ -753,7 +762,8 @@ The distillation PR is only mergeable when all of the following hold:
 - **§21** Tracing a Python branch whose condition depends on tensor *values*;
   it is frozen for the dummy input.
 - **§25** Relying on `encode_with_backbone`'s bare-`raw` fallback for feature
-  distillation without a shape check.
+  distillation without a shape check. *(Addressed: the contract is documented
+  and `require_matching_features` is the guard the distillation loss calls.)*
 - **§27** Adding `# noqa` to silence `ruff` instead of fixing the root cause.
 
 ## Appendix C: Reading List

@@ -8,7 +8,10 @@ failures (in particular ``torch.cuda.OutOfMemoryError``).
 import pytest
 import torch
 
-from genml_kit.models.encoder_utils import encode_with_backbone
+from genml_kit.models.encoder_utils import (
+    encode_with_backbone,
+    require_matching_features,
+)
 
 
 class _FailingHookEncoder(torch.nn.Module):
@@ -125,3 +128,57 @@ class TestModelOutputFallback:
     imgs = torch.ones(2, 3, 8, 8)
     out = encode_with_backbone(enc, imgs)
     assert torch.equal(out, imgs.mean(dim=1))
+
+
+class TestBareRawFallbackContract:
+  """§25: the bare-`raw` fallback returns the encoder output verbatim.
+
+  A backbone whose forward yields an un-pooled tensor must come back
+  unchanged — callers relying on the ``(B, D)`` contract are responsible
+  for pooling, and ``require_matching_features`` is the loud guard.
+  """
+
+  def test_raw_output_returned_verbatim(self, monkeypatch):
+    monkeypatch.setattr("genml_kit.training.model_utils.extract_backbone_features",
+                        lambda m, x: (_ for _ in ()).throw(AttributeError("no hook")))
+
+    class _SpatialEncoder(torch.nn.Module):
+
+      def forward(self, images):
+        # Un-pooled, non-(B, D): returned as-is by the bare fallback.
+        return images + 1
+
+    imgs = torch.ones(2, 3, 8, 8)
+    out = encode_with_backbone(_SpatialEncoder(), imgs)
+    assert out.shape == imgs.shape
+    assert torch.equal(out, imgs + 1)
+
+
+class TestRequireMatchingFeatures:
+  """§25: mismatched feature shapes must fail loudly, not broadcast."""
+
+  def test_equal_shapes_pass_and_return_first(self):
+    a = torch.zeros(2, 4)
+    b = torch.ones(2, 4)
+    assert require_matching_features(a, b) is a
+    assert require_matching_features(a, b, torch.zeros(2, 4)) is a
+
+  def test_broadcast_trap_raises(self):
+    # (B, 4) vs (B, 1, 4): torch would broadcast these silently.
+    with pytest.raises(ValueError, match="Feature shapes must match"):
+      require_matching_features(torch.zeros(2, 4), torch.zeros(2, 1, 4))
+
+  def test_mismatch_message_includes_shapes_and_names(self):
+    with pytest.raises(ValueError) as excinfo:
+      require_matching_features(torch.zeros(2, 4),
+                                torch.zeros(2, 3),
+                                names=("student", "teacher"))
+    msg = str(excinfo.value)
+    assert "student:(2, 4)" in msg
+    assert "teacher:(2, 3)" in msg
+
+  def test_fewer_than_two_tensors_raises(self):
+    with pytest.raises(ValueError, match="at least two tensors"):
+      require_matching_features(torch.zeros(2, 4))
+    with pytest.raises(ValueError, match="at least two tensors"):
+      require_matching_features()
