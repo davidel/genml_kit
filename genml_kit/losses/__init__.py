@@ -18,6 +18,12 @@ from genml_kit.losses import builtin  # noqa: F401
 from genml_kit.losses.byol import byol_loss
 from genml_kit.losses.contrastive import supcon_loss
 from genml_kit.losses.dino import DINOLoss
+from genml_kit.losses.distillation import (
+    kd_attention_loss,
+    kd_feature_loss,
+    kd_relation_loss,
+    kd_response_loss,
+)
 from genml_kit.losses.focal import CombinedFocalLoss
 from genml_kit.losses.registry import DEFAULT_LOSS, LOSSES, load_loss
 from genml_kit.losses.rl import (
@@ -49,6 +55,10 @@ __all__ = [
     "dice_loss",
     "entropy_bonus",
     "gae",
+    "kd_attention_loss",
+    "kd_feature_loss",
+    "kd_relation_loss",
+    "kd_response_loss",
     "load_loss",
     "sac_alpha_loss",
     "sac_policy_loss",

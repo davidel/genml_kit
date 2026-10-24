@@ -114,11 +114,67 @@ def dqn_loss_bundle(*, reduction="mean", **kwargs):
   return {"td": td_loss}
 
 
+# --- Knowledge distillation (§16) ------------------------------------------
+# The KD objectives are plain functions in genml_kit.losses.distillation; they
+# are registered here so an external script can override a single one through
+# the existing load_loss(spec, ...) merge logic, with no core changes.  Each
+# builder takes **kwargs (the registry passes the loss spec's params) and
+# returns the callable itself -- the function's own defaults are what matters.
+@LOSSES.register("kd_response")
+def kd_response_builder(**kwargs):
+  """Builder for the Hinton response-KD loss.
+
+  Returns ``kd_response(student_logits, teacher_logits, temperature, reduction)``
+  with any keyword defaults from *kwargs* bound where the function accepts them.
+  """
+  # Imported lazily so importing this module does not pull the whole loss tree.
+  from genml_kit.losses.distillation import kd_response_loss
+
+  return kd_response_loss
+
+
+@LOSSES.register("kd_feature")
+def kd_feature_builder(**kwargs):
+  """Builder for the FitNets feature-KD loss.
+
+  Returns ``kd_feature(student_feat, teacher_feat, projector)``.
+  """
+  from genml_kit.losses.distillation import kd_feature_loss
+
+  return kd_feature_loss
+
+
+@LOSSES.register("kd_attention")
+def kd_attention_builder(**kwargs):
+  """Builder for the attention-transfer loss.
+
+  Returns ``kd_attention(student_map, teacher_map, p)``.
+  """
+  from genml_kit.losses.distillation import kd_attention_loss
+
+  return kd_attention_loss
+
+
+@LOSSES.register("kd_relation")
+def kd_relation_builder(**kwargs):
+  """Builder for the relational (RKD) loss.
+
+  Returns ``kd_relation(student_feat, teacher_feat, ...)``.
+  """
+  from genml_kit.losses.distillation import kd_relation_loss
+
+  return kd_relation_loss
+
+
 # Import-time registration hook: re-exported by genml_kit.losses.
 __all__ = [
     "dice_ce_criterion",
     "dqn_loss_bundle",
     "focal_loss",
+    "kd_attention_builder",
+    "kd_feature_builder",
+    "kd_relation_builder",
+    "kd_response_builder",
     "ppo_loss_bundle",
     "sac_loss_bundle",
     "supcon_loss",

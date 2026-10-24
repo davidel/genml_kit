@@ -141,6 +141,15 @@ Parts 2, 3 and 4 develop one loss per family. They compose: a single training
 run may use all three, with weights $`\alpha_{\text{resp}}, \alpha_{\text{feat}},
 \alpha_{\text{rel}}`$.
 
+**Implementation status.** Parts 2-4 and the method wiring of Part 6 are
+shipped: the losses live in `genml_kit/losses/distillation.py`
+(`kd_response_loss`, `kd_feature_loss`, `kd_attention_loss`, `kd_relation_loss`,
+also registered in `LOSSES` as `kd_response` / `kd_feature` / `kd_attention` /
+`kd_relation`) and the method is `genml_kit/methods/distillation.py`
+(`DistillationMethod`, registered as `"distillation"`, supporting both
+`--teacher_kind ema` and `--teacher_kind external`). Part 7 (ONNX export)
+remains a planned follow-up.
+
 ## 3. Dictionary Learning Versus Function Mimicry
 
 Hinton's original framing casts the teacher as a *soft label generator*: the
@@ -838,6 +847,10 @@ The distillation PR is only mergeable when all of the following hold:
   (§26).
 - `genml_kit/models/layer_match.py` — the shipped `iter_named_layers` /
   `match_layers` helpers (§26).
+- `genml_kit/losses/distillation.py` — the shipped KD losses
+  (`kd_response_loss` / `kd_feature_loss` / `kd_attention_loss` /
+  `kd_relation_loss`); `genml_kit/methods/distillation.py` — the shipped
+  `DistillationMethod` (§15-§19).
 
 ## Appendix D: Math Rendering Reference
 

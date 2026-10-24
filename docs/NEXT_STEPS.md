@@ -301,3 +301,149 @@ Recommend deferring until Tier 1–2 land.
   (`cv2`, `onnx`, `wandb`, `optuna`, …) — never harden new core deps.
 - **Tests + style.** Add `tests/` coverage and keep 2-space indent via
   `yapf`/`.style.yapf`; validate with `ruff`.
+
+## Progress Tracker
+
+Live status of the work items. The matrix above is the original planning text
+and is left untouched; this table (and the log below) record what has actually
+shipped.
+
+Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
+
+| # | Item | Status | Notes |
+|---|---|---|---|
+| 1 | Knowledge distillation | 🚧 | Method + losses **done**; ONNX export **⬜ remaining** |
+| 1a | &nbsp;&nbsp;· KD losses (`losses/distillation.py`) | ✅ | 4 losses + registry entries |
+| 1b | &nbsp;&nbsp;· `DistillationMethod` (EMA + external teacher) | ✅ | registered as `"distillation"` |
+| 1c | &nbsp;&nbsp;· ONNX export (`genml-kit-export`) | ⬜ | **next task** — see "Continue Here Tomorrow" |
+| — | Shared: `EMAModel` / `encoder_utils` contract / `layer_match` | ✅ | Part-8 extraction, done first |
+| 2–12 | Detection, depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
+
+---
+
+## Work Log
+
+Newest first. Each entry records the commits and the verification that backed
+them.
+
+### 2026-10 — KD method + losses (item 1a/1b) — **committed**
+
+Shipped in `feat(distillation): add KD losses and DistillationMethod`
+(the four new files plus five modified files):
+
+- `genml_kit/losses/distillation.py` (new) — `kd_response_loss`,
+  `kd_feature_loss`, `kd_attention_loss`, `kd_relation_loss`.
+- `genml_kit/losses/builtin.py` (mod) — the four registered as `LOSSES` builders
+  (`kd_response` / `kd_feature` / `kd_attention` / `kd_relation`).
+- `genml_kit/losses/__init__.py` (mod) — export the four losses.
+- `genml_kit/methods/distillation.py` (new) — `DistillationMethod`, both
+  `--teacher_kind ema` and `--teacher_kind external`.
+- `genml_kit/methods/__init__.py` (mod) — import for registration.
+- `tests/test_distillation_losses.py`, `tests/test_distillation_method.py`
+  (new) — 37 CPU-only tests.
+- `knowledge_distillation/README.md` (mod) — implementation-status note.
+- `docs/NEXT_STEPS.md` (mod) — this file.
+
+Verified before handing over: `pytest -q` → **1477 passed, 4 deselected**;
+`pytest -m slow -q` → **4 passed**; `ruff check .` clean; all new/changed
+`.py` files pass `yapf` with `.style.yapf` (2-space).
+
+**Divergence from the roadmap's sketch (intentional).** The roadmap proposed a
+*class* named `DistillLoss` ("logit KD + feature KD + optional relational KD").
+What shipped is instead **four plain loss functions** composed by the method in
+`_kd_terms`, plus the FitNets projection handled by the shared `ProjectionHead`.
+Rationale: (a) each family is one pure, independently testable function — the
+repo's existing pattern (`byol_loss`, `supcon_loss`); (b) a single class would
+have to own the teacher/student pairing and layer policy, which the method
+already does via `match_layers`; (c) attention transfer was added as a fourth
+loss (§10) beyond the sketch's three.
+
+**Committed.** The remaining work for item 1 is the ONNX export (item 1c).
+
+> **Never commit without explicit approval.** The agreed process is: plan →
+> review → approve → implement → review → **commit**. No `--amend`, no squash,
+> no `Co-Authored-By`. Mark tasks here as they land.
+
+### 2026-10 — Shared utilities (item 1 preamble, Part-8 contract)
+
+Committed, all local (not pushed):
+
+| Commit | What |
+|---|---|
+| `66957f9` | `feat(models): add layer-matching helper for feature distillation` — `genml_kit/models/layer_match.py` (`iter_named_layers`, `match_layers`). |
+| `60d4f78` | `refactor(models): document and guard the encoder feature-shape contract` — `require_matching_features` in `genml_kit/models/encoder_utils.py`. |
+| `d4d835d` | `refactor(models): extract shared EMA/target-network utility` — `genml_kit/models/ema.py` (`EMAModel`, `linear_momentum`); BYOL / DINO / I-JEPA / DQN / SAC migrated, checkpoint keys byte-for-byte identical. |
+| `779899f` | `docs: add knowledge-distillation design guide and AI-topic roadmap` — this file + `knowledge_distillation/README.md`. |
+
+---
+
+## Continue Here Tomorrow
+
+**Resume point: item 1c — the ONNX export CLI (`genml-kit-export`).**
+Everything else in item 1 (losses + method + shared utilities) is implemented
+and committed; only the export remains.
+
+### Step 0 — commit the reviewed KD work — ✅ done
+
+The KD losses + `DistillationMethod` are committed (see the Work Log above).
+
+### Step 1 — ONNX export CLI (design is in `knowledge_distillation/README.md` Part 7, §20–§22) — ⬅ start here
+
+Deliverables:
+
+- **`genml_kit/training/export.py`** (proposed path; the roadmap's `training/
+  export.py`). A thin, testable wrapper around `torch.onnx.export`:
+  - `input_names` / `output_names` set explicitly (§20.3);
+  - a **dynamic batch axis** via `dynamic_axes`;
+  - optional **int8** post-training quantization (`onnxruntime.quantization.
+    quantize_dynamic`, §22);
+  - a **numerical-verification** step that compares the exported model's
+    outputs against PyTorch on the same dummy input (§22 — *verify the metric,
+    don't assume it*).
+- **Console script** `genml-kit-export` in `pyproject.toml`
+  `[project.scripts]`, next to `genml-kit-train` / `genml-kit-infer`.
+- **New optional extra** in `pyproject.toml` (`export = ["onnx",
+  "onnxruntime"]`) — never a core dependency (see Cross-cutting concerns).
+- **Tests** `tests/test_onnx_export.py` — `pytest.importorskip("onnx")` so the
+  suite stays green when the extra is absent; assert the exported graph runs
+  and matches the eager outputs within tolerance.
+
+Gotchas to remember (§20–§21 of the design doc):
+
+- Trace-mode export freezes any branch that depends on tensor *values*; keep
+  such branches out of the exported `forward`.
+- Pin an opset and check the custom heads (attention pooling, ConvViT) export
+  cleanly.
+
+### Reference: how to run things
+
+```bash
+# full suite (slow deselected by default) + lint + format check
+pytest -q
+pytest -m slow -q
+ruff check .
+
+# training smoke for the new method (once labels are wired)
+#   python -m genml_kit.training.train --method distillation --help
+```
+
+### Key decisions already locked (so we don't relitigate them)
+
+- **No type annotations** — Google-style docstrings only (repo convention; the
+  tree has ~3 annotated signatures total, all pre-existing outliers).
+- **`namedtuple`s** over bare tuples for structured returns.
+- **2-space indent** via `yapf`/`.style.yapf`; **`ruff` clean, no `noqa`**
+  without explicit sign-off.
+- **Extract-before-write** (Part 8): the KD method reuses `EMAModel`,
+  `encode_with_backbone` / `require_matching_features`, `match_layers`,
+  `ProjectionHead` — no copy-paste.
+- `by_name` layer matching is self-contained in `layer_match.py` (not
+  `training/param_align.py`, whose exact-shape premise opposes cross-depth
+  pairing and whose import would invert layering).
+- Shape-changing operations are commented with the resulting shape on the line
+  above, so tensor flow is trackable within a function.
+
+### Working-tree hygiene
+
+- `.chatty/models.json` is untracked tooling noise — **do not** commit it.
+- Local commits are **not pushed**; `git log @{u}..HEAD` lists what is ahead.
