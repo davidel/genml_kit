@@ -267,7 +267,7 @@ The total objective for plain logit distillation is the convex combination
 $$
 \large
 \mathcal{L}
-= (1 - \alpha)\,\underbrace{\mathcal{L}_{\text{CE}}(z_s, y)}_{\text{hard labels}}
+= (1 - \alpha)\\,\underbrace{\mathcal{L}_{\text{CE}}(z_s, y)}_{\text{hard labels}}
 \\;+\\; \alpha\\,\underbrace{T^{2}\\,\mathrm{KL}\\!\left(q_t \middle\| q_s\right)}_{\text{soft labels}},
 $$
 
