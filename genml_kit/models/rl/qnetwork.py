@@ -20,6 +20,7 @@ import copy
 import torch
 import torch.nn as nn
 
+from genml_kit.models.ema import EMAModel
 from genml_kit.models.registry import MODELS
 
 
@@ -117,8 +118,7 @@ class QNetwork(nn.Module):
 
     self.online = nn.Sequential(backbone, head)
     self.target = copy.deepcopy(self.online)
-    for p in self.target.parameters():
-      p.requires_grad = False
+    self._ema = EMAModel(self.target, self.online)
 
     self.n_actions = n_actions
 
@@ -153,7 +153,7 @@ class QNetwork(nn.Module):
   @torch.no_grad()
   def hard_update(self):
     """Hard-copy online parameters to the target network."""
-    self.target.load_state_dict(self.online.state_dict())
+    self._ema.copy_hard()
 
 
 @MODELS.register("rl/qnet")

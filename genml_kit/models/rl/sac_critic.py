@@ -10,6 +10,7 @@ import copy
 import torch
 import torch.nn as nn
 
+from genml_kit.models.ema import EMAModel
 from genml_kit.models.registry import MODELS
 
 
@@ -38,10 +39,9 @@ class SACCritic(nn.Module):
     layers.append(nn.Linear(in_dim, 1))
     self.net = nn.Sequential(*layers)
 
-    # Target network
+    # Target network (frozen; moved toward the online net by update_target).
     self.target = copy.deepcopy(self.net)
-    for p in self.target.parameters():
-      p.requires_grad = False
+    self._ema = EMAModel(self.target, self.net)
 
   def forward(self, obs, action):
     """Forward pass on the online network.
@@ -63,13 +63,11 @@ class SACCritic(nn.Module):
   @torch.no_grad()
   def hard_update(self):
     """Hard-copy online parameters to the target network."""
-    self.target.load_state_dict(self.net.state_dict())
+    self._ema.copy_hard()
 
   def soft_update(self, tau):
     """Soft Polyak update: target = (1-tau)*target + tau*online."""
-    with torch.no_grad():
-      for p, pt in zip(self.net.parameters(), self.target.parameters()):
-        pt.data.mul_(1.0 - tau).add_(p.data, alpha=tau)
+    self._ema.update(1.0 - tau)
 
 
 @MODELS.register("rl/sac_critic")

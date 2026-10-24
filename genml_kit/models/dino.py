@@ -24,6 +24,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.models.contrastive import ProjectionHead
+from genml_kit.models.ema import EMAModel
 from genml_kit.models.encoder_utils import detect_backbone_dim, encode_with_backbone
 from genml_kit.losses.dino import DINOLoss
 
@@ -78,8 +79,7 @@ class DINO(nn.Module):
     super().__init__()
     self.student = _EncoderWithHead(encoder, proj_dim, proj_hidden, backbone_dim)
     self.teacher = copy.deepcopy(self.student)
-    for p in self.teacher.parameters():
-      p.requires_grad = False
+    self._ema = EMAModel(self.teacher, self.student)
 
     if backbone_dim is None:
       backbone_dim = self.student.backbone_dim
@@ -98,8 +98,7 @@ class DINO(nn.Module):
         momentum: EMA coefficient in ``[0, 1]``; values close to 1 keep
             the teacher nearly frozen.
     """
-    for sp, tp in zip(self.student.parameters(), self.teacher.parameters()):
-      tp.data.mul_(momentum).add_(sp.data, alpha=1.0 - momentum)
+    self._ema.update(momentum)
 
   def forward(self, global_crops, local_crops, update_center=True):
     """Compute DINO loss.

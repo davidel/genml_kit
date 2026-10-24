@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.models.contrastive import ProjectionHead
+from genml_kit.models.ema import EMAModel
 from genml_kit.models.encoder_utils import detect_backbone_dim, encode_with_backbone
 
 
@@ -32,15 +33,12 @@ class BYOL(nn.Module):
                                                  backbone_dim)
     self.online_predictor = _PredictorMLP(proj_dim, predictor_hidden, proj_dim)
     self.target_encoder = copy.deepcopy(self.online_encoder)
-    for p in self.target_encoder.parameters():
-      p.requires_grad = False
+    self._ema = EMAModel(self.target_encoder, self.online_encoder)
 
   @torch.no_grad()
   def update_momentum(self, momentum):
     """EMA update of target encoder from online encoder."""
-    for op, tp in zip(self.online_encoder.parameters(),
-                      self.target_encoder.parameters()):
-      tp.data.mul_(momentum).add_(op.data, alpha=1.0 - momentum)
+    self._ema.update(momentum)
 
   def forward(self, images):
     """Compute BYOL loss from two augmented views.

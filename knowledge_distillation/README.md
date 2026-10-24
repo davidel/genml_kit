@@ -407,20 +407,24 @@ already provides.
 
 ## 14. Momentum Scheduling
 
-A constant $`m`$ works, but the literature (BYOL, DINO, I-JEPA) ramps it. A
-representative schedule is a cosine ramp from an initial value to a final value:
+A constant $`m`$ works, but the literature (BYOL, DINO, I-JEPA) ramps it. The
+existing methods use a **linear** ramp from an initial value to a final value:
 
 $$
 \large
 m(k) = m_{\text{start}} + (m_{\text{end}} - m_{\text{start}})\,
-\frac{1 - \cos\!\big(\pi\, k / K\big)}{2},
+\min\!\left(\frac{k}{K},\, 1\right),
 $$
 
-where $`k`$ is the current optimizer step and $`K`$ the step budget. Early in
-training the teacher tracks the student closely (small $`m`$, teacher adapts
-fast); later it becomes a slow, stable target (large $`m`$). The step budget
-$`K`$ is computed at `wire_data` time from the loader length and the epoch
-count — the same pattern the BYOL method already uses to size its momentum ramp.
+where $`k`$ is the current step and $`K`$ the step budget. Early in training the
+teacher tracks the student closely (small $`m`$, teacher adapts fast); later it
+becomes a slow, stable target (large $`m`$). The step budget $`K`$ is computed at
+`wire_data` time from the loader length and the epoch count — the same pattern
+the BYOL method already uses to size its momentum ramp.
+
+A cosine ramp is a common alternative in the literature, but switching to it
+would change training dynamics, so it is deliberately **not** part of the
+extraction; the shared helper reproduces the linear ramp exactly.
 
 ---
 
@@ -619,31 +623,43 @@ for tp, sp in zip(teacher.parameters(), student.parameters()):
 composite wrappers each re-derive `backbone_dim` by hand).
 
 Additionally, the three methods `BYOLMethod`, `DINOMethod`, `IJEPAMethod`
-each carry a near-identical **cosine momentum ramp over a step budget computed
+each carry a near-identical **linear momentum ramp over a step budget computed
 in `wire_data`**.
 
 | Duplicated concern | Current copies | Target |
 |---|---|---|
 | EMA teacher build + step | `byol`, `dino`, `ijepa`, `rl/qnetwork`, `rl/sac_critic` | one `EMAModel` utility |
-| Cosine momentum schedule | `byol`, `dino`, `ijepa` | one `cosine_momentum` helper |
+| Linear momentum schedule | `byol`, `dino`, `ijepa` | one `linear_momentum` helper |
 | Backbone-dim probe / encode | `encoder_utils` + ad-hoc re-derivation | call `encoder_utils` everywhere |
 | Layer matching by name/depth | *does not exist yet* (needed by FitNets) | new `match_layers` helper |
 
 ## 24. Extract The EMA Teacher
 
-Introduce a single small module — proposed `genml_kit/models/ema.py` — exposing:
+Introduce a single small module — `genml_kit/models/ema.py` — exposing:
 
-- `class EMAModel(nn.Module)` — wraps a target copy, freezes it in the
-  constructor, and provides `update(momentum)` implementing Block A, plus
-  `state_dict` / `load_state_dict` that skip the frozen params.
-- `def cosine_momentum(step, total_steps, start, end)` — the schedule of §14.
+- `class EMAModel` — a **plain holder, not an `nn.Module`**, constructed as
+  `EMAModel(target, source)`. It does not own or copy the target (the caller
+  passes an existing `copy.deepcopy(source)` target), it just freezes the
+  target's parameters and provides `update(decay)` and `copy_hard()`.
+- `def linear_momentum(step, total, start, end)` — the schedule of §14
+  (returns `start` when `total` is falsy, so an iterable dataset with no
+  `len()` is a no-op rather than a divide-by-zero).
 
 `BYOL`, `DINO`, `I-JEPA` and the two RL target networks are then refactored to
 *hold* an `EMAModel` instead of each re-implementing deepcopy + freeze + blend.
 `DistillationMethod` becomes the next caller, not a new copy. The RL networks
-use a *hard* (periodic copy) rather than soft update; `EMAModel` therefore
-exposes both `update_soft(alpha)` and `copy_hard()` so a single utility serves
-every site.
+use a *hard* (periodic copy); `EMAModel` therefore exposes both `update(decay)`
+and `copy_hard()` so a single utility serves every site — a Polyak update with
+coefficient $`\tau`$ is `update(1 - tau)`.
+
+**Why a plain holder, not an `nn.Module`.** If `EMAModel` were an `nn.Module`
+*owning* the target (e.g. `self.target`), every parent's `state_dict` keys would
+be renamed (`target_encoder.*` → `ema.target.*`), silently breaking resume of
+existing checkpoints (the loader uses `strict=False` and would only warn).
+Keeping the target as the parent's direct attribute — with `EMAModel` holding
+only references — leaves `state_dict()`, `named_parameters()` and
+`load_state_dict()` byte-for-byte unchanged. This is covered by a dedicated
+key-stability test.
 
 **Why this is the right seam.** The EMA update is a pure, parameter-order–local
 operation with no knowledge of what the network computes. It belongs next to
@@ -688,8 +704,9 @@ isolation.
 
 The distillation PR is only mergeable when all of the following hold:
 
-1. **No new copy** of the EMA loop, the cosine ramp, or the backbone-dim probe
-   exists anywhere in the tree; every site calls the shared utility.
+1. **No new copy** of the EMA loop, the linear momentum ramp, or the
+   backbone-dim probe exists anywhere in the tree; every site calls the shared
+   utility.
 2. The refactored `BYOL`, `DINO`, `I-JEPA` and the two RL target networks pass
    their existing tests **unchanged in behaviour** — refactoring must not alter
    numerics. Any intentional numeric change is called out separately.

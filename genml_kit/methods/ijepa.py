@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.models import load_model
+from genml_kit.models.ema import EMAModel, linear_momentum
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.training.model_utils import set_train_mode
 from genml_kit.utils.transformer import build_transformer_encoder
@@ -197,10 +198,8 @@ class IJEPAMethod(Method):
     # semantics.
     encoder = self._apply_model_extras(args, encoder, device)
     student = _PatchEmbedder(encoder).to(device)
+    # Teacher starts identical to student; IJEPA freezes it via EMAModel.
     teacher = copy.deepcopy(student)
-    # Teacher starts identical to student, no grad.
-    for p in teacher.parameters():
-      p.requires_grad = False
 
     num_patches = student.num_patches
     predictor = _Predictor(
@@ -260,6 +259,7 @@ class IJEPA(nn.Module):
     super().__init__()
     self.student = student
     self.teacher = teacher
+    self._ema = EMAModel(self.teacher, self.student)
     self.predictor = predictor
     self.momentum = momentum
     self._final_momentum = final_momentum
@@ -270,10 +270,8 @@ class IJEPA(nn.Module):
 
   def update_momentum(self, epoch, total_epochs=200):
     """Ramp momentum from ``self.momentum`` to ``self._final_momentum``."""
-    t = min(epoch / total_epochs, 1.0)
-    m = self.momentum + (self._final_momentum - self.momentum) * t
-    for ps, pt in zip(self.student.parameters(), self.teacher.parameters()):
-      pt.data.mul_(m).add_(ps.data, alpha=1 - m)
+    m = linear_momentum(epoch, total_epochs, self.momentum, self._final_momentum)
+    self._ema.update(m)
 
   def forward(self, images):
     # Input frames: (B, C, H, W).
