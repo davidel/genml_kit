@@ -207,8 +207,8 @@ batch:
 $$
 \large
 \mathcal{L}_{\text{KD}}(x)
-= T^{2}\, \mathrm{KL}\!\left( q_t(T) \,\middle\|\, q_s(T) \right)
-= T^{2} \sum_{i=1}^{C} q_{t,i}(T)\,\log\!\frac{q_{t,i}(T)}{q_{s,i}(T)}.
+= T^{2}\\, \mathrm{KL}\\!\left( q_t(T) \\,\middle\|\\, q_s(T) \right)
+= T^{2} \sum_{i=1}^{C} q_{t,i}(T)\\,\log\\!\frac{q_{t,i}(T)}{q_{s,i}(T)}.
 $$
 
 Because $`q_t`$ is treated as a constant (its gradient is zero), the entropy
@@ -218,8 +218,8 @@ reduces, up to constants, to the cross-entropy
 $$
 \large
 \mathcal{L}_{\text{KD}}(x)
-\;\equiv\; -\,T^{2}\sum_{i=1}^{C} q_{t,i}(T)\,\log q_{s,i}(T)
-\qquad (\text{teacher detached}).
+\\;\equiv\\; -\\,T^{2}\sum_{i=1}^{C} q_{t,i}(T)\\,\log q_{s,i}(T)
+\qquad (\{teacher detached}).
 $$
 
 Implementations almost always compute it as
@@ -235,7 +235,7 @@ contraction:
 $$
 \large
 \frac{\partial \mathcal{L}_{\text{KD}}}{\partial z_{s,k}}
-= T\,\big(q_{s,k}(T) - q_{t,k}(T)\big).
+= T\\,\big(q_{s,k}(T) - q_{t,k}(T)\big).
 $$
 
 Two things are visible in this formula.
@@ -268,7 +268,7 @@ $$
 \large
 \mathcal{L}
 = (1 - \alpha)\,\underbrace{\mathcal{L}_{\text{CE}}(z_s, y)}_{\text{hard labels}}
-\;+\; \alpha\,\underbrace{T^{2}\,\mathrm{KL}\!\left(q_t \middle\| q_s\right)}_{\text{soft labels}},
+\\;+\\; \alpha\\,\underbrace{T^{2}\\,\mathrm{KL}\\!\left(q_t \middle\| q_s\right)}_{\text{soft labels}},
 $$
 
 with $`\alpha \in [0, 1]`$. If ground-truth labels are unavailable (unlabeled
@@ -296,8 +296,8 @@ learned linear map $`W_r`$ (with bias) and minimise
 $$
 \large
 \mathcal{L}_{\text{feat}}
-= \big\|\, r(h_s) - h_t \,\big\|_2^{2},
-\qquad r(h_s) = W_r\,h_s + b_r,
+= \big\|\\, r(h_s) - h_t \\,\big\|_2^{2},
+\qquad r(h_s) = W_r\\,h_s + b_r,
 $$
 
 where the student-side projection $`r`$ is trained jointly and *discarded*
@@ -331,7 +331,7 @@ different magnitude are compared by *shape* rather than scale:
 $$
 \large
 \tilde{\mathcal{A}}(A) = \frac{\mathcal{A}(A)}
-{\big\|\,\mathrm{vec}\,\mathcal{A}(A)\,\big\|_2}.
+{\big\|\\,\mathrm{vec}\\,\mathcal{A}(A)\\,\big\|_2}.
 $$
 
 The transfer loss is $`\mathcal{L}_{\text{AT}} = \big\| \tilde{\mathcal{A}}(h_s)
@@ -356,8 +356,8 @@ angle and distance structures:
 $$
 \large
 \mathcal{L}_{\text{rel}}
-= \sum_{i \ne j}\ \ell_\delta\!\Big(\phi\big(d_s(i,j)\big),\ \phi\big(d_t(i,j)\big)\Big)
-\;+\; \sum_{(i,j,k)} \ell_\delta\!\big(\text{angle}_s, \text{angle}_t\big),
+= \sum_{i \ne j}\ \ell_\delta\\!\Big(\phi\big(d_s(i,j)\big),\ \phi\big(d_t(i,j)\big)\Big)
+\\;+\\; \sum_{(i,j,k)} \ell_\delta\\!\big(\text{angle}_s, \text{angle}_t\big),
 $$
 
 where $`\ell_\delta`$ is the Huber loss and $`\phi`$ a normalisation. The key
@@ -399,7 +399,7 @@ $`\theta_s`$, the teacher $`\theta_t`$ is updated, every optimizer step, by
 
 $$
 \large
-\theta_t \leftarrow m\,\theta_t + (1 - m)\,\theta_s,
+\theta_t \leftarrow m\\,\theta_t + (1 - m)\\,\theta_s,
 \qquad m \in (0, 1).
 $$
 
@@ -421,8 +421,8 @@ existing methods use a **linear** ramp from an initial value to a final value:
 
 $$
 \large
-m(k) = m_{\text{start}} + (m_{\text{end}} - m_{\text{start}})\,
-\min\!\left(\frac{k}{K},\, 1\right),
+m(k) = m_{\text{start}} + (m_{\text{end}} - m_{\text{start}})\\,
+\min\\!\left(\frac{k}{K},\\, 1\right),
 $$
 
 where $`k`$ is the current step and $`K`$ the step budget. Early in training the
