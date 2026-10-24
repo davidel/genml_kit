@@ -96,8 +96,8 @@ a car. It might output
 
 $$
 \large
-p(y \mid x) = \big[\;\text{car}: 0.90,\quad \text{truck}: 0.08,\quad
-\text{bicycle}: 0.01,\quad \text{cat}: 0.0001,\;\dots\big].
+p(y \mid x) = \big[\\;\text{car}: 0.90,\quad \text{truck}: 0.08,\quad
+\text{bicycle}: 0.01,\quad \text{cat}: 0.0001,\\;\dots\big].
 $$
 
 The hard label "car" throws away almost all of that vector. But the ratios
@@ -112,8 +112,8 @@ the teacher and student logits as $`z^{(t)}`$ and $`z^{(s)}`$, the goal is
 
 $$
 \large
-\min_{\theta_s}\ \mathbb{E}_{x}\ \mathcal{D}\!\left(
-q_t(x)\,\middle\|\,q_s(x)\right),
+\min_{\theta_s}\ \mathbb{E}_{x}\ \mathcal{D}\\!\left(
+q_t(x)\\,\middle\|\\,q_s(x)\right),
 $$
 
 where $`q_t`$ and $`q_s`$ are tempered softmaxes (Part 2) and $`\mathcal{D}`$
