@@ -12,6 +12,7 @@ by the training and inference harnesses.
 # effects required by model loading.
 import genml_kit.models.cls_model_wrapper  # noqa: F401
 import genml_kit.models.convvit  # noqa: F401
+import genml_kit.models.det_model_wrapper  # noqa: F401
 import genml_kit.models.rl  # noqa: F401
 import genml_kit.models.seg_model_wrapper  # noqa: F401
 import genml_kit.models.timm  # noqa: F401

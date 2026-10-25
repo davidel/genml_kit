@@ -18,7 +18,9 @@ def parse_dataset_specs(names, image_column="image", label_column=None, split="t
       names: Sequence of dataset specs; a spec starting with
           ``imagefolder/`` refers to a local ``ImageFolder`` tree, a spec
           starting with ``segfolder/`` refers to a local paired
-          ``images/`` + ``masks/`` segmentation tree, a spec that is an
+          ``images/`` + ``masks/`` segmentation tree, a spec starting with
+          ``detfolder/`` refers to a local COCO-JSON ``images/`` +
+          ``annotations.json`` detection tree, a spec that is an
           existing directory path is treated as an ``ImageFolder``, and
           anything else is a HuggingFace dataset name.  Blank entries
           are skipped.
@@ -44,6 +46,8 @@ def parse_dataset_specs(names, image_column="image", label_column=None, split="t
       configs.append({"name": name.split("/", 1)[1], "source": "imagefolder"})
     elif name.startswith("segfolder/"):
       configs.append({"name": name.split("/", 1)[1], "source": "segfolder"})
+    elif name.startswith("detfolder/"):
+      configs.append({"name": name.split("/", 1)[1], "source": "detfolder"})
     elif os.path.isdir(name):
       configs.append({"name": name, "source": "imagefolder"})
     else:

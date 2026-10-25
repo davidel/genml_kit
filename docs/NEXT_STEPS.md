@@ -318,7 +318,11 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 1b | &nbsp;&nbsp;· `DistillationMethod` (EMA + external teacher) | ✅ | registered as `"distillation"` |
 | L | Doc-Math Linter (`scripts/check_md_math.py`) | ✅ | doc-hygiene chore (not a ranked capability) — implemented; see Work Log |
 | — | Shared: `EMAModel` / `encoder_utils` contract / `layer_match` | ✅ | extracted first (no cut-and-paste) |
-| 2–12 | Detection, depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
+| 2 | Object detection | 🚧 | boxes-only first cut (FCOS head, COCO-JSON) — see Work Log |
+| 2a | &nbsp;&nbsp;· `detection` pipeline + `DetectionMethod` + `det_folder` | ✅ | COCO-JSON `detfolder/`, box-aware transforms, mAP meter |
+| 2b | &nbsp;&nbsp;· instance segmentation (`mask_head`) | ⬜ | deferred; wrapper designed to accept a mask head later |
+| 2c | &nbsp;&nbsp;· `detr_head` + Hungarian matcher | ⬜ | deferred; FCOS chosen for the first cut (fast, no matcher) |
+| 3–12 | Depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
 
 ---
 
@@ -326,6 +330,53 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 
 Newest first. Each entry records the commits and the verification that backed
 them.
+
+### 2026-10 — Object detection (item 2) — **pending review**
+
+First cut of object detection, boxes-only per the agreed scope: an anchor-free
+**FCOS** head over the existing encoder pyramid, reading **COCO-JSON**
+corpora.  The roadmap's `detr_head` + `mask_head` are explicitly deferred
+(rows 2b/2c above); FCOS was chosen because it reuses the `EncoderPyramid`
+contract and `losses/focal.py` with **no new dependencies** and needs no
+Hungarian matcher, so it trains fast enough for CI-friendly e2e tests.
+
+New files:
+
+- `genml_kit/datasets/det_folder.py` — `DetFolderDataset` / `load_detfolder`
+  (COCO-JSON `images/` + `annotations.json`; `[x,y,w,h]`→`xyxy`; sparse
+  category ids compacted to `[0, C)`; degenerate boxes dropped; empty-GT
+  images kept as background).
+- `genml_kit/datasets/det_transforms.py` — hand-written **letterbox** +
+  box-aware horizontal flip.  Not reusable from the seg stack: `torchvision`
+  remaps masks through geometric ops but leaves boxes alone, so each op moves
+  the coordinates itself.
+- `genml_kit/pipelines/detection.py` — `DetectionPipeline`; `DataBlob` carries
+  a stacked `(B, 3, H, W)` image and **per-image** box/label lists (variable
+  box counts), so the collate is custom rather than `torch.stack`.
+- `genml_kit/models/det_model_wrapper/` — `det_wrapper` model loader;
+  `DetModelWrapper` = encoder pyramid + head, reusing the seg wrapper's
+  `TimmEncoder` / `probe_encoder` (a feature pyramid is a feature pyramid).
+- `genml_kit/models/decoders/fcos_head.py` — `fcos_head`, registered in
+  `DECODERS`; returns a `DetHeadOutput` (per-level class/box/centerness +
+  strides) rather than one tensor, so locations keep their strides.
+- `genml_kit/losses/detection.py` — `FCOSLoss` + `fcos` registry entry:
+  focal + GIoU + centerness, with geometric centre-sampling assignment
+  (smallest-area box wins on overlap).
+- `genml_kit/training/det_metrics.py` — `MAPMeter`, COCO-style
+  `mAP@[.5:.95]` + `map_50` / `map_75`; hand-rolled (torchvision has no mAP
+  API) but reuses `torchvision.ops.box_iou` for the matching.
+- `genml_kit/methods/detection.py` — `DetectionMethod`; `METRIC_KEY="map"`
+  (maximize); infers the class count from the dataset; decodes + per-class NMS
+  (`torchvision.ops.batched_nms`).
+
+Modified (additive): the four registry `__init__`s, `datasets/factory.py`
+(`detfolder/` spec), and a new **Object Detection** section in `README.md`.
+
+Verification: `pytest -q` → **1583 passed, 5 deselected**; `ruff check .` →
+clean; the two new `yapf`-formatted modules pass `.style.yapf` (2-space);
+`python scripts/check_md_math.py` → 0 findings.  New tests:
+`tests/test_det_{folder,transforms,head,loss,metrics,e2e}.py` (68 tests,
+including a hand-computed mAP case and a slow overfit smoke test).
 
 ### 2026-10 — Doc-Math Linter (chore `L`) — **pending review**
 

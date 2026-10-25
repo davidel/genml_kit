@@ -17,6 +17,7 @@ registered name or an external ``.py`` script defining
 from genml_kit.losses import builtin  # noqa: F401
 from genml_kit.losses.byol import byol_loss
 from genml_kit.losses.contrastive import supcon_loss
+from genml_kit.losses.detection import FCOSLoss
 from genml_kit.losses.dino import DINOLoss
 from genml_kit.losses.distillation import (
     kd_attention_loss,
@@ -48,6 +49,7 @@ __all__ = [
     "DEFAULT_LOSS",
     "DINOLoss",
     "DiceCELoss",
+    "FCOSLoss",
     "LOSSES",
     "byol_loss",
     "clipped_surrogate",

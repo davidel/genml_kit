@@ -29,6 +29,7 @@ in [`vo/README.md`](vo/README.md).
 - [Custom Losses](#custom-losses)
 - [Custom Models](#custom-models)
 - [Semantic Segmentation](#semantic-segmentation)
+- [Object Detection](#object-detection)
 - [Visual Odometry](#visual-odometry)
 - [Knowledge Distillation](#knowledge-distillation)
 - [References And Further Reading](#references-and-further-reading)
@@ -1794,6 +1795,103 @@ resolution (224) and reject other sizes.
 for each image and does **not** emit per-pixel masks.  For segmentation,
 use the validation loop (mIoU + overlays above) or the checkpoint's
 weights directly.
+
+---
+
+## Object Detection
+
+Detection predicts a set of **bounding boxes**, each with a class label, for
+an image.  `genml_kit` ships an anchor-free FCOS head over the same encoder
+feature pyramid that segmentation uses, wired as the `detection` pipeline and
+the `detection` method.
+
+### How It Works
+
+The model is `det_wrapper:<backbone>` = **encoder + FCOS head**:
+
+* The encoder is any timm backbone loaded with `features_only=True`, exactly
+  as for segmentation, so it yields a feature pyramid (finest level first).
+* The head runs a small convolutional tower on **every** pyramid level and
+  predicts, per spatial location, a `num_classes`-way class score, four
+  positive box distances `(l, t, r, b)` in input pixels, and a centerness
+  score.  The distances are `exp()`-activated and scaled by the level's
+  stride, so a single location grid spans all scales.
+
+Training uses the FCOS objective (`--loss fcos` by default), a sum of three
+terms:
+
+* **Focal loss** over all locations (the class imbalance between the few
+  positives and the many background locations is large).
+* **GIoU loss** over the positive locations only.
+* **Centerness BCE**, which teaches each positive location how central it is
+  inside its target box, so NMS can rank central boxes higher.
+
+The **assignment** is purely geometric and needs no Hungarian matcher: a
+location is a *candidate* for a box when it lies inside the box, and a
+*positive* when it additionally lies inside the box's centre region
+(`--loss_args center_sampling_radius=1.5`).  When several boxes cover a
+location, the **smallest-area** box wins, so small objects are not starved of
+positives by large ones.
+
+At validation time the dense predictions are decoded to `xyxy` boxes,
+per-class NMS is applied (`--det_nms_thresh`), and the result feeds a
+COCO-style **mAP** meter (`--det_max_detections`, default 100).  The reported
+metric is `map` (COCO `mAP@[.5:.95]`, maximize), so the best checkpoint is
+stored under `best_map`; `map_50` and `map_75` are logged alongside it.
+
+### Dataset Format
+
+The `detection` pipeline reads **COCO-JSON** corpora via the `detfolder/`
+spec:
+
+```
+<root>/images/<file_name>
+<root>/annotations.json
+```
+
+or, with named splits:
+
+```
+<root>/train/images/<file_name>
+<root>/train/annotations.json
+<root>/val/images/<file_name>
+<root>/val/annotations.json
+```
+
+`annotations.json` is the standard COCO object-detection schema (`images`,
+`annotations` with `[x, y, width, height]` `bbox`, and `categories`).  The
+loader converts `bbox` to `xyxy` and **compacts** the (1-based, sparse) COCO
+category ids into a dense `[0, C)` label space, so the head width equals the
+number of categories actually present.  Images with no annotations are legal
+(pure-background samples) and still contribute negatives to the loss.  The
+annotation file name and image sub-directory are configurable via
+`--det_annotation_file` and `--det_image_subdir`.
+
+### Example
+
+```bash
+genml-kit-train \
+  --pipeline detection --method detection \
+  --dataset detfolder:/data/coco_tiny \
+  --model det_wrapper:timm/resnet50 \
+  --model_arg head=fcos_head:num_convs=2 \
+  --image_size 640 --batch_size 4 \
+  --epochs 20 --lr 1e-4
+```
+
+Override the inferred class count with `--det_num_classes`; tune the decode
+with `--det_score_thresh` and `--det_nms_thresh`; override the criterion with
+`--loss` / `--loss_args` (e.g. `--loss_args center_sampling_radius=1.0`).
+
+### Transforms
+
+Detection does **not** reuse the segmentation transform stack: `torchvision`
+remaps masks automatically through geometric ops but leaves boxes untouched,
+so every resize / flip must move the coordinates itself.  The default
+pipeline is therefore a hand-written **letterbox** (aspect-preserving resize
+then pad, which keeps boxes rectangular) followed by a box-aware horizontal
+flip (train only) and a `(C, H, W)` float conversion.  Boxes stay in absolute
+`xyxy` pixels throughout.
 
 ---
 

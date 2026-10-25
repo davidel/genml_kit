@@ -93,7 +93,7 @@ def build_decoder(spec, in_channels, num_classes, **kwargs):
 
 def _register_builtins():
   """Import built-in decoders so their ``@DECODERS.register`` fires."""
-  from genml_kit.models.decoders import fpn, linear, unet  # noqa: F401
+  from genml_kit.models.decoders import fcos_head, fpn, linear, unet  # noqa: F401
 
 
 _register_builtins()
