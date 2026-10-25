@@ -27,7 +27,7 @@ estimate for a first, useful cut.
 
 | Rank | Topic | Impact | Complexity | Priority | Effort |
 |-----:|-------|:------:|:----------:|:--------:|:------:|
-| 1 | Knowledge distillation + model export (ONNX) | 5 | 2 | **3** | M |
+| 1 | Knowledge distillation | 5 | 2 | **3** | M |
 | 2 | Object detection / instance segmentation | 5 | 3 | **2** | L |
 | 3 | Learned depth / stereo / optical flow | 4 | 2 | **2** | M |
 | 4 | Anomaly detection / OOD / calibration | 4 | 2 | **2** | S–M |
@@ -54,10 +54,10 @@ estimate for a first, useful cut.
 
 ## Tier 1 — Quick wins
 
-### 1. Knowledge distillation + model export (ONNX)
+### 1. Knowledge distillation
 
 **Why.** LoRA is the only "make it smaller/deployable" path today. Distillation
-and export are what turn the research harness into a shippable one.
+is what turns the research harness into a shippable one.
 
 **Reuse.** `training/model_utils.py` already extracts features/freezes
 encoders; `training/trainer.py` gives the loop; classifiers are pluggable.
@@ -70,14 +70,12 @@ encoders; `training/trainer.py` gives the loop; classifiers are pluggable.
 - A teacher/student pairing driven by CLI flags
   (`--teacher_model`, `--kd_alpha`, `--kd_temperature`), mirroring the LLRD
   flag style in `training/optim_factory.py`.
-- Export CLI `genml-kit-export` (new entry point in `pyproject.toml`) wrapping
-  `torch.onnx.export`, with an optional dynamic-axes + int8 path.
 
-**Deliverables.** `methods/distillation.py`, `losses/distillation.py`,
-`training/export.py`, console script, tests, README section.
+**Deliverables.** `methods/distillation.py`, `losses/distillation.py`, tests,
+README section.
 
-**Risks.** ONNX export of the custom heads (attention pooling, ConvViT) needs
-opset pinning; keep it behind the `dev`/new `export` extra.
+**Risks.** None outstanding — the losses and the method shipped (see the Work
+Log).
 
 ### 2. Object detection / instance segmentation
 
@@ -284,9 +282,9 @@ Recommend deferring until Tier 1–2 land.
 
 ## Suggested sequence
 
-1. **Milestone A (Tier 1):** distillation + export (#1), detection (#2),
-   depth/flow (#3), OOD/calibration (#4). Mostly additive; maximal reuse of
-   existing decoders, geometry, and image pipelines.
+1. **Milestone A (Tier 1):** distillation (#1), detection (#2), depth/flow
+   (#3), OOD/calibration (#4). Mostly additive; maximal reuse of existing
+   decoders, geometry, and image pipelines.
 2. **Milestone B (Tier 2):** tracking + HPO (#6) and interpretability/robustness
    (#7) as enablers, then diffusion (#5).
 3. **Milestone C (Tier 3):** pick one modality/axis (VLM #8 or alignment #9 are
@@ -298,7 +296,7 @@ Recommend deferring until Tier 1–2 land.
   existing `MODELS` / `METHODS` / `PIPELINES` / `LOSSES` / `DECODERS` registries
   so the CLI picks it up with no new control flow in `train.py`.
 - **Optional dependencies.** Follow the `pyproject.toml` extras pattern
-  (`cv2`, `onnx`, `wandb`, `optuna`, …) — never harden new core deps.
+  (`cv2`, `wandb`, `optuna`, …) — never harden new core deps.
 - **Tests + style.** Add `tests/` coverage and keep 2-space indent via
   `yapf`/`.style.yapf`; validate with `ruff`.
 
@@ -312,10 +310,10 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 
 | # | Item | Status | Notes |
 |---|---|---|---|
-| 1 | Knowledge distillation | 🚧 | Method + losses **done**; ONNX export **⬜ remaining** |
+| 1 | Knowledge distillation | ✅ | Losses + method **done**; ONNX export dropped (see Key decisions) |
 | 1a | &nbsp;&nbsp;· KD losses (`losses/distillation.py`) | ✅ | 4 losses + registry entries |
 | 1b | &nbsp;&nbsp;· `DistillationMethod` (EMA + external teacher) | ✅ | registered as `"distillation"` |
-| 1c | &nbsp;&nbsp;· ONNX export (`genml-kit-export`) | ⬜ | **next task** — see "Continue Here Tomorrow" |
+| L | Doc-Math Linter (`scripts/check_md_math.py`) | ⬜ | **next task** — see "Continue Here Tomorrow" |
 | — | Shared: `EMAModel` / `encoder_utils` contract / `layer_match` | ✅ | extracted first (no cut-and-paste) |
 | 2–12 | Detection, depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
 
@@ -358,7 +356,8 @@ have to own the teacher/student pairing and layer policy, which the method
 already does via `match_layers`; (c) attention transfer was added as a fourth
 loss (§10) beyond the sketch's three.
 
-**Committed.** The remaining work for item 1 is the ONNX export (item 1c).
+**Committed.** Item 1 (losses + method) is complete; the ONNX export (item 1c)
+was dropped (see Key decisions).
 
 > **Never commit without explicit approval.** The agreed process is: plan →
 > review → approve → implement → review → **commit**. No `--amend`, no squash,
@@ -379,98 +378,20 @@ Committed, all local (not pushed):
 
 ## Continue Here Tomorrow
 
-**Resume point: item 1c — the ONNX export CLI (`genml-kit-export`).**
-Everything else in item 1 (losses + method + shared utilities) is implemented
-and committed; only the export remains.
+**Resume point: the Doc-Math Linter (`scripts/check_md_math.py`).**
+Item 1 (KD losses + method) is implemented and committed; the ONNX export
+(item 1c) was dropped — see "Key decisions".
 
 ### Step 0 — commit the reviewed KD work — ✅ done
 
 The KD losses + `DistillationMethod` are committed (see the Work Log above).
 
-### Step 1 — ONNX export CLI (design in the "ONNX export design" section below, §20–§22) — ⬅ start here
+### Step 1 — Doc-Math Linter (`scripts/check_md_math.py`) — ⬅ start here
 
-Deliverables:
-
-- **`genml_kit/training/export.py`** (proposed path; the roadmap's `training/
-  export.py`). A thin, testable wrapper around `torch.onnx.export`:
-  - `input_names` / `output_names` set explicitly (§20.3);
-  - a **dynamic batch axis** via `dynamic_axes`;
-  - optional **int8** post-training quantization (`onnxruntime.quantization.
-    quantize_dynamic`, §22);
-  - a **numerical-verification** step that compares the exported model's
-    outputs against PyTorch on the same dummy input (§22 — *verify the metric,
-    don't assume it*).
-- **Console script** `genml-kit-export` in `pyproject.toml`
-  `[project.scripts]`, next to `genml-kit-train` / `genml-kit-infer`.
-- **New optional extra** in `pyproject.toml` (`export = ["onnx",
-  "onnxruntime"]`) — never a core dependency (see Cross-cutting concerns).
-- **Tests** `tests/test_onnx_export.py` — `pytest.importorskip("onnx")` so the
-  suite stays green when the extra is absent; assert the exported graph runs
-  and matches the eager outputs within tolerance.
-
-Gotchas to remember (§20–§21 of the design doc):
-
-- Trace-mode export freezes any branch that depends on tensor *values*; keep
-  such branches out of the exported `forward`.
-- Pin an opset and check the custom heads (attention pooling, ConvViT) export
-  cleanly.
-
-### ONNX export design (moved from `knowledge_distillation/README.md` Part 7, §20–22)
-
-Distillation's payoff is a small, fast model; that payoff is only realised if the
-student can leave PyTorch. ONNX is the interchange format, produced by a console
-script `genml-kit-export`.
-
-**§20 — What ONNX actually freezes.** `torch.onnx.export` runs the model once in
-*trace* mode by default: it records the tensor operations executed for a dummy
-input and emits a static graph. Three consequences:
-
-1. **Python control flow depending on tensor *values* is lost.** A branch like
-   `if x.max() > 0:` is traced once for the dummy input. Keep any loss-side
-   branch out of the exported `forward`.
-2. **Parameters are baked as constants** (weights and buffers), so the exported
-   file is self-contained.
-3. **Input/output names** should be set explicitly (`input_names=["input"]`,
-   `output_names=["logits"]`) for downstream tooling.
-
-**§21 — Dynamic axes and the tracing contract.** The exported graph must accept a
-variable batch size and, for segmentation-style students, variable spatial size:
-
-```python
-torch.onnx.export(
-    model.eval(),
-    dummy_input,
-    path,
-    input_names=["input"],
-    output_names=["logits"],
-    dynamic_axes={
-        "input": {0: "batch", 2: "height", 3: "width"},
-        "logits": {0: "batch"},
-    },
-    opset_version=17,
-)
-```
-
-**Pitfall.** The custom heads (attention pooling, `convvit`) contain operations
-whose opset support varies; pin `opset_version` explicitly and gate the export
-extra in `pyproject.toml`. Verify the ONNX graph numerically against PyTorch
-(§22) before trusting it.
-
-**§22 — Post-training quantization and verification.** Two-step hand-off to a
-runtime:
-
-1. **Dynamic quantization** of the exported weights reduces size with no
-   calibration data: `onnxruntime.quantization.quantize_dynamic(model,
-   {MatMul: QInt8})`.
-2. **Numerical verification.** Run a fixed batch through both the PyTorch and the
-   ONNX model and assert the maximum absolute difference is below a tolerance
-   (e.g. $`10^{-4}`$ in float32). A distilled student that fails this check is a
-   bug in the tracing contract, not in the distillation.
-
-**Checkpoint.** Why verify against PyTorch rather than a held-out metric?
-*Answer: a metric hides small per-logit errors behind an average; an elementwise
-`allclose` catches the single off-by-a-swap operation that flips one class.
-Verify the function, then trust the metric.*
+The full task spec lives in the "Doc-Math Linter" section at the end of this
+document. Summary: turn the truncated, copy-paste snippet in
+`docs/MARKDOWN_LATEX.txt` §11 into a reusable, tested checker with a safe
+`--fix`, wired into CI.
 
 ### Reference: how to run things
 
@@ -499,8 +420,65 @@ ruff check .
   pairing and whose import would invert layering).
 - Shape-changing operations are commented with the resulting shape on the line
   above, so tensor flow is trackable within a function.
+- **ONNX export dropped (item 1c).** Investigated `torch.onnx.export` for the
+  deployed students and dropped it: the VO head ends in `umeyama_similarity`,
+  which calls `torch.linalg.svd`, and ONNX has no SVD operator at any opset —
+  so `VOModelOutput.params` cannot be a graph output. Additionally the custom
+  attention-pooling head emits a tensor→bool `TracerWarning` under the legacy
+  tracer, and torch's new default exporter needs opset ≥ 18 plus `onnxscript`
+  (and conflicts with the repo's `filterwarnings = error`). Not worth the
+  dependency surface for a harness whose models stay in PyTorch.
 
 ### Working-tree hygiene
 
 - `.chatty/models.json` is untracked tooling noise — **do not** commit it.
 - Local commits are **not pushed**; `git log @{u}..HEAD` lists what is ahead.
+
+---
+
+## Doc-Math Linter
+
+**Goal.** Turn the copy-paste, single-file, *truncated* snippet in
+`docs/MARKDOWN_LATEX.txt` §11 into a reusable checker, so future
+Markdown/KaTeX fixes are one command instead of a stream of one-off scripts.
+
+**Deliverable.** `scripts/check_md_math.py` — stdlib only, Python 3.9+,
+Google style, 2-space indent, `ruff` clean.
+
+**CLI**
+
+    python scripts/check_md_math.py [PATHS ...]   # default: all *.md in repo
+        --check    (default) report findings, non-zero exit if any
+        --fix      apply the SAFE, idempotent subset of fixes in place
+        --json     machine-readable output
+        --quiet    summary only
+
+**Checks (each maps to a rule in `docs/MARKDOWN_LATEX.txt`).**
+Output format: `file:line:col: [R<n>] message`.
+
+| ID  | Rule (§) | What it detects |
+|-----|----------|-----------------|
+| R1  | §1  | bare `$...$`, `\(...\)`, `` ``$ `` extra backtick |
+| R2  | §1  | inline `$`...`$` span crossing a newline (the KD bug) |
+| R3  | §2  | `$$` not on its own line; `\large` missing/not first; blank line inside block; missing blank line before/after |
+| R4  | §4  | `^*` or `^{*}` (must be `^{\ast}`) |
+| R5  | §5  | line inside `$$` starting (0–3 spaces) with `+ - * \| # >` or a digit |
+| R6  | §6  | malformed delimiters: `` ``$ ``, stray trailing `` `$ ``, odd `$`/`` ` `` counts |
+| R7  | §7  | `*`/`**` straddling a math span; bold starting right after a math-close |
+| R8  | §8  | display `\,` that must be `\\,`; inline `\\,` that must be `\,`; row-break `\\` sanity |
+| R9  | §9  | `\operatorname`, raw unicode math symbols |
+| R10 | §5/§8 | line-start `|...|` absolute value → suggest `\lvert...\rvert` |
+
+**`--fix` (safe subset only):** R4 (`^*`→`^{\ast}`), R8 (backslash level,
+display vs inline), R6 (drop the extra backtick). Everything else is
+report-only; R2/R3/R5/R7 need human reflow.
+
+**Tests.** `tests/test_check_md_math.py`: one case per rule, plus the two real
+regressions — the cross-line inline span (KD) and `\,` vs `\\,` (rl/vo).
+
+**Docs + CI.**
+- `docs/MARKDOWN_LATEX.txt` §11: replace the snippet with a pointer to the script.
+- `.github/workflows/ci.yml`: add a **blocking** step
+  `python scripts/check_md_math.py` next to `ruff check .`.
+
+**Exit codes.** `0` clean, `1` findings, `2` usage error.
