@@ -958,7 +958,7 @@ $$
 
 Two details matter for the reader combining these flags:
 
-- **Unified $`p_t`.** The modulating factor uses the *expected* probability
+- **Unified $`p_t`$.** The modulating factor uses the *expected* probability
   under the target distribution, $`p_t = \sum_c q_c p_c`$, rather than the
   probability of a single class. For a one-hot target $`q`$ this reduces
   exactly to the basic form above ($`p_t`$ becomes the correct-class

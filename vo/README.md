@@ -897,7 +897,7 @@ The procedure (`homography_to_similarity` in `vo_pairs.py`):
    similarity has 4 DOF and we have 8 constraints (4 corners × 2
    coordinates), the fit is *over-determined* — there is a closed-form
    least-squares answer, the **Umeyama** solve of §13;
-4. report the residual $\rho$ = MCE between the fitted similarity's corners and
+4. report the residual $`\rho`$ = MCE between the fitted similarity's corners and
    the true homography's corners.
 
 Two facts about step 3 make it the *right* definition of ground truth:
@@ -1143,7 +1143,7 @@ The displacements run over a bounded window:
 
 $$
 \large
-|\delta_y| |\delta_x| \le r,
+\lvert\delta_y\rvert \lvert\delta_x\rvert \le r,
 $$
 
 with $`r`$ the configured radius (default $`6`$ at $`1/8`$ resolution).  So we ask,
@@ -1959,7 +1959,7 @@ shifts in a cleverly chosen domain: **log-polar coordinates**.
 
 - Rotating the image by $`\alpha`$ rotates its Fourier *magnitude* spectrum by $`\alpha`$
   (rotation about the center is rotation in frequency space too).
-- Scaling the image by $`s`$ scales its Fourier magnitude spectrum by $`1/s`$
+- Scaling the image by $`s`$ scales its Fourier magnitude spectrum by $`1/s`$,
   *along each frequency axis* (a property of the 2-D Fourier transform).
 
 Now take the frequency-plane axes $`(u, v)`$ and write them in **polar** form

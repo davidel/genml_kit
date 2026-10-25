@@ -353,99 +353,39 @@ NOT universal; it depends on which of the two math forms you used.
 11.  VERIFICATION SCRIPTS  (run before committing; Python 3)
 --------------------------------------------------------------------------------
 
-Copy the file path into FILE below and run.
+Run the linter script, which implements every check below (plus the rules
+in sections 1-9) and reports ``file:line:col: [R<n>] message``:
 
-    import re
-    text = open(FILE, encoding='utf-8').read()
-    lines = text.split('\n')
-    ok = True
+    python scripts/check_md_math.py            # all *.md, report only
+    python scripts/check_md_math.py --fix      # apply the safe fixes
+    python scripts/check_md_math.py --json     # machine-readable
 
-    # 1. no ^* or ^{*}
-    hits = re.findall(r'\^\*', text)
-    ok &= not hits; print('^* count:', len(hits))
+It exits 0 when clean, 1 when it finds anything, 2 on a usage error, and
+it is wired into CI as a blocking step.  The historical ad-hoc snippet
+that used to live here was superseded by the script; it is preserved in
+git history if you need the reference.
 
-    # 2. no dangerous delimiter adjacencies:
-    #    `$*   (math-close immediately followed by asterisk) and
-    #    *`$   (asterisk immediately before math-open)
-    for pat in [r'`\$\*', r'\*`\$']:
-        hits = list(re.finditer(pat, text))
-        ok &= not hits
-        print('pattern', pat, 'count:', len(hits))
-        for m in hits:
-            print('  line', text.count('\n', 0, m.start()) + 1,
-                  repr(text[max(0, m.start()-30):m.end()+30]))
+The checks it performs, in the script's own numbering:
 
-    # 2b. no double backtick before a dollar (``$)
-    hits = list(re.finditer(r'``\$', text))
-    ok &= not hits
-    print('double-backtick-before-dollar (``$) count:', len(hits))
-    for m in hits:
-        print('  line', text.count('\n', 0, m.start()) + 1,
-              repr(text[max(0, m.start()-30):m.end()+30]))
+  R1   bare ``$...$`` / ``\\(...\\)`` / `` ``$ `` extra backtick
+  R2   an inline ``$`...`$`` span crossing a newline
+  R3   ``$$`` not alone on its line; missing ``\\large``; blank line
+       inside the block; missing blank line before/after
+  R4   ``^*`` or ``^{*}`` (must be ``^{\\ast}``)
+  R5   a ``$$`` line starting with ``+ - * | # >`` or a digit
+  R6   malformed delimiters: `` ``$ ``, stray trailing `` `$ ``, a
+       stray backtick inside a span
+  R7   a single ``*`` straddling a math span; a math-close at end of
+       line followed by emphasis on the next line
+  R8   display ``\\,`` that must be ``\\\\,``; inline ``\\\\,`` that must
+       be ``\\,``
+  R9   ``\\operatorname``; raw unicode math symbols and ASCII
+       ``>= <= ->`` in math position
+  R10  a ``$$`` line-start ``|...|`` absolute value
 
-    # 3. no line inside a $$ block starts with a markdown marker
-    blocks = re.finditer(r'\$\$\n(.*?)\n\$\$', text, re.S)
-    bad = 0
-    for i, m in enumerate(blocks):
-        for ln in m.group(1).split('\n'):
-            if re.match(r'^ {0,3}([+\-*|#>]|\d+\.\s)', ln):
-                bad += 1
-                print('BLOCK', i, 'bad line:', repr(ln))
-    ok &= bad == 0
-    print('display-block line-start hazards:', bad)
-
-    # 4. even number of `$ markers (excluding literal fence-description
-    #    lines containing `$$\n...\n$$` in prose, which are intentional)
-    filtered = '\n'.join(l for l in lines if '`$$' not in l and '$$`' not in l)
-    count = filtered.count('`$')
-    ok &= count % 2 == 0
-    print('`$ marker count (excluding fence-description lines):', count,
-          '-> balanced' if count % 2 == 0 else '-> ODD!')
-
-    # 5. no line ending in math-close followed by ** or * on next line
-    bad5 = 0
-    for a, b in zip(lines, lines[1:]):
-        if a.rstrip().endswith('`$') and b.lstrip().startswith(('**', '*')):
-            bad5 += 1
-            print('math-close then emphasis next line:', repr(a), '||', repr(b))
-    ok &= bad5 == 0
-    print('math-close-then-emphasis line breaks:', bad5)
-
-    # 6a. DISPLAY blocks: escaped punctuation commands must be DOUBLED.
-    #     A single \\, \\! \\; \\| \\{ \\} inside $$ is a bug (KaTeX sees
-    #     the bare punctuation, e.g. a comma).
-    bad6a = 0
-    for m in re.finditer(r'\$\$\n(.*?)\n\$\$', text, re.S):
-        for ln in m.group(1).split('\n'):
-            for mm in re.finditer(r'(?<!\\\\)\\[,;!|{}:]', ln):
-                bad6a += 1
-                print('DISPLAY single-backslash punctuation:', repr(ln))
-    ok &= bad6a == 0
-    print('display single-backslash punctuation violations:', bad6a)
-
-    # 6b. INLINE $`...`$ spans: backslashes are LITERAL, so a doubled
-    #     punctuation command (\\, \\; \\! ...) is a bug (KaTeX gets a
-    #     row-break \\ then a comma).  A SINGLE \\, is correct here.
-    bad6b = 0
-    for m in re.finditer(r'`\$[^`]*`\$', text):
-        body = m.group(0)
-        for mm in re.finditer(r'\\\\[,;!:|{}]', body):
-            bad6b += 1
-            print('INLINE doubled-backslash punctuation:', repr(body))
-    ok &= bad6b == 0
-    print('inline doubled-backslash punctuation violations:', bad6b)
-
-    # 7. no inline $`...`$ span crosses a newline
-    bad7 = 0
-    for m in re.finditer(r'`\$[^`]*`\$', text, re.S):
-        if '\n' in m.group(0):
-            bad7 += 1
-            print('cross-line inline span at line',
-                  text.count('\n', 0, m.start()) + 1)
-    ok &= bad7 == 0
-    print('cross-line inline spans:', bad7)
-
-    print('ALL CLEAN' if ok else 'PROBLEMS REMAIN')
+Fenced code blocks and inline code spans are literals: the linter never
+checks them, which is also how a document may legitimately *show* a
+broken example.
 
 --------------------------------------------------------------------------------
 12.  CLOSING NOTE

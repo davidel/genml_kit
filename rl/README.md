@@ -167,8 +167,8 @@ $$
 \qquad \forall\\, x, y \in X.
 $$
 
-Then $`\mathcal{T}`$ has a **unique fixed point** $`x^{\ast} = \mathcal{T}
-x^{\ast}`$; moreover, for every starting point $`x_0 \in X`$, the iterates
+Then $`\mathcal{T}`$ has a **unique fixed point** $`x^{\ast} = \mathcal{T} x^{\ast}`$;
+moreover, for every starting point $`x_0 \in X`$, the iterates
 $`x_{k+1} = \mathcal{T} x_k`$ converge to it geometrically:
 
 $$
@@ -211,8 +211,8 @@ $$
 \\;\le\\; \gamma\\, \left\lVert x^{\ast} - y^{\ast} \right\rVert.
 $$
 
-Since $`\gamma < 1`$, the only possibility is $`\lVert x^{\ast} - y^{\ast}
-\rVert = 0`$, i.e. $`x^{\ast} = y^{\ast}`$.  The geometric rate follows by
+Since $`\gamma < 1`$, the only possibility is $`\lVert x^{\ast} - y^{\ast} \rVert = 0`$,
+i.e. $`x^{\ast} = y^{\ast}`$.  The geometric rate follows by
 applying the contraction to the pair $`(x_k, x^{\ast})`$ repeatedly.  QED
 
 **How we use it.**  Section 3.4 shows the Bellman operator is a contraction;
@@ -439,7 +439,7 @@ target is built (Sections 4 and 6).
 
 In this document we treat every task as an episodic one for bookkeeping:
 `done` flags are explicitly propagated through the TD target (the
-$(1-d)$ term in Section 4.4).  This matches the standard Gymnasium
+$`(1-d)`$ term in Section 4.4).  This matches the standard Gymnasium
 convention: the environment owns the details, the learner sees uniform
 transition batches.
 
@@ -563,8 +563,8 @@ because at every state the greedy action gives a one-step lookahead at
 least as large as $`\pi`$'s own action.  Monotonicity then gives
 $`V_{k+1} \ge V_k`$ for all $`k`$; the contraction property (Section 3.4)
 gives $`V_k \to V^{\pi'}`$.  A monotonically increasing sequence converges
-from below, so $`V^{\pi'}(s) = \lim_{k \to \infty} V_k(s) \ge V_0(s) =
-V^{\pi}(s)`$ for every $`s`$.  QED
+from below, so $`V^{\pi'}(s) = \lim_{k \to \infty} V_k(s) \ge V_0(s) = V^{\pi}(s)`$
+for every $`s`$.  QED
 
 **Consequences.**  (i) Repeated greedy improvement produces a nondecreasing
 sequence of policies, which must terminate at a policy that is greedy with
@@ -576,8 +576,8 @@ only $`Q`$ and read off $`\pi(s) = \arg\max_a Q(s,a)`$.
 
 > **Sanity check.**  In a grid world where the exit is one step right, the
 > Bellman optimality equation says the bonus $`V^{\ast}`$ propagates one cell per
-> iteration of the *backward* recursion.  For the exit cell $`V^{\ast}(e) =
-> r_e + \gamma \cdot 0`$, for the cell left of it
+> iteration of the *backward* recursion.  For the exit cell
+> $`V^{\ast}(e) = r_e + \gamma \cdot 0`$, for the cell left of it
 > $`V^{\ast} = r + \gamma V^{\ast}(e)`$, and so on.  This “three-line” reading of the
 > equation is the whole intuition behind dynamic programming AND behind
 > Q-learning (Part 2).
@@ -730,8 +730,9 @@ $$
 \end{aligned}
 $$
 
-The double sum on the right is exactly $`\left(\mathcal{T}^\pi
-V^\pi\right)(s) = V^\pi(s)`$ by the Bellman equation (Section 3.2), so the
+The double sum on the right is exactly
+$`\left(\mathcal{T}^\pi V^\pi\right)(s) = V^\pi(s)`$ by the Bellman equation
+(Section 3.2), so the
 difference is $`0`$.  Hence the TD update is *unbiased when the estimate is
 correct* (a property called consistency at the fixed point), and its
 variance is much lower than MC because only *one* random transition (and one
@@ -861,8 +862,7 @@ $$
 
 with $`w_t`$ a zero-mean error conditional on the entire history up to
 $`t`$.  The update is therefore a **stochastic approximation** of the
-deterministic iteration $`Q \leftarrow (1 - \alpha) Q + \alpha
-\mathcal{T}^{\ast} Q`$.
+deterministic iteration $`Q \leftarrow (1 - \alpha) Q + \alpha \mathcal{T}^{\ast} Q`$.
 
 **Step 2: the deterministic iteration converges.**  The operator
 $`\mathcal{T}^{\ast}`$ is a $`\gamma`$-contraction in the supremum norm.
@@ -905,8 +905,8 @@ $$
 The first condition guarantees the algorithm does not stop improving; the
 second guarantees the total noise power is finite, so the cumulative
 perturbation $`\sum_t \alpha_t w_t`$ converges a.s. to a finite value
-(Kolmogorov's criterion for martingale differences applied to $`\alpha_t
-w_t`$).  Combining the geometric attraction of Step 2 with the vanishing
+(Kolmogorov's criterion for martingale differences applied to $`\alpha_t w_t`$).
+Combining the geometric attraction of Step 2 with the vanishing
 perturbation yields the standard convergence theorem (Jaakkola, Jordan, and
 Singh 1994; Watkins and Dayan 1992; see Appendix D).
 
@@ -1106,8 +1106,8 @@ have positive variance.
 
 **Proof.**  For any realization, $`\max_i X_i \ge X_j`$ for every $`j`$.
 In particular $`\max_i X_i \ge X_{j^{\ast}}`$ where $`j^{\ast} = \arg\max_i \mu_i`$.
-Take expectations: $`\mathbb{E}[\max_i X_i] \ge \mathbb{E}[X_{j^{\ast}}] =
-\mu_{j^{\ast}} = \max_i \mu_i`$.  Equality holds only if the realized max is
+Take expectations: $`\mathbb{E}[\max_i X_i] \ge \mathbb{E}[X_{j^{\ast}}] = \mu_{j^{\ast}} = \max_i \mu_i`$.
+Equality holds only if the realized max is
 always achieved by $`j^{\ast}`$ — false with positive variance, since then some
 other $`X_j`$ occasionally exceeds it.  Hence the strict upward bias.
 
@@ -1195,11 +1195,11 @@ $$
 $`\max_a Q_\theta(s,a) = V_\eta(s) + \max_a \tilde{A}_\psi(s,a)`$ with
 $`\tilde{A}_\psi = A_\psi - \mathrm{mean}(A_\psi)`$.
 
-**Proof.**  Write $`\bar{A}(s) = \frac{1}{|\mathcal{A}|} \sum_{a'}
-A_\psi(s,a')`$ and define the effective advantage
+**Proof.**  Write $`\bar{A}(s) = \frac{1}{|\mathcal{A}|} \sum_{a'} A_\psi(s,a')`$
+and define the effective advantage
 $`\tilde{A}_\psi(s,a) = A_\psi(s,a) - \bar{A}(s)`$.  By construction
-$`\sum_a \tilde{A}_\psi(s,a) = \sum_a A_\psi(s,a) - |\mathcal{A}|
-\bar{A}(s) = 0`$, matching the zero-mean property of true advantages
+$`\sum_a \tilde{A}_\psi(s,a) = \sum_a A_\psi(s,a) - |\mathcal{A}| \bar{A}(s) = 0`$,
+matching the zero-mean property of true advantages
 (Section 8.1) and pinning down $`V_\eta`$ uniquely: averaging $`Q_\theta`$
 over $`a`$ gives
 $`\frac{1}{|\mathcal{A}|} \sum_a Q_\theta(s,a) = V_\eta(s)`$.
@@ -1284,8 +1284,8 @@ $$
 = \int p_\theta(x)\\, \nabla_\theta \log p_\theta(x)\\, dx,
 $$
 
-where the last step uses $`\nabla_\theta \log p_\theta = \nabla_\theta
-p_\theta / p_\theta`$.  For the second identity, differentiate
+where the last step uses $`\nabla_\theta \log p_\theta = \nabla_\theta p_\theta / p_\theta`$.
+For the second identity, differentiate
 $`\mathbb{E}[f] = \int f(x)\, p_\theta(x)\, dx`$:
 
 $$
@@ -1448,8 +1448,8 @@ A_t^{\text{GAE}(\gamma, \lambda)}
   \Bigl( R_{t+1} + \gamma\\, V_\phi(s_{t+k+1}) - V_\phi(s_{t+k}) \Bigr).
 $$
 
-**Proof of the telescoping form.**  Let $`\delta_t = R_{t+1} + \gamma V_\phi
-(s_{t+1}) - V_\phi(s_t)`$ be the one-step TD error.  A direct calculation
+**Proof of the telescoping form.**  Let $`\delta_t = R_{t+1} + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)`$
+be the one-step TD error.  A direct calculation
 shows
 
 $$
@@ -1459,8 +1459,9 @@ $$
 $$
 
 Indeed both sides telescope: the intermediate $`\gamma V_\phi`$ terms cancel
-pairwise, leaving $`-V_\phi(s_t) + \sum_{j=0}^{k-1} \gamma^j R_{t+1+j} +
-\gamma^k V_\phi(s_{t+k})`$ = the definition.  Substituting into the weighted
+pairwise, leaving
+$`-V_\phi(s_t) + \sum_{j=0}^{k-1} \gamma^j R_{t+1+j} + \gamma^k V_\phi(s_{t+k})`$ =
+the definition.  Substituting into the weighted
 average and exchanging sums,
 
 $$
@@ -1613,7 +1614,7 @@ surrogate (Section 11.3), a value loss, and an entropy bonus.
 
 ### 12.1 The Maximum-Entropy Objective
 
-Classic RL maximizes expected return $`\sum \mathbb{E}[r]`.
+Classic RL maximizes expected return $`\sum \mathbb{E}[r]`$.
 **Maximum entropy RL** (Ziebart et al. 2008; Haarnoja et al. 2017, [12])
 augments the return with the policy's entropy at every visited state:
 
@@ -1827,8 +1828,8 @@ $$
 $$
 
 Contrast the score-function estimator of Section 9.2:
-$`\nabla_\phi \mathbb{E}_{\pi_\phi}[f] = \mathbb{E}_{\pi_\phi}[\\, f\\,
-\nabla_\phi \log \pi_\phi \\,]`$.  Both estimators are unbiased.  The score
+$`\nabla_\phi \mathbb{E}_{\pi_\phi}[f] = \mathbb{E}_{\pi_\phi}[\, f\, \nabla_\phi \log \pi_\phi \,]`$.
+Both estimators are unbiased.  The score
 estimator multiplies $`f(a)`$ by the score
 $`\nabla_\phi \log \pi_\phi(a \mid s)`$, whose magnitude varies strongly
 from action to action, inflating the variance of any Monte-Carlo average;

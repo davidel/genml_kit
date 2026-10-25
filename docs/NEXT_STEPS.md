@@ -316,7 +316,7 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 1 | Knowledge distillation | ✅ | Losses + method **done**; ONNX export dropped (see Key decisions) |
 | 1a | &nbsp;&nbsp;· KD losses (`losses/distillation.py`) | ✅ | 4 losses + registry entries |
 | 1b | &nbsp;&nbsp;· `DistillationMethod` (EMA + external teacher) | ✅ | registered as `"distillation"` |
-| L | Doc-Math Linter (`scripts/check_md_math.py`) | ⬜ | doc-hygiene chore (not a ranked capability) — do next; see "Continue Here Tomorrow" |
+| L | Doc-Math Linter (`scripts/check_md_math.py`) | ✅ | doc-hygiene chore (not a ranked capability) — implemented; see Work Log |
 | — | Shared: `EMAModel` / `encoder_utils` contract / `layer_match` | ✅ | extracted first (no cut-and-paste) |
 | 2–12 | Detection, depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
 
@@ -326,6 +326,41 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 
 Newest first. Each entry records the commits and the verification that backed
 them.
+
+### 2026-10 — Doc-Math Linter (chore `L`) — **pending review**
+
+`scripts/check_md_math.py` (new) — stdlib-only, Python 3.9+, Google style,
+2-space indent, `ruff` clean. Implements checks R1–R10 of
+`docs/MARKDOWN_LATEX.txt` and prints `file:line:col: [R<n>] message`.
+CLI: `[PATHS ...]` (default all git-tracked `*.md`), `--check` (default),
+`--fix` (safe subset: R4/R6/R8), `--json`, `--quiet`; exit `0` clean /
+`1` findings / `2` usage.
+
+The scanner classifies fenced code blocks, `$$` display blocks, inline
+``$`...`$`` spans and inline code spans before any rule runs, so a literal
+``\\,`` inside `$$` is correctly *not* flagged while the same bytes inside
+an inline span are. R9 (unicode / ASCII math) is scoped to math position
+only, so prose such as `Python ≥ 3.9` stays clean.
+
+Findings this surfaced in pre-existing docs, all fixed in the same change
+(25 total): 15 cross-line inline spans in `rl/README.md`, bare `$...$` in
+`rl/README.md` and `vo/README.md`, `\\,` inside inline spans in
+`rl/README.md`, a missing `$` close in `README.md` and `rl/README.md`, and
+`|...|` / emphasis hazards in `vo/README.md`.
+
+`tests/test_check_md_math.py` (new) — 38 tests: one per rule, the two real
+regressions (cross-line span; inline vs display `\\,`), `--fix`
+idempotency, and a self-clean test asserting zero findings on this repo's
+own docs.
+
+Docs + CI: `docs/MARKDOWN_LATEX.txt` §11 now points at the script (the old
+ad-hoc snippet is preserved in git history); `.github/workflows/ci.yml`
+gained a blocking `python scripts/check_md_math.py` step after Ruff.
+
+Verified before handing over: `pytest tests/test_check_md_math.py -q` →
+**38 passed**; `python scripts/check_md_math.py` → **0 findings in 6
+files**; `ruff check .` clean; both new files pass `yapf` with
+`.style.yapf` (2-space).
 
 ### 2026-10 — KD method + losses (item 1a/1b) — **committed**
 
