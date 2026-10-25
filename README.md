@@ -1872,7 +1872,7 @@ annotation file name and image sub-directory are configurable via
 ```bash
 genml-kit-train \
   --pipeline detection --method detection \
-  --dataset detfolder:/data/coco_tiny \
+  --dataset detfolder//data/coco_tiny \
   --model det_wrapper:timm/resnet50 \
   --model_arg head=fcos_head:num_convs=2 \
   --image_size 640 --batch_size 4 \

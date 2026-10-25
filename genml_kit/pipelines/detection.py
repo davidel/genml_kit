@@ -92,7 +92,7 @@ class DetectionPipeline(DataPipeline):
   def _build(self, args, method=None):
     if not getattr(args, "dataset", None):
       fatal("DetectionPipeline requires --dataset "
-            "(e.g. detfolder:/data/coco2017)", ValueError)
+            "(e.g. detfolder//data/coco2017)", ValueError)
 
     train_ds, val_ds = self._load_datasets(args)
     # The class count comes from the dataset's compacted label space; the
