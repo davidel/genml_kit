@@ -304,7 +304,10 @@ Recommend deferring until Tier 1–2 land.
 
 Live status of the work items. The matrix above is the original planning text
 and is left untouched; this table (and the log below) record what has actually
-shipped.
+shipped. The table mixes **ranked capability items** (rows 1–12, scored by the
+matrix above) with unranked **cross-cutting chores** (row `L`). A chore being
+flagged next does **not** outrank an item — the matrix remains the capability
+ranking.
 
 Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 
@@ -313,7 +316,7 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 1 | Knowledge distillation | ✅ | Losses + method **done**; ONNX export dropped (see Key decisions) |
 | 1a | &nbsp;&nbsp;· KD losses (`losses/distillation.py`) | ✅ | 4 losses + registry entries |
 | 1b | &nbsp;&nbsp;· `DistillationMethod` (EMA + external teacher) | ✅ | registered as `"distillation"` |
-| L | Doc-Math Linter (`scripts/check_md_math.py`) | ⬜ | **next task** — see "Continue Here Tomorrow" |
+| L | Doc-Math Linter (`scripts/check_md_math.py`) | ⬜ | doc-hygiene chore (not a ranked capability) — do next; see "Continue Here Tomorrow" |
 | — | Shared: `EMAModel` / `encoder_utils` contract / `layer_match` | ✅ | extracted first (no cut-and-paste) |
 | 2–12 | Detection, depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
 
@@ -382,11 +385,16 @@ Committed, all local (not pushed):
 Item 1 (KD losses + method) is implemented and committed; the ONNX export
 (item 1c) was dropped — see "Key decisions".
 
+This is a small **doc-hygiene** chore, not a capability item: it clears the
+known Markdown/LaTeX rendering regressions before more docs are written. The
+top unstarted **capability** milestone is still **Object detection (#2, Tier 1)**
+— see "Suggested sequence" / Milestone A.
+
 ### Step 0 — commit the reviewed KD work — ✅ done
 
 The KD losses + `DistillationMethod` are committed (see the Work Log above).
 
-### Step 1 — Doc-Math Linter (`scripts/check_md_math.py`) — ⬅ start here
+### Step 1 — Doc-Math Linter (`scripts/check_md_math.py`) — ⬅ doc-hygiene, do next
 
 The full task spec lives in the "Doc-Math Linter" section at the end of this
 document. Summary: turn the truncated, copy-paste snippet in
