@@ -1867,6 +1867,16 @@ number of categories actually present.  Images with no annotations are legal
 annotation file name and image sub-directory are configurable via
 `--det_annotation_file` and `--det_image_subdir`.
 
+To generate a throwaway corpus for a CPU smoke run without downloading COCO,
+use the bundled generator (`scripts/make_tiny_coco.py`), then point the
+pipeline at it:
+
+```bash
+python scripts/make_tiny_coco.py tiny_coco -n 200 --num_classes 3
+genml-kit-train --pipeline detection --method detection \
+  --dataset detfolder/tiny_coco --model det_wrapper:timm/resnet18 ...
+```
+
 ### Example
 
 ```bash

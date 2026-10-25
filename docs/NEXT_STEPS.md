@@ -331,6 +331,29 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 Newest first. Each entry records the commits and the verification that backed
 them.
 
+### 2026-10 — Tiny-COCO generator promoted to `scripts/` — **pending review**
+
+Promoted the ad-hoc `.chatty/scratch/make_tiny_coco.py` helper into the repo
+so smoke-test corpora can be produced without downloading COCO.
+
+New files:
+
+- `scripts/make_tiny_coco.py` — argparse CLI (`-n`, `--size`,
+  `--num_classes`, `--boxes_per_image`, `--seed`) writing a COCO-JSON corpus
+  (`images/` + `annotations.json`) for the `detfolder/` spec.  Per-class
+  colours, boxes clamped to the frame, 5-digit file names.
+- `tests/test_make_tiny_coco.py` — 8 tests via the `importlib` script-load
+  pattern used by `test_check_md_math.py`: corpus structure, count flags,
+  in-frame boxes with `area == w*h`, 1-based dense categories, non-blank
+  images, default backward compatibility, and seed determinism.
+
+Modified: one `README.md` pointer in the detection **Dataset Format** section.
+Overlap with `tests/test_det_e2e.py::_write_dataset` is deliberate and left
+in place (the test fixture stays minimal).
+
+Verification: `pytest tests/test_make_tiny_coco.py -q` → **8 passed**;
+`ruff check .` → clean; both files pass `yapf` with `.style.yapf` (2-space).
+
 ### 2026-10 — Object detection (item 2) — **pending review**
 
 First cut of object detection, boxes-only per the agreed scope: an anchor-free
