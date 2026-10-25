@@ -5,7 +5,9 @@ cover and ranks them by **Impact vs Complexity**. It is a planning artifact: it
 describes *what* to build and *how it should slot into the existing
 architecture*, not a commitment to implement everything.
 
-> Status: proposal — nothing here is implemented. Review before acting.
+> Status: living document. Items 1 (distillation), 2a (detection, boxes-only)
+> and chore `L` (doc-math linter) have shipped; everything else is still a
+> proposal. See the Progress Tracker for live status.
 
 ## What genml_kit covers today
 
@@ -14,6 +16,7 @@ architecture*, not a commitment to implement everything.
 | Image classification | Pluggable heads (`training/classifiers/`), XGBoost pipeline, TTA, metrics/eval |
 | Semantic segmentation | UNet / FPN / linear decoders, Dice-CE loss, seg metrics |
 | Visual odometry | Photometric + supervised, 2-D similarity algebra, differentiable Umeyama |
+| Object detection | Anchor-free FCOS head, COCO-JSON `detfolder/`, mAP meter, NMS decode |
 | Reinforcement learning | Model-free single-agent: DQN, PPO, SAC (gymnasium) |
 | Self-supervised pre-training | BYOL, DINO, SimMIM, I-JEPA, SupCon / contrastive |
 | PEFT / fine-tuning | LoRA via `peft`, freeze, LLRD, optim/scheduler factory |
@@ -318,7 +321,7 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 1b | &nbsp;&nbsp;· `DistillationMethod` (EMA + external teacher) | ✅ | registered as `"distillation"` |
 | L | Doc-Math Linter (`scripts/check_md_math.py`) | ✅ | doc-hygiene chore (not a ranked capability) — implemented; see Work Log |
 | — | Shared: `EMAModel` / `encoder_utils` contract / `layer_match` | ✅ | extracted first (no cut-and-paste) |
-| 2 | Object detection | 🚧 | boxes-only first cut (FCOS head, COCO-JSON) — see Work Log |
+| 2 | Object detection | ✅ | boxes-only cut shipped; 2b/2c deferred — see Work Log |
 | 2a | &nbsp;&nbsp;· `detection` pipeline + `DetectionMethod` + `det_folder` | ✅ | COCO-JSON `detfolder/`, box-aware transforms, mAP meter |
 | 2b | &nbsp;&nbsp;· instance segmentation (`mask_head`) | ⬜ | deferred; wrapper designed to accept a mask head later |
 | 2c | &nbsp;&nbsp;· `detr_head` + Hungarian matcher | ⬜ | deferred; FCOS chosen for the first cut (fast, no matcher) |
@@ -331,7 +334,7 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 Newest first. Each entry records the commits and the verification that backed
 them.
 
-### 2026-10 — Tiny-COCO generator promoted to `scripts/` — **pending review**
+### 2026-10 — Tiny-COCO generator promoted to `scripts/` — **committed** (`07b724e`)
 
 Promoted the ad-hoc `.chatty/scratch/make_tiny_coco.py` helper into the repo
 so smoke-test corpora can be produced without downloading COCO.
@@ -354,7 +357,7 @@ in place (the test fixture stays minimal).
 Verification: `pytest tests/test_make_tiny_coco.py -q` → **8 passed**;
 `ruff check .` → clean; both files pass `yapf` with `.style.yapf` (2-space).
 
-### 2026-10 — Object detection (item 2) — **pending review**
+### 2026-10 — Object detection (item 2) — **committed** (`af622fa`, spec fix `c8bc24d`)
 
 First cut of object detection, boxes-only per the agreed scope: an anchor-free
 **FCOS** head over the existing encoder pyramid, reading **COCO-JSON**
@@ -401,7 +404,7 @@ clean; the two new `yapf`-formatted modules pass `.style.yapf` (2-space);
 `tests/test_det_{folder,transforms,head,loss,metrics,e2e}.py` (68 tests,
 including a hand-computed mAP case and a slow overfit smoke test).
 
-### 2026-10 — Doc-Math Linter (chore `L`) — **pending review**
+### 2026-10 — Doc-Math Linter (chore `L`) — **committed** (`8c5030a`, `26c559f`)
 
 `scripts/check_md_math.py` (new) — stdlib-only, Python 3.9+, Google style,
 2-space indent, `ruff` clean. Implements checks R1–R10 of
@@ -490,25 +493,28 @@ Committed, all local (not pushed):
 
 ## Continue Here Tomorrow
 
-**Resume point: the Doc-Math Linter (`scripts/check_md_math.py`).**
-Item 1 (KD losses + method) is implemented and committed; the ONNX export
-(item 1c) was dropped — see "Key decisions".
+**Resume point: learned depth / stereo / optical flow (item 3, Tier 1).**
+Item 1 (KD losses + method), item 2 (object detection, boxes-only) and the
+doc-hygiene chore `L` are implemented and committed; the ONNX export (item 1c)
+was dropped — see "Key decisions". Deferred detection sub-items are 2b
+(instance segmentation) and 2c (`detr_head`).
 
-This is a small **doc-hygiene** chore, not a capability item: it clears the
-known Markdown/LaTeX rendering regressions before more docs are written. The
-top unstarted **capability** milestone is still **Object detection (#2, Tier 1)**
-— see "Suggested sequence" / Milestone A.
+The top unstarted **capability** milestone is **Learned depth / stereo /
+optical flow (#3, Tier 1)** — see "Suggested sequence" / Milestone A and the
+Tier 1 section above. It reuses the `vo/` geometric scaffolding
+(`geometry/similarity.py`, the `vo_pairs` synthetic generator, photometric
+loss machinery) and needs a new `pipelines/geometry_dense.py`, a
+`methods/flow_depth.py`, and `disp_head` / `flow_head` decoders.
 
 ### Step 0 — commit the reviewed KD work — ✅ done
 
 The KD losses + `DistillationMethod` are committed (see the Work Log above).
 
-### Step 1 — Doc-Math Linter (`scripts/check_md_math.py`) — ⬅ doc-hygiene, do next
+### Step 1 — Doc-Math Linter (`scripts/check_md_math.py`) — ✅ done
 
-The full task spec lives in the "Doc-Math Linter" section at the end of this
-document. Summary: turn the truncated, copy-paste snippet in
-`docs/MARKDOWN_LATEX.txt` §11 into a reusable, tested checker with a safe
-`--fix`, wired into CI.
+Shipped as `docs: add a Markdown/KaTeX math linter and fix the findings it
+surfaced`; the spec in the "Doc-Math Linter" section at the end of this
+document records what was built (rules R1–R10, CLI, exit codes), not a TODO.
 
 ### Reference: how to run things
 
@@ -553,7 +559,7 @@ ruff check .
 
 ---
 
-## Doc-Math Linter
+## Doc-Math Linter (delivered — reference spec)
 
 **Goal.** Turn the copy-paste, single-file, *truncated* snippet in
 `docs/MARKDOWN_LATEX.txt` §11 into a reusable checker, so future
