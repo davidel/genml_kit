@@ -29,6 +29,8 @@ in [`vo/README.md`](vo/README.md).
 - [Custom Losses](#custom-losses)
 - [Custom Models](#custom-models)
 - [Semantic Segmentation](#semantic-segmentation)
+- [Visual Odometry](#visual-odometry)
+- [Knowledge Distillation](#knowledge-distillation)
 - [References And Further Reading](#references-and-further-reading)
 - [Development](#development)
 - [License](#license)
@@ -425,7 +427,7 @@ they are meant to be confident) and a larger student temperature (softer
 [Emerging Properties in Self-Supervised Vision Transformers](https://arxiv.org/abs/2104.14294), ICCV 2021.
 One backbone is instantiated twice. The **student** $`f_\theta`$ is trained by
 gradient descent; the **teacher** $`f_\xi`$ is the EMA copy of the student
-($`\xi \leftarrow m\\,\xi + (1-m)\\,\theta`$, as in I-JEPA above, ramped from
+($`\xi \leftarrow m\,\xi + (1-m)\,\theta`$, as in I-JEPA above, ramped from
 `--dino_momentum` 0.996 to `--dino_final_momentum` 1.0). Each image is cut
 into 2 **global** crops plus `--dino_local_num` (8) small **local** crops:
 the teacher sees only global views, the student sees all of them, so the
@@ -473,8 +475,7 @@ $$
 $$
 
 which is 0 when predictions perfectly match target projections and reaches 4
-when they point in opposite directions; $`\cos(u,v) = u^\top v / (\lVert u
-\rVert_2 \lVert v \rVert_2)`$ is the cosine of the angle between the two
+when they point in opposite directions; $`\cos(u,v) = u^\top v / (\lVert u \rVert_2 \lVert v \rVert_2)`$ is the cosine of the angle between the two
 vectors. Two asymmetries keep this from collapsing to a constant: the
 predictor exists only on the online side (predicting a target is easier than
 being one), and the targets move slowly under the EMA — exactly the
@@ -716,7 +717,7 @@ true class survives and the loss reduces to the familiar $`-\log p(y \mid x)`$.
 genml_kit generalizes this in three directions via `CombinedFocalLoss`:
 
 - **Soft targets.** With Mixup (below) $`q`$ is the blend
-  $`\lambda\\, y_i + (1-\lambda)\\, y_j`$, and the sum keeps both classes'
+  $`\lambda\, y_i + (1-\lambda)\, y_j`$, and the sum keeps both classes'
   terms weighted by $`\lambda`$ and $`1-\lambda`$.
 - **Label smoothing** (via `--loss_args '{"label_smoothing": ...}'`):
   the one-hot target is replaced by
@@ -1793,6 +1794,131 @@ resolution (224) and reject other sizes.
 for each image and does **not** emit per-pixel masks.  For segmentation,
 use the validation loop (mIoU + overlays above) or the checkpoint's
 weights directly.
+
+---
+
+## Visual Odometry
+
+Visual odometry (VO) estimates the 2-D **similarity transform** — rotation,
+uniform scale, and translation — that maps one image onto another taken a
+fraction of a second later.  `genml_kit` ships a learned VO front-end plus a
+synthetic pair generator, wired as the `vo_pair` pipeline and the `vo_pair`
+method.
+
+The full mathematics (coordinate frames, the rotation matrix, Umeyama's
+closed-form solution, the photometric objective, the `mce` metric, and a
+failure-mode appendix) lives in [`vo/README.md`](vo/README.md) — a
+from-the-ground-up tutorial.  This section is the practical *usage* guide.
+
+### Quick start
+
+```bash
+# Supervised VO on synthetic pairs (default npu-small profile)
+genml-kit-train \
+  --pipeline vo_pair --method vo_pair \
+  --model vo/npu-small \
+  --image_size 64 --batch_size 32 --epochs 10
+
+# Photometric self-supervised stage (adds the photometric residual term)
+genml-kit-train \
+  --pipeline vo_pair --method vo_pair \
+  --vo_stage photometric --epochs 10
+```
+
+### Model profiles
+
+The VO net is selected through the model registry as `vo/<profile>`:
+
+| `--model` | Profile | Encoder widths |
+|---|---|---|
+| `vo/npu-small` | default | `(16, 32, 64, 128)` |
+| `vo/edge-mid` | mid-size | see `genml_kit/models/vo/vo_similar.py` |
+| `vo/station` | large | see `genml_kit/models/vo/vo_similar.py` |
+
+### Pipeline flags (`--pipeline vo_pair`)
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--vo_length` | `20000` | number of synthetic training pairs |
+| `--vo_val_length` | `2000` | number of synthetic validation pairs |
+| `--pitch_deg` | `45.0` | camera pitch for the ground-plane render |
+| `--terrain` | `field` | terrain profile name |
+| `--seeded_pairs` | `0` | seed the pair generator for reproducible pairs |
+
+### Method flags (`--method vo_pair`)
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--vo_stage` | `supervised` | `supervised` (mce + similarity deltas) or `photometric` (adds the photometric residual) |
+| `--vo_profile` | `npu-small` | VO model profile (also selectable via `--model vo/<profile>`) |
+| `--vo_loss_cfg` | — | comma-separated loss weights `w_log_s,w_theta,w_conf,w_photo` |
+
+The reported metric is `mce` (mean corner error, in pixels), minimized — the
+best checkpoint is stored under `best_mce`.  Set `--image_size 64` for the
+synthetic pairs, whose default resolution is 64×64.
+
+---
+
+## Knowledge Distillation
+
+Knowledge distillation trains a small **student** to mimic a large **teacher**.
+`genml_kit` implements the three families of distillation (response / logit
+matching, feature / FitNets, attention, and relation / RKD) and both teacher
+sources: a separately-loaded frozen model (`--teacher_kind external`) and an
+exponential-moving-average copy of the student itself
+(`--teacher_kind ema`, i.e. self-distillation).  It is wired as the
+`distillation` method over the standard `images` pipeline.
+
+The full mathematics (temperature and the soft-target insight, the KL↔CE
+collapse and the `T²` scaling, attention-transfer normalisation, RKD, and the
+EMA-teacher variance argument) lives in
+[`knowledge_distillation/README.md`](knowledge_distillation/README.md) — a
+from-the-ground-up tutorial.  This section is the practical *usage* guide.
+
+### Quick start
+
+```bash
+# Self-distillation: teacher is an EMA of the student (no external model)
+genml-kit-train \
+  --pipeline images --method distillation \
+  --model google/vit-base-patch16-224 \
+  --dataset cifar10 --label_column label \
+  --teacher_kind ema --kd_temperature 4.0 --kd_alpha 1.0 \
+  --epochs 10
+
+# External teacher: frozen checkpoint hands over its soft targets
+genml-kit-train \
+  --pipeline images --method distillation \
+  --model google/vit-base-patch16-224 \
+  --dataset cifar10 --label_column label \
+  --teacher_kind external \
+  --teacher_model google/vit-large-patch16-224 \
+  --teacher_checkpoint /path/to/teacher.pt \
+  --kd_temperature 4.0 --kd_alpha 1.0 --epochs 10
+```
+
+### Method flags (`--method distillation`)
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--teacher_kind` | `external` | `external` loads a frozen teacher; `ema` self-distils from an EMA of the student |
+| `--teacher_model` | — | teacher model spec (required for `--teacher_kind external`) |
+| `--teacher_checkpoint` | — | checkpoint holding the external teacher's weights |
+| `--kd_temperature` | `4.0` | distillation temperature $`T`$ |
+| `--kd_alpha` | `1.0` | weight of the response (logit) KD term (`0` disables it) |
+| `--kd_feature_alpha` | `0.0` | weight of the FitNets feature KD term (`0` disables it) |
+| `--kd_attention` / `--no-kd_attention` | off | use attention transfer on the matched layers instead of raw feature MSE |
+| `--kd_relation_alpha` | `0.0` | weight of the relational (RKD) KD term (`0` disables it) |
+| `--kd_layer_strategy` | `uniform` | how to pair teacher/student layers: `by_index`, `uniform`, `by_name` |
+| `--kd_layer_pattern` | — | regex selecting the feature layers to pair (feature KD) |
+| `--kd_proj_hidden` | `512` | hidden width of the FitNets projection |
+| `--kd_ema_momentum` | `0.996` | initial EMA momentum for `--teacher_kind ema` |
+| `--kd_ema_final_momentum` | `1.0` | final EMA momentum for `--teacher_kind ema` |
+
+Enable one family at a time and watch the validation metric after each addition
+(see Appendix B of the distillation tutorial for the pitfalls).  A labeled
+`--dataset` is required: the ground-truth cross-entropy branch anchors the
+student on examples where the teacher is confidently wrong.
 
 ---
 

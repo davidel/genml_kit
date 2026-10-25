@@ -1056,7 +1056,7 @@ point the learner can chase.
 - **Hard update.**  Every $`C`$ steps, copy $`\theta \to \theta^-`$.
   Simple, and what the original DQN paper used ($`C = 10^4`$ steps).
 - **Soft (Polyak) update.**  Every step,
-  $`\theta^- \\;\leftarrow\\; \tau\\, \theta + (1 - \tau)\\, \theta^-`$
+  $`\theta^- \;\leftarrow\; \tau\, \theta + (1 - \tau)\, \theta^-`$
   with small $`\tau`$ (e.g. $`0.005`$).  Smooth, and standard in modern
   actor-critic methods (SAC, TD3).  Because it is a convex combination,
   and $`\theta^-`$ and $`\theta`$ share the same parameter space, the
@@ -1275,7 +1275,7 @@ $$
 for any function $`f`$ (under regularity conditions allowing the exchange
 of gradient and integral).
 
-**Proof.**  Start from $`\int p_\theta(x)\\, dx = 1`$ and differentiate:
+**Proof.**  Start from $`\int p_\theta(x)\, dx = 1`$ and differentiate:
 
 $$
 \large
@@ -1286,7 +1286,7 @@ $$
 
 where the last step uses $`\nabla_\theta \log p_\theta = \nabla_\theta
 p_\theta / p_\theta`$.  For the second identity, differentiate
-$`\mathbb{E}[f] = \int f(x)\\, p_\theta(x)\\, dx`$:
+$`\mathbb{E}[f] = \int f(x)\, p_\theta(x)\, dx`$:
 
 $$
 \large
@@ -1437,7 +1437,7 @@ $$
 
 **Generalized Advantage Estimation** (Schulman et al. 2016, [9]) is the
 exponentially weighted average of all $`k`$-step advantages, with weight
-$`(1 - \lambda)\\, \lambda^{k-1}`$ for a parameter $`\lambda \in [0,1]`$:
+$`(1 - \lambda)\, \lambda^{k-1}`$ for a parameter $`\lambda \in [0,1]`$:
 
 $$
 \large
@@ -1492,7 +1492,7 @@ $`\lambda \approx 0.95`$ and estimates the advantage by *bootstrapping the
 critic once per rollout, then summing with weights $`(\gamma\lambda)^k`$.
 
 In code this is computed with the *recurrent* form
-$`A_t = \delta_t + \gamma \lambda (1-d_t)\\, A_{t+1}`$ evaluated backwards
+$`A_t = \delta_t + \gamma \lambda (1-d_t)\, A_{t+1}`$ evaluated backwards
 from the end of a rollout — the numerically stable version of the
 infinite sum above.
 
@@ -1794,7 +1794,7 @@ $$
 
 **Derivation.**  The soft-optimal (Gibbs) policy at state $`s`$ is
 $`\pi^{\ast} \propto \exp(Q_\psi(s, \cdot)/\alpha)`$ (Section 12.4).  Minimizing
-$`\mathrm{KL}(\pi_\phi \\,\|\\, \pi^{\ast})`$ over $`\pi_\phi`$:
+$`\mathrm{KL}(\pi_\phi \,\|\, \pi^{\ast})`$ over $`\pi_\phi`$:
 
 $$
 \large

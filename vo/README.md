@@ -270,7 +270,7 @@ M = \begin{bmatrix} A & t \\\\ 0 & 1 \end{bmatrix},
 A = s R_\theta = \begin{bmatrix} s\\,cos\theta & -s\\,sin\theta \\\\ s\\,sin\theta & s\\,cos\theta \end{bmatrix}.
 $$
 
-We want $`M^{-1}`$, i.e. a matrix satisfying $`M^{-1} (x', \\, 1)^\top = (x, \\, 1)^\top`$.
+We want $`M^{-1}`$, i.e. a matrix satisfying $`M^{-1} (x', \, 1)^\top = (x, \, 1)^\top`$.
 Solve $`x' = A x + t`$ for $`x`$:
 
 $$
@@ -1336,7 +1336,7 @@ That is the whole derivation of Step 3's rotation, and it is where the
 $`\det(UV^{\top}) = +1`$.  If the determinant comes out $`-1`$, then $`W = I`$ is not
 an orthogonal matrix with determinant +1 (it would be a reflection); the best
 *rotation* is $`W = \mathrm{diag}(1, -1)`$, giving
-$`R = U \\,\mathrm{diag}(1, d)\\, V^{\top}`$ with $`d = \det(UV^{\top})`$ — exactly
+$`R = U \,\mathrm{diag}(1, d)\, V^{\top}`$ with $`d = \det(UV^{\top})`$ — exactly
 Step 3.  (Pedagogical bonus: the proof never used the *values* of the singular
 values except their non-negativity, which is why the same argument works in
 any dimension.)
@@ -1356,9 +1356,9 @@ $$
 \\, \Longrightarrow\\, s = \frac{\mathrm{tr}(H R)}{\sum_i \lVert \hat{p}_i \rVert^2}.
 $$
 
-With $`R = U\\,\mathrm{diag}(1, d)\\,V^{\top}`$, the trace is
-$`\mathop{\mathrm{tr}}(HR) = \mathop{\mathrm{tr}}(U\Sigma V^{\top} U\\,\mathrm{diag}(1,d)\\,V^{\top}) = \sigma_{1} + d\\,\sigma_{2}`$,
-so the numerator is exactly $`\sigma_{1} + d\\,\sigma_{2}`$ — Step 4's scale, now
+With $`R = U\,\mathrm{diag}(1, d)\,V^{\top}`$, the trace is
+$`\mathop{\mathrm{tr}}(HR) = \mathop{\mathrm{tr}}(U\Sigma V^{\top} U\,\mathrm{diag}(1,d)\,V^{\top}) = \sigma_{1} + d\,\sigma_{2}`$,
+so the numerator is exactly $`\sigma_{1} + d\,\sigma_{2}`$ — Step 4's scale, now
 derived rather than stated.  (The $`w_{i}`$ weights appear in the actual
 implementation for the generalized weighted version; the unweighted derivation
 is the $`w_{i} = 1`$ case.)
@@ -2437,7 +2437,7 @@ $$
 = z^\top R^{-1} z - 2 x^\top H^\top R^{-1} z + x^\top H^\top R^{-1} H x .
 $$
 
-The total exponent is $`x^\top (P^{-1} + H^\top R^{-1} H)\\, x - 2 x^\top (P^{-1} \mu + H^\top R^{-1} z) + C`$, where $`C`$ collects everything independent of $`x`$.  Matching to a Gaussian with mean $`\mu^{+}`$ and covariance $`P^{+}`$:
+The total exponent is $`x^\top (P^{-1} + H^\top R^{-1} H)\, x - 2 x^\top (P^{-1} \mu + H^\top R^{-1} z) + C`$, where $`C`$ collects everything independent of $`x`$.  Matching to a Gaussian with mean $`\mu^{+}`$ and covariance $`P^{+}`$:
 
 $$
 \large
@@ -2454,7 +2454,7 @@ $$
 (A + U C V)^{-1} = A^{-1} - A^{-1} U (C^{-1} + V A^{-1} U)^{-1} V A^{-1} ,
 $$
 
-with $`A = P, \\; U = H^\top, \\; C = R, \\; V = H`$, and define the Kalman gain
+with $`A = P, \; U = H^\top, \; C = R, \; V = H`$, and define the Kalman gain
 
 $$
 \large
@@ -2478,7 +2478,7 @@ $$
 = \mu + K (z - H \mu) ,
 $$
 
-which is exactly the update equation of §25.2, $`\mu^{+} = \mu + K\\,(\text{innovation})`$.
+which is exactly the update equation of §25.2, $`\mu^{+} = \mu + K\,(\text{innovation})`$.
 Here $`P = P_{k}^{-}`$ is the **predicted (prior) covariance** and $`P^{+} = P_{k}^{+}`$
 the **corrected (posterior) covariance**; the superscripts denote "before" and
 "after" the measurement update.
@@ -2509,7 +2509,7 @@ into the loop the front-end's contract feeds.  The *predict* step is the lemma
 above applied with $`F = F_{k-1}`$; the *update* step is the derivation above
 (Prior $`=`$ the prediction).
 
-*Predict* (from the previous corrected estimate $`\hat{x}_{k-1}, \\; P_{k-1}`$):
+*Predict* (from the previous corrected estimate $`\hat{x}_{k-1}, \; P_{k-1}`$):
 
 $$
 \large

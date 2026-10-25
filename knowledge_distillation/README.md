@@ -1,36 +1,30 @@
-# Knowledge Distillation & Model Export — A Self-Contained Tutorial
+# Knowledge Distillation — A Self-Contained Tutorial
 
 This document teaches, from the ground up, the ideas behind **knowledge
-distillation** and how they should be woven into `genml_kit`: how a large,
-accurate *teacher* network can hand its behaviour to a small, cheap *student*
-network, how the objective that drives that transfer is built, how an
-exponential-moving-average (EMA) teacher turns distillation into
-*self-distillation*, and how the finished student is exported to a portable
-runtime (ONNX).
+distillation**: how a large, accurate *teacher* network can hand its behaviour to
+a small, cheap *student* network, how the objective that drives that transfer is
+built, and how an exponential-moving-average (EMA) teacher turns distillation
+into *self-distillation*.
 
 It is written for the same reader as [`vo/README.md`](../vo/README.md): someone
-who knows how to train a classifier but wants the *why* behind every line they
-are about to add to the harness. No result in this document depends on
-`genml_kit` internals to be understood — the mathematics is developed from first
-principles and only *then* mapped onto the repository's `Method`, `Pipeline`
-and `LOSSES` abstractions.
+who knows how to train a classifier but wants the *why* behind every idea. No
+result in this document depends on `genml_kit` internals to be understood — the
+mathematics is developed from first principles, with derivations and proofs
+worked out in full.
 
-> **Scope.** This is a design + tutorial document, not implemented code. It
-> specifies the modules we intend to add, the losses they will use, the CLI
-> they will expose, and — equally important — the **shared utilities that must
-> be extracted first** so that no distillation code is cut-and-pasted from the
-> existing self-supervised methods.
+> **Scope.** This is a self-study tutorial, not an implementation guide. It
+> develops the mathematics of distillation — the losses, their gradients, and the
+> theory behind each design choice — and leaves the engineering to the code.
 
 ---
 
 ## How To Read This Document
 
-- **Read order.** Part 1 frames the problem. Parts 2–4 build the three families
-  of distillation loss (response, feature, relation). Part 5 explains where the
-  teacher comes from (fixed vs. EMA). Part 6 maps all of this onto the
-  `genml_kit` architecture. Part 7 covers ONNX export. Part 8 is the refactoring
-  contract — *read it even if you only care about the math*, because it is what
-  keeps the module honest.
+- **Read order.** Part 1 frames the problem and the three families of knowledge.
+  Parts 2–4 build one loss per family (response, feature, relation), each with
+  its derivation. Part 5 explains where the teacher comes from (fixed vs. EMA)
+  and why an averaged teacher is a better target. Part 6 collects the pieces and
+  composes them into a single objective with a worked example.
 - **Math notation.** Inline maths appears as $`x`$; display maths appears
   centred. The rendering rules (escaping, operators, the emphasis hazard) are
   centralised in [`docs/MARKDOWN_LATEX.txt`](../docs/MARKDOWN_LATEX.txt); every
@@ -62,22 +56,9 @@ and `LOSSES` abstractions.
   - [12. Fixed Teachers And Offline Distillation](#12-fixed-teachers-and-offline-distillation)
   - [13. Self-Distillation And The EMA Teacher](#13-self-distillation-and-the-ema-teacher)
   - [14. Momentum Scheduling](#14-momentum-scheduling)
-- [Part 6 — Mapping Onto The genml_kit Architecture](#part-6--mapping-onto-the-genml_kit-architecture)
-  - [15. The Method / Pipeline Split](#15-the-method--pipeline-split)
-  - [16. The Loss Registry Entry](#16-the-loss-registry-entry)
-  - [17. The Teacher As A Loaded Model](#17-the-teacher-as-a-loaded-model)
-  - [18. The CLI Surface](#18-the-cli-surface)
-  - [19. Checkpointing](#19-checkpointing)
-- [Part 7 — ONNX Export](#part-7--onnx-export)
-  - [20. What ONNX Actually Freezes](#20-what-onnx-actually-freezes)
-  - [21. Dynamic Axes And The Tracing Contract](#21-dynamic-axes-and-the-tracing-contract)
-  - [22. Post-Training Quantization And Verification](#22-post-training-quantization-and-verification)
-- [Part 8 — Refactoring Contract: No Cut-And-Paste](#part-8--refactoring-contract-no-cut-and-paste)
-  - [23. The Duplication That Already Exists](#23-the-duplication-that-already-exists)
-  - [24. Extract The EMA Teacher](#24-extract-the-ema-teacher)
-  - [25. Extract The Feature-Extraction And Backbone-Dim Probes](#25-extract-the-feature-extraction-and-backbone-dim-probes)
-  - [26. Extract The Layer-Matching Helper](#26-extract-the-layer-matching-helper)
-  - [27. Acceptance Criteria For The Refactor](#27-acceptance-criteria-for-the-refactor)
+- [Part 6 — Putting It Together](#part-6--putting-it-together)
+  - [15. Composing The Three Losses](#15-composing-the-three-losses)
+  - [16. A Worked Example](#16-a-worked-example)
 - [Appendices](#appendices)
   - [Appendix A: Symbol Table](#appendix-a-symbol-table)
   - [Appendix B: Failure Modes And Pitfalls](#appendix-b-failure-modes-and-pitfalls)
@@ -97,7 +78,7 @@ a car. It might output
 $$
 \large
 p(y \mid x) = \big[\\;\text{car}: 0.90,\quad \text{truck}: 0.08,\quad
-\text{bicycle}: 0.01,\quad \text{cat}: 0.0001,\\;\dots\big].
+\text{bicycle}: 0.01,\quad \text{cat}: 0.0001,\\;\\dots\big].
 $$
 
 The hard label "car" throws away almost all of that vector. But the ratios
@@ -113,7 +94,7 @@ the teacher and student logits as $`z^{(t)}`$ and $`z^{(s)}`$, the goal is
 $$
 \large
 \min_{\theta_s}\ \mathbb{E}_{x}\ \mathcal{D}\\!\left(
-q_t(x)\\,\middle\|\\,q_s(x)\right),
+q_t(x)\\,\middle\\|\\,q_s(x)\right),
 $$
 
 where $`q_t`$ and $`q_s`$ are tempered softmaxes (Part 2) and $`\mathcal{D}`$
@@ -138,17 +119,8 @@ happens (Gou et al., 2021):
 | **Relation-based** | pairwise/triplet structure between samples or layers | Park et al. (RKD), 2019 |
 
 Parts 2, 3 and 4 develop one loss per family. They compose: a single training
-run may use all three, with weights $`\alpha_{\text{resp}}, \alpha_{\text{feat}},
-\alpha_{\text{rel}}`$.
-
-**Implementation status.** Parts 2-4 and the method wiring of Part 6 are
-shipped: the losses live in `genml_kit/losses/distillation.py`
-(`kd_response_loss`, `kd_feature_loss`, `kd_attention_loss`, `kd_relation_loss`,
-also registered in `LOSSES` as `kd_response` / `kd_feature` / `kd_attention` /
-`kd_relation`) and the method is `genml_kit/methods/distillation.py`
-(`DistillationMethod`, registered as `"distillation"`, supporting both
-`--teacher_kind ema` and `--teacher_kind external`). Part 7 (ONNX export)
-remains a planned follow-up.
+run may use all three, with weights $`\alpha_{\text{resp}}, \alpha_{\text{feat}}`$
+and $`\alpha_{\text{rel}}`$ (Part 6).
 
 ## 3. Dictionary Learning Versus Function Mimicry
 
@@ -167,11 +139,9 @@ The two framings differ in the limit:
   because hard labels carry no soft information. **Distillation is what makes a
   finite student able to represent the teacher's uncertainty.**
 
-This matters downstream: an exported student with calibrated soft outputs is
-usable as a *dense* component (a logit or feature source inside another model),
-not just as a top-1 classifier. That is exactly why genml_kit wants it — the
-`Method`s in the harness are composable, and a distilled backbone is a cheap
-drop-in encoder.
+This matters downstream: a student with calibrated soft outputs is usable as a
+*dense* component (a logit or feature source inside another model), not just as
+a top-1 classifier.
 
 ---
 
@@ -194,8 +164,22 @@ confidence of $`0.08`$ may underflow to something indistinguishable from
 $`0`$ under log, but at $`T = 4`$ the same logit ratio is amplified before the
 softmax compresses it again.
 
+To see this quantitatively, consider the *logit difference* $`\Delta = z_i - z_j`$
+between two classes. Their tempered log-ratio is
+
+$$
+\large
+\log \frac{q_i(T)}{q_j(T)} = \frac{z_i - z_j}{T} = \frac{\Delta}{T}.
+$$
+
+So the temperature **divides** the separation between classes. A small,
+informative gap $`\Delta`$ that is squashed to a ratio near $`1`$ at $`T = 1`$
+becomes a visible, trainable ratio at large $`T`$. The student learns the
+*ordering* of the non-target classes — exactly the dark knowledge — instead of
+only the identity of the argmax.
+
 **Pitfall.** Temperature is *not* applied to the ground-truth cross-entropy
-branch (Part 6). It lives only on the distillation branch. Applying it to both
+branch (§8). It lives only on the distillation branch. Applying it to both
 silently rescales the supervised signal and is one of the most common
 implementation bugs.
 
@@ -207,34 +191,85 @@ batch:
 $$
 \large
 \mathcal{L}_{\text{KD}}(x)
-= T^{2}\\, \mathrm{KL}\\!\left( q_t(T) \\,\middle\|\\, q_s(T) \right)
+= T^{2}\\, \mathrm{KL}\\!\left( q_t(T) \\,\middle\\|\\, q_s(T) \right)
 = T^{2} \sum_{i=1}^{C} q_{t,i}(T)\\,\log\\!\frac{q_{t,i}(T)}{q_{s,i}(T)}.
 $$
 
-Because $`q_t`$ is treated as a constant (its gradient is zero), the entropy
-term $`-\sum_i q_{t,i}\log q_{t,i}`$ drops out of the gradient, and the loss
-reduces, up to constants, to the cross-entropy
+### Why KL collapses to cross-entropy
+
+Split the logarithm and separate the two terms:
+
+$$
+\large
+\mathrm{KL}(q_t \\| q_s)
+= \sum_i q_{t,i} \log q_{t,i} - \sum_i q_{t,i} \log q_{s,i}
+= -H(q_t) + H(q_t, q_s),
+$$
+
+where $`H(q_t) = -\sum_i q_{t,i}\log q_{t,i}`$ is the **entropy** of the teacher
+and $`H(q_t, q_s) = -\sum_i q_{t,i}\log q_{s,i}`$ is the **cross-entropy**
+between teacher and student.
+
+Because $`q_t`$ is produced by the frozen teacher, it does not depend on the
+student parameters $`\theta_s`$. Its entropy $`H(q_t)`$ is therefore a
+**constant** with respect to the optimisation, and
+
+$$
+\large
+\arg\min_{\theta_s}\ \mathrm{KL}(q_t \\| q_s)
+= \arg\min_{\theta_s}\ H(q_t, q_s).
+$$
+
+This is the key simplification: **minimising the KL divergence is exactly
+minimising the cross-entropy to the teacher's soft targets.** The loss reduces,
+up to the constant $`H(q_t)`$, to
 
 $$
 \large
 \mathcal{L}_{\text{KD}}(x)
 \\;\equiv\\; -\\,T^{2}\sum_{i=1}^{C} q_{t,i}(T)\\,\log q_{s,i}(T)
-\qquad (\{teacher detached}).
+\qquad (\text{teacher detached}).
 $$
 
 Implementations almost always compute it as
 `KLDivLoss(log_softmax(student/T), softmax(teacher/T)) * T**2`, which is
-numerically cleaner than forming the ratio explicitly.
+numerically cleaner than forming the ratio explicitly, and which automatically
+drops the constant.
 
 ## 6. The Gradient Of The KD Loss
 
-Let $`q_s = \mathrm{softmax}(z_s / T)`$. Differentiating the cross-entropy form
-with respect to a student logit $`z_{s,k}`$ gives the familiar softmax Jacobian
-contraction:
+Let $`q_s = \mathrm{softmax}(z_s / T)`$. We differentiate the cross-entropy
+form of §5 with respect to a student logit $`z_{s,k}`$. The derivation has two
+ingredients.
+
+**Step 1 — the softmax Jacobian.** For the tempered softmax,
+
+$$
+\large
+\frac{\partial q_{s,i}}{\partial z_{s,k}}
+= \frac{1}{T}\\, q_{s,i}\big(\delta_{ik} - q_{s,k}\big),
+$$
+
+where $`\delta_{ik}`$ is the Kronecker delta. This follows from the quotient
+rule: the numerator differentiates to $`q_{s,i}`$ when $`i = k`$ and to zero
+otherwise, while the normaliser differentiates to $`q_{s,i} q_{s,k}`$.
+
+**Step 2 — chain rule through the logarithm.** Since
+$`\partial \log q_{s,i} / \partial z_{s,k} = (1/q_{s,i})\,\partial q_{s,i}/\partial z_{s,k}`$,
 
 $$
 \large
 \frac{\partial \mathcal{L}_{\text{KD}}}{\partial z_{s,k}}
+= -T^{2} \sum_i q_{t,i}\\, \frac{1}{q_{s,i}}\\, \frac{\partial q_{s,i}}{\partial z_{s,k}}
+= -T \sum_i q_{t,i}\big(\delta_{ik} - q_{s,k}\big).
+$$
+
+The two sums then collapse because $`\sum_i q_{t,i} = 1`$:
+
+$$
+\large
+\frac{\partial \mathcal{L}_{\text{KD}}}{\partial z_{s,k}}
+= -T\big(q_{t,k} - q_{s,k}\big)
 = T\\,\big(q_{s,k}(T) - q_{t,k}(T)\big).
 $$
 
@@ -248,17 +283,41 @@ Two things are visible in this formula.
 **Checkpoint.** What happens if you forget the $`T^2`$? *Answer: the gradient
 magnitude of the distillation term scales like $`1/T`$ relative to the
 cross-entropy term. At the common $`T = 4`$ the distillation signal is silently
-diluted by $`4\times`$, and the effective $`\alpha`$ you set on the CLI is a
-lie. This is the single most cited "why is my distilled model worse" cause.*
+diluted by $`4\times`$, and the effective $`\alpha`$ you set is a lie. This is
+the single most cited "why is my distilled model worse" cause.*
 
 ## 7. Why The $`T^2`$ Factor, And Why It Is Not Cosmetic
 
 From §6, the raw gradient carries a factor $`T`$ from the division inside the
-softmax. Multiplying the loss by $`T^2`$ restores the gradient to
-$`O(1)`$ in $`T`$, so that the balance between the distillation term and the
-ground-truth term is governed *only* by the mixing weight $`\alpha`$ and not by
-the temperature. With the $`T^2`$ in place, changing $`T`$ changes *which
-examples contribute* (the softness) but not *how loudly* the branch speaks.
+softmax. Multiplying the loss by $`T^2`$ makes the *total* gradient of the
+distillation branch
+
+$$
+\large
+T^{2} \cdot \frac{1}{T}\big(q_{s,k} - q_{t,k}\big) \cdot T
+= T^{2}\big(q_{s,k} - q_{t,k}\big) \cdot \frac{1}{1},
+$$
+
+i.e. $`O(1)`$ in $`T`$ once the $`1/T`$ from the loss and the $`T`$ from the
+softmax Jacobian are accounted for. Concretely, the gradient of the
+cross-entropy-to-soft-targets term is
+
+$$
+\large
+\frac{\partial}{\partial z_{s,k}}\Big[-T^{2}\sum_i q_{t,i}\log q_{s,i}\Big]
+= T\big(q_{s,k} - q_{t,k}\big)\cdot T = T^{2}\big(q_{s,k} - q_{t,k}\big),
+$$
+
+so the balance between the distillation term and the ground-truth term is
+governed *only* by the mixing weight $`\alpha`$ and **not** by the temperature.
+With the $`T^2`$ in place, changing $`T`$ changes *which examples contribute*
+(the softness) but not *how loudly* the branch speaks.
+
+**Checkpoint.** Why is this called "not cosmetic"? *Answer: without it, tuning
+$`T`$ silently re-tunes the loss balance. Two runs with different temperatures
+but the same $`\alpha`$ would be incomparable, and the "best" temperature on a
+grid search would really be encoding an accidental learning-rate change. The
+$`T^2`$ factor decouples the two knobs.*
 
 ## 8. Combining With The Ground-Truth Cross-Entropy
 
@@ -268,13 +327,19 @@ $$
 \large
 \mathcal{L}
 = (1 - \alpha)\\,\underbrace{\mathcal{L}_{\text{CE}}(z_s, y)}_{\text{hard labels}}
-\\;+\\; \alpha\\,\underbrace{T^{2}\\,\mathrm{KL}\\!\left(q_t \middle\| q_s\right)}_{\text{soft labels}},
+\\;+\\; \alpha\\,\underbrace{T^{2}\\,\mathrm{KL}\\!\left(q_t \middle\\| q_s\right)}_{\text{soft labels}},
 $$
 
 with $`\alpha \in [0, 1]`$. If ground-truth labels are unavailable (unlabeled
 data, or a pure function-matching run), set $`\alpha = 1`$ and drop the CE
 branch — the loss is then a pure distribution-matching objective, which is
 exactly the regime of self-distillation (Part 5).
+
+**Checkpoint.** Why keep the hard-label term at all? *Answer: the soft targets
+are a rich but imperfect teacher. On examples where the teacher is confidently
+wrong, the CE term anchors the student to the truth. The convex combination lets
+the two signals disagree in a controlled way: $`\alpha`$ is the trust you place
+in the teacher versus the labels.*
 
 ---
 
@@ -296,28 +361,41 @@ learned linear map $`W_r`$ (with bias) and minimise
 $$
 \large
 \mathcal{L}_{\text{feat}}
-= \big\|\\, r(h_s) - h_t \\,\big\|_2^{2},
+= \big\\|\\, r(h_s) - h_t \\,\big\\|_2^{2},
 \qquad r(h_s) = W_r\\,h_s + b_r,
 $$
 
 where the student-side projection $`r`$ is trained jointly and *discarded*
-afterwards — exactly analogous to the projection head in the repository's
-`ContrastiveEncoder` (`genml_kit/models/contrastive.py`), which is dropped
-after pre-training.
+afterwards — exactly analogous to the projection head used in self-supervised
+pre-training, which is dropped once the encoder is fine-tuned.
 
-**Design note for genml_kit.** Feature distillation should reuse the existing
-`ProjectionHead`-style MLP rather than re-implement it, and it must reuse the
-existing `encode_with_backbone` / `detect_backbone_dim` helpers
-(`genml_kit/models/encoder_utils.py`) to obtain $`h_s`$ and $`h_t`$ in the first
-place. This is developed in Part 8.
+### Why the projection is needed, and why it is discarded
+
+The projection exists for one reason: **dimension mismatch**. If
+$`H_s = H_t`$ the loss is simply $`\|h_s - h_t\|_2^2`$ and no projection is
+required. When the student is *narrower* than the teacher, there is no way to
+compare the two vectors directly, so we learn the best linear map into the
+teacher's space. Discarding $`r`$ afterwards is deliberate: it is a *scaffold*,
+not part of the model. Keeping it would let the student satisfy the feature
+match in a rotated subspace that is useless to its own classifier head.
+
+**Checkpoint.** Does the projection hurt if the student is *wider* than the
+teacher? *Answer: no — $`W_r`$ then maps a larger space into a smaller one, which
+is a normal linear projection. The only cost is a few extra parameters during
+training, removed at export time.*
+
+**Checkpoint.** Where should the hint layer be? *Answer: FitNets uses an early-
+to-middle layer. Early layers transfer generic structure (edges, textures) that
+generalises; late layers encode teacher-specific decisions that a smaller
+student cannot represent. Matching too deep tends to fight the response loss.*
 
 ## 10. Attention Transfer
 
 When the intermediate tensors are *spatial* ($`(C, H, W)`$, as in a
 convolutional or ViT feature map), an L2 match on the raw tensor is brittle:
-it is sensitive to channel permutation and scale. **Attention transfer** (Zagoruyko
-& Komodakis, 2017) instead matches a *summary* of each map. For a feature map
-$`A \in \mathbb{R}^{C \times H \times W}`$ define the attention map
+it is sensitive to channel permutation and scale. **Attention transfer**
+(Zagoruyko & Komodakis, 2017) instead matches a *summary* of each map. For a
+feature map $`A \in \mathbb{R}^{C \times H \times W}`$ define the attention map
 
 $$
 \large
@@ -331,14 +409,49 @@ different magnitude are compared by *shape* rather than scale:
 $$
 \large
 \tilde{\mathcal{A}}(A) = \frac{\mathcal{A}(A)}
-{\big\|\\,\mathrm{vec}\\,\mathcal{A}(A)\\,\big\|_2}.
+{\big\\|\\,\mathrm{vec}\\,\mathcal{A}(A)\\,\big\\|_2}.
 $$
 
-The transfer loss is $`\mathcal{L}_{\text{AT}} = \big\| \tilde{\mathcal{A}}(h_s)
-- \tilde{\mathcal{A}}(h_t) \big\|_2^{2}`$. Attention transfer is the natural
-feature loss for the ViT-based `convvit` and timm backbones already bundled in
-the repository, because it is agnostic to the number of channels and only
-requires spatial alignment.
+### The normalisation is scale-invariant (proof)
+
+For any scalar $`c > 0`$:
+
+$$
+\large
+\mathcal{A}(cA) = \sum_c \lvert cA_c\rvert^2 = c^2 \sum_c \lvert A_c\rvert^2 = c^2 \mathcal{A}(A),
+$$
+
+and therefore
+$`\|\mathrm{vec}\,\mathcal{A}(cA)\|_2 = c^2 \|\mathrm{vec}\,\mathcal{A}(A)\|_2`$.
+The factors of $`c^2`$ cancel in the ratio, so
+
+$$
+\large
+\tilde{\mathcal{A}}(cA) = \frac{c^2 \mathcal{A}(A)}{c^2 \\|\mathrm{vec}\\,\mathcal{A}(A)\\|_2}
+= \tilde{\mathcal{A}}(A).
+$$
+
+**Normalisation removes the scale of the activation and leaves only its spatial
+shape.** Two students whose feature maps differ only by a constant factor get the
+same loss, which is exactly what we want: the teacher's *where* matters, not its
+*how loud*.
+
+The transfer loss is
+
+$$
+\large
+\mathcal{L}_{\text{AT}} = \big\\| \tilde{\mathcal{A}}(h_s) - \tilde{\mathcal{A}}(h_t) \big\\|_2^{2}.
+$$
+
+Attention transfer is the natural feature loss for ViT-based and timm backbones,
+because it is agnostic to the number of channels (the sum over $`C`$ removes it)
+and only requires spatial alignment.
+
+**Pitfall.** $`\mathcal{A}`$ is a sum of squares, so it discards *sign*. Two maps
+that are negatives of each other have identical attention. This is fine when the
+channel ordering is arbitrary (a CNN or a ViT whose channels are learned), but it
+means attention transfer cannot, on its own, pin down the orientation of a
+feature map. Pair it with a response loss when the sign matters.
 
 ---
 
@@ -360,16 +473,47 @@ $$
 \\;+\\; \sum_{(i,j,k)} \ell_\delta\\!\big(\text{angle}_s, \text{angle}_t\big),
 $$
 
-where $`\ell_\delta`$ is the Huber loss and $`\phi`$ a normalisation. The key
-property is that these targets are **translation and permutation invariant**:
-the student need not reproduce the teacher's *coordinate frame*, only its
-*relational structure*.
+where $`\ell_\delta`$ is the Huber loss and $`\phi`$ a normalisation.
 
-For genml_kit, relation distillation is the cheapest to add because the
-repository already owns the machinery: the supervised-contrastive loss
-(`genml_kit/losses/contrastive.py`) is precisely a pairwise similarity over a
-batch. A relation-KD loss is a sibling that compares *two* such matrices (one
-per network) instead of using labels.
+### The two terms, written out
+
+**Distance-wise.** Let $`\mu_s = \tfrac{1}{|B|}\sum_i \|h_i - h_j\|`$ be the mean
+pairwise distance in a batch, and define the normalised distance
+$`\phi(d_s(i,j)) = d_s(i,j) / \mu_s`$. The distance term penalises disagreement
+in the *relative* spacing of representations. Dividing by the batch mean makes
+the term invariant to the overall scale of the feature space.
+
+**Angle-wise.** For a triplet $`(i, j, k)`$ with $`j`$ the anchor, the angle is
+
+$$
+\large
+\text{angle}(i, j, k) = \Big\langle \frac{h_i - h_j}{\\|h_i - h_j\\|_2},\
+\frac{h_k - h_j}{\\|h_k - h_j\\|_2} \Big\rangle,
+$$
+
+the cosine of the angle subtended at the anchor $`j`$. The angle term penalises
+disagreement in the *direction* structure — the shape of the constellation of
+points, independent of rotation and reflection.
+
+### Why this is translation- and permutation-invariant
+
+Both terms are built from *differences* $`h_i - h_j`$ and inner products of
+normalised differences. Subtracting a constant vector from every $`h_i`$ (a
+translation) leaves every difference unchanged; reordering the batch permutes
+the summation indices without changing the sum. So the student need not
+reproduce the teacher's *coordinate frame*, only its *relational structure* —
+which is why RKD transfers well across architectures whose feature spaces are
+not directly comparable.
+
+**Checkpoint.** When is relation distillation the *only* viable choice? *Answer:
+when teacher and student have different output spaces (e.g. different label
+sets, or teacher = ensemble of models) so that no element-wise feature or logit
+match exists. Relation losses compare *within-network* structure, so they never
+need the two spaces to align.*
+
+**Pitfall.** The angle term is $`O(B^3)`$ in the batch size because it sums over
+triplets. In practice one samples a fixed number of triplets per batch rather
+than enumerating all of them.
 
 ---
 
@@ -381,15 +525,17 @@ The simplest regime: train (or load) a teacher, freeze it, and train the
 student against its outputs. If the teacher's responses are precomputed and
 cached to disk, this is **offline distillation** — the student never even holds
 the teacher in memory, and each epoch is a normal supervised run over cached
-soft targets. Offline distillation is attractive for genml_kit because it maps
-onto the existing data pipeline: the "label" simply becomes a stored
-vector instead of an integer.
+soft targets.
 
 **Checkpoint.** What is the cost of offline distillation? *Answer: storage.
 Each example now carries $`C`$ floats instead of one int, and the teacher must
 be re-run whenever the input augmentation changes. Online (teacher-in-the-loop)
 distillation avoids the storage but pays teacher forward-pass compute every
 step.*
+
+**Checkpoint.** Why is the teacher frozen? *Answer: the distillation target must
+be stationary. If the teacher's parameters moved with the student, the student
+would be chasing a moving target and the objective would have no fixed point.*
 
 ## 13. Self-Distillation And The EMA Teacher
 
@@ -403,21 +549,54 @@ $$
 \qquad m \in (0, 1).
 $$
 
-This is exactly the mechanism already used by three methods in the repository —
-**DINO**, **BYOL** and **I-JEPA** — and it is why the refactoring in Part 8 is
-not optional housekeeping but a prerequisite: distillation would be the
-*fourth* copy of the same EMA loop if written naively.
+### Why an average is a better target
 
-The teacher parameters are never updated by gradients (`requires_grad = False`),
-so only the student branch receives a backward pass. The forward pass, however,
-runs through both networks, and the teacher sees the *same* input under a
-(usually different) augmentation — the "two views" idea that `DualViewTransform`
-already provides.
+Unrolling the recursion shows that $`\theta_t`$ is a geometric average of the
+student's past weights:
+
+$$
+\large
+\theta_t^{(k)} = (1 - m)\sum_{\tau = 0}^{k-1} m^{\tau}\ \theta_s^{(k-\tau)}
+\\;+\\; m^{k}\theta_t^{(0)}.
+$$
+
+The weights $`(1-m) m^{\tau}`$ sum to $`1 - m^k \to 1`$, so asymptotically
+$`\theta_t`$ is a convex combination of all past students, with exponentially
+decaying weight on older steps. Now suppose each $`\theta_s^{(k)}`$ is the true
+optimum plus zero-mean noise: $`\theta_s^{(k)} = \theta^\star + \epsilon_k`$
+with $`\mathrm{Var}(\epsilon_k) = \sigma^2`$. If the noise is roughly
+independent across steps, the variance of the average is
+
+$$
+\large
+\mathrm{Var}(\theta_t) \approx \sigma^2\\,(1-m)^2 \sum_{\tau=0}^{\infty} m^{2\tau}
+= \sigma^2\\,(1-m)^2 \cdot \frac{1}{1 - m^2}
+= \sigma^2\\, \frac{1 - m}{1 + m}.
+$$
+
+For $`m`$ close to $`1`$ this is a **large variance reduction**: at $`m = 0.996`$
+the factor is $`(1-m)/(1+m) \approx 0.002`$, i.e. the teacher is roughly
+$`500\times`$ less noisy than a single student checkpoint. A lower-variance
+target is a better regression target, which is the theoretical reason EMA
+teachers (BYOL, DINO, I-JEPA) work so well.
+
+### Gradient flow
+
+The teacher parameters are never updated by gradients
+(`requires_grad = False`), so only the student branch receives a backward pass.
+The forward pass, however, runs through both networks, and the teacher sees the
+*same* input under a (usually different) augmentation — the "two views" idea.
+
+**Checkpoint.** If the teacher is a copy of the student, why is this not
+degenerate? *Answer: because the teacher is **lagged and averaged**. At any
+instant it differs from the student (it is a slower, smoother version), so the
+student is pulled toward its own recent consensus. This is a form of
+self-consistency regularisation, not a tautology.*
 
 ## 14. Momentum Scheduling
 
 A constant $`m`$ works, but the literature (BYOL, DINO, I-JEPA) ramps it. The
-existing methods use a **linear** ramp from an initial value to a final value:
+common schedule is a **linear** ramp from an initial value to a final value:
 
 $$
 \large
@@ -425,339 +604,123 @@ m(k) = m_{\text{start}} + (m_{\text{end}} - m_{\text{start}})\\,
 \min\\!\left(\frac{k}{K},\\, 1\right),
 $$
 
-where $`k`$ is the current step and $`K`$ the step budget. Early in training the
-teacher tracks the student closely (small $`m`$, teacher adapts fast); later it
-becomes a slow, stable target (large $`m`$). The step budget $`K`$ is computed at
-`wire_data` time from the loader length and the epoch count — the same pattern
-the BYOL method already uses to size its momentum ramp.
+where $`k`$ is the current step and $`K`$ the step budget.
 
-A cosine ramp is a common alternative in the literature, but switching to it
-would change training dynamics, so it is deliberately **not** part of the
-extraction; the shared helper reproduces the linear ramp exactly.
+### Why ramp
 
----
+Early in training the student is far from any good solution, so its instantaneous
+weights are poor. A teacher that tracked them closely (small $`m`$) would simply
+echo the noise. But early on we *want* the teacher to adapt fast, because the
+student is still exploring and a stale teacher would give irrelevant targets. The
+ramp resolves this tension:
 
-# Part 6 — Mapping Onto The genml_kit Architecture
+- **Early (small $`m`$):** the teacher tracks the student closely, so it adapts
+  quickly and never lags behind a rapidly-improving student.
+- **Late (large $`m`$):** the teacher becomes a slow, stable target. Its
+  variance has dropped (see §13), so it provides clean, low-noise targets that
+  let the student converge.
 
-The repository separates the **data side** (`DataPipeline`) from the
-**objective side** (`Method`), with a `LOSSES` registry for reusable criteria
-and a `MODELS` registry for loaders. Distillation enters each layer through
-well-defined seams. Nothing here should add a new control-flow branch to
-`train.py`; the whole point of the v4.2 harness is that a new capability is a
-new *registration*, not a new *program*.
+**Checkpoint.** What does the step budget $`K`$ depend on? *Answer: the number of
+optimizer steps in the whole run — the loader length times the epoch count. It is
+fixed at the start of training so the schedule is deterministic and resumable.*
 
-## 15. The Method / Pipeline Split
-
-**Proposed module.** `genml_kit/methods/distillation.py`, registering a
-`DistillationMethod(Method)` under the name `"distillation"`. It follows the
-same contract as `classification.py` and `supcon.py`:
-
-- `add_args(group)` — declares `--teacher_model`, `--kd_temperature`,
-  `--kd_alpha`, `--kd_feat_weight`, `--kd_attn_weight`, and the EMA flags.
-- `build_model(args, device)` — loads the **student** via the existing
-  `load_model` (`genml_kit.models`) and loads the **teacher**, then freezes it.
-  This mirrors `BYOLMethod.build_model`, which applies LoRA/freeze to the online
-  encoder *before* constructing the composite.
-- `build_transform(args, image_size)` — for self-distillation, returns a
-  `DualViewTransform`; for fixed-teacher logit KD, returns the ordinary
-  classification transform.
-- `train_step(model, blob, global_step)` — runs student forward, teacher
-  forward (under `torch.no_grad()`), and returns a `LossOutput`.
-- `wire_data` — computes the optimizer-step budget $`K`$ when an EMA schedule
-  is active.
-
-**Pipeline.** No new pipeline is strictly required for response distillation:
-the existing `images` pipeline already emits `DataBlob(data=images,
-meta={"labels": ...})`, and the teacher's soft targets are produced inside
-`train_step`. This is a deliberate reuse — adding a pipeline is only justified
-if we later wish to *cache* teacher targets (offline mode).
-
-## 16. The Loss Registry Entry
-
-The reusable objectives belong in the `LOSSES` registry
-(`genml_kit/losses/registry.py`), *not* inlined in the method, following the
-existing convention where `focal`, `supcon`, `ppo`, `sac` and `dqn` bundles are
-registered builders:
-
-- `"kd_response"` → `(student_logits, teacher_logits, T, reduction) -> Tensor`
-- `"kd_feature"` → `(student_feat, teacher_feat, projector=None) -> Tensor`
-- `"kd_attention"` → `(student_map, teacher_map, p=2) -> Tensor`
-
-Each is a small pure function in `genml_kit/losses/distillation.py`, exported
-from the package `__init__` like every other loss. Registering them means an
-*external script* can override a single key via the existing
-`load_loss(spec, ...)` merge logic, with no changes to the core.
-
-## 17. The Teacher As A Loaded Model
-
-The teacher is a model, so it should be loaded through the *same* registry that
-loads students. To keep `DistillationMethod` agnostic, load the teacher with
-`load_model(args.teacher_model, ...)` and immediately:
-
-1. call `model.eval()` and set `requires_grad = False` on every parameter;
-2. build a dedicated validation transform from the teacher's own processor
-   (`load_processor(args.teacher_model, ...)`), because the teacher's expected
-   normalisation may differ from the student's.
-
-**Pitfall.** Never share one `processor` between teacher and student unless the
-two models genuinely use the same `image_mean` / `image_std`. Feeding the
-student's-normalised tensor to a teacher trained under different statistics
-produces confident, wrong soft targets — the distillation then teaches the
-student a bug.
-
-## 18. The CLI Surface
-
-All flags register through `add_args`, so `build_parser` picks them up
-automatically and `--help` documents them. The intended surface:
-
-| Flag | Meaning | Default |
-|---|---|---|
-| `--teacher_model` | registry name / HF id of the frozen teacher | *(required)* |
-| `--kd_temperature` | softmax temperature $`T`$ (§4) | `4.0` |
-| `--kd_alpha` | weight of the soft-target branch (§8) | `0.7` |
-| `--kd_feat_weight` | weight of the FitNets feature loss (§9) | `0.0` |
-| `--kd_attn_weight` | weight of the attention-transfer loss (§10) | `0.0` |
-| `--kd_ema` | enable an EMA (self-distillation) teacher (§13) | `false` |
-| `--kd_ema_momentum` | schedule start $`m_{\text{start}}`$ | `0.996` |
-| `--kd_ema_final_momentum` | schedule end $`m_{\text{end}}`$ | `1.0` |
-
-The last three flags delegate to the shared EMA utility extracted in Part 8.
-
-## 19. Checkpointing
-
-`DistillationMethod` implements `get_checkpoint_state` / `load_checkpoint_state`
-exactly as `BYOLMethod` and `DINOMethod` do: the EMA momentum and the current
-teacher step are stored so a resumed run continues the same schedule. The
-teacher *weights* need not be stored when the teacher is EMA (they are
-reconstructible), but they *must* be stored when the teacher is external and
-its identity would otherwise be lost. This decision is recorded in the method's
-checkpoint state dict under a key such as `"teacher_kind": "ema" | "external"`.
+**Checkpoint.** Why not a cosine ramp? *Answer: it is a valid alternative, but it
+changes the training dynamics (the momentum would not reach its maximum until
+half-way through). A linear ramp is the simplest schedule that is monotone and
+reaches $`m_{\text{end}}`$ exactly at the end.*
 
 ---
 
-# Part 7 — ONNX Export
+# Part 6 — Putting It Together
 
-Distillation's payoff is a small, fast model. That payoff is only realised if
-the student can leave PyTorch. ONNX is the interchange format; a new console
-script `genml-kit-export` (registered in `pyproject.toml` next to
-`genml-kit-train` and `genml-kit-infer`) produces it.
+## 15. Composing The Three Losses
 
-## 20. What ONNX Actually Freezes
+The three families are orthogonal and compose additively. A general distillation
+objective is
 
-`torch.onnx.export` runs the model once in **trace** mode by default: it records
-the tensor operations executed for a dummy input and emits a static graph. This
-has three consequences worth stating explicitly:
+$$
+\large
+\mathcal{L} = \mathcal{L}_{\text{task}}
+\\;+\\; \alpha_{\text{resp}}\\,\mathcal{L}_{\text{KD}}
+\\;+\\; \alpha_{\text{feat}}\\,\mathcal{L}_{\text{feat}}
+\\;+\\; \alpha_{\text{rel}}\\,\mathcal{L}_{\text{rel}},
+$$
 
-1. **Python control flow depending on tensor *values* is lost.** A branch like
-   `if x.max() > 0:` is traced once for the dummy input. Distillation is
-   unaffected in the common case, but any loss-side branch must not leak into
-   the exported forward.
-2. **Parameters are baked as constants** (weights and buffers), so the exported
-   file is self-contained.
-3. **Input/output names** should be set explicitly (`input_names=["input"]`,
-   `output_names=["logits"]`) for downstream tooling.
+where $`\mathcal{L}_{\text{task}}`$ is the ordinary supervised loss (or zero, for
+a purely self-supervised run), and the three $`\alpha`$ weights select which
+families are active. Setting a weight to zero disables that branch cleanly, so the
+same code path covers logit-only KD ($`\alpha_{\text{feat}} = \alpha_{\text{rel}} = 0`$),
+feature-only KD, and everything in between.
 
-## 21. Dynamic Axes And The Tracing Contract
+The pieces interact in ways worth stating explicitly:
 
-The exported graph must accept a variable batch size and, for segmentation-style
-students, variable spatial size. Declare this with dynamic axes:
+- **Response + feature** is the classic FitNets configuration: match the final
+  softmax *and* a hint layer, so the student is constrained at two depths.
+- **Response + relation** is common for heterogeneous teachers: match the logits
+  where the output spaces align, and the relational structure where they do not.
+- **All three** is the "full" distillation; it is the most expensive and the most
+  sensitive to weight tuning, because three gradients now compete for the same
+  student parameters.
 
-```python
-torch.onnx.export(
-    model.eval(),
-    dummy_input,
-    path,
-    input_names=["input"],
-    output_names=["logits"],
-    dynamic_axes={
-        "input": {0: "batch", 2: "height", 3: "width"},
-        "logits": {0: "batch"},
-    },
-    opset_version=17,
-)
-```
+**Checkpoint.** What is the risk of turning everything on? *Answer: gradient
+conflict. If the feature and response gradients point in opposite directions, the
+student can stall. Start with response-only, add one family at a time, and watch
+the validation metric after each addition.*
 
-**Pitfall.** The custom heads (attention pooling, `convvit`) contain operations
-whose opset support varies; pin `opset_version` explicitly and gate the export
-extra in `pyproject.toml` so that a core install is unaffected. Verify the ONNX
-graph numerically against PyTorch (§22) before trusting it.
+## 16. A Worked Example
 
-## 22. Post-Training Quantization And Verification
+Consider a three-class problem ($`C = 3`$) with a teacher whose logits for one
+example are $`z^{(t)} = [4.0,\ 1.0,\ -1.0]`$ and a student whose logits are
+$`z^{(s)} = [2.0,\ 1.0,\ 0.0]`$. Use $`T = 2`$.
 
-Two-step hand-off to a runtime:
+**Step 1 — tempered softmaxes.**
 
-1. **Dynamic quantization** of the exported model weights reduces size with no
-   calibration data:
-   `onnxruntime.quantization.quantize_dynamic(model, {MatMul: QInt8})`.
-2. **Numerical verification.** Run a fixed batch through both the PyTorch model
-   and the ONNX model and assert the maximum absolute difference is below a
-   tolerance (e.g. $`10^{-4}`$ in float32). A distilled student that fails this
-   check is a bug in the tracing contract, not in the distillation.
+$$
+\large
+q_t(2) = \mathrm{softmax}\\!\left(\tfrac{1}{2}[4, 1, -1]\right)
+= \mathrm{softmax}([2, 0.5, -0.5]),
+$$
 
-**Checkpoint.** Why verify against PyTorch rather than a held-out metric?
-*Answer: a metric hides small per-logit errors behind an average; an elementwise
-`allclose` catches the single off-by-a-swap operation that flips one class.
-Verify the function, then trust the metric.*
+$$
+\large
+q_s(2) = \mathrm{softmax}\\!\left(\tfrac{1}{2}[2, 1, 0]\right)
+= \mathrm{softmax}([1, 0.5, 0]).
+$$
 
----
+Numerically, $`q_t(2) \approx [0.836,\ 0.113,\ 0.015]`$ and
+$`q_s(2) \approx [0.506,\ 0.307,\ 0.187]`$. Notice how much softer the teacher is
+at $`T = 2`$ than at $`T = 1`$ (where it would be $`[0.977,\ 0.018,\ 0.0002]`$):
+the dark knowledge is visible.
 
-# Part 8 — Refactoring Contract: No Cut-And-Paste
+**Step 2 — the KL term.** The cross-entropy to the soft targets is
 
-This part is binding. The distillation module may **not** be written by copying
-existing code. Where the repository already contains the logic we need, it is
-extracted into a shared utility and all call sites — old and new — are migrated
-to it. The guideline is the one the repository already follows: when three
-self-supervised wrappers shared feature extraction, `encoder_utils.py` was born
-so the logic would not be triplicated. Distillation makes it four.
+$$
+\large
+H(q_t, q_s) = -\sum_i q_{t,i}\log q_{s,i}
+\approx -(0.836\log 0.506 + 0.113\log 0.307 + 0.015\log 0.187)
+\approx 0.911.
+$$
 
-## 23. The Duplication That Already Exists
+**Step 3 — the $`T^2`$ scaling.** With $`T = 2`$ the response loss contribution is
+$`T^2 \cdot H(q_t, q_s) \approx 4 \times 0.911 = 3.644`$.
 
-A survey of the current tree shows the same two blocks repeated:
+**Step 4 — the gradient.** By §6 the gradient with respect to the student logit
+$`z_{s,1}`$ (class 1) is
 
-**Block A — EMA teacher construction and update** (identical shape in
-`models/byol.py`, `models/dino.py`, `methods/ijepa.py`, and again in the RL
-target networks `models/rl/qnetwork.py`, `models/rl/sac_critic.py`):
+$$
+\large
+T\big(q_{s,1} - q_{t,1}\big) = 2\\,(0.506 - 0.836) = -0.660.
+$$
 
-```python
-teacher = copy.deepcopy(student)
-for p in teacher.parameters():
-    p.requires_grad = False
-# ... and, at every step:
-for tp, sp in zip(teacher.parameters(), student.parameters()):
-    tp.data.mul_(momentum).add_(sp.data, alpha=1.0 - momentum)
-```
+The negative sign says: *increase* $`z_{s,1}`$ to move the student toward the
+teacher's more confident class-1 probability. The magnitude is the (temperature-
+scaled) disagreement between the two distributions.
 
-**Block B — backbone feature extraction / dimension probing**
-(`models/encoder_utils.py` already holds the canonical version, but the
-composite wrappers each re-derive `backbone_dim` by hand).
-
-Additionally, the three methods `BYOLMethod`, `DINOMethod`, `IJEPAMethod`
-each carry a near-identical **linear momentum ramp over a step budget computed
-in `wire_data`**.
-
-| Duplicated concern | Current copies | Target |
-|---|---|---|
-| EMA teacher build + step | `byol`, `dino`, `ijepa`, `rl/qnetwork`, `rl/sac_critic` | one `EMAModel` utility |
-| Linear momentum schedule | `byol`, `dino`, `ijepa` | one `linear_momentum` helper |
-| Backbone-dim probe / encode | `encoder_utils` + ad-hoc re-derivation | call `encoder_utils` everywhere |
-| Layer matching by name/depth | *does not exist yet* (needed by FitNets) | new `match_layers` helper |
-
-## 24. Extract The EMA Teacher
-
-Introduce a single small module — `genml_kit/models/ema.py` — exposing:
-
-- `class EMAModel` — a **plain holder, not an `nn.Module`**, constructed as
-  `EMAModel(target, source)`. It does not own or copy the target (the caller
-  passes an existing `copy.deepcopy(source)` target), it just freezes the
-  target's parameters and provides `update(decay)` and `copy_hard()`.
-- `def linear_momentum(step, total, start, end)` — the schedule of §14
-  (returns `start` when `total` is falsy, so an iterable dataset with no
-  `len()` is a no-op rather than a divide-by-zero).
-
-`BYOL`, `DINO`, `I-JEPA` and the two RL target networks are then refactored to
-*hold* an `EMAModel` instead of each re-implementing deepcopy + freeze + blend.
-`DistillationMethod` becomes the next caller, not a new copy. The RL networks
-use a *hard* (periodic copy); `EMAModel` therefore exposes both `update(decay)`
-and `copy_hard()` so a single utility serves every site — a Polyak update with
-coefficient $`\tau`$ is `update(1 - tau)`.
-
-**Why a plain holder, not an `nn.Module`.** If `EMAModel` were an `nn.Module`
-*owning* the target (e.g. `self.target`), every parent's `state_dict` keys would
-be renamed (`target_encoder.*` → `ema.target.*`), silently breaking resume of
-existing checkpoints (the loader uses `strict=False` and would only warn).
-Keeping the target as the parent's direct attribute — with `EMAModel` holding
-only references — leaves `state_dict()`, `named_parameters()` and
-`load_state_dict()` byte-for-byte unchanged. This is covered by a dedicated
-key-stability test.
-
-**Why this is the right seam.** The EMA update is a pure, parameter-order–local
-operation with no knowledge of what the network computes. It belongs next to
-`encoder_utils.py` at the `models/` layer, not inside any method.
-
-## 25. Extract The Feature-Extraction And Backbone-Dim Probes
-
-`models/encoder_utils.py` already provides `detect_backbone_dim` and
-`encode_with_backbone`. The refactor is to make them the **only** path:
-
-- `BYOL._EncoderWithProjection`, `DINO._EncoderWithHead`, and
-  `ContrastiveEncoder` stop re-deriving `backbone_dim` and call
-  `detect_backbone_dim` uniformly.
-- Feature distillation calls `encode_with_backbone(encoder, images)` to obtain
-  $`h_s`$ and $`h_t`$, so the HF-output handling (`.pooler_output`,
-  `.last_hidden_state`, `.logits`) is written once.
-
-**Pitfall to avoid during the refactor.** `encode_with_backbone` currently ends
-with a bare `return raw` fallback. Before feature distillation relies on it,
-document and test that contract: a teacher and student whose backbones return
-*differently shaped* outputs must fail loudly, not silently produce a
-shape-mismatched L2 loss that broadcasts.
-
-**Resolution.** The contract is now documented in the `encoder_utils` module
-docstring and on `encode_with_backbone` (the bare branch returns the encoder
-output *verbatim*; an un-pooled result is the caller's responsibility), and a
-shared guard `require_matching_features(*features, names=None)` raises
-`ValueError` unless every feature tensor shares exactly one shape. Feature
-distillation will call it on the $`(h_s, h_t)`$ pair so the broadcasting trap
-fails loudly. Covered by `tests/test_encoder_utils.py`
-(`TestBareRawFallbackContract`, `TestRequireMatchingFeatures`).
-
-## 26. Extract The Layer-Matching Helper
-
-FitNets and attention transfer need to pair a *teacher* layer $`\ell`$ with a
-*student* layer $`\ell'`$. Today no such helper exists. Instead of hard-coding
-indices inside the method, add a small, testable function — proposed
-`genml_kit/models/layer_match.py`:
-
-- `def match_layers(teacher_layers, student_layers, strategy) -> list[tuple]`,
-  where `strategy` is one of `"by_index"`, `"by_name"` (matched on a regex of
-  parameter names, reusing the regex style already present in
-  `io/checkpointing.py`) or `"uniform"` (evenly spaced selection when the two
-  networks have different depths).
-
-This keeps the *policy* of which layers to distil out of `train_step`, so the
-method reads as orchestration and the matching logic is unit-testable in
-isolation.
-
-**Resolution.** Shipped as `genml_kit/models/layer_match.py`, with two public
-helpers and a `namedtuple` result:
-
-- `iter_named_layers(model, pattern=None)` — enumerate `(name, module)` pairs
-  in registration order (numeric for `ModuleList`/`Sequential`), de-duplicated
-  by identity, with an optional `re.search`-style filter.  Fewer than one
-  candidate raises `ValueError`.
-- `match_layers(teacher_layers, student_layers, strategy="uniform", pattern=None)`
-  → `list[LayerPair]`, where `LayerPair = namedtuple("LayerPair", ["teacher",
-  "student"])` and each field holds the **`nn.Module`** so the caller can
-  register a forward hook directly.
-
-Strategies: `"by_index"` (positional zip; requires equal depth), `"uniform"`
-(evenly spaced indices `round(i·(m−1)/(k−1))` spanning both depths, always
-including the first and last layer, so the deepest features are never dropped)
-and `"by_name"` (pairs on the regex-matched key, tolerating differing path
-prefixes).  Matched layers are logged at INFO, skipped ones at WARNING; a
-pairing that yields **zero** pairs raises `ValueError` (a mis-typed pattern).
-The `by_name` matcher is self-contained here rather than reusing
-`training/param_align.py`, whose exact-shape premise is the opposite of the
-cross-depth pairing distillation needs (and because `models → training` would
-invert the existing layering).  Covered by `tests/test_layer_match.py`.
-
-## 27. Acceptance Criteria For The Refactor
-
-The distillation PR is only mergeable when all of the following hold:
-
-1. **No new copy** of the EMA loop, the linear momentum ramp, or the
-   backbone-dim probe exists anywhere in the tree; every site calls the shared
-   utility.
-2. The refactored `BYOL`, `DINO`, `I-JEPA` and the two RL target networks pass
-   their existing tests **unchanged in behaviour** — refactoring must not alter
-   numerics. Any intentional numeric change is called out separately.
-3. New utilities (`EMAModel`, `match_layers`) have unit tests that do not
-   require a GPU or a real dataset.
-4. `ruff` is clean and every file is formatted with `yapf` **2-space indent**
-   per `.style.yapf`. **No `noqa` annotations are added to silence linters
-   without explicit sign-off.**
-5. The README (`knowledge_distillation/README.md`, this file) is updated to
-   match the shipped module names and flags.
+**Checkpoint.** What would the gradient be without the $`T^2`$? *Answer: the
+$`T`$ factor in the gradient would be absent, so the signal would be
+$`(q_{s,1} - q_{t,1}) = -0.330`$ — half as large at $`T = 2`$. The student would
+learn more slowly and the effective weight of the distillation term would depend
+on the temperature, which is exactly the bug §7 warns against.*
 
 ---
 
@@ -771,13 +734,17 @@ The distillation PR is only mergeable when all of the following hold:
 | $`T`$ | distillation temperature | §4 |
 | $`q_t, q_s`$ | tempered softmaxes of teacher / student | §4 |
 | $`\alpha`$ | weight on the soft-target branch | §8 |
-| $`h_t, h_s`$ | teacher / student hidden activations | §9 |
-| $`W_r, b_r`$ | FitNets projection weight / bias | §9 |
-| $`\mathcal{A}(A)`$ | attention map of a feature tensor | §10 |
-| $`\psi, d`$ | similarity / distance used by relation KD | §11 |
-| $`m`$ | EMA momentum | §13 |
-| $`k, K`$ | current step, total step budget | §14 |
+| $`h_t, h_s`$ | teacher / student activation vectors | §9 |
+| $`W_r, b_r`$ | FitNets projection weights / bias | §9 |
+| $`A`$ | a spatial feature map, $`(C, H, W)`$ | §10 |
+| $`\mathcal{A}(A)`$ | attention map (sum of squared channels) | §10 |
+| $`\tilde{\mathcal{A}}(A)`$ | scale-normalised attention map | §10 |
+| $`\ell_\delta`$ | Huber loss with threshold $`\delta`$ | §11 |
+| $`d_s, d_t`$ | student / teacher pairwise distances | §11 |
 | $`\theta_s, \theta_t`$ | student / teacher parameters | §13 |
+| $`m`$ | EMA momentum (teacher decay) | §13 |
+| $`K`$ | total optimizer-step budget for the ramp | §14 |
+| $`\alpha_{\text{resp}}, \alpha_{\text{feat}}, \alpha_{\text{rel}}`$ | per-family loss weights | §15 |
 
 ## Appendix B: Failure Modes And Pitfalls
 
@@ -787,70 +754,27 @@ The distillation PR is only mergeable when all of the following hold:
   $`1/T`$.
 - **§9** Matching raw feature tensors with an L2 loss across an unaligned
   channel order; use attention transfer (§10) for spatial maps.
-- **§17** Sharing one `processor` between teacher and student with different
-  normalisation statistics.
-- **§19** Not recording whether a checkpoint's teacher was `ema` or `external`,
-  making resume ambiguous.
-- **§21** Tracing a Python branch whose condition depends on tensor *values*;
-  it is frozen for the dummy input.
-- **§25** Relying on `encode_with_backbone`'s bare-`raw` fallback for feature
-  distillation without a shape check. *(Addressed: the contract is documented
-  and `require_matching_features` is the guard the distillation loss calls.)*
-- **§27** Adding `# noqa` to silence `ruff` instead of fixing the root cause.
+- **§10** Relying on attention alone to fix the *sign* of a feature map — the sum
+  of squares discards it.
+- **§11** Enumerating all triplets for the angle term; sample them instead, or
+  the cost grows as $`O(B^3)`$.
+- **§12** Caching teacher targets once and then changing the augmentation
+  pipeline; the cache silently becomes stale.
+- **§13** Updating the teacher with gradients (it must be `no_grad`) or letting
+  the student and teacher share parameters (they must be distinct copies).
+- **§15** Turning on all three losses at once and mis-attributing a regression to
+  the wrong branch; add one family at a time.
 
 ## Appendix C: Reading List
 
-**Distillation**
-
-- G. Hinton, O. Vinyals, J. Dean, *Distilling the Knowledge in a Neural
-  Network*, arXiv:1503.02531, 2015 — soft targets, temperature, the $`T^2`$
-  scaling (§4–§8).
-- A. Romero et al., *FitNets: Hints for Thin Deep Nets*, ICLR 2015 — hint
-  layers and the guided projection (§9).
-- S. Zagoruyko, N. Komodakis, *Paying More Attention to Attention*, ICLR 2017 —
-  attention transfer for spatial maps (§10).
-- W. Park et al., *Relational Knowledge Distillation*, CVPR 2019 — relation
-  objectives and the Huber loss on angles/distances (§11).
-- J. Gou et al., *Knowledge Distillation: A Survey*, IJCV 2021 — the
-  response/feature/relation taxonomy used in Part 1 (§2).
-
-**EMA teachers / self-distillation**
-
-- J.-B. Grill et al., *Bootstrap Your Own Latent*, NeurIPS 2020 — online/target
-  EMA (§13). Implemented in `genml_kit/models/byol.py`.
-- M. Caron et al., *Emerging Properties in Self-Supervised Vision
-  Transformers*, ICCV 2021 — self-distillation with a momentum teacher and
-  centering (§13). Implemented in `genml_kit/models/dino.py`.
-- M. Assran et al., *Self-Supervised Learning from Images with a Joint-Embedding
-  Predictive Architecture*, CVPR 2023 — EMA target encoder (§13). Implemented
-  in `genml_kit/methods/ijepa.py`.
-
-**Export / runtime**
-
-- ONNX documentation — `torch.onnx.export`, opset versioning, dynamic axes
-  (§20–§21).
-- ONNX Runtime — `quantize_dynamic` and the numerical verification workflow
-  (§22).
-- PyTorch docs — `torch.nn.KLDivLoss` (the `log_target` semantics of §5) and
-  `torch.autograd` (the softmax Jacobian of §6).
-
-**Repository-internal**
-
-- `genml_kit/models/encoder_utils.py` — the canonical backbone-dim probe and
-  feature extractor (§25).
-- `genml_kit/models/contrastive.py` — the `ProjectionHead` reused by FitNets
-  (§9).
-- `genml_kit/losses/contrastive.py` — the pairwise-similarity pattern that the
-  relation-KD loss parallels (§11).
-- `genml_kit/io/checkpointing.py` — the regex parameter-renaming style
-  (`re.search` / `re.sub`) whose semantics the `by_name` match key follows
-  (§26).
-- `genml_kit/models/layer_match.py` — the shipped `iter_named_layers` /
-  `match_layers` helpers (§26).
-- `genml_kit/losses/distillation.py` — the shipped KD losses
-  (`kd_response_loss` / `kd_feature_loss` / `kd_attention_loss` /
-  `kd_relation_loss`); `genml_kit/methods/distillation.py` — the shipped
-  `DistillationMethod` (§15-§19).
+- Hinton, Vinyals, Dean, [Distilling the Knowledge in a Neural Network](https://arxiv.org/abs/1503.02531), 2015 — the soft-target idea and the $`T^2`$ factor.
+- Romero et al., [FitNets: Hints for Thin Deep Nets](https://arxiv.org/abs/1412.6550), 2015 — hint layers and the projection.
+- Zagoruyko, Komodakis, [Paying More Attention to Attention](https://arxiv.org/abs/1612.03928), 2017 — attention transfer.
+- Park et al., [Relational Knowledge Distillation](https://arxiv.org/abs/1904.05068), 2019 — distance- and angle-wise losses.
+- Gou et al., [Knowledge Distillation: A Survey](https://arxiv.org/abs/2006.05525), 2021 — the taxonomy of the three families.
+- Grill et al., [Bootstrap Your Own Latent (BYOL)](https://arxiv.org/abs/2006.07733), 2020 — EMA teacher and momentum ramp.
+- He et al., [Momentum Contrast (MoCo)](https://arxiv.org/abs/1911.05722), 2020 — the momentum-encoder formulation.
+- Caron et al., [Emerging Properties in Self-Supervised Vision Transformers (DINO)](https://arxiv.org/abs/2104.14294), 2021 — self-distillation with an EMA teacher and multi-crop.
 
 ## Appendix D: Math Rendering Reference
 

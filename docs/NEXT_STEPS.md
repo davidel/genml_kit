@@ -316,7 +316,7 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 1a | &nbsp;&nbsp;· KD losses (`losses/distillation.py`) | ✅ | 4 losses + registry entries |
 | 1b | &nbsp;&nbsp;· `DistillationMethod` (EMA + external teacher) | ✅ | registered as `"distillation"` |
 | 1c | &nbsp;&nbsp;· ONNX export (`genml-kit-export`) | ⬜ | **next task** — see "Continue Here Tomorrow" |
-| — | Shared: `EMAModel` / `encoder_utils` contract / `layer_match` | ✅ | Part-8 extraction, done first |
+| — | Shared: `EMAModel` / `encoder_utils` contract / `layer_match` | ✅ | extracted first (no cut-and-paste) |
 | 2–12 | Detection, depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
 
 ---
@@ -364,7 +364,7 @@ loss (§10) beyond the sketch's three.
 > review → approve → implement → review → **commit**. No `--amend`, no squash,
 > no `Co-Authored-By`. Mark tasks here as they land.
 
-### 2026-10 — Shared utilities (item 1 preamble, Part-8 contract)
+### 2026-10 — Shared utilities (item 1 preamble, extract-before-write contract)
 
 Committed, all local (not pushed):
 
@@ -387,7 +387,7 @@ and committed; only the export remains.
 
 The KD losses + `DistillationMethod` are committed (see the Work Log above).
 
-### Step 1 — ONNX export CLI (design is in `knowledge_distillation/README.md` Part 7, §20–§22) — ⬅ start here
+### Step 1 — ONNX export CLI (design in the "ONNX export design" section below, §20–§22) — ⬅ start here
 
 Deliverables:
 
@@ -415,6 +415,63 @@ Gotchas to remember (§20–§21 of the design doc):
 - Pin an opset and check the custom heads (attention pooling, ConvViT) export
   cleanly.
 
+### ONNX export design (moved from `knowledge_distillation/README.md` Part 7, §20–22)
+
+Distillation's payoff is a small, fast model; that payoff is only realised if the
+student can leave PyTorch. ONNX is the interchange format, produced by a console
+script `genml-kit-export`.
+
+**§20 — What ONNX actually freezes.** `torch.onnx.export` runs the model once in
+*trace* mode by default: it records the tensor operations executed for a dummy
+input and emits a static graph. Three consequences:
+
+1. **Python control flow depending on tensor *values* is lost.** A branch like
+   `if x.max() > 0:` is traced once for the dummy input. Keep any loss-side
+   branch out of the exported `forward`.
+2. **Parameters are baked as constants** (weights and buffers), so the exported
+   file is self-contained.
+3. **Input/output names** should be set explicitly (`input_names=["input"]`,
+   `output_names=["logits"]`) for downstream tooling.
+
+**§21 — Dynamic axes and the tracing contract.** The exported graph must accept a
+variable batch size and, for segmentation-style students, variable spatial size:
+
+```python
+torch.onnx.export(
+    model.eval(),
+    dummy_input,
+    path,
+    input_names=["input"],
+    output_names=["logits"],
+    dynamic_axes={
+        "input": {0: "batch", 2: "height", 3: "width"},
+        "logits": {0: "batch"},
+    },
+    opset_version=17,
+)
+```
+
+**Pitfall.** The custom heads (attention pooling, `convvit`) contain operations
+whose opset support varies; pin `opset_version` explicitly and gate the export
+extra in `pyproject.toml`. Verify the ONNX graph numerically against PyTorch
+(§22) before trusting it.
+
+**§22 — Post-training quantization and verification.** Two-step hand-off to a
+runtime:
+
+1. **Dynamic quantization** of the exported weights reduces size with no
+   calibration data: `onnxruntime.quantization.quantize_dynamic(model,
+   {MatMul: QInt8})`.
+2. **Numerical verification.** Run a fixed batch through both the PyTorch and the
+   ONNX model and assert the maximum absolute difference is below a tolerance
+   (e.g. $`10^{-4}`$ in float32). A distilled student that fails this check is a
+   bug in the tracing contract, not in the distillation.
+
+**Checkpoint.** Why verify against PyTorch rather than a held-out metric?
+*Answer: a metric hides small per-logit errors behind an average; an elementwise
+`allclose` catches the single off-by-a-swap operation that flips one class.
+Verify the function, then trust the metric.*
+
 ### Reference: how to run things
 
 ```bash
@@ -434,7 +491,7 @@ ruff check .
 - **`namedtuple`s** over bare tuples for structured returns.
 - **2-space indent** via `yapf`/`.style.yapf`; **`ruff` clean, no `noqa`**
   without explicit sign-off.
-- **Extract-before-write** (Part 8): the KD method reuses `EMAModel`,
+- **Extract-before-write:** the KD method reuses `EMAModel`,
   `encode_with_backbone` / `require_matching_features`, `match_layers`,
   `ProjectionHead` — no copy-paste.
 - `by_name` layer matching is self-contained in `layer_match.py` (not

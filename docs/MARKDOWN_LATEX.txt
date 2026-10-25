@@ -49,6 +49,13 @@ The backtick wrapper is what shields underscores, asterisks and braces
 from the Markdown layer.  Without the backticks, _x_ becomes italics,
 * becomes emphasis, { } becomes invisible.
 
+IMPORTANT: an inline `$`...`$` span must live on a SINGLE physical line.
+If it wraps across a newline and the continuation line begins with a
+Markdown block marker (-, +, *, |, #, >, or "1."), the parser treats that
+line as a bullet/heading/table and the span never closes -- GitHub shows
+the raw text.  Even when the continuation starts with an ordinary letter
+it renders only by luck.  Keep every inline span on one line.
+
 --------------------------------------------------------------------------------
 2.  DISPLAY MATH: THE ONLY SUPPORTED FORM
 --------------------------------------------------------------------------------
@@ -95,7 +102,13 @@ Details for each are in sections 4-9.
   ``$  (double backtick before $)    span never closes,   single backtick only:
                                        raw text            $`...`$
   stray trailing `$ with no opener   raw text            delete the orphan
-  \,  single backslash thin space    KaTeX sees ","      write \\, (double backslash)
+  inline span crossing a newline,    whole span shown    keep the span on ONE
+  esp. continuation line starting    as raw text + a     line (reflow), and never
+  with - / + / * / | / # / > / 1.    spurious list        start the continuation
+                                                         with a marker
+  \,  single backslash thin space    KaTeX sees ","      write \\, (DOUBLE) -- but
+  (inside $$ DISPLAY blocks only)                        ONLY inside $$; in
+                                                         inline $`..`$ keep SINGLE
   \\  single backslash row break     rows collapse      write \\\\ (in bmatrix etc.)
   \operatorname                      not supported       use \mathrm{clip} etc.
   raw unicode math symbols           varies              use \pi \theta \gamma \to \le
@@ -265,14 +278,26 @@ Scan rules: a file must contain ZERO occurrences of the patterns
 --------------------------------------------------------------------------------
 
 Markdown's escape processing eats ONE level of backslashes before KaTeX
-sees the content.
+sees the content -- **but ONLY in display `$$` blocks.**  The rule is
+NOT universal; it depends on which of the two math forms you used.
 
-  - Thin space:  to get a KaTeX thin space \, you must write TWO
-    backslashes in the file:
-        \\,          (in the file)  ->  \,  (seen by KaTeX)
-    A single  \,  in the file becomes a plain comma by the time KaTeX
+  - DISPLAY `$$...$$` blocks:  the sanitizer strips one backslash level,
+    so to get a KaTeX thin space \, you must write TWO backslashes:
+        \\,          (in the file, inside $$)  ->  \,  (seen by KaTeX)
+    A single  \,  inside $$ becomes a plain comma by the time KaTeX
     sees it.  This is the documented GitHub-flavored Markdown
-    convention.
+    convention, and it applies to every escaped punctuation command
+    (\,  \!  \;  \:  \|  \{  \}  ...): DOUBLE it inside $$.
+
+  - INLINE `$`...`$` spans:  the content is a Markdown *code span*, so
+    backslashes are LITERAL and are passed to MathJax unchanged.  Here a
+    SINGLE  \,  is correct:
+        \,           (in the file, inline)     ->  \,  (seen by KaTeX)
+    Writing  \\,  inline is WRONG: MathJax receives a row-break \\ then a
+    literal comma.  (Verified against GitHub's own /markdown API: the
+    display form strips one level; the inline code-span form does not.)
+
+    Rule of thumb: DOUBLE the backslash inside $$, SINGLE inside $`..`$.
 
   - Matrix/array row breaks: to get a KaTeX \\ row break you must write
     FOUR backslashes in the file:
@@ -314,7 +339,11 @@ sees the content.
 [ ] no blank line inside any $$ block
 [ ] emphasis and bold never straddle a math span; bold never starts on a
     line right after a math-close
-[ ] thin spaces written \\,  (double backslash); row breaks \\\\ in arrays
+[ ] no inline `$`...`$` span crosses a newline, and no continuation line
+    starts with + - * | # > or digit. (a cross-line span whose second line
+    begins with "- " is parsed as a bullet list and renders raw)
+[ ] thin spaces: DOUBLE backslash \\, inside $$ DISPLAY blocks; SINGLE
+    backslash \, inside inline $`...`$ spans; row breaks \\\\ in arrays
 [ ] named operators use \mathrm (never \operatorname)
 [ ] no raw unicode math symbols
 [ ] symbol table + formulas verified by running the verification
@@ -382,14 +411,39 @@ Copy the file path into FILE below and run.
     ok &= bad5 == 0
     print('math-close-then-emphasis line breaks:', bad5)
 
-    # 6. thin spaces: inside math spans, allow only \\, (two backslashes)
-    bad6 = 0
+    # 6a. DISPLAY blocks: escaped punctuation commands must be DOUBLED.
+    #     A single \\, \\! \\; \\| \\{ \\} inside $$ is a bug (KaTeX sees
+    #     the bare punctuation, e.g. a comma).
+    bad6a = 0
+    for m in re.finditer(r'\$\$\n(.*?)\n\$\$', text, re.S):
+        for ln in m.group(1).split('\n'):
+            for mm in re.finditer(r'(?<!\\\\)\\[,;!|{}:]', ln):
+                bad6a += 1
+                print('DISPLAY single-backslash punctuation:', repr(ln))
+    ok &= bad6a == 0
+    print('display single-backslash punctuation violations:', bad6a)
+
+    # 6b. INLINE $`...`$ spans: backslashes are LITERAL, so a doubled
+    #     punctuation command (\\, \\; \\! ...) is a bug (KaTeX gets a
+    #     row-break \\ then a comma).  A SINGLE \\, is correct here.
+    bad6b = 0
     for m in re.finditer(r'`\$[^`]*`\$', text):
         body = m.group(0)
-        for mm in re.finditer(r'(?<!\\)\\,', body):
-            bad6 += 1
-    ok &= bad6 == 0
-    print('single-backslash thin-space violations inside spans:', bad6)
+        for mm in re.finditer(r'\\\\[,;!:|{}]', body):
+            bad6b += 1
+            print('INLINE doubled-backslash punctuation:', repr(body))
+    ok &= bad6b == 0
+    print('inline doubled-backslash punctuation violations:', bad6b)
+
+    # 7. no inline $`...`$ span crosses a newline
+    bad7 = 0
+    for m in re.finditer(r'`\$[^`]*`\$', text, re.S):
+        if '\n' in m.group(0):
+            bad7 += 1
+            print('cross-line inline span at line',
+                  text.count('\n', 0, m.start()) + 1)
+    ok &= bad7 == 0
+    print('cross-line inline spans:', bad7)
 
     print('ALL CLEAN' if ok else 'PROBLEMS REMAIN')
 
