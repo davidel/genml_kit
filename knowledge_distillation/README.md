@@ -195,6 +195,104 @@ $$
 = T^{2} \sum_{i=1}^{C} q_{t,i}(T)\\,\log\\!\frac{q_{t,i}(T)}{q_{s,i}(T)}.
 $$
 
+### What the KL divergence means
+
+The objective above is the Kullback–Leibler (KL) divergence between the two
+tempered softmaxes, but the symbol deserves unpacking before we push it around
+algebraically. For two distributions $`p`$ and $`q`$ over the same $`C`$ classes,
+the *forward* KL is
+
+$$
+\large
+\mathrm{KL}(p \\| q) = \sum_{i=1}^{C} p_i \log \frac{p_i}{q_i}.
+$$
+
+It is a **directed** quantity: in general
+$`\mathrm{KL}(p \| q) \neq \mathrm{KL}(q \| p)`$, it is **non-negative**, and it
+is **zero if and only if** $`p = q`$. For these reasons it is a *divergence* and
+not a distance — it breaks both the symmetry and the triangle inequality that a
+metric requires. (The logarithm is natural, so the units are *nats*, exactly as
+everywhere else in this document.)
+
+The two ingredients it is built from are the **entropy** and the
+**cross-entropy**. The entropy
+
+$$
+\large
+H(p) = -\sum_{i=1}^{C} p_i \log p_i
+$$
+
+is the expected *surprise* $`-\log p_i`$ of a draw from $`p`$ — equivalently, the
+smallest average number of nats needed to encode samples drawn from $`p`$. The
+cross-entropy
+
+$$
+\large
+H(p, q) = -\sum_{i=1}^{C} p_i \log q_i
+$$
+
+is the average cost of coding those same samples with a code built for $`q`$
+instead. Splitting the logarithm of the KL sum shows that the divergence is
+exactly the excess of that cost over the entropy:
+
+$$
+\large
+\mathrm{KL}(p \\| q) = \sum_{i=1}^{C} p_i \log p_i - \sum_{i=1}^{C} p_i \log q_i
+= H(p, q) - H(p)
+= \mathbb{E}_{p}\left[\log p - \log q\right].
+$$
+
+The expectation form is the most illuminating: KL is the average gap between the
+surprise $`-\log q`$ assigned by the model and the true surprise $`-\log p`$ —
+the number of nats wasted, on average, by believing $`q`$ when the truth is
+$`p`$. When the two distributions agree, nothing is wasted and the gap collapses
+to zero.
+
+**Why it is non-negative (Gibbs' inequality).** The elementary bound
+$`\log x \le x - 1`$ (with equality only at $`x = 1`$) gives
+
+$$
+\large
+\mathrm{KL}(p \\| q) = -\sum_i p_i \log \frac{q_i}{p_i}
+\ge -\sum_i p_i \left(\frac{q_i}{p_i} - 1\right)
+= -\left(\sum_i q_i - \sum_i p_i\right) = 0,
+$$
+
+with equality precisely when $`q_i = p_i`$ for every $`i`$. This is what makes KL
+a legitimate training objective: the loss has a unique minimum at the target and
+cannot go negative.
+
+**Forward versus reverse.** Because KL is asymmetric, the *direction* matters.
+The forward divergence $`\mathrm{KL}(p \| q)`$ penalises every class where $`p`$
+is non-zero but $`q`$ is small, so it is *mass-covering* (mean-seeking): the
+minimiser spreads itself out to cover all of $`p`$'s support. The reverse
+divergence $`\mathrm{KL}(q \| p)`$ instead penalises classes where $`q`$ is
+non-zero but $`p`$ is small, which is *mode-seeking* (zero-forcing): it
+concentrates on a single mode of $`p`$ and ignores the rest. Distillation uses
+the forward direction $`\mathrm{KL}(q_t \| q_s)`$ — teacher first — so the
+student is pushed to cover the teacher's entire soft distribution, dark knowledge
+and all.
+
+**Summing up.** In one sentence: KL is the average *coding overhead* of using the
+student's distribution to describe samples drawn from the teacher's; minimising it
+turns the student into the cheapest possible description of the teacher.
+
+**A worked example (in nats).** Reusing the three-class distributions of §16,
+with $`q_t \approx [0.766,\ 0.171,\ 0.063]`$ and
+$`q_s \approx [0.506,\ 0.307,\ 0.186]`$, the teacher's entropy is
+$`H(q_t) \approx 0.680`$ and the cross-entropy to the student is
+$`H(q_t, q_s) \approx 0.829`$. Hence
+
+$$
+\large
+\mathrm{KL}(q_t \\| q_s) = H(q_t, q_s) - H(q_t)
+\approx 0.829 - 0.680 = 0.149 \text{ nats}.
+$$
+
+For comparison, the reverse direction gives
+$`\mathrm{KL}(q_s \| q_t) \approx 0.173`$ nats — the flip side of the asymmetry,
+and the reason the forward divergence above is the one we minimise.
+
 ### Why KL collapses to cross-entropy
 
 Split the logarithm and separate the two terms:
@@ -687,9 +785,9 @@ q_s(2) = \mathrm{softmax}\\!\left(\tfrac{1}{2}[2, 1, 0]\right)
 = \mathrm{softmax}([1, 0.5, 0]).
 $$
 
-Numerically, $`q_t(2) \approx [0.836,\ 0.113,\ 0.015]`$ and
-$`q_s(2) \approx [0.506,\ 0.307,\ 0.187]`$. Notice how much softer the teacher is
-at $`T = 2`$ than at $`T = 1`$ (where it would be $`[0.977,\ 0.018,\ 0.0002]`$):
+Numerically, $`q_t(2) \approx [0.766,\ 0.171,\ 0.063]`$ and
+$`q_s(2) \approx [0.506,\ 0.307,\ 0.186]`$. Notice how much softer the teacher is
+at $`T = 2`$ than at $`T = 1`$ (where it would be $`[0.946,\ 0.047,\ 0.006]`$):
 the dark knowledge is visible.
 
 **Step 2 — the KL term.** The cross-entropy to the soft targets is
@@ -697,19 +795,19 @@ the dark knowledge is visible.
 $$
 \large
 H(q_t, q_s) = -\sum_i q_{t,i}\log q_{s,i}
-\approx -(0.836\log 0.506 + 0.113\log 0.307 + 0.015\log 0.187)
-\approx 0.911.
+\approx -(0.766\log 0.506 + 0.171\log 0.307 + 0.063\log 0.186)
+\approx 0.829.
 $$
 
 **Step 3 — the $`T^2`$ scaling.** With $`T = 2`$ the response loss contribution is
-$`T^2 \cdot H(q_t, q_s) \approx 4 \times 0.911 = 3.644`$.
+$`T^2 \cdot H(q_t, q_s) \approx 4 \times 0.829 = 3.316`$.
 
 **Step 4 — the gradient.** By §6 the gradient with respect to the student logit
 $`z_{s,1}`$ (class 1) is
 
 $$
 \large
-T\big(q_{s,1} - q_{t,1}\big) = 2\\,(0.506 - 0.836) = -0.660.
+T\big(q_{s,1} - q_{t,1}\big) = 2\\,(0.506 - 0.766) = -0.520.
 $$
 
 The negative sign says: *increase* $`z_{s,1}`$ to move the student toward the
@@ -718,7 +816,7 @@ scaled) disagreement between the two distributions.
 
 **Checkpoint.** What would the gradient be without the $`T^2`$? *Answer: the
 $`T`$ factor in the gradient would be absent, so the signal would be
-$`(q_{s,1} - q_{t,1}) = -0.330`$ — half as large at $`T = 2`$. The student would
+$`(q_{s,1} - q_{t,1}) = -0.260`$ — half as large at $`T = 2`$. The student would
 learn more slowly and the effective weight of the distillation term would depend
 on the temperature, which is exactly the bug §7 warns against.*
 
