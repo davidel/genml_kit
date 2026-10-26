@@ -319,7 +319,7 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 1 | Knowledge distillation | ✅ | Losses + method **done**; ONNX export dropped (see Key decisions) |
 | 1a | &nbsp;&nbsp;· KD losses (`losses/distillation.py`) | ✅ | 4 losses + registry entries |
 | 1b | &nbsp;&nbsp;· `DistillationMethod` (EMA + external teacher) | ✅ | registered as `"distillation"` |
-| L | Doc-Math Linter (`scripts/check_md_math.py`) | ✅ | doc-hygiene chore (not a ranked capability) — implemented; see Work Log |
+| L | Doc-Math Linter (`scripts/md_latex.py`) | ✅ | doc-hygiene chore (not a ranked capability) — implemented; see Work Log |
 | — | Shared: `EMAModel` / `encoder_utils` contract / `layer_match` | ✅ | extracted first (no cut-and-paste) |
 | 2 | Object detection | ✅ | boxes-only cut shipped; 2b/2c deferred — see Work Log |
 | 2a | &nbsp;&nbsp;· `detection` pipeline + `DetectionMethod` + `det_folder` | ✅ | COCO-JSON `detfolder/`, box-aware transforms, mAP meter |
@@ -346,7 +346,7 @@ New files:
   (`images/` + `annotations.json`) for the `detfolder/` spec.  Per-class
   colours, boxes clamped to the frame, 5-digit file names.
 - `tests/test_make_tiny_coco.py` — 8 tests via the `importlib` script-load
-  pattern used by `test_check_md_math.py`: corpus structure, count flags,
+  pattern used by `test_md_latex.py`: corpus structure, count flags,
   in-frame boxes with `area == w*h`, 1-based dense categories, non-blank
   images, default backward compatibility, and seed determinism.
 
@@ -400,13 +400,13 @@ Modified (additive): the four registry `__init__`s, `datasets/factory.py`
 
 Verification: `pytest -q` → **1583 passed, 5 deselected**; `ruff check .` →
 clean; the two new `yapf`-formatted modules pass `.style.yapf` (2-space);
-`python scripts/check_md_math.py` → 0 findings.  New tests:
+`python scripts/md_latex.py` → 0 findings.  New tests:
 `tests/test_det_{folder,transforms,head,loss,metrics,e2e}.py` (68 tests,
 including a hand-computed mAP case and a slow overfit smoke test).
 
 ### 2026-10 — Doc-Math Linter (chore `L`) — **committed** (`8c5030a`, `26c559f`)
 
-`scripts/check_md_math.py` (new) — stdlib-only, Python 3.9+, Google style,
+`scripts/md_latex.py` (new) — stdlib-only, Python 3.9+, Google style,
 2-space indent, `ruff` clean. Implements checks R1–R10 of
 `docs/MARKDOWN_LATEX.txt` and prints `file:line:col: [R<n>] message`.
 CLI: `[PATHS ...]` (default all git-tracked `*.md`), `--check` (default),
@@ -425,17 +425,17 @@ Findings this surfaced in pre-existing docs, all fixed in the same change
 `rl/README.md`, a missing `$` close in `README.md` and `rl/README.md`, and
 `|...|` / emphasis hazards in `vo/README.md`.
 
-`tests/test_check_md_math.py` (new) — 38 tests: one per rule, the two real
+`tests/test_md_latex.py` (new) — 38 tests: one per rule, the two real
 regressions (cross-line span; inline vs display `\\,`), `--fix`
 idempotency, and a self-clean test asserting zero findings on this repo's
 own docs.
 
 Docs + CI: `docs/MARKDOWN_LATEX.txt` §11 now points at the script (the old
 ad-hoc snippet is preserved in git history); `.github/workflows/ci.yml`
-gained a blocking `python scripts/check_md_math.py` step after Ruff.
+gained a blocking `python scripts/md_latex.py` step after Ruff.
 
-Verified before handing over: `pytest tests/test_check_md_math.py -q` →
-**38 passed**; `python scripts/check_md_math.py` → **0 findings in 6
+Verified before handing over: `pytest tests/test_md_latex.py -q` →
+**38 passed**; `python scripts/md_latex.py` → **0 findings in 6
 files**; `ruff check .` clean; both new files pass `yapf` with
 `.style.yapf` (2-space).
 
@@ -510,7 +510,7 @@ loss machinery) and needs a new `pipelines/geometry_dense.py`, a
 
 The KD losses + `DistillationMethod` are committed (see the Work Log above).
 
-### Step 1 — Doc-Math Linter (`scripts/check_md_math.py`) — ✅ done
+### Step 1 — Doc-Math Linter (`scripts/md_latex.py`) — ✅ done
 
 Shipped as `docs: add a Markdown/KaTeX math linter and fix the findings it
 surfaced`; the spec in the "Doc-Math Linter" section at the end of this
@@ -565,12 +565,12 @@ ruff check .
 `docs/MARKDOWN_LATEX.txt` §11 into a reusable checker, so future
 Markdown/KaTeX fixes are one command instead of a stream of one-off scripts.
 
-**Deliverable.** `scripts/check_md_math.py` — stdlib only, Python 3.9+,
+**Deliverable.** `scripts/md_latex.py` — stdlib only, Python 3.9+,
 Google style, 2-space indent, `ruff` clean.
 
 **CLI**
 
-    python scripts/check_md_math.py [PATHS ...]   # default: all *.md in repo
+    python scripts/md_latex.py [PATHS ...]   # default: all *.md in repo
         --check    (default) report findings, non-zero exit if any
         --fix      apply the SAFE, idempotent subset of fixes in place
         --json     machine-readable output
@@ -596,12 +596,12 @@ Output format: `file:line:col: [R<n>] message`.
 display vs inline), R6 (drop the extra backtick). Everything else is
 report-only; R2/R3/R5/R7 need human reflow.
 
-**Tests.** `tests/test_check_md_math.py`: one case per rule, plus the two real
+**Tests.** `tests/test_md_latex.py`: one case per rule, plus the two real
 regressions — the cross-line inline span (KD) and `\,` vs `\\,` (rl/vo).
 
 **Docs + CI.**
 - `docs/MARKDOWN_LATEX.txt` §11: replace the snippet with a pointer to the script.
 - `.github/workflows/ci.yml`: add a **blocking** step
-  `python scripts/check_md_math.py` next to `ruff check .`.
+  `python scripts/md_latex.py` next to `ruff check .`.
 
 **Exit codes.** `0` clean, `1` findings, `2` usage error.

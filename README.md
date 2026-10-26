@@ -258,7 +258,7 @@ SimMIM minimizes the mean squared reconstruction error over masked patches:
 
 $$
 \large
-\mathcal{L}_{\text{MIM}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| \hat{x}_i - x_i \right\|_2^2
+\mathcal{L}_{\text{MIM}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\\| \hat{x}_i - x_i \right\\|_2^2
 $$
 
 where:
@@ -290,7 +290,7 @@ masked region. The objective is regression in representation space:
 
 $$
 \large
-\mathcal{L}_{\text{IJEPA}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\| q_\theta(f_\theta(\text{context}))_i - \mathop{\mathrm{stopgrad}}\left(f_\xi(x_i)\right) \right\|_2^2
+\mathcal{L}_{\text{IJEPA}} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}} \left\\| q_\theta(f_\theta(\text{context}))_i - \mathop{\mathrm{stopgrad}}\left(f_\xi(x_i)\right) \right\\|_2^2
 $$
 
 where:
@@ -371,7 +371,7 @@ Fix one example $`i`$, called the *anchor*. Its *positive set* is
 
 $$
 \large
-\mathcal{P}(i) = \{\\, j : j \neq i \text{ and } y_j = y_i \\,\}
+\mathcal{P}(i) = \\{\\, j : j \neq i \text{ and } y_j = y_i \\,\\}
 $$
 
 i.e. all other examples in the batch that share the anchor's class label

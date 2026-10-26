@@ -3,6 +3,37 @@
  A Global Reference (not tied to any one project)
 ================================================================================
 
+################################################################################
+#                                                                              #
+#   READ THIS FIRST  --  LLM / AUTOMATION GUIDANCE                             #
+#                                                                              #
+#   This document is FYI / reference material.  It explains WHY the rules      #
+#   exist so a human can audit or extend them.  It is NOT a procedure to       #
+#   follow step by step, and it is NOT meant to be internalized and re-derived #
+#   by hand for each formula.                                                  #
+#                                                                              #
+#   DO NOT reason through the escaping rules yourself.  Deriving "how many     #
+#   backslashes does this need" per formula is exactly the trap that burns     #
+#   time and produces subtle, hard-to-see bugs (see the set-brace failure      #
+#   recorded in section 8).  The rules are mechanical and already encoded.     #
+#                                                                              #
+#   INSTEAD: use the tool.  scripts/md_latex.py --emit takes clean LaTeX       #
+#   (the exact bytes KaTeX must receive) plus a --context, and prints the      #
+#   correct GitHub-safe file bytes.  It self-verifies against the checks.      #
+#                                                                              #
+#       python scripts/md_latex.py --emit 'E = mc^2'        --context inline   #
+#       python scripts/md_latex.py --emit '\int_0^1 x\,dx'  --context display  #
+#       python scripts/md_latex.py --emit -                 --context display  #
+#           (reads the LaTeX from standard input)                              #
+#                                                                              #
+#   And use scripts/md_latex.py (no flags) to CHECK existing files.            #
+#   Full usage is in section 11 and section 11a.                               #
+#                                                                              #
+#   Workflow: emit -> paste the output -> run the checker -> commit.           #
+#   Never hand-count backslashes.                                              #
+#                                                                              #
+################################################################################
+
 WHY THIS FILE EXISTS
 --------------------
 GitHub does NOT hand raw $`...`$ or $$...$$ content straight to KaTeX.
@@ -287,7 +318,21 @@ NOT universal; it depends on which of the two math forms you used.
     A single  \,  inside $$ becomes a plain comma by the time KaTeX
     sees it.  This is the documented GitHub-flavored Markdown
     convention, and it applies to every escaped punctuation command
-    (\,  \!  \;  \:  \|  \{  \}  ...): DOUBLE it inside $$.
+    (\,  \!  \;  \:  \|  \{  \}  \_ ...): DOUBLE it inside $$.
+
+    The mechanism, precisely: GitHub collapses backslash PAIRS.  So the
+    requirement is that the backslash run before an ASCII punctuation
+    character be of EVEN length.  A run of ONE loses its backslash and
+    reaches KaTeX bare -- a single  \{  renders as a literal brace, and a
+    set literal  \{\, j \,\}  loses its braces entirely.  A run of TWO is
+    the minimum that survives.  A backslash before a LETTER (\alpha) is a
+    command, not an escape, and is left alone.
+
+    Historical note: earlier revisions of this file used single  \{  \}
+    in the \mathcal{F}\{...\} transforms; those lost their backslashes and
+    rendered as grouping braces.  All 28 such occurrences across README.md,
+    rl/README.md and vo/README.md have been corrected, and check R8 now
+    enforces the even-run rule for the full punctuation set.
 
   - INLINE `$`...`$` spans:  the content is a Markdown *code span*, so
     backslashes are LITERAL and are passed to MathJax unchanged.  Here a
@@ -343,22 +388,33 @@ NOT universal; it depends on which of the two math forms you used.
     starts with + - * | # > or digit. (a cross-line span whose second line
     begins with "- " is parsed as a bullet list and renders raw)
 [ ] thin spaces: DOUBLE backslash \\, inside $$ DISPLAY blocks; SINGLE
-    backslash \, inside inline $`...`$ spans; row breaks \\\\ in arrays
+    backslash \\, inside inline $`...`$ spans; row breaks \\\\ in arrays
+[ ] every escaped ASCII punctuation command (\{ \} \| \_ \, \! \; \:) is
+    DOUBLE-backslashed inside $$ blocks (an odd run loses one level and
+    renders bare -- set braces vanish, pipes become literal bars)
 [ ] named operators use \mathrm (never \operatorname)
 [ ] no raw unicode math symbols
 [ ] symbol table + formulas verified by running the verification
     scripts below on the file(s)
 
 --------------------------------------------------------------------------------
-11.  VERIFICATION SCRIPTS  (run before committing; Python 3)
+11.  THE TOOL  (scripts/md_latex.py -- USE THIS, DO NOT HAND-WRITE MATH)
 --------------------------------------------------------------------------------
 
-Run the linter script, which implements every check below (plus the rules
-in sections 1-9) and reports ``file:line:col: [R<n>] message``:
+This script is the single source of truth.  Do not derive escaping by hand;
+run the tool.
 
-    python scripts/check_md_math.py            # all *.md, report only
-    python scripts/check_md_math.py --fix      # apply the safe fixes
-    python scripts/check_md_math.py --json     # machine-readable
+TO GENERATE correct bytes from clean LaTeX, use --emit (see section 11a):
+
+    python scripts/md_latex.py --emit 'E = mc^2'       --context inline
+    python scripts/md_latex.py --emit '\sum_i x_i'     --context display
+
+TO CHECK existing files, it implements every check below (plus the rules in
+sections 1-9) and reports ``file:line:col: [R<n>] message``:
+
+    python scripts/md_latex.py            # all *.md, report only
+    python scripts/md_latex.py --fix      # apply the safe fixes
+    python scripts/md_latex.py --json     # machine-readable
 
 It exits 0 when clean, 1 when it finds anything, 2 on a usage error, and
 it is wired into CI as a blocking step.  The historical ad-hoc snippet
@@ -386,6 +442,48 @@ The checks it performs, in the script's own numbering:
 Fenced code blocks and inline code spans are literals: the linter never
 checks them, which is also how a document may legitimately *show* a
 broken example.
+
+--------------------------------------------------------------------------------
+11a.  EMITTING CORRECT BYTES  (``--emit``)
+--------------------------------------------------------------------------------
+
+``--emit`` is the inverse of the checks.  Given *clean* LaTeX -- the exact
+bytes KaTeX must receive -- and a context, it prints the GitHub-safe file
+bytes:
+
+    python scripts/md_latex.py --emit 'E = m c^2'   --context inline
+    python scripts/md_latex.py --emit '\\int_0^1 x dx' --context display
+
+Pass ``-`` as the LaTeX argument to read from standard input.  The rules it
+applies, derived from sections 1-9 and verified against GitHub's own
+``/markdown`` API:
+
+  inline   the ``$`...`$`` backtick wrapper is a Markdown code span, so
+           the content is shielded and emitted VERBATIM -- no escaping.
+
+  display  Markdown runs first and consumes a backslash that precedes
+           ASCII punctuation, so each such backslash is DOUBLED.  A
+           backslash before a command letter (``\\alpha``) is left alone.
+           The content is wrapped in the mandatory ``$$`` / ``\\large``
+           envelope with a blank line before and after.
+
+Emitted bytes are self-verified: the checks above are re-run on the
+synthesized output and must report nothing.
+
+Input handling:
+
+  --strict         require already-clean LaTeX; anything the normalizer
+                   would rewrite (raw unicode, ``>= <= ->``, ``^*``,
+                   ``\\operatorname``) is an error instead.
+  (default)        those unambiguous spellings are normalized and each
+                   rewrite is reported on stderr.  A bare ``*`` is always
+                   an error: it is ambiguous (use ``\\cdot``, ``\\times``,
+                   ``\\odot``, ``\\ast`` or ``\\star``).
+
+  --verify-remote  additionally POST the emitted bytes to GitHub's
+                   ``/markdown`` API and confirm the parser echoed the
+                   clean LaTeX unchanged.  Needs network access; set
+                   ``GITHUB_TOKEN`` to lift the anonymous rate limit.
 
 --------------------------------------------------------------------------------
 12.  CLOSING NOTE

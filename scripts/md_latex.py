@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Doc-math linter: catch GitHub Markdown + KaTeX rendering hazards.
+"""Doc-math linter and emitter for GitHub Markdown + KaTeX math.
 
 GitHub runs its Markdown parser *before* handing math to KaTeX.  A number
 of otherwise-innocent byte patterns therefore render as raw text instead of
@@ -11,6 +11,14 @@ math.  This script implements the checks R1-R10 documented in
 The only supported inline form is ``$`...`$`` (dollar, backtick, content,
 backtick, dollar).  The only supported display form is a ``$$`` fence with
 ``$$`` alone on its own line.
+
+``--emit`` is the inverse of the checks: given clean LaTeX (the exact bytes
+KaTeX must receive) and ``--context inline|display``, it prints the
+GitHub-safe file bytes.  Inline math is wrapped verbatim (the backtick code
+span shields it from Markdown); display math is wrapped in the required
+``$$``/``\\large`` envelope with every backslash doubled that CommonMark
+would otherwise consume.  Emitted output is self-verified by re-running the
+checks on the synthesized bytes.
 
 Regions are classified before any rule runs: fenced code blocks and inline
 code spans are literals and are never checked; ``$$`` blocks are display
@@ -26,8 +34,11 @@ import argparse
 import json
 import os
 import re
+import string
 import subprocess
 import sys
+import tempfile
+import urllib.request
 from collections import namedtuple
 
 Finding = namedtuple('Finding', 'path line col rule message fixable')
@@ -87,6 +98,11 @@ DISPLAY_TOGGLE_RE = re.compile(r'^ {0,3}\$\$ {0,3}$')
 DISPLAY_MARKER_RE = re.compile(r'^ {0,3}([+\-*|#>]|\d+\.)')
 DUP_BACKTICK_RE = re.compile(r'``+\$')
 R4_RE = re.compile(r'\^\*|\^\{\*\}')
+
+# ASCII punctuation whose preceding backslash GitHub's sanitizer collapses in
+# display blocks.  An odd-length backslash run before one of these reaches
+# KaTeX one backslash short, so it must be doubled.
+_DISPLAY_ESCAPABLE = frozenset(string.punctuation)
 
 CODE = 'code'
 MATH = 'math'
@@ -313,6 +329,28 @@ def _check_math_unicode(path, idx, line, spans, findings):
         pos = seg.find(token, pos + 1)
 
 
+def _display_escape_offsets(line):
+  """Offsets of backslash runs that lose a level inside ``$$``.
+
+  GitHub collapses backslash pairs, so an odd-length run just before an
+  ASCII punctuation char arrives at KaTeX one backslash short.  Returns
+  ``(offset, next_char)`` pairs.
+  """
+  out = []
+  i = 0
+  while i < len(line):
+    if line[i] != '\\':
+      i += 1
+      continue
+    j = i
+    while j < len(line) and line[j] == '\\':
+      j += 1
+    if (j - i) % 2 and j < len(line) and line[j] in _DISPLAY_ESCAPABLE:
+      out.append((i, line[j]))
+    i = j
+  return out
+
+
 def _check_display_line(path, idx, line, findings):
   """R3/R5/R8/R9/R10 for a single line inside a ``$$`` block."""
   if DISPLAY_MARKER_RE.match(line):
@@ -322,9 +360,9 @@ def _check_display_line(path, idx, line, findings):
   if re.match(r'^ {0,3}\|.*\|', line):
     _emit(findings, path, idx, 0, 'R10',
           'absolute value at line start; use \\lvert...\\rvert')
-  if re.search(r'(?<!\\)\\,', line):
-    _emit(findings, path, idx, line.find('\\,'), 'R8',
-          'single backslash thin space inside $$; write \\\\,', True)
+  for col, nxt in _display_escape_offsets(line):
+    _emit(findings, path, idx, col, 'R8',
+          f'single backslash before {nxt!r} inside $$; double it', True)
   for off, ch in enumerate(line):
     if ch in UNICODE_MATH:
       _emit(findings, path, idx, off, 'R9',
@@ -426,8 +464,14 @@ def _default_paths():
     return _iter_md(['.'])
 
 
-def _fix_line(line, findings_on_line):
-  """Apply the safe fixes for one line, right-to-left by column."""
+def _fix_line(line, findings_on_line, in_display=False):
+  """Apply the safe fixes for one line, right-to-left by column.
+
+  ``in_display`` selects the R8 direction: inside a ``$$`` block an odd
+  backslash run loses a level, so a backslash is inserted; inside an
+  inline ``$`...`$`` span an even run is one level too many, so a
+  backslash is removed.
+  """
   new = line
   for f in sorted(findings_on_line, key=lambda x: x.col, reverse=True):
     col = f.col - 1
@@ -441,10 +485,11 @@ def _fix_line(line, findings_on_line):
       if m:
         new = new[:col] + '`$' + new[m.end():]
     elif f.rule == 'R8':
-      if new[col:col + 3] == '\\\\,':
-        new = new[:col] + '\\,' + new[col + 3:]
-      elif new[col:col + 2] == '\\,':
-        new = new[:col] + '\\\\,' + new[col + 2:]
+      run = 0
+      while col + run < len(new) and new[col + run] == '\\':
+        run += 1
+      new = (new[:col] + '\\' + new[col:] if in_display
+             else new[:col] + new[col + 1:])
   return new
 
 
@@ -455,12 +500,13 @@ def apply_fixes(path, findings):
     return 0
   with open(path, encoding='utf-8') as fh:
     lines = fh.read().split('\n')
+  roles = [role for _, role, _ in classify(lines)]
   by_line = {}
   for f in fixable:
     by_line.setdefault(f.line - 1, []).append(f)
   applied = 0
   for i, line_findings in by_line.items():
-    new = _fix_line(lines[i], line_findings)
+    new = _fix_line(lines[i], line_findings, roles[i] == 'display')
     if new != lines[i]:
       lines[i] = new
       applied += len(line_findings)
@@ -476,6 +522,189 @@ def format_text(findings):
       f'{f.path}:{f.line}:{f.col}: [{f.rule}] {f.message}' for f in findings)
 
 
+# ---------------------------------------------------------------------------
+# Emitter: the inverse of the checks.
+# ---------------------------------------------------------------------------
+#
+# ``--emit`` takes *clean* LaTeX -- the exact bytes KaTeX must receive -- and
+# returns GitHub-safe file bytes.
+#
+#   inline : the backtick code span shields the content, so Markdown does not
+#            strip a backslash level: the bytes are wrapped verbatim.
+#   display: Markdown runs first and consumes a backslash before ASCII
+#            punctuation, so each such backslash must be doubled.  Backslashes
+#            before command letters (``\alpha``) are left alone, matching the
+#            repository's own convention.
+
+GITHUB_MARKDOWN_API = 'https://api.github.com/markdown'
+
+_OPERATORNAME_RE = re.compile(r'\\operatorname\{([^{}]*)\}')
+
+
+def _double_backslashes(text):
+  """Escape clean LaTeX for a ``$$`` block (double every eaten backslash).
+
+  A backslash is doubled when the following character is ASCII punctuation
+  (CommonMark would otherwise consume it) or when it is part of a backslash
+  run.  Backslashes before command letters are preserved unchanged.
+  """
+  out = []
+  for i, ch in enumerate(text):
+    if ch == '\\':
+      nxt = text[i + 1] if i + 1 < len(text) else ''
+      prev = text[i - 1] if i else ''
+      if nxt in string.punctuation or prev == '\\':
+        out.append('\\\\')
+        continue
+    out.append(ch)
+  return ''.join(out)
+
+
+def _needs_normalization(text):
+  """True if ``text`` contains any spelling the normalizer would rewrite."""
+  if any(ch in text for ch in UNICODE_MATH):
+    return True
+  if any(token in text for token in (t for t, _ in ASCII_MATH)):
+    return True
+  return bool(R4_RE.search(text) or _OPERATORNAME_RE.search(text) or
+              '*' in text)
+
+
+def _normalize_math(text):
+  """Map unambiguous non-clean spellings to clean LaTeX.
+
+  Returns ``(clean, notes)``.  Raises ``ValueError`` on a bare ``*``, which
+  is ambiguous (use ``\\cdot``, ``\\times``, ``\\odot``, ``\\ast`` ...).
+  """
+  notes = []
+  new = text
+  for ch, repl in UNICODE_MATH.items():
+    if ch in new:
+      new = new.replace(ch, repl)
+      notes.append(f'unicode {ch!r} -> {repl}')
+  for token, repl in ASCII_MATH:
+    if token in new:
+      new = new.replace(token, repl)
+      notes.append(f'{token!r} -> {repl}')
+  new, n = R4_RE.subn(lambda m: '^{\\ast}', new)
+  if n:
+    notes.append('raw asterisk superscript -> ^{\\ast}')
+  new, n = _OPERATORNAME_RE.subn(lambda m: '\\mathrm{' + m.group(1) + '}', new)
+  if n:
+    notes.append('\\operatorname -> \\mathrm')
+  if '*' in new:
+    raise ValueError("bare '*' in math is ambiguous; use \\cdot, \\times, "
+                     '\\odot, \\ast, or \\star')
+  return new, notes
+
+
+def _emit_inline(clean):
+  """Wrap clean LaTeX as a GitHub inline span ``$`...`$`` (verbatim)."""
+  if '\n' in clean:
+    raise ValueError('inline math must be a single line')
+  return _OPEN + clean + _CLOSE
+
+
+def _emit_display(clean):
+  """Wrap clean LaTeX in the required ``$$``/``\\large`` envelope."""
+  body = _double_backslashes(clean)
+  return '\n'.join(['', '$$', '\\large'] + body.split('\n') + ['$$', ''])
+
+
+def _verify_local(text):
+  """Run the checks on synthesized bytes; return any findings."""
+  with tempfile.NamedTemporaryFile('w',
+                                   suffix='.md',
+                                   delete=False,
+                                   encoding='utf-8') as fh:
+    fh.write(text + '\n')
+    path = fh.name
+  try:
+    return check_file(path)
+  finally:
+    os.unlink(path)
+
+
+def _extract_math(html):
+  """Return the math payload GitHub echoed, or ``None``."""
+  m = re.search(r'<math-renderer[^>]*>(.*?)</math-renderer>', html, re.S)
+  return m.group(1) if m else None
+
+
+def verify_remote(text, timeout=20):
+  """POST ``text`` to GitHub's /markdown API; return the echoed math payload.
+
+  Uses ``GITHUB_TOKEN`` when present to lift the anonymous rate limit.
+  """
+  payload = json.dumps({'text': text, 'mode': 'gfm'}).encode('utf-8')
+  req = urllib.request.Request(GITHUB_MARKDOWN_API,
+                               data=payload,
+                               headers={
+                                   'Content-Type': 'application/json',
+                                   'User-Agent': 'md-latex'
+                               })
+  token = os.environ.get('GITHUB_TOKEN')
+  if token:
+    req.add_header('Authorization', f'Bearer {token}')
+  with urllib.request.urlopen(req, timeout=timeout) as resp:
+    return _extract_math(resp.read().decode('utf-8'))
+
+
+def emit_math(text, context, strict=False, remote=False):
+  """Return ``(file_bytes, notes)`` for clean LaTeX ``text``.
+
+  ``context`` is ``'inline'`` or ``'display'``.  With ``strict`` the input
+  must already be clean; otherwise unambiguous spellings are normalized.
+  Emitted bytes are self-verified against the checks (and, with ``remote``,
+  against GitHub's own Markdown parser).
+  """
+  notes = []
+  clean = text
+  if strict:
+    if _needs_normalization(text):
+      raise ValueError('--strict requires clean LaTeX input')
+  else:
+    clean, notes = _normalize_math(text)
+  if context == 'inline':
+    out = _emit_inline(clean)
+  elif context == 'display':
+    out = _emit_display(clean)
+  else:
+    raise ValueError(f'unknown context {context!r} (use inline|display)')
+  findings = _verify_local(out)
+  if findings:
+    raise ValueError('emitted bytes fail the checks:\n' + format_text(findings))
+  if remote:
+    echoed = verify_remote(out)
+    if echoed is None or clean not in echoed:
+      raise ValueError(f'remote verification failed: GitHub echoed {echoed!r}')
+    notes.append('remote verification OK')
+  return out, notes
+
+
+def _run_emit(args):
+  """Handle ``--emit``: read clean LaTeX, print GitHub-safe bytes."""
+  text = args.emit if args.emit != '-' else sys.stdin.read()
+  if not args.context:
+    sys.stderr.write('md_latex: --emit requires --context inline|display\n')
+    return 2
+  try:
+    out, notes = emit_math(text.rstrip('\n'),
+                           args.context,
+                           strict=args.strict,
+                           remote=args.verify_remote)
+  except ValueError as exc:
+    sys.stderr.write(f'md_latex: {exc}\n')
+    return 1
+  except OSError as exc:
+    sys.stderr.write(f'md_latex: {exc}\n')
+    return 2
+  for note in notes:
+    sys.stderr.write(f'[normalized] {note}\n')
+  print(out)
+  return 0
+
+
 def _main(argv=None):
   parser = argparse.ArgumentParser(
       description='Check GitHub Markdown + KaTeX math rendering hazards.')
@@ -488,10 +717,25 @@ def _main(argv=None):
                       help='apply the safe, idempotent subset of fixes in place')
   parser.add_argument('--json', action='store_true', help='machine-readable output')
   parser.add_argument('--quiet', action='store_true', help='summary only')
+  parser.add_argument('--emit',
+                      metavar='LATEX',
+                      help='emit GitHub-safe bytes for clean LaTeX (use - for stdin)')
+  parser.add_argument('--context',
+                      choices=('inline', 'display'),
+                      help='math context for --emit')
+  parser.add_argument('--strict',
+                      action='store_true',
+                      help='--emit: require already-clean LaTeX (no normalization)')
+  parser.add_argument('--verify-remote',
+                      action='store_true',
+                      help='--emit: also verify via the GitHub /markdown API')
   args, unknown = parser.parse_known_args(argv)
   if unknown:
-    sys.stderr.write(f'check_md_math: unknown arguments: {" ".join(unknown)}\n')
+    sys.stderr.write(f'md_latex: unknown arguments: {" ".join(unknown)}\n')
     return 2
+
+  if args.emit is not None:
+    return _run_emit(args)
 
   files = _iter_md(args.paths) if args.paths else _default_paths()
   all_findings = []
@@ -499,7 +743,7 @@ def _main(argv=None):
     try:
       findings = check_file(path)
     except OSError as exc:
-      sys.stderr.write(f'check_md_math: {exc}\n')
+      sys.stderr.write(f'md_latex: {exc}\n')
       return 2
     if args.fix:
       fixed = apply_fixes(path, findings)

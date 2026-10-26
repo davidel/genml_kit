@@ -1,10 +1,10 @@
-"""Tests for scripts/check_md_math.py (GitHub Markdown + KaTeX linter)."""
+"""Tests for scripts/md_latex.py (GitHub Markdown + KaTeX linter/emitter)."""
 
 import importlib.util
 from pathlib import Path
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_md_math.py"
-_spec = importlib.util.spec_from_file_location("check_md_math", _SCRIPT)
+_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "md_latex.py"
+_spec = importlib.util.spec_from_file_location("md_latex", _SCRIPT)
 check_md_math = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(check_md_math)
 
@@ -138,6 +138,39 @@ class TestR8BackslashComma:
   def test_display_double_backslash_clean(self, tmp_path):
     text = "\n$$\n\\large\nx \\\\, y\n$$\n\n"
     assert _check(tmp_path, text) == []
+
+  def test_display_single_brace_flagged(self, tmp_path):
+    """Regression: single \\{ \\} in $$ loses the backslash (set braces
+    vanish on GitHub).  See README.md:374."""
+    text = "\n$$\n\\large\n\\mathcal{P}(i) = \\{\\, j \\,\\}\n$$\n\n"
+    assert "R8" in _rules(_check(tmp_path, text))
+
+  def test_display_single_pipe_flagged(self, tmp_path):
+    text = "\n$$\n\\large\n\\left\\| x \\right\\|_2^2\n$$\n\n"
+    assert "R8" in _rules(_check(tmp_path, text))
+
+  def test_display_doubled_braces_clean(self, tmp_path):
+    text = "\n$$\n\\large\n\\mathcal{P}(i) = \\\\{\\\\, j \\\\,\\\\}\n$$\n\n"
+    assert _check(tmp_path, text) == []
+
+  def test_display_command_backslash_not_flagged(self, tmp_path):
+    """A backslash before a letter is a command, not an escape."""
+    text = "\n$$\n\\large\n\\alpha + \\beta\n$$\n\n"
+    assert _check(tmp_path, text) == []
+
+  def test_fix_doubles_brace_in_display(self, tmp_path):
+    path = _write(tmp_path, "\n$$\n\\large\n\\mathcal{P} = \\{x\\}\n$$\n\n")
+    check_md_math.apply_fixes(path, check_md_math.check_file(path))
+    text = Path(path).read_text(encoding="utf-8")
+    assert "\\\\{x\\\\}" in text
+    assert check_md_math.check_file(path) == []
+
+  def test_fix_halves_backslash_in_inline(self, tmp_path):
+    path = _write(tmp_path, "$`a \\\\, b`$\n")
+    check_md_math.apply_fixes(path, check_md_math.check_file(path))
+    text = Path(path).read_text(encoding="utf-8")
+    assert text == "$`a \\, b`$\n"
+    assert check_md_math.check_file(path) == []
 
   def test_inline_single_backslash_clean(self, tmp_path):
     assert _check(tmp_path, "$`x \\, y`$\n") == []

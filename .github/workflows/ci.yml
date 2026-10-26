@@ -24,7 +24,7 @@ jobs:
         run: ruff check .
 
       - name: Check Markdown math
-        run: python scripts/check_md_math.py
+        run: python scripts/md_latex.py
 
       - name: Run tests
         run: pytest -q

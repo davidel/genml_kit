@@ -1799,7 +1799,7 @@ $`\mathrm{KL}(\pi_\phi \,\|\, \pi^{\ast})`$ over $`\pi_\phi`$:
 
 $$
 \large
-\mathrm{KL}(\pi_\phi \\,\|\\, \pi^{\ast})
+\mathrm{KL}(\pi_\phi \\,\\|\\, \pi^{\ast})
 = \mathbb{E}_{a \sim \pi_\phi}\\!\left[
   \log \pi_\phi(a \mid s) - \log \pi^{\ast}(a \mid s)
 \right].

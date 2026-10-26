@@ -1152,7 +1152,7 @@ whole stack of scores is the **cost volume**:
 
 $$
 \large
-\mathrm{cost\_volume} \in \mathbb{R}^{(2r+1)^2 \times h \times w},
+\mathrm{cost\\_volume} \in \mathbb{R}^{(2r+1)^2 \times h \times w},
 $$
 
 with channel ordering "dy-major": displacement $`(\delta y, \delta x)`$ sits at channel
@@ -1828,7 +1828,7 @@ domain is a multiplication by a complex exponential in the frequency domain:
 
 $$
 \large
-\mathcal{F}\{I_b\}(\omega) = \mathcal{F}\{I_a\}(\omega) \cdot e^{-2\pi i (\omega_x \Delta_x + \omega_y \Delta_y)}.
+\mathcal{F}\\{I_b\\}(\omega) = \mathcal{F}\\{I_a\\}(\omega) \cdot e^{-2\pi i (\omega_x \Delta_x + \omega_y \Delta_y)}.
 $$
 
 The *magnitudes* of the two transforms are identical — only the **phase**
@@ -1852,7 +1852,7 @@ Its DFT is
 
 $$
 \large
-\mathcal{F}\{I_b\}(\omega)
+\mathcal{F}\\{I_b\\}(\omega)
 = \sum_x I_a(x - \Delta)\\, e^{-2\pi i\\, \omega x / N}.
 $$
 
@@ -1879,7 +1879,7 @@ The final result is the clean statement
 
 $$
 \large
-\mathcal{F}\{I_b\}(\omega) = e^{-2\pi i \omega \Delta / N}\\, \mathcal{F}\{I_a\}(\omega),
+\mathcal{F}\\{I_b\\}(\omega) = e^{-2\pi i \omega \Delta / N}\\, \mathcal{F}\\{I_a\\}(\omega),
 $$
 
 which is the 1-D shift theorem; the 2-D version in §19.1 follows by applying
@@ -1993,7 +1993,7 @@ variable with $`s > 0`$).  Its Fourier transform is
 
 $$
 \large
-\mathcal{F}\{g\}(\omega)
+\mathcal{F}\\{g\\}(\omega)
 = \int_{-\infty}^{\infty} I(x / s)\\, e^{-2\pi i \omega x}\\, dx .
 $$
 
@@ -2002,7 +2002,7 @@ Substitute $`u = x / s`$, so $`x = s u`$ and $`dx = s du`$:
 $$
 \large
 = s \int_{-\infty}^{\infty} I(u)\\, e^{-2\pi i \omega s u}\\, du
-= s\\, \mathcal{F}\{I\}(s \omega).
+= s\\, \mathcal{F}\\{I\\}(s \omega).
 $$
 
 The transform of a signal scaled by $`s`$ is a *reshaped* copy of the original
@@ -2020,8 +2020,8 @@ and $`x`$ (the dot product is rotation-invariant).  Hence
 
 $$
 \large
-\mathcal{F}\{I(R_\alpha x)\}(\omega) = \mathcal{F}\{I\}(R_\alpha^{-1} \omega)
-= \mathcal{F}\{I\}(R_\alpha^{\top} \omega),
+\mathcal{F}\\{I(R_\alpha x)\\}(\omega) = \mathcal{F}\\{I\\}(R_\alpha^{-1} \omega)
+= \mathcal{F}\\{I\\}(R_\alpha^{\top} \omega),
 $$
 
 and $`R_\alpha`$ inverts to $`R_{- \alpha} = R_\alpha^{\top}`$ — a rotation of the frequency plane by
