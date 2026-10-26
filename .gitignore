@@ -7,3 +7,5 @@ build/
 .ruff_cache/
 .pytest_cache/
 .cache/
+experiments/*/cache/
+experiments/*/runs/
