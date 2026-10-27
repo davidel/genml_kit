@@ -166,9 +166,38 @@ def kd_relation_builder(**kwargs):
   return kd_relation_loss
 
 
+# --- Alignment (Phase 4) ----------------------------------------------------
+# Like the KD builders, these return the plain function itself; the method
+# binds beta.  Registered so an external script can override either via the
+# existing load_loss(spec, ...) merge logic.
+@LOSSES.register("dpo")
+def dpo_loss_builder(**kwargs):
+  """Builder for the sigmoid DPO objective.
+
+  Returns ``dpo_loss(policy_chosen_logps, policy_rejected_logps,
+  ref_chosen_logps, ref_rejected_logps, beta)``.
+  """
+  from genml_kit.losses.alignment import dpo_loss
+
+  return dpo_loss
+
+
+@LOSSES.register("bradley_terry")
+def bradley_terry_builder(**kwargs):
+  """Builder for the pairwise reward-ranking (Bradley-Terry) loss.
+
+  Returns ``bradley_terry_loss(chosen_scores, rejected_scores)``.
+  """
+  from genml_kit.losses.alignment import bradley_terry_loss
+
+  return bradley_terry_loss
+
+
 # Import-time registration hook: re-exported by genml_kit.losses.
 __all__ = [
+    "bradley_terry_builder",
     "dice_ce_criterion",
+    "dpo_loss_builder",
     "dqn_loss_bundle",
     "focal_loss",
     "kd_attention_builder",

@@ -329,7 +329,8 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 8a | &nbsp;&nbsp;· tokenizer registry + `text` pipeline + `causal_lm` method | ✅ | Phase 1 of `docs/LOCAL_LLM_PLAN.md` |
 | 8b | &nbsp;&nbsp;· LM LoRA (structural targets) + portable adapter checkpoints | ✅ | Phase 2 of `docs/LOCAL_LLM_PLAN.md` |
 | 8c | &nbsp;&nbsp;· `GenerativeLM` contract + `genml-kit-llm generate`/`eval` | ✅ | Phase 3 of `docs/LOCAL_LLM_PLAN.md` |
-| 9 | Alignment / post-training (reward model, DPO) | ⬜ | gated behind the LLM data path (now unblocked); see `docs/LOCAL_LLM_PLAN.md` (Phase 4) |
+| 8d | &nbsp;&nbsp;· alignment: `preference` pipeline + `dpo` / `reward_model` | ✅ | Phase 4 of `docs/LOCAL_LLM_PLAN.md` (item 9) |
+| 9 | Alignment / post-training (reward model, DPO) | ✅ | `preference` pipeline, DPO + Bradley–Terry reward model (Phase 4) |
 | 3–12 | Depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
 
 ---
@@ -339,7 +340,46 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 Newest first. Each entry records the commits and the verification that backed
 them.
 
-### 2026-10 — Local LLM support, Phase 3 (generation + evaluation) — **uncommitted**
+### 2026-10 — Local LLM support, Phase 4 (alignment: DPO + reward model) — **uncommitted**
+
+Fourth and final increment of `docs/LOCAL_LLM_PLAN.md`, completing the LLM
+path (item 9). Preference-based alignment on top of the Phase 1–3 training /
+generation stack:
+
+1. **`preference` pipeline.** `datasets/preference_proxy.py` reads
+   chosen/rejected pairs (columns configurable) with an optional shared
+   prompt; `training/preference_collator.py` tokenizes both members, masks the
+   prompt out of the labels and pads them independently, yielding the
+   four-token contract (`chosen_/rejected_input_ids` + masks, and
+   `chosen_/rejected_labels` in `meta`); `pipelines/preference.py` wires the
+   loaders and device transfer, mirroring the `text` pipeline.
+2. **DPO** (`methods/dpo.py`). Trains a policy against a **frozen reference**
+   loaded explicitly (`--reference_model`, default `--model`, plus
+   `--reference_checkpoint`) and held as a plain attribute, so it never enters
+   `state_dict`. The sequence score is the mean per-token log-prob of the
+   response (`losses/alignment.py::sequence_logps`); the loss is the sigmoid
+   DPO objective (`dpo_loss`, `--beta`, default 0.1). Validation metric is
+   pairwise preference accuracy (maximize).
+3. **Reward model** (`methods/reward_model.py`). Attaches a scalar
+   `nn.Linear` head directly to the backbone as `model.score` (no wrapper, so
+   backbone keys stay unprefixed and `--source_checkpoint` matches exactly),
+   resolves the hidden size from the config (`hidden_size`/`n_embd`/`d_model`)
+   with a one-token probe fallback, scores the last non-pad hidden state, and
+   trains with the Bradley–Terry ranking loss (`bradley_terry_loss`).
+   Validation metric is pairwise ranking accuracy (maximize).
+
+New: `datasets/preference_proxy.py`, `training/preference_collator.py`,
+`pipelines/preference.py`, `methods/dpo.py`, `methods/reward_model.py`,
+`losses/alignment.py`. Modified: `losses/__init__.py` + `losses/builtin.py`
+(exports + `LOSSES` registration `dpo`/`bradley_terry`), `pipelines/__init__.py`,
+`methods/__init__.py`, `docs/LOCAL_LLM_PLAN.md` Phase 4 checklist, README.
+New tests: `tests/test_alignment_losses.py`, `tests/test_preference_collator.py`,
+`tests/test_dpo.py`, `tests/test_preference_e2e.py`.
+
+Verification: `ruff check .` clean; `pytest -q` all pass (fast + slow);
+`md_latex.py` 0 findings.
+
+### 2026-10 — Local LLM support, Phase 3 (generation + evaluation) — **committed** (`6b2118c`)
 
 Third increment of `docs/LOCAL_LLM_PLAN.md`. Adds text generation and
 evaluation on top of the Phase 1–2 training path, as a single

@@ -2214,6 +2214,53 @@ genml-kit-llm eval --model sshleifer/tiny-gpt2 \
 Both subcommands load their model through the same registry the trainer uses,
 so a registered custom model generates and evaluates with no code changes.
 
+### Alignment (DPO and reward models)
+
+Preference-based post-training runs through the same branchless driver: a new
+`preference` pipeline (chosen/rejected pairs) pairs with the `dpo` and
+`reward_model` methods. The typical recipe is SFT → DPO → (optional) reward
+model:
+
+```bash
+# 1. Supervised fine-tune (masking the prompt out of the loss)
+genml-kit-train --pipeline text --method causal_lm \
+                --model sshleifer/tiny-gpt2 --dataset ./sft_corpus \
+                --instruction_column prompt --response_column response \
+                --mask_prompt --output_dir ./sft
+
+# 2. DPO against a frozen reference (defaults to --model)
+genml-kit-train --pipeline preference --method dpo \
+                --model ./sft --reference_checkpoint ./sft/checkpoint_best.pt \
+                --dataset ./preferences --chosen_column chosen \
+                --rejected_column rejected --prompt_column prompt \
+                --mask_prompt --beta 0.1 --lora
+
+# 3. Train a reward model on the same pairs
+genml-kit-train --pipeline preference --method reward_model \
+                --model ./sft --dataset ./preferences \
+                --chosen_column chosen --rejected_column rejected
+```
+
+**DPO** compares the policy against a **frozen reference** and pushes the
+chosen response's implicit reward above the rejected one. The reference is
+loaded explicitly (`--reference_model`, defaulting to `--model`, plus
+`--reference_checkpoint`) and held as a plain attribute — it is never written
+to `state_dict` and is rebuilt from args on resume. The sequence score is the
+mean per-token log-probability of the response tokens, and `--beta` (default
+`0.1`) sets the KL strength. Validation reports pairwise preference accuracy.
+
+**Reward model** attaches a scalar `nn.Linear` head directly to the backbone
+as `model.score` — no wrapper class, so the backbone's `state_dict` keys stay
+unprefixed and `--source_checkpoint` matches them exactly (only `score.*` is
+new). It scores the last non-pad hidden state and trains with the
+Bradley–Terry ranking loss; validation reports pairwise ranking accuracy. The
+hidden size is read from the config (`hidden_size` / `n_embd` / `d_model`),
+falling back to a one-token probe.
+
+The backbone must expose last-layer hidden states (accept
+`output_hidden_states=True`); HuggingFace models do, custom models opt in —
+the same contract used by `GenerativeLM`.
+
 ---
 
 ## Reinforcement Learning

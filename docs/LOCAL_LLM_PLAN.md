@@ -208,13 +208,19 @@ custom via the `parse_model_name` `name:backbone` protocol. Add a parallel
 
 Follows the same pattern as the RL methods (which already satisfy `Method`):
 
-- `pipelines/preference.py` (`preference`): chosen/rejected pairs via
-  `datasets/preference_proxy.py`.
-- `methods/dpo.py` + `losses/alignment.py::dpo_loss`: sigmoid DPO objective over
-  policy vs reference log-probs.
+- `pipelines/preference.py` (`preference`) + `datasets/preference_proxy.py`:
+  chosen/rejected pairs, prompt tokens masked out of the loss.
+- `training/preference_collator.py`: the four-token preference batch contract.
+- `methods/dpo.py` + `losses/alignment.py::dpo_loss`: sigmoid DPO objective
+  over policy vs a frozen reference.  The reference is loaded explicitly
+  (`--reference_model` / `--reference_checkpoint`) and held as a plain
+  attribute, so it never enters `state_dict`.  Sequence score = mean per-token
+  log-prob of the response (`sequence_logps`).
 - `methods/reward_model.py` + `losses/alignment.py::bradley_terry_loss`: a
-  scalar head (registered in `DECODERS`/`CLASSIFIERS`) with a Bradley–Terry
-  ranking loss.
+  scalar `nn.Linear` head attached directly to the backbone as `model.score`
+  (no wrapper, so backbone keys stay unprefixed and `--source_checkpoint`
+  matches exactly), scored from the last non-pad hidden state, trained with
+  the Bradley–Terry ranking loss.
 
 ---
 
@@ -256,9 +262,10 @@ Deliverables:
 **Goal:** SFT (`--method causal_lm --mask_prompt`) → DPO → reward model.
 
 Deliverables:
-- `pipelines/preference.py`, `datasets/preference_proxy.py`.
+- `pipelines/preference.py`, `datasets/preference_proxy.py`,
+  `training/preference_collator.py`.
 - `methods/dpo.py`, `methods/reward_model.py`, `losses/alignment.py`.
-- Register in the respective registries.
+- Register in the respective registries (`PIPELINES`, `METHODS`, `LOSSES`).
 
 ### Phase 5 — Tests, docs, packaging (runs alongside each phase)
 - Tests (offline-friendly, tiny random models): `test_pipelines_text.py`,
@@ -327,6 +334,6 @@ dependencies are introduced.
 - [x] Phase 2: LM LoRA blend + checkpoint audit
 - [x] Phase 3: `utils/generation.py`, `training/generate.py`,
       `training/llm_eval.py`, `genml-kit-llm` script
-- [ ] Phase 4: `preference` pipeline, `dpo` + `reward_model` methods,
+- [x] Phase 4: `preference` pipeline, `dpo` + `reward_model` methods,
       `losses/alignment.py`
 - [x] Docs: `README.md` section + `NEXT_STEPS.md` status update

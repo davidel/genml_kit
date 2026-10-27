@@ -15,6 +15,11 @@ registered name or an external ``.py`` script defining
 # imports are intentionally unused as names; importing the module performs
 # the registration side effect.
 from genml_kit.losses import builtin  # noqa: F401
+from genml_kit.losses.alignment import (
+    bradley_terry_loss,
+    dpo_loss,
+    sequence_logps,
+)
 from genml_kit.losses.byol import byol_loss
 from genml_kit.losses.contrastive import supcon_loss
 from genml_kit.losses.detection import FCOSLoss
@@ -51,10 +56,12 @@ __all__ = [
     "DiceCELoss",
     "FCOSLoss",
     "LOSSES",
+    "bradley_terry_loss",
     "byol_loss",
     "clipped_surrogate",
     "dice_ce_loss",
     "dice_loss",
+    "dpo_loss",
     "entropy_bonus",
     "gae",
     "kd_attention_loss",
@@ -65,6 +72,7 @@ __all__ = [
     "sac_alpha_loss",
     "sac_policy_loss",
     "sac_q_loss",
+    "sequence_logps",
     "supcon_loss",
     "td_loss",
     "td_target",
