@@ -27,6 +27,7 @@ class VOPairPipeline(DataPipeline):
   """
 
   NAME = "vo_pair"
+  THROUGHPUT_UNIT = "pair"
 
   def __init__(self, **kwargs):
     super().__init__(**kwargs)

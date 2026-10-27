@@ -190,6 +190,7 @@ class RLPipeline(DataPipeline):
   """RL data pipeline: environment + replay buffer + eval rollout."""
 
   NAME = "rl"
+  THROUGHPUT_UNIT = "step"
 
   def __init__(self, **kwargs):
     super().__init__(**kwargs)

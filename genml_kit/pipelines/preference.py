@@ -28,6 +28,7 @@ class PreferencePipeline(DataPipeline):
   """Preference data pipeline: chosen/rejected pairs (train/val split)."""
 
   NAME = "preference"
+  THROUGHPUT_UNIT = "sample"
 
   def __init__(self, **kwargs):
     super().__init__(**kwargs)

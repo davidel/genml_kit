@@ -328,6 +328,30 @@ def test_image_log_contains_key_fields(caplog):
   assert "img/s=" in caplog.text
 
 
+def test_image_log_default_unit_is_img(caplog):
+  """ImageTrainReporting defaults to the image unit (img/s)."""
+  r = _make_reporter(log_every=1, total_batches=5)
+  logits, targets = _dummy_batch(batch_size=4, num_classes=3, num_correct=3)
+  with caplog.at_level(logging.INFO):
+    r.step(0, 4, 2.0, 0, logits=logits, targets=targets)
+  assert "img/s=" in caplog.text
+  assert "sample/s=" not in caplog.text
+
+
+def test_image_log_respects_configured_unit(caplog):
+  """A configured throughput unit is honoured, not hardcoded (regression).
+
+  ImageTrainReporting previously hardcoded ``img/s`` in its own
+  ``_log_step``, so text/preference runs printed ``img/s`` for text data.
+  """
+  r = _make_reporter(log_every=1, total_batches=5, throughput_unit="sample")
+  logits, targets = _dummy_batch(batch_size=4, num_classes=3, num_correct=3)
+  with caplog.at_level(logging.INFO):
+    r.step(0, 4, 2.0, 0, logits=logits, targets=targets)
+  assert "sample/s=" in caplog.text
+  assert "img/s=" not in caplog.text
+
+
 def test_image_log_metrics_are_correct(caplog):
   """Verify the windowed and cumulative numbers in the log line."""
   r = _make_reporter(log_every=2, total_batches=4)

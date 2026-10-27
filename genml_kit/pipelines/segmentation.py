@@ -102,6 +102,7 @@ class SegmentationPipeline(DataPipeline):
   """Paired image/mask pipeline for semantic segmentation."""
 
   NAME = "segmentation"
+  THROUGHPUT_UNIT = "img"
 
   def __init__(self):
     self.train_loader = None

@@ -474,7 +474,7 @@ class ImageTrainReporting(TrainReporting):
     if self._has_accuracy:
       msg += f" top1={self._window_accuracy():.2f}% ({top1:.2f}%)"
       msg += f" macro_f1={self._window_macro_f1():.2f}%"
-    msg += f" img/s={throughput:.0f}"
+    msg += f" {self._throughput_unit}/s={throughput:.0f}"
     msg += self._extra_str()
     if gpu:
       msg += f" {gpu}"

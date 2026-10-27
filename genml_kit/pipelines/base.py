@@ -16,6 +16,10 @@ class DataPipeline(abc.ABC):  # noqa: B024
   # Registry key (matches Method.NAME convention).
   NAME = ""
 
+  # Throughput label printed by the trainer (e.g. "img" -> "img/s").
+  # The pipeline is the authority on what one unit of its data is.
+  THROUGHPUT_UNIT = "sample"
+
   def __init__(self, **kwargs):
     self.train_loader = None
     self.val_loader = None

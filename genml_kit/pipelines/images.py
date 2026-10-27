@@ -75,6 +75,7 @@ class ImagesPipeline(DataPipeline):
   """Image data pipeline: single dataset (train) or ensemble (pretrain)."""
 
   NAME = "images"
+  THROUGHPUT_UNIT = "img"
 
   def __init__(self, **kwargs):
     super().__init__(**kwargs)

@@ -28,6 +28,7 @@ class TextPipeline(DataPipeline):
   """Text data pipeline: a HF corpus or instruction set (train/val split)."""
 
   NAME = "text"
+  THROUGHPUT_UNIT = "sample"
 
   def __init__(self, **kwargs):
     super().__init__(**kwargs)

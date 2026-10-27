@@ -117,6 +117,32 @@ class TestCustomRegistration:
     assert build_method("custom_method").NAME == "custom_method"
 
 
+class TestPipelineThroughputUnit:
+  """Each pipeline declares the unit of one sample for the log line."""
+
+  def test_built_in_units(self):
+    expected = {
+        "images": "img",
+        "segmentation": "img",
+        "detection": "img",
+        "vo_pair": "pair",
+        "text": "sample",
+        "preference": "sample",
+        "rl": "step",
+    }
+    actual = {name: build_pipeline(name).THROUGHPUT_UNIT for name in expected}
+    assert actual == expected
+
+  def test_default_unit_is_sample(self):
+    """A pipeline that does not override falls back to the base default."""
+
+    @PIPELINES.register
+    class _NoUnit(DataPipeline):
+      NAME = "no_unit_pipe"
+
+    assert build_pipeline("no_unit_pipe").THROUGHPUT_UNIT == "sample"
+
+
 class TestContracts:
 
   def test_datablob_shape(self):

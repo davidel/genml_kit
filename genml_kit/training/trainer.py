@@ -109,6 +109,7 @@ class BaseTrainer:
         writer=self.writer,
         device=self.device,
         optimizer=self.optimization.optimizer,
+        throughput_unit=getattr(self.pipeline, "THROUGHPUT_UNIT", "sample"),
     )
 
     for step_in_epoch, blob in enumerate(self.pipeline.train_loader):

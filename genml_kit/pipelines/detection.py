@@ -58,6 +58,7 @@ class DetectionPipeline(DataPipeline):
   """COCO-JSON image + boxes pipeline for object detection."""
 
   NAME = "detection"
+  THROUGHPUT_UNIT = "img"
 
   def __init__(self):
     self.train_loader = None

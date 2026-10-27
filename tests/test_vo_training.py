@@ -140,7 +140,7 @@ def test_reported_loss_is_never_below_its_mce_component(caplog):
                           writer=None,
                           device=torch.device("cpu"),
                           optimizer=opt,
-                          throughput_unit="img/s")
+                          throughput_unit="img")
   with caplog.at_level(logging.INFO):
     r.step(batch_idx=0,
            batch_size=32,
