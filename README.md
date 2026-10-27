@@ -2,9 +2,10 @@
 
 [![CI](https://github.com/davidel/genml_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/davidel/genml_kit/actions/workflows/ci.yml)
 
-A general-purpose toolkit for image classification. Supports self-supervised
-pre-training, supervised fine-tuning, and XGBoost ensemble inference — all
-from the command line.
+A general-purpose toolkit for image classification and decoder-only language
+models. Supports self-supervised pre-training, supervised fine-tuning, LoRA,
+causal-LM training / generation, preference alignment (DPO, reward models),
+and XGBoost ensemble inference — all from the command line.
 
 `genml_kit` is domain-agnostic: point it at any HuggingFace dataset, local
 `ImageFolder` tree, or timm/HuggingFace backbone. It grew out of a
@@ -32,6 +33,8 @@ in [`vo/README.md`](vo/README.md).
 - [Object Detection](#object-detection)
 - [Visual Odometry](#visual-odometry)
 - [Knowledge Distillation](#knowledge-distillation)
+- [Large Language Models (causal LM)](#large-language-models-causal-lm)
+- [Reinforcement Learning](#reinforcement-learning)
 - [References And Further Reading](#references-and-further-reading)
 - [Development](#development)
 - [License](#license)
@@ -153,15 +156,16 @@ reuse the same hook.
 
 | Module | Contents |
 |---|---|
-| `genml_kit.training` | `train.py` and `infer.py` CLI harnesses, `optim_factory.py` (optimizers, LLRD, schedulers), `model_utils.py` (loading, freezing, feature extraction), `param_align.py`, `eval.py` + `metrics.py`, `grad_monitor.py`, `train_reporting.py`, `tta.py`, `xgb_utils.py` + `xgb_pipeline.py`, `classifiers/` (pluggable heads) |
-| `genml_kit.methods` | objective-side registry (classification, segmentation, vo_pair, SimMIM, I-JEPA, DINO, BYOL, SupCon) |
-| `genml_kit.losses` | shared loss library (focal, Dice+CE segmentation, NT-Xent contrastive, DINO self-distillation, BYOL) |
+| `genml_kit.training` | `train.py` and `infer.py` CLI harnesses, `optim_factory.py` (optimizers, LLRD, schedulers), `model_utils.py` (loading, freezing, feature extraction), `param_align.py`, `eval.py` + `metrics.py`, `grad_monitor.py`, `train_reporting.py`, `tta.py`, `xgb_utils.py` + `xgb_pipeline.py`, `text_collator.py` + `preference_collator.py` (text / preference batches), `llm_model.py` + `generate.py` + `llm_eval.py` (LLM inference, generation, eval), `classifiers/` (pluggable heads) |
+| `genml_kit.methods` | objective-side registry (classification, segmentation, detection, vo_pair, SimMIM, I-JEPA, DINO, BYOL, SupCon, distillation, `causal_lm`, `dpo`, `reward_model`) |
+| `genml_kit.losses` | shared loss library (focal, Dice+CE segmentation, NT-Xent contrastive, DINO self-distillation, BYOL, KD distillation, alignment: `sequence_logps` / `dpo_loss` / `bradley_terry_loss`) |
 | `genml_kit.augmentations` | objective-level transforms (dual-view, multi-crop) |
-| `genml_kit.models` | model/processor registry; `timm/`, `convvit/`, `uvito/`, `cls_model_wrapper/`, `seg_model_wrapper/` backends; `decoders/` (pluggable segmentation decoders); `processors/base.py` |
-| `genml_kit.datasets` | `hf_proxy.py` (HuggingFace → PyTorch bridge), `image_folder.py`, `seg_folder.py` (paired image/mask), `ensemble.py`, `field_dataset.py`, `balanced_sampler.py`, `weighted_sampler.py`, `retry.py`, `vo_pairs.py` (synthetic VO pairs) |
+| `genml_kit.models` | model/processor/tokenizer registry; `timm/`, `convvit/`, `uvito/`, `cls_model_wrapper/`, `seg_model_wrapper/` backends; `decoders/` (pluggable segmentation decoders); `generative.py` (`GenerativeLM` contract), `tokenizer.py` (`TOKENIZERS`), `processors/base.py` |
+| `genml_kit.datasets` | `hf_proxy.py` (HuggingFace → PyTorch bridge), `image_folder.py`, `seg_folder.py` (paired image/mask), `det_folder.py` (COCO detection), `text_proxy.py` (HF text → items), `preference_proxy.py` (chosen/rejected pairs), `ensemble.py`, `field_dataset.py`, `balanced_sampler.py`, `weighted_sampler.py`, `retry.py`, `vo_pairs.py` (synthetic VO pairs) |
 | `genml_kit.geometry` | `similarity.py` (2-D similarity algebra, batched differentiable Umeyama, backward-map warp) — the math behind the visual-odometry front-end lives in [`vo/README.md`](vo/README.md) |
 | `genml_kit.io` | `checkpointing.py` (atomic saves, LoRA state, remote fetch), `storage_utils.py` (S3 / GCS / R2) |
-| `genml_kit.utils` | glog-style logging, CLI arg groups, seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers |
+| `genml_kit.utils` | glog-style logging, CLI arg groups, seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers, `generation.py` (samplers + batched `generate`) |
+| `genml_kit.llm_cli` | `genml-kit-llm` entry point (`generate` / `eval` subcommands) |
 
 ## Installation
 
@@ -2040,8 +2044,7 @@ student on examples where the teacher is confidently wrong.
 
 genml_kit can fine-tune decoder-only language models through the same
 branchless driver: a new `text` pipeline (token collation) pairs with a new
-`causal_lm` method (shifted next-token cross-entropy, perplexity metric). The
-full design lives in [`docs/LOCAL_LLM_PLAN.md`](docs/LOCAL_LLM_PLAN.md).
+`causal_lm` method (shifted next-token cross-entropy, perplexity metric).
 
 ### Quick start
 

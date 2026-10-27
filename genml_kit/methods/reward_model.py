@@ -1,9 +1,8 @@
 """Reward model: a scalar head + Bradley-Terry preference ranking.
 
-Phase 4 of ``docs/LOCAL_LLM_PLAN.md``.  Wraps a decoder-only backbone (built
-through the normal registry, so any model works) with a single scalar output
-and trains it to score the chosen response of a preference pair above the
-rejected one.
+Wraps a decoder-only backbone (built through the normal registry, so any model
+works) with a single scalar output and trains it to score the chosen response
+of a preference pair above the rejected one.
 
 Design notes:
 

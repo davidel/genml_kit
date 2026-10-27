@@ -1,9 +1,8 @@
 """DPO: Direct Preference Optimization (Rafailov et al. 2023).
 
-Phase 4 of ``docs/LOCAL_LLM_PLAN.md``.  Trains a policy to prefer the chosen
-response of a preference pair over the rejected one, relative to a **frozen
-reference** model.  The policy is built through the normal registry
-(``load_model``), so any decoder-only model works.
+Trains a policy to prefer the chosen response of a preference pair over the
+rejected one, relative to a **frozen reference** model.  The policy is built
+through the normal registry (``load_model``), so any decoder-only model works.
 
 Two models live in memory at once:
 
