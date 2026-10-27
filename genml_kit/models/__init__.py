@@ -28,12 +28,14 @@ from genml_kit.models.registry import (
     load_processor,
     parse_model_name,
 )
+from genml_kit.models.generative import GenerativeLM
 from genml_kit.models.tokenizer import TOKENIZERS, load_tokenizer
 
 __all__ = [
     "MODELS",
     "PROCESSORS",
     "TOKENIZERS",
+    "GenerativeLM",
     "ModelOutput",
     "ParsedModelName",
     "is_custom_model",

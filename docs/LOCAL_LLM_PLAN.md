@@ -186,14 +186,23 @@ custom via the `parse_model_name` `name:backbone` protocol. Add a parallel
 
 ### 3.4 Generation & evaluation
 
-- `utils/generation.py`: a small `GenerationConfig`-like wrapper with
-  temperature / top-k / top-p / repetition penalty / max-new-tokens, batch
-  `generate`, and chat-template application.
-- `training/generate.py` + console script `genml-kit-generate`
-  (`pyproject.toml [project.scripts]`): prompts (file or HF dataset) in,
-  completions out (JSONL).
-- `training/llm_eval.py`: perplexity, exact-match, token-F1, optional pass@k,
-  structured so a future `lm-eval-harness` adapter can slot in.
+- `models/generative.py`: the `GenerativeLM` contract.  A model opts in by
+  subclassing it; the base `generate` runs a portable loop over
+  `forward(...) -> .logits`, or routes to a native `generate` when the
+  instance has one.  HuggingFace models are *not* wrapped (their
+  `state_dict` keys must stay intact for `--resume`); the dispatcher calls
+  their own `generate` directly.
+- `utils/generation.py`: `SamplingConfig` (temperature / top-k / top-p /
+  repetition penalty / max-new-tokens / beams), pure samplers, the portable
+  decoding loop, and `generate(model, ...)` -- the dispatcher that prefers a
+  `GenerativeLM` implementation, then a native `generate`, then the loop.
+- `training/llm_model.py`: shared inference-time model loading (base
+  registry model + raw state-dict `--checkpoint` + PEFT `--lora_adapter` /
+  embedded `lora_state_blob`).
+- `training/generate.py` + `training/llm_eval.py`, driven by a single
+  `genml_kit/llm_cli.py` (`genml-kit-llm generate` / `genml-kit-llm eval`):
+  prompts (file or HF dataset) in, completions out (JSONL); perplexity,
+  exact-match and token-F1 with an optional pluggable `pass@k` scorer hook.
 
 ### 3.5 Alignment (Phase 4)
 
@@ -234,12 +243,14 @@ Deliverables:
 - Confirm `--source_checkpoint` / `--resume` round-trip for causal LMs.
 
 ### Phase 3 — Generation & evaluation
-**Goal:** `genml-kit-generate` produces completions; `llm_eval.py` reports
-perplexity and quality metrics.
+**Goal:** `genml-kit-llm generate` produces completions; `genml-kit-llm eval`
+reports perplexity and quality metrics.
 
 Deliverables:
-- `utils/generation.py`, `training/generate.py`, `training/llm_eval.py`.
-- `pyproject.toml`: add `genml-kit-generate` to `[project.scripts]`.
+- `models/generative.py` (`GenerativeLM`), `utils/generation.py`,
+  `training/llm_model.py`, `training/generate.py`, `training/llm_eval.py`.
+- `genml_kit/llm_cli.py` + `pyproject.toml`: add `genml-kit-llm` (a single
+  script with `generate` / `eval` subcommands) to `[project.scripts]`.
 
 ### Phase 4 — Alignment
 **Goal:** SFT (`--method causal_lm --mask_prompt`) → DPO → reward model.
@@ -314,8 +325,8 @@ dependencies are introduced.
 - [x] `methods/causal_lm.py` — `METHODS` name `causal_lm` (+ tests)
 - [x] Register new modules in the three `__init__.py` files
 - [x] Phase 2: LM LoRA blend + checkpoint audit
-- [ ] Phase 3: `utils/generation.py`, `training/generate.py`,
-      `training/llm_eval.py`, `genml-kit-generate` script
+- [x] Phase 3: `utils/generation.py`, `training/generate.py`,
+      `training/llm_eval.py`, `genml-kit-llm` script
 - [ ] Phase 4: `preference` pipeline, `dpo` + `reward_model` methods,
       `losses/alignment.py`
 - [x] Docs: `README.md` section + `NEXT_STEPS.md` status update

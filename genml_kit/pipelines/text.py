@@ -19,7 +19,6 @@ from genml_kit.datasets.text_proxy import load_raw_split
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import PIPELINES
-from genml_kit.training.text_collator import TextCollator
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
 
@@ -93,6 +92,10 @@ class TextPipeline(DataPipeline):
     return self.build_loader(args, mode="val", **kwargs)
 
   def _make_collator(self, tokenizer):
+    # Imported lazily: text_collator imports pipelines.contracts, which
+    # triggers the pipelines package __init__ (and therefore this module's
+    # registration) -- a module-scope import here would close that cycle.
+    from genml_kit.training.text_collator import TextCollator
     return TextCollator(tokenizer,
                         max_seq_len=self._max_seq_len,
                         mask_prompt=self._mask_prompt,

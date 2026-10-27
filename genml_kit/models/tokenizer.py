@@ -84,6 +84,15 @@ class HFTokenizer:
   def decode(self, ids, **kwargs):
     return self._tok.decode(ids, **kwargs)
 
+  @property
+  def chat_template(self):
+    """The tokenizer's Jinja chat template, or ``None`` if it has none.
+
+        ``None`` is what :func:`genml_kit.utils.generation.apply_chat_template`
+        checks to decide whether to wrap prompts automatically.
+        """
+    return getattr(self._tok, "chat_template", None)
+
   def apply_chat_template(self, conversation, **kwargs):
     return self._tok.apply_chat_template(conversation, **kwargs)
 
@@ -107,6 +116,12 @@ class ByteTokenizer:
   EOS_TOKEN = "<eos>"
   BOS_TOKEN = "<bos>"
   UNK_TOKEN = "<unk>"
+
+  # No Jinja chat template: ``apply_chat_template`` renders a minimal
+  # deterministic format, but auto-application stays off (see
+  # ``utils.generation.apply_chat_template``), so plain-LM prompts are not
+  # silently wrapped in tests.
+  chat_template = None
 
   def __init__(self, tokenizer_path="byte", cache_dir=None):
     del cache_dir  # No artifacts to cache for a byte tokenizer.
@@ -176,6 +191,9 @@ class SpmTokenizer:
     """
 
   NAME = "spm"
+
+  # A bare SentencePiece model carries no chat template.
+  chat_template = None
 
   def __init__(self, tokenizer_path, cache_dir=None):
     del cache_dir  # SentencePiece loads from a local path only.

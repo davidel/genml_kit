@@ -325,9 +325,10 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 2a | &nbsp;&nbsp;· `detection` pipeline + `DetectionMethod` + `det_folder` | ✅ | COCO-JSON `detfolder/`, box-aware transforms, mAP meter |
 | 2b | &nbsp;&nbsp;· instance segmentation (`mask_head`) | ⬜ | deferred; wrapper designed to accept a mask head later |
 | 2c | &nbsp;&nbsp;· `detr_head` + Hungarian matcher | ⬜ | deferred; FCOS chosen for the first cut (fast, no matcher) |
-| 8 | Vision-language / multimodal (CLIP-style) | 🚧 | LLM text foundation + efficient fine-tuning shipped (Phases 1–2); VLM heads still ⬜ — see Work Log |
+| 8 | Vision-language / multimodal (CLIP-style) | 🚧 | LLM text foundation + efficient fine-tuning + generation/eval shipped (Phases 1–3); VLM heads still ⬜ — see Work Log |
 | 8a | &nbsp;&nbsp;· tokenizer registry + `text` pipeline + `causal_lm` method | ✅ | Phase 1 of `docs/LOCAL_LLM_PLAN.md` |
 | 8b | &nbsp;&nbsp;· LM LoRA (structural targets) + portable adapter checkpoints | ✅ | Phase 2 of `docs/LOCAL_LLM_PLAN.md` |
+| 8c | &nbsp;&nbsp;· `GenerativeLM` contract + `genml-kit-llm generate`/`eval` | ✅ | Phase 3 of `docs/LOCAL_LLM_PLAN.md` |
 | 9 | Alignment / post-training (reward model, DPO) | ⬜ | gated behind the LLM data path (now unblocked); see `docs/LOCAL_LLM_PLAN.md` (Phase 4) |
 | 3–12 | Depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
 
@@ -338,7 +339,41 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 Newest first. Each entry records the commits and the verification that backed
 them.
 
-### 2026-10 — Local LLM support, Phase 2 (LM LoRA targets + adapter checkpoints) — **uncommitted**
+### 2026-10 — Local LLM support, Phase 3 (generation + evaluation) — **uncommitted**
+
+Third increment of `docs/LOCAL_LLM_PLAN.md`. Adds text generation and
+evaluation on top of the Phase 1–2 training path, as a single
+`genml-kit-llm` script with `generate` / `eval` subcommands:
+
+1. **Generation is a model contract, not an HF-only path.** New
+   `models/generative.py` defines `GenerativeLM`: a model opts in by
+   subclassing it, and the base `generate` runs a portable token loop over
+   `forward(...) -> .logits` (or routes to a native `generate` when the
+   instance has one). `utils/generation.py` holds the samplers
+   (temperature / top-k / top-p / repetition penalty), the portable loop
+   (with beam search), and a `generate(model, ...)` dispatcher: `GenerativeLM`
+   first, then a native `generate` (HuggingFace, detected via
+   `can_generate`), then the portable loop. HuggingFace models are *not*
+   wrapped, so their `state_dict` keys (and therefore `--resume`) are
+   untouched. Custom, non-HF models work through the same registry path.
+2. **One CLI, two jobs.** `genml_kit/llm_cli.py` wires `genml-kit-llm
+   generate` (prompts from a file or HF dataset → JSONL completions) and
+   `genml-kit-llm eval` (perplexity, exact-match, token-F1, plus a pluggable
+   `pass@k` scorer hook). `training/llm_model.py` is the shared
+   inference-time loader: base registry model + raw state-dict `--checkpoint`
+   + PEFT `--lora_adapter` / embedded `lora_state_blob`.
+
+New: `models/generative.py`, `utils/generation.py`, `training/llm_model.py`,
+`training/generate.py`, `training/llm_eval.py`, `llm_cli.py`. Modified:
+`models/tokenizer.py` (chat-template capability), `models/__init__.py`
+(export `GenerativeLM`), `pipelines/text.py` (lazy collator import — fixes a
+latent import cycle), `pyproject.toml` (`genml-kit-llm` script). New tests:
+`tests/test_generation.py`, `tests/test_llm_eval.py`, `tests/test_llm_cli.py`.
+
+Verification: `ruff check .` clean; `pytest -q` all pass (fast + slow);
+`md_latex.py` 0 findings.
+
+### 2026-10 — Local LLM support, Phase 2 (LM LoRA targets + adapter checkpoints) — **committed** (`558d0b5`)
 
 Second increment of `docs/LOCAL_LLM_PLAN.md`. Two issues found during the
 Phase 2 audit were fixed:

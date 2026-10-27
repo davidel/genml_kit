@@ -2144,6 +2144,76 @@ gaps: `byte` (a dependency-free tokenizer for offline tests) and
 `spm` (a bare SentencePiece `tokenizer.model`, behind the optional
 `sentencepiece` dependency).
 
+### Generation
+
+`genml-kit-llm generate` turns prompts into completions. Generation is a
+**model contract**, not a HuggingFace-only path: a model opts in by
+subclassing `GenerativeLM` (`genml_kit/models/generative.py`), whose default
+`generate` runs a portable token loop over the architecture-agnostic
+`forward(...) -> .logits` contract that `causal_lm` already trains against.
+HuggingFace models are *not* wrapped (their `state_dict` keys must stay intact
+for `--resume`); the dispatcher calls their own `generate` directly. So custom
+models registered in `MODELS` generate exactly like HF ones.
+
+```bash
+# Prompts from a file (one per line, or JSONL with --prompt_column)
+genml-kit-llm generate --model sshleifer/tiny-gpt2 \
+                       --prompts prompts.txt \
+                       --max_new_tokens 64 \
+                       --do_sample --temperature 0.8 --top_p 0.95 \
+                       --output completions.jsonl
+
+# Prompts from a HuggingFace dataset column, with a fine-tuned checkpoint
+genml-kit-llm generate --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
+                       --dataset my-org/prompts --split test \
+                       --prompt_column question \
+                       --checkpoint ./checkpoints/llm_best.pt \
+                       --lora_adapter ./adapters/run1
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `--model` | (required) | HuggingFace id or registered custom model. |
+| `--tokenizer` | `--model` | Tokenizer name/path override. |
+| `--checkpoint` | `None` | State-dict `.pt`, or a `<root>` resolving to `<root>_best.pt` / `<root>_latest.pt`. |
+| `--lora_adapter` | `None` | PEFT adapter directory (`save_pretrained` layout). |
+| `--prompts` / `--dataset` | — | Prompt source (file/JSONL, or HF dataset + `--prompt_column`). |
+| `--max_new_tokens` | `64` | Tokens to generate. |
+| `--do_sample` | off | Sample instead of greedy decoding. |
+| `--temperature` / `--top_k` / `--top_p` | `1.0` / `0` / `1.0` | Sampling knobs. |
+| `--repetition_penalty` | `1.0` | Down-weight already-seen tokens (`1.0` disables). |
+| `--num_beams` | `1` | Beam count (portable backend; `1` = greedy). |
+| `--num_return_sequences` | `1` | Completions per prompt. |
+| `--no_chat_template` | off | Skip the tokenizer's chat template. |
+
+When the tokenizer exposes a chat template (most instruct models do),
+prompts are automatically wrapped as a single user turn; `--no_chat_template`
+keeps the raw prompt for base-model completion.
+
+### Evaluation
+
+`genml-kit-llm eval` reports quality metrics for a labeled dataset:
+
+- **perplexity** — teacher-forced (`exp` of the mean shifted cross-entropy),
+  over the `--text_column`; no generation involved.
+- **exact-match** — fraction of generations matching the reference exactly.
+- **token-F1** — SQuAD-style token-overlap F1 against the reference.
+- **pass@k** — optional and pluggable: `--pass_at_k K --scorer score.py`
+  invokes `score(prompt, completion, reference) -> float` `K` times per item
+  and reports the pass rate. No code execution is built in.
+
+```bash
+genml-kit-llm eval --model sshleifer/tiny-gpt2 \
+                   --dataset ./my_eval_corpus --split test \
+                   --text_column text --prompt_column prompt \
+                   --reference_column reference \
+                   --metrics ppl exact_match token_f1 \
+                   --output report.json
+```
+
+Both subcommands load their model through the same registry the trainer uses,
+so a registered custom model generates and evaluates with no code changes.
+
 ---
 
 ## Reinforcement Learning
