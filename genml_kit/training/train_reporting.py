@@ -25,15 +25,24 @@ from genml_kit.utils.gpu import gpu_stats_str
 # How a Metric is folded across an epoch.
 #   AVERAGE -- mean of the per-step values (losses, gauges).
 #   LAST    -- final value seen (monotonic counters, e.g. env_steps).
-MetricKind = enum.Enum("MetricKind", ["AVERAGE", "LAST"])
+#   DERIVED -- not accumulated; recomputed from the line's context dict
+#              at render time (e.g. perplexity = exp(loss)).  A nonlinear
+#              transform of the loss must be derived from the *averaged*
+#              loss, never averaged itself: ``mean(exp(loss))`` is inflated
+#              by Jensen's inequality and dominated by early high-loss
+#              steps, whereas ``exp(mean(loss))`` is the true perplexity.
+MetricKind = enum.Enum("MetricKind", ["AVERAGE", "LAST", "DERIVED"])
 
 # A single scalar training metric.
-#   name  -- log key (e.g. "critic_loss").
-#   value -- current scalar value.
-#   kind  -- accumulation semantics for the epoch summary.
-#   fmt   -- printf-style format spec used to render the value.
-Metric = collections.namedtuple("Metric", ["name", "value", "kind", "fmt"],
-                                defaults=[MetricKind.AVERAGE, ".4f"])
+#   name   -- log key (e.g. "critic_loss").
+#   value  -- current scalar value (``None`` for DERIVED metrics).
+#   kind   -- accumulation semantics for the epoch summary.
+#   fmt    -- printf-style format spec used to render the value.
+#   derive -- DERIVED metrics only: a callable ``ctx -> float`` where
+#             ``ctx`` maps the line's core metrics (``"loss"``,
+#             ``"avg_loss"``) to their values.
+Metric = collections.namedtuple("Metric", ["name", "value", "kind", "fmt", "derive"],
+                                defaults=[MetricKind.AVERAGE, ".4f", None])
 
 
 def metric(name, value, kind=MetricKind.AVERAGE, fmt=".4f"):
@@ -51,6 +60,23 @@ def metric(name, value, kind=MetricKind.AVERAGE, fmt=".4f"):
   if hasattr(value, "item"):
     value = value.item()
   return Metric(name, value, kind, fmt)
+
+
+def derived_metric(name, derive, fmt=".4f"):
+  """Build a :class:`Metric` computed from the line's context dict.
+
+  Args:
+      name: The log key (e.g. ``"ppl"``).
+      derive: Callable ``ctx -> float``; ``ctx`` holds the line's core
+        metrics (``"loss"`` is the loss printed on the current line --
+        window mean in the step log, epoch mean in the summary;
+        ``"avg_loss"`` is the running epoch mean).
+      fmt: printf-style format spec used to render the value.
+
+  Returns:
+      A :class:`Metric` of kind :attr:`MetricKind.DERIVED`.
+  """
+  return Metric(name, None, MetricKind.DERIVED, fmt, derive)
 
 
 class TrainReporting:
@@ -182,7 +208,7 @@ class TrainReporting:
     if extra_metrics:
       for name, m in extra_metrics.items():
         self._extra[name] = m
-        if m.kind is not MetricKind.LAST:
+        if m.kind is MetricKind.AVERAGE:
           self._extra_totals[name] = self._extra_totals.get(name, 0.0) + m.value
           self._extra_counts[name] = self._extra_counts.get(name, 0) + 1
 
@@ -195,6 +221,29 @@ class TrainReporting:
     if self._total_samples == 0:
       return 0.0
     return self._total_loss / self._total_samples
+
+  @staticmethod
+  def _context(line_loss, avg_loss):
+    """Core metrics a :attr:`MetricKind.DERIVED` metric derives from.
+
+    ``line_loss`` is the loss printed on the current line (window mean in
+    the step log, epoch mean in the summary); ``avg_loss`` is the running
+    epoch mean.  A derived metric's callable receives this dict and picks
+    the key it needs (e.g. ``exp(ctx["loss"])`` for perplexity).
+    """
+    return {"loss": line_loss, "avg_loss": avg_loss}
+
+  def _metric_value(self, name, m, ctx):
+    """Resolve one metric's value for rendering under *ctx*.
+
+    ``DERIVED`` metrics compute from *ctx*; ``AVERAGE`` metrics report
+    their epoch mean; ``LAST`` metrics report their final value.
+    """
+    if m.kind is MetricKind.DERIVED:
+      return m.derive(ctx)
+    if m.kind is MetricKind.AVERAGE and self._extra_counts.get(name, 0):
+      return self._extra_totals[name] / self._extra_counts[name]
+    return m.value
 
   def summary(self):
     """Return final epoch-level metrics and log a summary line.
@@ -221,14 +270,10 @@ class TrainReporting:
     parts = [f"loss={avg_loss:.4f}"]
     # Decompose the aggregate ``loss`` above with the per-component
     # metrics.  Sorted for a stable, diff-friendly log line.
+    ctx = self._context(avg_loss, avg_loss)
     for k in sorted(self._extra):
       m = self._extra[k]
-      if k in self._extra_totals:
-        count = self._extra_counts.get(k, 0)
-        if count:
-          parts.append(f"{k}={self._extra_totals[k] / count:{m.fmt}}")
-      else:
-        parts.append(f"{k}={m.value:{m.fmt}}")
+      parts.append(f"{k}={self._metric_value(k, m, ctx):{m.fmt}}")
     parts.append(f"time={elapsed:.1f}s")
     if gpu:
       parts.append(gpu)
@@ -260,8 +305,9 @@ class TrainReporting:
       msg += f" {gpu}"
     msg += f" {lr_str}"
     # Append extra metrics, each rendered with its declared format.
+    ctx = self._context(w_loss, avg_loss)
     for name, m in self._extra.items():
-      msg += f" {name}={m.value:{m.fmt}}"
+      msg += f" {name}={self._metric_value(name, m, ctx):{m.fmt}}"
     logging.info(msg)
 
     # TensorBoard scalars.
@@ -270,7 +316,8 @@ class TrainReporting:
       self._writer.add_scalar("Train/loss_avg", avg_loss, global_step)
       self._writer.add_scalar("Train/throughput", throughput, global_step)
       for name, m in self._extra.items():
-        self._writer.add_scalar(f"Train/{name}", m.value, global_step)
+        self._writer.add_scalar(f"Train/{name}", self._metric_value(name, m, ctx),
+                                global_step)
       if self._device is not None and self._device.type == "cuda":
         self._writer.add_scalar(
             "GPU/memory_MB",
@@ -400,13 +447,14 @@ class ImageTrainReporting(TrainReporting):
             100.0 if self._total_samples else 0.0)
     return avg_loss, top1
 
-  def _extra_str(self):
+  def _extra_str(self, ctx):
     """Render every extra metric as name=value pairs, honouring its kind.
 
     Shared by ``summary`` and ``_log_step`` so the epoch line and the
     per-step line list the same metrics.  ``top1`` is skipped because it
     is already rendered from the accuracy counters above -- mirroring the
-    guard the TensorBoard block uses.
+    guard the TensorBoard block uses.  *ctx* carries the line's core
+    metrics (see :meth:`TrainReporting._context`) for ``DERIVED`` metrics.
 
     ``AVERAGE`` metrics report their epoch mean from
     ``_extra_totals``/``_extra_counts``; ``LAST`` metrics (monotonic
@@ -423,10 +471,7 @@ class ImageTrainReporting(TrainReporting):
     for name, m in self._extra.items():
       if name == "top1":
         continue
-      if name in self._extra_totals and self._extra_counts.get(name, 0):
-        value = self._extra_totals[name] / self._extra_counts[name]
-      else:
-        value = m.value
+      value = self._metric_value(name, m, ctx)
       parts.append(f" {name}={value:{m.fmt}}")
     return "".join(parts)
 
@@ -446,7 +491,7 @@ class ImageTrainReporting(TrainReporting):
     if self._has_accuracy:
       parts.append(f"top1={top1:.2f}%")
     parts.append(f"time={elapsed:.1f}s")
-    parts.append(self._extra_str())
+    parts.append(self._extra_str(self._context(avg_loss, avg_loss)))
     if gpu:
       parts.append(gpu)
     logging.info("  Train Summary: " + " ".join(parts))
@@ -475,7 +520,8 @@ class ImageTrainReporting(TrainReporting):
       msg += f" top1={self._window_accuracy():.2f}% ({top1:.2f}%)"
       msg += f" macro_f1={self._window_macro_f1():.2f}%"
     msg += f" {self._throughput_unit}/s={throughput:.0f}"
-    msg += self._extra_str()
+    ctx = self._context(w_loss, avg_loss)
+    msg += self._extra_str(ctx)
     if gpu:
       msg += f" {gpu}"
     msg += f" {lr_str}"
@@ -493,7 +539,8 @@ class ImageTrainReporting(TrainReporting):
       for name, m in self._extra.items():
         if name == "top1":
           continue  # Already tracked separately.
-        self._writer.add_scalar(f"Train/{name}", m.value, global_step)
+        self._writer.add_scalar(f"Train/{name}", self._metric_value(name, m, ctx),
+                                global_step)
       if self._device is not None and self._device.type == "cuda":
         self._writer.add_scalar(
             "GPU/memory_MB",

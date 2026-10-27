@@ -7,6 +7,8 @@ reports perplexity as the validation metric.  The tokenizer is resolved in
 pipeline, mirroring how the classification method resolves its processor.
 """
 
+import math
+
 import torch
 import torch.nn.functional as F
 
@@ -14,7 +16,19 @@ from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.training.text_collator import IGNORE_INDEX
+from genml_kit.training.train_reporting import derived_metric
 from genml_kit.utils.logging import fatal
+
+
+def _perplexity(ctx):
+  """Perplexity of the reported line: ``exp(loss)``.
+
+  ``ctx["loss"]`` is the loss printed on the current line -- the window
+  mean in the per-step log, the epoch mean in the summary -- so the
+  printed ``ppl`` always matches the ``loss`` beside it, and equals the
+  validation metric (``exp`` of the mean shifted cross-entropy).
+  """
+  return math.exp(ctx["loss"])
 
 
 @METHODS.register
@@ -90,8 +104,13 @@ class CausalLMMethod(Method):
     loss = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)),
                            shift_labels.view(-1),
                            ignore_index=IGNORE_INDEX)
-    ppl = torch.exp(loss.detach())
-    return LossOutput(loss, {"loss": loss.detach(), "ppl": ppl}, None)
+    # ``ppl`` is DERIVED from the reported loss at render time (never
+    # averaged): its value is exp(window loss) on the step line and
+    # exp(epoch mean loss) in the summary.
+    return LossOutput(loss, {
+        "loss": loss.detach(),
+        "ppl": derived_metric("ppl", _perplexity),
+    }, None)
 
   def evaluate(self, model, loader, device, to_device):
     """Mean token cross-entropy and perplexity over *loader*."""

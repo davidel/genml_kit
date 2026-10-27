@@ -27,8 +27,7 @@ class _FakeLM(torch.nn.Module):
 
   def forward(self, input_ids, attention_mask=None):
     del attention_mask
-    logits = torch.zeros(input_ids.shape[0], input_ids.shape[1],
-                         self.vocab_size)
+    logits = torch.zeros(input_ids.shape[0], input_ids.shape[1], self.vocab_size)
     # Put a large logit on id 0 for every position.
     logits[..., 0] = 5.0
     return _FakeOutput(logits)
@@ -66,8 +65,10 @@ class TestTrainStep:
     # nails (logit 0 is largest), so the loss is the small "correct" value.
     input_ids = torch.tensor([[1, 0, 0]])
     labels = torch.tensor([[1, 0, 0]])
-    blob = DataBlob(data={"input_ids": input_ids,
-                          "attention_mask": torch.ones_like(input_ids)},
+    blob = DataBlob(data={
+        "input_ids": input_ids,
+        "attention_mask": torch.ones_like(input_ids)
+    },
                     meta={"labels": labels})
     out = method.train_step(model, blob, 0)
     # Cross-entropy of a one-hot target against logits [5, 0, 0].
@@ -81,8 +82,10 @@ class TestTrainStep:
     input_ids = torch.tensor([[1, 0, 0, 0]])
     # Only the last label is real; the rest are masked.
     labels = torch.tensor([[IGNORE_INDEX, IGNORE_INDEX, IGNORE_INDEX, 0]])
-    blob = DataBlob(data={"input_ids": input_ids,
-                          "attention_mask": torch.ones_like(input_ids)},
+    blob = DataBlob(data={
+        "input_ids": input_ids,
+        "attention_mask": torch.ones_like(input_ids)
+    },
                     meta={"labels": labels})
     out = method.train_step(model, blob, 0)
     assert torch.isfinite(out.loss)
@@ -90,11 +93,35 @@ class TestTrainStep:
   def test_missing_labels_is_fatal(self):
     method = build_method("causal_lm")
     model = _FakeLM()
-    blob = DataBlob(data={"input_ids": torch.tensor([[1, 2]]),
-                          "attention_mask": torch.tensor([[1, 1]])},
+    blob = DataBlob(data={
+        "input_ids": torch.tensor([[1, 2]]),
+        "attention_mask": torch.tensor([[1, 1]])
+    },
                     meta={"labels": None})
     with pytest.raises(ValueError, match="requires meta"):
       method.train_step(model, blob, 0)
+
+  def test_ppl_is_a_derived_metric(self):
+    """``ppl`` is a DERIVED metric (exp of the reported loss), not an
+    averaged per-step value."""
+    import math
+    from genml_kit.training.train_reporting import MetricKind, derived_metric
+    method = build_method("causal_lm")
+    model = _FakeLM(vocab_size=3)
+    input_ids = torch.tensor([[1, 0, 0]])
+    labels = torch.tensor([[1, 0, 0]])
+    blob = DataBlob(data={
+        "input_ids": input_ids,
+        "attention_mask": torch.ones_like(input_ids)
+    },
+                    meta={"labels": labels})
+    out = method.train_step(model, blob, 0)
+    ppl = out.metrics["ppl"]
+    assert isinstance(ppl, type(derived_metric("x", math.exp)))
+    assert ppl.kind is MetricKind.DERIVED
+    assert ppl.derive({"loss": 2.0}) == pytest.approx(math.exp(2.0))
+    # The raw per-step exp(loss) is not carried as an averaged tensor.
+    assert not torch.is_tensor(ppl.value)
 
 
 class TestEvaluate:
@@ -102,11 +129,15 @@ class TestEvaluate:
   def test_evaluate_reports_loss_and_ppl(self):
     method = build_method("causal_lm")
     model = _FakeLM(vocab_size=3)
-    blob = DataBlob(data={"input_ids": torch.tensor([[1, 0, 0]]),
-                          "attention_mask": torch.tensor([[1, 1, 1]])},
+    blob = DataBlob(data={
+        "input_ids": torch.tensor([[1, 0, 0]]),
+        "attention_mask": torch.tensor([[1, 1, 1]])
+    },
                     meta={"labels": torch.tensor([[1, 0, 0]])})
-    report = method.evaluate(model, [blob], torch.device("cpu"),
+    report = method.evaluate(model, [blob],
+                             torch.device("cpu"),
                              to_device=lambda b, d: b)
     assert "loss" in report and "ppl" in report
     assert report["ppl"] == pytest.approx(float(torch.exp(torch.tensor(
-        report["loss"]))), rel=1e-5)
+        report["loss"]))),
+                                          rel=1e-5)

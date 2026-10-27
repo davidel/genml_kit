@@ -570,6 +570,41 @@ def test_base_log_throughput_unit(caplog):
   assert "step/s=" in caplog.text
 
 
+def test_derived_metric_uses_line_loss(caplog):
+  """A DERIVED metric is exp(window loss) on the step line, exp(epoch mean
+  loss) in the summary -- never a mean of per-step exponentials.
+
+  Two equal-size batches with losses 4.0 then 1.0: the true perplexities
+  are exp(4)=54.598 and exp(2.5)=12.182.  ``mean(exp)`` would be 28.66,
+  which is what the old per-step AVERAGE ``ppl`` reported (the bug).
+  """
+  import math
+  from genml_kit.training.train_reporting import derived_metric
+  r = _make_base_reporter(log_every=1, total_batches=2)
+  ppl = derived_metric("ppl", lambda ctx: math.exp(ctx["loss"]))
+  with caplog.at_level(logging.INFO):
+    r.step(0, 4, 4.0, 0, extra_metrics={"ppl": ppl})
+    assert "ppl=54.5982" in caplog.text
+    r.step(1, 4, 1.0, 1, extra_metrics={"ppl": ppl})
+    assert "ppl=2.7183" in caplog.text
+    r.summary()
+  assert "ppl=12.1825" in caplog.text
+  assert "ppl=28.6592" not in caplog.text
+
+
+def test_derived_metric_can_read_avg_loss(caplog):
+  """The context dict exposes more than the line loss (e.g. ``avg_loss``)."""
+  from genml_kit.training.train_reporting import derived_metric
+  r = _make_base_reporter(log_every=1, total_batches=2)
+  marker = derived_metric("avg_marker", lambda ctx: ctx["avg_loss"])
+  with caplog.at_level(logging.INFO):
+    r.step(0, 4, 4.0, 0, extra_metrics={"avg_marker": marker})
+    assert "avg_marker=4.0000" in caplog.text
+    r.step(1, 4, 2.0, 1, extra_metrics={"avg_marker": marker})
+    # epoch mean of [4.0, 2.0] -- NOT the window loss 2.0.
+    assert "avg_marker=3.0000" in caplog.text
+
+
 def test_base_summary_returns_float():
   r = _make_base_reporter()
   r.step(0, 4, 4.0, 0)

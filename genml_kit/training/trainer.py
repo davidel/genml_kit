@@ -29,7 +29,7 @@ from genml_kit.io.checkpointing import (
 )
 from genml_kit.training.grad_monitor import create_grad_monitor
 from genml_kit.utils.args import amp_dtype_from_args
-from genml_kit.training.train_reporting import ImageTrainReporting, metric
+from genml_kit.training.train_reporting import ImageTrainReporting, Metric, metric
 from genml_kit.training.model_utils import set_train_mode
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
@@ -173,11 +173,13 @@ class BaseTrainer:
       #
       # "loss" is skipped: it is already rendered from loss_value above,
       # and several methods re-emit it inside metrics, which would print
-      # the loss twice.
+      # the loss twice.  A value that is already a ``Metric`` (e.g. a
+      # DERIVED metric such as causal-LM perplexity) is passed through
+      # untouched; a bare tensor is wrapped as an AVERAGE metric.
       extra_metrics = None
       if getattr(loss_out, "metrics", None):
         extra_metrics = {
-            name: metric(name, value)
+            name: value if isinstance(value, Metric) else metric(name, value)
             for name, value in loss_out.metrics.items()
             if name != "loss"
         }
