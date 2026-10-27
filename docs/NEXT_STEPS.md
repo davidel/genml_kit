@@ -325,8 +325,9 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 2a | &nbsp;&nbsp;· `detection` pipeline + `DetectionMethod` + `det_folder` | ✅ | COCO-JSON `detfolder/`, box-aware transforms, mAP meter |
 | 2b | &nbsp;&nbsp;· instance segmentation (`mask_head`) | ⬜ | deferred; wrapper designed to accept a mask head later |
 | 2c | &nbsp;&nbsp;· `detr_head` + Hungarian matcher | ⬜ | deferred; FCOS chosen for the first cut (fast, no matcher) |
-| 8 | Vision-language / multimodal (CLIP-style) | 🚧 | LLM text foundation shipped (Phase 1); VLM heads still ⬜ — see Work Log |
+| 8 | Vision-language / multimodal (CLIP-style) | 🚧 | LLM text foundation + efficient fine-tuning shipped (Phases 1–2); VLM heads still ⬜ — see Work Log |
 | 8a | &nbsp;&nbsp;· tokenizer registry + `text` pipeline + `causal_lm` method | ✅ | Phase 1 of `docs/LOCAL_LLM_PLAN.md` |
+| 8b | &nbsp;&nbsp;· LM LoRA (structural targets) + portable adapter checkpoints | ✅ | Phase 2 of `docs/LOCAL_LLM_PLAN.md` |
 | 9 | Alignment / post-training (reward model, DPO) | ⬜ | gated behind the LLM data path (now unblocked); see `docs/LOCAL_LLM_PLAN.md` (Phase 4) |
 | 3–12 | Depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
 
@@ -337,7 +338,40 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 Newest first. Each entry records the commits and the verification that backed
 them.
 
-### 2026-10 — Local LLM support, Phase 1 (text data path + causal LM) — **uncommitted**
+### 2026-10 — Local LLM support, Phase 2 (LM LoRA targets + adapter checkpoints) — **uncommitted**
+
+Second increment of `docs/LOCAL_LLM_PLAN.md`. Two issues found during the
+Phase 2 audit were fixed:
+
+1. **LoRA default targets were silently wrong for LMs.** The old default
+   intersected a hardcoded name set with `nn.Linear` modules; GPT-2's attention
+   is `Conv1D`, so `--lora` resolved to `lm_head` only (attention was never
+   adapted, no warning). Replaced with `resolve_lora_targets()` in
+   `training/model_utils.py`: it detects attention blocks structurally, collects
+   their projection layers (covers `nn.Linear` *and* `Conv1D`), and emits the
+   shortest dotted suffix that does not collide with a non-attention layer
+   (GPT-2 → `c_attn`, `attn.c_proj`; Llama/Mistral/Qwen2 → `q/k/v/o_proj`;
+   BERT/timm/ViT/T5 all correct). Falls back to every `nn.Linear` for
+   attention-less backbones, with a warning.
+2. **Portable LoRA adapter checkpoints were a v4.2 refactor regression.** The
+   pre-v4.2 driver wrote a `lora_state_blob` (tar of PEFT `save_pretrained`
+   files) on every save; the `CheckpointSaver` refactor dropped that write side
+   while leaving the read side in `resume_checkpoint`. Restored it in
+   `CheckpointSaver.save` (`_with_lora_blob`): PeftModel checkpoints again embed
+   the portable adapter blob, so adapters can be loaded with stock PEFT /
+   published to the Hub, while raw-tensor resume keeps working.
+
+Modified: `training/model_utils.py` (`resolve_lora_targets`),
+`methods/base.py` (`_apply_model_extras` uses it + logs targets),
+`io/checkpointing.py` (`_with_lora_blob`). New tests
+`tests/test_lora_targets.py`; extended `tests/test_lora.py`
+(`TestCheckpointSaverLoraBlob`). Docs: `README.md` LoRA/efficient-fine-tuning
+section, `docs/LOCAL_LLM_PLAN.md` Phase 2 checklist.
+
+Verification: `ruff check .` clean; `pytest -q` 1653 passed; slow tests pass;
+`md_latex.py` 0 findings.
+
+### 2026-10 — Local LLM support, Phase 1 (text data path + causal LM) — **committed** (`e579d92`)
 
 First increment of `docs/LOCAL_LLM_PLAN.md`: the tokenizer abstraction, the
 `text` pipeline, and the `causal_lm` method, all additive through the existing

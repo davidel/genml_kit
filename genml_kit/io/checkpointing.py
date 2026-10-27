@@ -420,6 +420,7 @@ class CheckpointSaver:
     path = self._root + suffix
     if self._extra_fn is not None:
       extra = {**self._extra_fn(), **extra}
+    extra = self._with_lora_blob(extra)
     save_checkpoint(
         checkpoint_dict(
             self._model,
@@ -435,6 +436,25 @@ class CheckpointSaver:
         remote_uri=self._remote_uri,
     )
     return path
+
+  def _with_lora_blob(self, extra):
+    """Attach a serialized PEFT adapter blob when the model is a PeftModel.
+
+        LoRA adapters are saved as a portable ``save_pretrained`` tar blob
+        (``lora_state_blob``) so the checkpoint can be loaded with stock
+        PEFT / published to the Hub, while the raw tensor state dict keeps
+        working for resume.  A caller-provided blob (e.g. in tests) is
+        respected as-is.  Non-PEFT models are untouched.
+        """
+    if extra.get("lora_state_blob") is not None:
+      return extra
+    try:
+      from peft import PeftModel
+    except ImportError:
+      return extra
+    if not isinstance(self._model, PeftModel):
+      return extra
+    return {**extra, "lora_state_blob": serialize_lora_state(self._model)}
 
   def save_best(self, epoch, **extra):
     """Save to ``<root>_best.pt``; *extra* forwarded to checkpoint_dict."""

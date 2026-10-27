@@ -116,6 +116,127 @@ def extract_lora_params(model):
   }
 
 
+#: Leaf module names that denote an attention block even when the class
+#: name does not contain "attention" (e.g. timm's ``Attention`` blocks are
+#: already caught by the class check; these cover hand-rolled models).
+_ATTENTION_LEAVES = {
+    "attn",
+    "attention",
+    "self_attn",
+    "selfattention",
+    "crossattention",
+    "encoder_attn",
+    "encoderdecoderattention",
+    "multiheadattention",
+}
+
+
+def _is_embedding(module):
+  """True when *module* is (or looks like) an embedding table."""
+  if isinstance(module, torch.nn.Embedding):
+    return True
+  return "embedding" in type(module).__name__.lower()
+
+
+def _is_projection(module):
+  """True when *module* is a leaf that can carry a LoRA adapter.
+
+  A projection is any child-less module holding a weight parameter of rank
+  >= 2.  This deliberately covers ``torch.nn.Linear`` *and* the GPT-2 style
+  ``transformers.pytorch_utils.Conv1D`` (which is not an ``nn.Linear`` but
+  is a plain matrix multiply), so the resolver works across architectures
+  without hardcoding class types.  Embedding tables are excluded because
+  LoRA on embeddings uses a different mechanism.
+  """
+  if _is_embedding(module):
+    return False
+  if list(module.children()):
+    return False
+  weight = getattr(module, "weight", None)
+  return isinstance(weight, torch.nn.Parameter) and weight.ndim >= 2
+
+
+def _is_attention_container(name, module):
+  """True when *module* looks like an attention block.
+
+  Detection is structural: the class name contains "attention"
+  (``BertSelfAttention``, ``LlamaAttention``, ``GPT2Attention``,
+  ``CLIPAttention``, timm ``Attention``, ...) or the module's leaf path
+  name is a known attention alias (``attn``, ``self_attn``, ...).
+  """
+  if "attention" in type(module).__name__.lower():
+    return True
+  return name.rsplit(".", 1)[-1].lower() in _ATTENTION_LEAVES
+
+
+def resolve_lora_targets(model):
+  """Resolve PEFT LoRA ``target_modules`` from the model's own structure.
+
+  Instead of hardcoding module names (which breaks on any architecture
+  that names its projections differently -- GPT-2 uses ``c_attn``/``c_proj``
+  with ``Conv1D`` layers, timm ViTs use ``qkv``, BERT uses
+  ``query/key/value``), this walks the module graph:
+
+  1. Collect every projection (:func:`_is_projection`) that lives inside an
+     attention container (:func:`_is_attention_container`).
+  2. If the model has no attention structure at all (e.g. a bare MLP
+     backbone), fall back to every ``nn.Linear`` -- the legacy behavior --
+     and log a warning that the fallback is broad.
+  3. Otherwise, for each attention projection emit the *shortest* dotted
+     suffix that does not collide with a projection living outside any
+     attention container.  This is required because PEFT matches a target
+     string by ``key == suffix or key.endswith("." + suffix)``: a bare
+     ``c_proj`` would also hit GPT-2's ``mlp.c_proj``, so the resolver
+     upgrades it to ``attn.c_proj`` while keeping ``c_attn`` short.
+
+  Returns:
+      A sorted list of target-module strings ready for ``LoraConfig``.
+  """
+  named = list(model.named_modules())
+
+  attention_paths = set()
+  for name, module in named:
+    if not _is_attention_container(name, module):
+      continue
+    for sub_name, sub_module in module.named_modules():
+      if _is_projection(sub_module):
+        attention_paths.add(f"{name}.{sub_name}" if sub_name else name)
+
+  if not attention_paths:
+    fallback = [n for n, m in named if isinstance(m, torch.nn.Linear)]
+    logging.warning(
+        "No attention structure found in %s; defaulting LoRA targets to "
+        "every nn.Linear (%d modules). Pass --lora_target_modules to be "
+        "explicit.",
+        type(model).__name__, len(fallback))
+    return fallback
+
+  # Projections outside any attention container are the collision set.
+  outside = []
+  for name, module in named:
+    if not _is_projection(module):
+      continue
+    if any(name == a or name.startswith(a + ".") for a in attention_paths):
+      continue
+    outside.append(name)
+
+  def collides(suffix):
+    return any(k == suffix or k.endswith("." + suffix) for k in outside)
+
+  targets = set()
+  for path in attention_paths:
+    parts = path.split(".")
+    for start in range(len(parts) - 1, -1, -1):
+      candidate = ".".join(parts[start:])
+      if not collides(candidate):
+        targets.add(candidate)
+        break
+    else:
+      # Pathological: every suffix collides -> use the full path.
+      targets.add(path)
+  return sorted(targets)
+
+
 def freeze_model(model, trainable_prefixes):
   """Freeze all parameters except those matching *trainable_prefixes*.
 

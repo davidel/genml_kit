@@ -2,6 +2,7 @@
 
 import abc
 import collections
+import logging
 
 import torch
 
@@ -236,35 +237,17 @@ class Method(abc.ABC):
 
       enable_grad_checkpointing(model)
     if getattr(args, "lora", False):
-      from genml_kit.training.model_utils import apply_lora
+      from genml_kit.training.model_utils import apply_lora, resolve_lora_targets
 
       if args.lora_target_modules:
         target_modules = args.lora_target_modules.split(",")
       else:
-        # PEFT raises when target_modules is None or matches nothing, so the
-        # default must intersect the standard transformer projection names
-        # with what the model actually has (ViT backbones use q_proj/k_proj/
-        # v_proj; timm ViT uses qkv; HF attention uses query/key/value).
-        # Models matching none of the standard names (e.g. the fc-only test
-        # backbone) fall back to adapting every nn.Linear.
-        default_names = {
-            "q_proj",
-            "k_proj",
-            "v_proj",
-            "qkv",
-            "query",
-            "key",
-            "value",
-        }
-        present = {
-            name.split(".")[-1]
-            for name, mod in model.named_modules()
-            if isinstance(mod, torch.nn.Linear)
-        }
-        matched = sorted(default_names & present)
-        target_modules = matched or [
-            n for n, m in model.named_modules() if isinstance(m, torch.nn.Linear)
-        ]
+        # Resolve targets from the model's own structure so every
+        # architecture works without hardcoding names: GPT-2's Conv1D
+        # c_attn/attn.c_proj, Llama's q/k/v/o_proj, timm's qkv, BERT's
+        # query/key/value, etc.  See resolve_lora_targets().
+        target_modules = resolve_lora_targets(model)
+      logging.info("LoRA target modules: %s", ", ".join(target_modules))
       model = apply_lora(
           model,
           r=args.lora_r,

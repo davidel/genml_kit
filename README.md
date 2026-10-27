@@ -2090,6 +2090,51 @@ stored under `best_ppl`. `--lora`, `--grad_checkpoint`, `--freeze`,
 `--source_checkpoint` and `--resume` all work for causal LMs through the same
 shared model-extras path every other objective uses.
 
+### Efficient fine-tuning (LoRA, gradient checkpointing, bf16)
+
+LoRA is the recommended way to fine-tune a causal LM. When
+`--lora_target_modules` is omitted, genml_kit **resolves the target modules
+from the model's own structure** rather than from a hardcoded name list, so it
+works across architectures without configuration:
+
+| Model family | Auto-resolved targets |
+|---|---|
+| GPT-2 (HF `Conv1D`) | `c_attn`, `attn.c_proj` |
+| Llama / Mistral / Qwen2 / HF ViT | `q_proj`, `k_proj`, `v_proj`, `o_proj` |
+| BERT | `query`, `key`, `value`, `attention.output.dense` |
+| timm ViT | `qkv`, `attn.proj` |
+| No attention (plain MLP backbone) | every `nn.Linear` (with a warning) |
+
+The resolver detects attention blocks by class/structure, keeps only their
+projection layers, and emits the shortest dotted suffix that does **not** also
+match a non-attention layer (so GPT-2's `attn.c_proj` is not confused with
+`mlp.c_proj`). Pass `--lora_target_modules` explicitly to override.
+
+```bash
+# LoRA + gradient checkpointing + bf16 on a small LM
+genml-kit-train --pipeline text \
+                --method causal_lm \
+                --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
+                --dataset ./my_text_corpus \
+                --text_column text \
+                --max_seq_len 1024 \
+                --lora --lora_r 16 --lora_alpha 32 \
+                --grad_checkpoint \
+                --amp_dtype bf16
+```
+
+`--lora`, `--lora_r`, `--lora_alpha`, `--lora_dropout` and
+`--lora_target_modules` are the shared LoRA flags; `--grad_checkpoint` enables
+per-block activation checkpointing (HF `gradient_checkpointing_enable` for
+transformers models, native APIs for timm/custom backbones); `--amp_dtype
+bf16` selects the autocast dtype.
+
+When the model is a PEFT `PeftModel`, checkpoints also embed a **portable
+adapter blob** (`lora_state_blob`: a tar of `adapter_model.safetensors` +
+`adapter_config.json`), so the adapters can be loaded with stock PEFT or
+published to the Hub, while `--resume` continues to restore the raw tensor
+state exactly.
+
 ### Tokenizers
 
 `load_tokenizer(name)` mirrors the model/processor split. Normal model IDs

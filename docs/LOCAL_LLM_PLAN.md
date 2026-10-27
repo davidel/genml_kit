@@ -306,16 +306,16 @@ dependencies are introduced.
 
 ## 8. Task checklist
 
-- [ ] `models/tokenizer.py` — `TOKENIZERS` + `load_tokenizer`, with the `byte`
+- [x] `models/tokenizer.py` — `TOKENIZERS` + `load_tokenizer`, with the `byte`
       (test-only) and `spm` (bare `.model`) entries (+ tests)
-- [ ] `datasets/text_proxy.py` — HF text → dict items
-- [ ] `training/text_collator.py` — tokenize/pad/mask/pack (+ tests)
-- [ ] `pipelines/text.py` — `PIPELINES` name `text` (+ tests)
-- [ ] `methods/causal_lm.py` — `METHODS` name `causal_lm` (+ tests)
-- [ ] Register new modules in the three `__init__.py` files
-- [ ] Phase 2: LM LoRA blend + checkpoint audit
+- [x] `datasets/text_proxy.py` — HF text → dict items
+- [x] `training/text_collator.py` — tokenize/pad/mask/pack (+ tests)
+- [x] `pipelines/text.py` — `PIPELINES` name `text` (+ tests)
+- [x] `methods/causal_lm.py` — `METHODS` name `causal_lm` (+ tests)
+- [x] Register new modules in the three `__init__.py` files
+- [x] Phase 2: LM LoRA blend + checkpoint audit
 - [ ] Phase 3: `utils/generation.py`, `training/generate.py`,
       `training/llm_eval.py`, `genml-kit-generate` script
 - [ ] Phase 4: `preference` pipeline, `dpo` + `reward_model` methods,
       `losses/alignment.py`
-- [ ] Docs: `README.md` section + `NEXT_STEPS.md` status update
+- [x] Docs: `README.md` section + `NEXT_STEPS.md` status update

@@ -788,3 +788,80 @@ class TestCheckpointDictFreezeCombinations:
       lora_keys = [k for k in sd["model_state_dict"] if "lora_" in k]
       assert lora_keys == [], (
           f"LoRA keys leaked into model_state_dict with save_frozen={save_frozen}")
+
+
+class TestCheckpointSaverLoraBlob:
+  """The saver auto-serializes a PEFT adapter blob for PeftModel checkpoints.
+
+  Regression guard for the v4.2 refactor that dropped the ``lora_state_blob``
+  write side: checkpoints must again be PEFT-portable (``adapter_model``
+  inside a tar blob) while raw-tensor resume keeps working.
+  """
+
+  def _wrapped(self):
+    model = _TinyModel()
+    return apply_lora(model, r=4, alpha=8, target_modules=["fc"])
+
+  def test_saver_writes_blob_for_peft_model(self, tmp_path):
+    model = self._wrapped()
+    optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad],
+                                lr=0.01)
+    root = str(tmp_path / "ckpt")
+    saver = checkpointing.CheckpointSaver(model,
+                                          optimizer,
+                                          None,
+                                          root,
+                                          states_to_save={"opt", "sched"})
+    path = saver.save_latest(0)
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    assert "lora_state_blob" in ckpt
+    assert isinstance(ckpt["lora_state_blob"], (bytes, bytearray))
+
+  def test_saver_skips_blob_for_plain_model(self, tmp_path):
+    model = _TinyModel()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    root = str(tmp_path / "ckpt")
+    saver = checkpointing.CheckpointSaver(model, optimizer, None, root)
+    path = saver.save_latest(0)
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    assert "lora_state_blob" not in ckpt
+
+  def test_saver_respects_explicit_blob(self, tmp_path):
+    model = self._wrapped()
+    optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad],
+                                lr=0.01)
+    root = str(tmp_path / "ckpt")
+    saver = checkpointing.CheckpointSaver(model, optimizer, None, root)
+    explicit = serialize_lora_state(model)
+    path = saver.save_latest(0, lora_state_blob=explicit)
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    assert ckpt["lora_state_blob"] == explicit
+
+  def test_auto_blob_round_trip_restores_adapters(self, tmp_path):
+    model = self._wrapped()
+    optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad],
+                                lr=0.01)
+    with torch.no_grad():
+      for n, p in model.named_parameters():
+        if "lora_" in n and p.requires_grad:
+          p.add_(0.25)
+    root = str(tmp_path / "ckpt")
+    saver = checkpointing.CheckpointSaver(model, optimizer, None, root)
+    path = saver.save_latest(0)
+
+    fresh = self._wrapped()
+    restored, _, _, _ = resume_checkpoint(path,
+                                          root + "_best.pt",
+                                          fresh,
+                                          torch.device("cpu"),
+                                          metric_key="best_metric",
+                                          default_metric=float("-inf"))
+    before = self._lora_weights(model)
+    after = self._lora_weights(restored)
+    assert before.keys() == after.keys()
+    for name in before:
+      assert torch.allclose(before[name], after[name], atol=1e-6)
+
+  @staticmethod
+  def _lora_weights(model):
+    return {n: p.detach().clone() for n, p in model.named_parameters() if "lora_" in n}
