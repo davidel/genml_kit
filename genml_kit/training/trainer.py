@@ -154,7 +154,11 @@ class BaseTrainer:
         targets = blob.get("labels", None)
       else:
         data = blob.data
-        if isinstance(data, (tuple, list)):
+        if isinstance(data, dict):
+          # Dict-valued data (e.g. the text pipeline's input_ids /
+          # attention_mask) -- batch dim comes from any tensor entry.
+          batch_size = next(iter(data.values())).shape[0]
+        elif isinstance(data, (tuple, list)):
           batch_size = data[0].shape[0]
         else:
           batch_size = data.shape[0]

@@ -325,6 +325,9 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 | 2a | &nbsp;&nbsp;· `detection` pipeline + `DetectionMethod` + `det_folder` | ✅ | COCO-JSON `detfolder/`, box-aware transforms, mAP meter |
 | 2b | &nbsp;&nbsp;· instance segmentation (`mask_head`) | ⬜ | deferred; wrapper designed to accept a mask head later |
 | 2c | &nbsp;&nbsp;· `detr_head` + Hungarian matcher | ⬜ | deferred; FCOS chosen for the first cut (fast, no matcher) |
+| 8 | Vision-language / multimodal (CLIP-style) | 🚧 | LLM text foundation shipped (Phase 1); VLM heads still ⬜ — see Work Log |
+| 8a | &nbsp;&nbsp;· tokenizer registry + `text` pipeline + `causal_lm` method | ✅ | Phase 1 of `docs/LOCAL_LLM_PLAN.md` |
+| 9 | Alignment / post-training (reward model, DPO) | ⬜ | gated behind the LLM data path (now unblocked); see `docs/LOCAL_LLM_PLAN.md` (Phase 4) |
 | 3–12 | Depth/flow, OOD, diffusion, HPO, … | ⬜ | untouched (see the Tier sections above) |
 
 ---
@@ -333,6 +336,32 @@ Legend: **✅ done** · **🚧 in progress** · **⬜ not started**.
 
 Newest first. Each entry records the commits and the verification that backed
 them.
+
+### 2026-10 — Local LLM support, Phase 1 (text data path + causal LM) — **uncommitted**
+
+First increment of `docs/LOCAL_LLM_PLAN.md`: the tokenizer abstraction, the
+`text` pipeline, and the `causal_lm` method, all additive through the existing
+registries (no new control flow in `train.py`).
+
+New files:
+
+- `genml_kit/models/tokenizer.py` — `TOKENIZERS` registry + `load_tokenizer`;
+  `byte` (dependency-free, for offline tests) and `spm` (bare SentencePiece
+  `tokenizer.model`, lazy `sentencepiece` import); `AutoTokenizer` default.
+- `genml_kit/training/text_collator.py` — tokenize / pad / mask-prompt / pack
+  into a `DataBlob` (`data={"input_ids","attention_mask"}`, `meta={"labels"}`).
+- `genml_kit/datasets/text_proxy.py` — HF hub or on-disk text datasets.
+- `genml_kit/pipelines/text.py` — `PIPELINES` name `text`.
+- `genml_kit/methods/causal_lm.py` — `METHODS` name `causal_lm` (shifted
+  cross-entropy; `ppl` metric).
+
+Modified: `models/registry.py` (`task="causal_lm"` branch), `trainer.py`
+(dict-valued `DataBlob.data` batch size), the three package `__init__.py`
+files, `pyproject.toml` (`llm`, `llm-spm` extras), `README.md`.
+
+Verification: 1633 fast tests + 5 slow tests pass; `ruff` clean; `md_latex.py`
+0 findings; end-to-end `genml-kit-train --pipeline text --method causal_lm`
+run on `sshleifer/tiny-gpt2` trains, validates (`best_ppl`), and checkpoints.
 
 ### 2026-10 — Tiny-COCO generator promoted to `scripts/` — **committed** (`07b724e`)
 

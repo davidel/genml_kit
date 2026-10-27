@@ -25,10 +25,12 @@ dependencies = [
 gcs = ["google-cloud-storage"]
 s3 = ["boto3>=1.28"]
 lora = ["peft>=0.7.0"]
+llm = ["peft>=0.7.0"]
+llm-spm = ["sentencepiece>=0.1.99"]
 timm = ["timm>=1.0"]
 uvito = ["segmentation_models_pytorch>=0.3.0"]
 rl = ["gymnasium>=0.29", "pygame>=2.1", "imageio[ffmpeg]>=2.31"]
-all = ["genml_kit[gcs,s3,lora,timm,uvito,rl]"]
+all = ["genml_kit[gcs,s3,lora,llm,llm-spm,timm,uvito,rl]"]
 dev = ["pytest", "ruff", "yapf"]
 
 [project.urls]

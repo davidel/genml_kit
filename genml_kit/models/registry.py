@@ -160,7 +160,21 @@ def load_model(
         **kwargs,
     )
 
-  if num_labels == 0:
+  if task == "causal_lm":
+    # Decoder-only LM path (the causal_lm method): AutoModelForCausalLM
+    # returns a model whose .logits are used for the shifted next-token
+    # cross-entropy.  num_labels is unused here (0 is the caller's default).
+    from transformers import AutoModelForCausalLM
+
+    logging.info("Loading HuggingFace causal LM '%s'.", parsed.model)
+    model = AutoModelForCausalLM.from_pretrained(
+        parsed.model,
+        cache_dir=cache_dir,
+        trust_remote_code=kwargs.pop("trust_remote_code", False),
+        attn_implementation=kwargs.pop("attn_implementation", None),
+        **kwargs,
+    )
+  elif num_labels == 0:
     # timm convention: num_labels == 0 -> load the headless backbone
     # (e.g. ViTModel instead of ViTForImageClassification); used by the
     # self-supervised pre-training paths.

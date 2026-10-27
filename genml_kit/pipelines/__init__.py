@@ -12,7 +12,7 @@ from genml_kit.pipelines.registry import PIPELINES, build_pipeline
 
 def _register_builtins():
   from genml_kit.pipelines import (  # noqa: F401
-      detection, images, rl, segmentation, vo_pair,
+      detection, images, rl, segmentation, text, vo_pair,
   )
 
 

@@ -180,10 +180,16 @@ pip install "genml_kit[s3]"
 # With LoRA fine-tuning:
 pip install "genml_kit[lora]"
 
+# With causal-LM fine-tuning (LoRA + transformers):
+pip install "genml_kit[llm]"
+
+# With a bare SentencePiece tokenizer.model (the 'spm' tokenizer entry):
+pip install "genml_kit[llm-spm]"
+
 # With UVito model support:
 pip install "genml_kit[uvito]"
 
-# Everything above in one shot (gcs, s3, lora, timm, uvito):
+# Everything above in one shot (gcs, s3, lora, llm, llm-spm, timm, uvito):
 pip install "genml_kit[all]"
 ```
 
@@ -2027,6 +2033,71 @@ Enable one family at a time and watch the validation metric after each addition
 (see Appendix B of the distillation tutorial for the pitfalls).  A labeled
 `--dataset` is required: the ground-truth cross-entropy branch anchors the
 student on examples where the teacher is confidently wrong.
+
+---
+
+## Large Language Models (causal LM)
+
+genml_kit can fine-tune decoder-only language models through the same
+branchless driver: a new `text` pipeline (token collation) pairs with a new
+`causal_lm` method (shifted next-token cross-entropy, perplexity metric). The
+full design lives in [`docs/LOCAL_LLM_PLAN.md`](docs/LOCAL_LLM_PLAN.md).
+
+### Quick start
+
+```bash
+# Fine-tune a tiny GPT-2 on a local text corpus
+genml-kit-train --pipeline text \
+                --method causal_lm \
+                --model sshleifer/tiny-gpt2 \
+                --dataset ./my_text_corpus \
+                --text_column text \
+                --max_seq_len 256 \
+                --lora
+```
+
+The `--dataset` value may be a HuggingFace dataset name, or a directory saved
+with `datasets.Dataset.save_to_disk` (containing `train` / `validation`
+splits). With `--val_split` a held-out fraction of the training split is used
+for validation instead.
+
+### Pipeline flags (`--pipeline text`)
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--text_column` | — | column holding a raw LM sequence (plain-LM mode) |
+| `--instruction_column` | — | prompt column (instruction mode, with `--response_column`) |
+| `--response_column` | — | response column (instruction mode) |
+| `--max_seq_len` | `512` | token sequence length (truncation / packing window) |
+| `--mask_prompt` | off | mask prompt tokens out of the loss (instruction tuning) |
+| `--packing` | off | pack sequences into fixed `max_seq_len` windows |
+| `--pad_to_multiple_of` | — | round padded length up to a multiple (e.g. `8`) |
+| `--max_items` | — | cap the number of loaded items (smoke tests) |
+
+`--dataset`, `--split`, `--val_split` and `--cache_dir` are shared with the
+`images` pipeline and are not re-declared.
+
+### Method flags (`--method causal_lm`)
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--tokenizer` | `--model` | tokenizer name/path (defaults to the model) |
+| `--trust_remote_code` | off | allow custom code from the model hub |
+| `--attn_implementation` | — | attention backend (`sdpa`, `eager`, `flash_attention_2`) |
+
+The metric is `ppl` (perplexity, lower is better), so the best checkpoint is
+stored under `best_ppl`. `--lora`, `--grad_checkpoint`, `--freeze`,
+`--source_checkpoint` and `--resume` all work for causal LMs through the same
+shared model-extras path every other objective uses.
+
+### Tokenizers
+
+`load_tokenizer(name)` mirrors the model/processor split. Normal model IDs
+resolve through `transformers.AutoTokenizer`, which already handles both
+SentencePiece and tiktoken Hub vocabularies. Two registry entries cover the
+gaps: `byte` (a dependency-free tokenizer for offline tests) and
+`spm` (a bare SentencePiece `tokenizer.model`, behind the optional
+`sentencepiece` dependency).
 
 ---
 
