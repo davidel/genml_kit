@@ -114,7 +114,6 @@ class SACMethod(Method):
     group.add_argument(
         "--sac_target_entropy",
         type=float,
-        default=None,
         help="Target entropy for auto-alpha.",
     )
     group.add_argument(

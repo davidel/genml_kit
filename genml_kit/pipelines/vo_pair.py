@@ -81,7 +81,6 @@ class VOPairPipeline(DataPipeline):
                        help="Camera pitch for the ground-plane render.")
     group.add_argument("--terrain",
                        type=str,
-                       default=None,
                        help="Optional terrain profile name (VOPairDataset).")
     group.add_argument("--seeded_pairs",
                        type=int,

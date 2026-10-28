@@ -126,7 +126,6 @@ def main():
   parser.add_argument(
       "--search",
       type=str,
-      default=None,
       help="Lucene query string to filter downloads "
       "(e.g., 'diagnosis:\"melanoma\"' or 'anonymous:true'). "
       "Leave empty to download the entire archive.",
@@ -139,7 +138,6 @@ def main():
   parser.add_argument(
       "--min_resolution",
       type=int,
-      default=None,
       help=
       "After download, remove images whose width or height is smaller than this value",
   )

@@ -97,17 +97,14 @@ class ImagesPipeline(DataPipeline):
     group = parser.add_argument_group("images pipeline")
     group.add_argument("--dataset",
                        type=str,
-                       default=None,
                        help="Single dataset (classification): HF name/path, or "
                        "'imagefolder/<dir>'.")
     group.add_argument("--datasets",
                        nargs="+",
-                       default=None,
                        help="Dataset names or local paths for the ensemble "
                        "(pre-training).")
     group.add_argument("--label_column",
                        type=str,
-                       default=None,
                        help="Dataset column holding the class label.")
     group.add_argument("--image_column",
                        type=str,
@@ -117,10 +114,7 @@ class ImagesPipeline(DataPipeline):
                        type=str,
                        default="train",
                        help="HF dataset split to load.")
-    group.add_argument("--cache_dir",
-                       type=str,
-                       default=None,
-                       help="HuggingFace cache directory.")
+    group.add_argument("--cache_dir", type=str, help="HuggingFace cache directory.")
     group.add_argument("--sampler",
                        type=str,
                        default="none",

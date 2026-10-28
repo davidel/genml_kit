@@ -52,7 +52,6 @@ class SegmentationMethod(Method):
     group = parser.add_argument_group("segmentation method")
     group.add_argument("--seg_num_classes",
                        type=int,
-                       default=None,
                        help="Override the inferred class count.")
     group.add_argument("--seg_ignore_index",
                        type=int,
@@ -61,7 +60,6 @@ class SegmentationMethod(Method):
                        "(-1 disables).")
     group.add_argument("--seg_augmentation_script",
                        type=str,
-                       default=None,
                        help="Path/URL to a script defining "
                        "create_seg_transform(image_size, is_train).")
 

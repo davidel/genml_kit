@@ -68,7 +68,6 @@ class VOPairMethod(Method):
     group.add_argument(
         "--vo_loss_cfg",
         type=str,
-        default=None,
         help="Comma-separated loss weights (w_log_s,w_theta,w_conf,w_photo).",
     )
 

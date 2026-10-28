@@ -514,7 +514,6 @@ Output structure:
   parser.add_argument(
       "--min_resolution",
       type=int,
-      default=None,
       help="Minimum image resolution (shorter side) to keep (None disables filtering)",
   )
 

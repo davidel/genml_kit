@@ -223,13 +223,11 @@ class RLPipeline(DataPipeline):
     group.add_argument(
         "--obs_dim",
         type=int,
-        default=None,
         help="Observation dimensionality (inferred from env if omitted).",
     )
     group.add_argument(
         "--env_script",
         type=str,
-        default=None,
         help="Python file/URL defining a ``make_env`` factory.",
     )
     group.add_argument(
@@ -253,7 +251,6 @@ class RLPipeline(DataPipeline):
     group.add_argument(
         "--env_seed",
         type=int,
-        default=None,
         help="Environment RNG seed.",
     )
     group.add_argument(

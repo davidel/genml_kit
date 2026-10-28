@@ -184,7 +184,6 @@ def add_loss_args(parser):
   parser.add_argument(
       "--loss",
       type=str,
-      default=None,
       help="Loss spec: registered name or a path/URL to a .py script "
       "defining build_loss(**kwargs).  None (default) selects the "
       "method's built-in loss (e.g. 'focal' for classification, 'ppo' "
@@ -193,7 +192,6 @@ def add_loss_args(parser):
   parser.add_argument(
       "--loss_args",
       type=json_dict_type,
-      default=None,
       help="JSON kwargs forwarded to the loss builder, e.g. "
       "'{\"gamma\": 1.0, \"label_smoothing\": 0.1}'.",
   )

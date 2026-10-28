@@ -118,7 +118,6 @@ class SegmentationPipeline(DataPipeline):
     group = parser.add_argument_group("segmentation data")
     group.add_argument("--mask_column",
                        type=str,
-                       default=None,
                        help="HuggingFace dataset column holding the mask. "
                        "Optional: when omitted the mask column is "
                        "auto-detected (mask/label/annotation/...). "

@@ -98,13 +98,11 @@ class PPOMethod(Method):
     group.add_argument(
         "--ppo_vf_clip_eps",
         type=float,
-        default=None,
         help="Value function clipping epsilon (None = unclipped).",
     )
     group.add_argument(
         "--ppo_target_kl",
         type=float,
-        default=None,
         help="Early-stop a PPO epoch when the k1 approx-KL exceeds this "
         "(SB3 target_kl). Helps avoid destructive updates on "
         "high-variance minibatches; a value too low (e.g. < 0.005) stalls "

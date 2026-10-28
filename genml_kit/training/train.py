@@ -187,7 +187,6 @@ def build_parser():
       "--model_arg",
       nargs="+",
       action=KVPairAction,
-      default=None,
       metavar="KEY=VALUE",
       help="Override model configuration (repeatable). "
       "Example: --model_arg depth=6 num_heads=8. For "
@@ -204,7 +203,6 @@ def build_parser():
   init_group.add_argument(
       "--param_init",
       type=str,
-      default=None,
       choices=[None, "ortho"],
       help="Parameter init strategy (default None = PyTorch default "
       "init). 'ortho' applies SB3-style orthogonal init (gain sqrt(2) for "
@@ -251,7 +249,6 @@ def build_parser():
   parser.add_argument(
       "--seed",
       type=int,
-      default=None,
       help="RNG seed (deterministic kernels when set).",
   )
   parser.add_argument("--epochs",
@@ -312,14 +309,12 @@ def parse_args(argv=None):
   opt.add_argument("--weight_decay", type=float, default=0.0)
   opt.add_argument("--llrd_decay",
                    type=float,
-                   default=None,
                    help="Layer-wise LR decay factor. Default None = no "
                    "layer-wise decay (flat LR); set e.g. 0.85 to enable.")
   opt.add_argument(
       "--lr_group",
       nargs="+",
       action=KVPairAction,
-      default=None,
       metavar="REGEX=LR",
       help="Per-parameter-group learning rates. "
       "E.g. --lr_group 'backbone.*=1e-5' 'classifier.*=1e-3'. "
@@ -336,7 +331,6 @@ def parse_args(argv=None):
       "--opt_arg",
       nargs="+",
       action=KVPairAction,
-      default=None,
       metavar="KEY=VALUE",
       help="Extra optimizer kwargs (repeatable). "
       "Example: --opt_arg betas=0.9,0.999 momentum=0.9",
@@ -344,7 +338,6 @@ def parse_args(argv=None):
   opt.add_argument(
       "--scheduler",
       type=str,
-      default=None,
       help="torch.optim.lr_scheduler class name (e.g. "
       "CosineAnnealingLR, StepLR) or a path/URL.",
   )
@@ -352,7 +345,6 @@ def parse_args(argv=None):
       "--sched_arg",
       nargs="+",
       action=KVPairAction,
-      default=None,
       metavar="KEY=VALUE",
       help="Extra scheduler kwargs (repeatable). "
       "Example: --sched_arg T_max=50 eta_min=1e-6",
@@ -372,13 +364,11 @@ def parse_args(argv=None):
   parser.add_argument(
       "--log_dir",
       type=str,
-      default=None,
       help="TensorBoard log directory.",
   )
   parser.add_argument(
       "--hf_token",
       type=str,
-      default=None,
       help="HuggingFace token.",
   )
   parser.add_argument(

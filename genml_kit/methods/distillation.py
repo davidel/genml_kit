@@ -158,14 +158,12 @@ class DistillationMethod(Method):
     group.add_argument(
         "--teacher_model",
         type=str,
-        default=None,
         help="Teacher model spec (registry name / script). Required for "
         "--teacher_kind external.",
     )
     group.add_argument(
         "--teacher_checkpoint",
         type=str,
-        default=None,
         help="Checkpoint holding the external teacher's weights.",
     )
     group.add_argument(
@@ -217,7 +215,6 @@ class DistillationMethod(Method):
     group.add_argument(
         "--kd_layer_pattern",
         type=str,
-        default=None,
         help="Regex selecting the feature layers to pair (feature KD).",
     )
     group.add_argument(

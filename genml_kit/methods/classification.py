@@ -43,15 +43,12 @@ class ClassificationMethod(Method):
                        help="Mixup interpolation strength (0 disables).")
     group.add_argument("--train_augmentation_script",
                        type=str,
-                       default=None,
                        help="Path/URL to a script defining create_train_transform().")
     group.add_argument("--tta",
                        type=str,
-                       default=None,
                        help="Test-Time Augmentation ('default' or a script path/URL).")
     group.add_argument("--freeze",
                        type=str,
-                       default=None,
                        help="Comma-separated regex patterns of parameter names to keep "
                        "trainable; all others freeze.")
     group.add_argument("--sampler_weights",
@@ -61,7 +58,6 @@ class ClassificationMethod(Method):
                        help="Weight mode for the classification sampler.")
     group.add_argument("--xgboost_model",
                        type=str,
-                       default=None,
                        help="Path to an XGBoost model to train after the NN stage.")
     group.add_argument("--xgb_use_gpu",
                        action="store_true",

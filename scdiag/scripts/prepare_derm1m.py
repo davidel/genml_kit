@@ -116,7 +116,6 @@ def main():
   parser.add_argument(
       "--min_resolution",
       type=int,
-      default=None,
       help="Skip images whose width or height is smaller than this value",
   )
   parser.add_argument(

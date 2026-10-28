@@ -151,7 +151,6 @@ class DetectionMethod(Method):
     group = parser.add_argument_group("detection method")
     group.add_argument("--det_num_classes",
                        type=int,
-                       default=None,
                        help="Override the inferred class count.")
     group.add_argument("--det_score_thresh",
                        type=float,
