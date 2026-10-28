@@ -44,6 +44,18 @@ python scdiag/scripts/prepare_ham10000.py --output_dir ./ham10000_grouped
 
 ## Canonical Commands
 
+<!-- genml-cli-test
+name: scdiag-canonical-commands
+network: true
+override:
+  - --dataset {tmp}/img
+  - --datasets {tmp}/img
+  - --label_column label
+  - -.--source_checkpoint
+  - --model convvit
+  - --image_size 32
+extra: --epochs 1
+-->
 ```bash
 # Fine-tune on the skin cancer dataset
 genml-kit-train --model google/vit-base-patch16-224 \
@@ -73,7 +85,7 @@ genml-kit-train --pipeline images --method supcon \
 genml-kit-train --pipeline images --method simmim \
                 --model convvit \
                 --datasets ./derm1m_images ./ham10000_grouped \
-                --image_size 448 --batch_size 32 ...
+                --image_size 448 --batch_size 32 --epochs 20
 
 # Fine-tune from the pre-trained encoder
 genml-kit-train --model convvit \

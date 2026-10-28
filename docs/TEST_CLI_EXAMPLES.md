@@ -1,6 +1,6 @@
 # Testing the README CLI Examples
 
-Status: **PLAN — not yet implemented.**
+Status: **implemented.**
 Owner: TBD.
 Related: `scripts/md_latex.py` / `tests/test_md_latex.py` (precedent for
 "logic in `scripts/`, thin test imports it"), `pyproject.toml`

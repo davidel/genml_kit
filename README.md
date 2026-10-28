@@ -204,6 +204,11 @@ NumPy, scikit-learn ≥ 1.3, XGBoost ≥ 2.0, Pillow, tensorboard.
 
 The fastest way to get started:
 
+<!-- genml-cli-test
+name: quick-start-cifar10
+network: true
+extra: --epochs 1 --max_items 16
+-->
 ```bash
 # Fine-tune a ViT on an image-classification dataset (5 epochs, ~2 minutes on GPU)
 genml-kit-train --model google/vit-base-patch16-224 \
@@ -529,6 +534,16 @@ size and GPU memory:
 
 ### Example: Full Pre-Training Pipeline
 
+<!-- genml-cli-test
+name: pretrain-full-pipeline
+network: true
+override:
+  - --datasets {tmp}/img
+  - --dataset {tmp}/img
+  - --label_column label
+  - -.--source_checkpoint
+extra: --epochs 1
+-->
 ```bash
 # Step 1: Pre-train with SimMIM on two large image collections.
 # v4.2: pre-training is a *configuration* of the unified genml-kit-train
@@ -558,6 +573,14 @@ genml-kit-train --model convvit \
 
 ### Example: Supervised Contrastive Pre-Training
 
+<!-- genml-cli-test
+name: pretrain-supcon
+network: true
+override:
+  - --datasets {tmp}/img
+  - --label_column label
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train --pipeline images --method supcon \
                 --model convvit \
@@ -678,10 +701,17 @@ python my_prepare_script.py --output_dir ./prepared_images
 
 Then use the extracted directory as a local dataset:
 
+<!-- genml-cli-test
+name: pretrain-prepared-images
+network: true
+override:
+  - --datasets {tmp}/img
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train --pipeline images --method simmim \
                 --datasets ./prepared_images ./other-images \
-                --image_size 448 --batch_size 32 ...
+                --image_size 448 --batch_size 32 --epochs 20
 ```
 
 For a concrete worked example of such a preparation script, see
@@ -810,6 +840,14 @@ the same sampling and preprocessing scheme.
 
 ### Basic Fine-Tuning
 
+<!-- genml-cli-test
+name: fine-tune-basic
+network: true
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train --model google/vit-base-patch16-224 \
                 --dataset my-org/my-labeled-images \
@@ -825,6 +863,14 @@ genml-kit-train --model google/vit-base-patch16-224 \
 Replace the default linear head with a custom MLP or attention-based
 classifier:
 
+<!-- genml-cli-test
+name: fine-tune-custom-head
+network: true
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1
+-->
 ```bash
 # Freeze backbone, train only the custom head
 genml-kit-train --model cls_model_wrapper:google/vit-base-patch16-224 \
@@ -839,6 +885,15 @@ genml-kit-train --model cls_model_wrapper:google/vit-base-patch16-224 \
 Freeze the entire backbone and train only small low-rank adapter matrices.
 Reduces trainable parameters by ~97% while often matching full fine-tuning:
 
+<!-- genml-cli-test
+name: fine-tune-lora
+network: true
+extras: lora
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train \
     --model cls_model_wrapper:facebook/dinov2-with-registers-large \
@@ -855,6 +910,14 @@ genml-kit-train \
 
 Load encoder weights from a pre-training run (SimMIM, I-JEPA, or SupCon):
 
+<!-- genml-cli-test
+name: fine-tune-from-checkpoint
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+  - -.--source_checkpoint
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train --model convvit \
                 --dataset my-org/my-labeled-images \
@@ -1180,6 +1243,15 @@ Only $`A`$, $`B`$ (and the classifier head) receive gradients.
 
 LoRA can be combined with a custom classifier:
 
+<!-- genml-cli-test
+name: lora-custom-classifier
+network: true
+extras: lora
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train \
     --model cls_model_wrapper:facebook/dinov2-with-registers-large \
@@ -1187,13 +1259,23 @@ genml-kit-train \
     --lora --lora_r 16 --lora_alpha 32 \
     --freeze 'classifier\.(head|pool|encoder)' \
     --lr_group 'backbone.*=1e-5' 'classifier.*=3e-4' \
-    ...
+    --dataset my-org/my-labeled-images \
+    --label_column category \
+    --epochs 20
 ```
 
 ### Cross-Dataset Resume
 
 Switch from one dataset to another while keeping backbone weights:
 
+<!-- genml-cli-test
+name: cross-dataset-resume
+network: true
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train --model facebook/convnextv2-base-22k-224 \
                 --dataset my-org/other-labeled-images \
@@ -1219,14 +1301,24 @@ limits the maximum batch size even on a 24 GB GPU. Gradient checkpointing
 trades compute for memory by discarding intermediate activations during the
 forward pass and recomputing them during the backward pass.
 
+<!-- genml-cli-test
+name: gradient-checkpointing
+network: true
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train \
     --model timm:eva02_base_patch14_448.mim_in22k_ft_in22k_in1k \
+    --dataset my-org/my-labeled-images \
+    --label_column category \
     --batch_size 32 \
     --grad_accum_steps 2 \
     --grad_checkpoint \
     --amp_dtype bfloat16 \
-    ...
+    --epochs 20
 ```
 
 **What it does:** Each transformer block stores only its input and output.
@@ -1253,6 +1345,13 @@ HuggingFace, ConvViT, and UVito — via native APIs or per-block
 
 Run inference on individual images:
 
+<!-- genml-cli-test
+name: inference-guide
+network: true
+override:
+  - --checkpoint {tmp}/chk_infer/model_best.pt
+  - --model convvit --image_size 32
+-->
 ```bash
 genml-kit-infer --model facebook/convnextv2-base-22k-224 \
                 --checkpoint genml_kit_best.pt \
@@ -1343,12 +1442,23 @@ training run. `--source_checkpoint` imports weights from another run before
 the new optimizer is created. When moving a SupCon encoder into classification,
 use:
 
+<!-- genml-cli-test
+name: param-rename
+network: true
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+  - -.--source_checkpoint
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train \
     --checkpoint /content/eva02_finetune \
     --source_checkpoint /content/eva02_supcon_latest.pt \
     --param_rename 'encoder\\.model\\.(.*);model.$1' \
-    ...
+    --dataset my-org/my-labeled-images \
+    --label_column category \
+    --epochs 20
 ```
 
 The rename is needed because the pre-training wrapper stores backbone keys
@@ -1507,9 +1617,19 @@ def build_loss(alpha=1.0, **kwargs):
   return MyLoss(alpha=alpha)
 ```
 
+<!-- genml-cli-test
+name: custom-loss
+network: true
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train --model google/vit-base-patch16-224 \
-  --loss ./my_loss.py --loss_args '{"alpha": 2.0}' ...
+  --dataset my-org/my-labeled-images --label_column category \
+  --loss ./my_loss.py --loss_args '{"alpha": 2.0}' \
+  --epochs 20
 ```
 
 **RL losses** work the same way but return a *bundle* (dict of
@@ -1523,8 +1643,14 @@ def build_loss(**kwargs):
   return {"entropy": lambda ent: ent.mean() * 2.0}  # override only entropy
 ```
 
+<!-- genml-cli-test
+name: rl-custom-loss
+extras: rl
+extra: --epochs 1
+-->
 ```bash
-genml-kit-train --method ppo --loss ./my_ppo_entropy.py ...
+genml-kit-train --pipeline rl --method ppo --env_id CartPole-v1 \
+  --loss ./my_ppo_entropy.py
 ```
 
 The built-in bundles are merged over (`ppo`: `policy`/`value`/`entropy`;
@@ -1581,8 +1707,18 @@ def create_model(num_labels, image_size=224, id2label=None, label2id=None,
   return Tiny(num_labels=num_labels, hidden=kwargs.get("hidden", 128))
 ```
 
+<!-- genml-cli-test
+name: custom-model
+network: true
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1
+-->
 ```bash
-genml-kit-train --model ./my_model.py --loss focal ...
+genml-kit-train --model ./my_model.py --loss focal \
+  --dataset my-org/my-labeled-images --label_column category \
+  --epochs 20
 ```
 
 The script is **fully responsible for weight loading**: when
@@ -1647,8 +1783,15 @@ connections for `unet`/`fpn`).
 
 ### Quick start
 
+<!-- genml-cli-test
+name: segmentation-quick-start
+network: true
+override:
+  - --dataset segfolder:{tmp}/seg
+extra: --epochs 1
+-->
 ```bash
-genml_kit-train \
+genml-kit-train \
   --pipeline segmentation --method segmentation \
   --dataset segfolder:/data/voc2012 \
   --model seg_wrapper:timm/resnet34 \
@@ -1670,8 +1813,15 @@ matched on the file stem (case-insensitive) and a mismatch fails fast.
 
 HuggingFace datasets that carry a mask feature are used with `--mask_column`:
 
+<!-- genml-cli-test
+name: segmentation-mask-column
+network: true
+override:
+  - --dataset {tmp}/hf_seg
+extra: --epochs 1
+-->
 ```bash
-genml_kit-train --pipeline segmentation --method segmentation \
+genml-kit-train --pipeline segmentation --method segmentation \
   --dataset scene_parse_150 --mask_column annotation \
   --model seg_wrapper:timm/convnext_tiny --model_arg decoder=fpn
 ```
@@ -1881,14 +2031,28 @@ To generate a throwaway corpus for a CPU smoke run without downloading COCO,
 use the bundled generator (`scripts/make_tiny_coco.py`), then point the
 pipeline at it:
 
+<!-- genml-cli-test
+name: detection-dataset-format
+network: true
+override:
+  - --dataset detfolder:{tmp}/det
+extra: --epochs 1
+-->
 ```bash
-python scripts/make_tiny_coco.py tiny_coco -n 200 --num_classes 3
 genml-kit-train --pipeline detection --method detection \
-  --dataset detfolder/tiny_coco --model det_wrapper:timm/resnet18 ...
+  --dataset detfolder/tiny_coco --model det_wrapper:timm/resnet18 \
+  --image_size 640 --batch_size 4 --epochs 20
 ```
 
 ### Example
 
+<!-- genml-cli-test
+name: detection-example
+network: true
+override:
+  - --dataset detfolder:{tmp}/det
+extra: --epochs 1
+-->
 ```bash
 genml-kit-train \
   --pipeline detection --method detection \
@@ -1930,6 +2094,10 @@ from-the-ground-up tutorial.  This section is the practical *usage* guide.
 
 ### Quick start
 
+<!-- genml-cli-test
+name: vo-quick-start
+extra: --epochs 1 --vo_length 16 --vo_val_length 8
+-->
 ```bash
 # Supervised VO on synthetic pairs (default npu-small profile)
 genml-kit-train \
@@ -1995,6 +2163,14 @@ from-the-ground-up tutorial.  This section is the practical *usage* guide.
 
 ### Quick start
 
+<!-- genml-cli-test
+name: distillation-quick-start
+network: true
+override:
+  - --dataset {tmp}/img
+  - --teacher_checkpoint {tmp}/teacher/model_best.pt
+extra: --epochs 1
+-->
 ```bash
 # Self-distillation: teacher is an EMA of the student (no external model)
 genml-kit-train \
@@ -2048,6 +2224,14 @@ branchless driver: a new `text` pipeline (token collation) pairs with a new
 
 ### Quick start
 
+<!-- genml-cli-test
+name: causal-lm-quick-start
+network: true
+extras: lora
+override:
+  - --dataset {tmp}/text
+extra: --epochs 1
+-->
 ```bash
 # Fine-tune a tiny GPT-2 on a local text corpus
 genml-kit-train --pipeline text \
@@ -2116,6 +2300,14 @@ projection layers, and emits the shortest dotted suffix that does **not** also
 match a non-attention layer (so GPT-2's `attn.c_proj` is not confused with
 `mlp.c_proj`). Pass `--lora_target_modules` explicitly to override.
 
+<!-- genml-cli-test
+name: causal-lm-lora
+network: true
+extras: lora
+override:
+  - --dataset {tmp}/text
+  - --model sshleifer/tiny-gpt2
+-->
 ```bash
 # LoRA + gradient checkpointing + bf16 on a small LM
 genml-kit-train --pipeline text \
@@ -2161,6 +2353,16 @@ HuggingFace models are *not* wrapped (their `state_dict` keys must stay intact
 for `--resume`); the dispatcher calls their own `generate` directly. So custom
 models registered in `MODELS` generate exactly like HF ones.
 
+<!-- genml-cli-test
+name: llm-generate
+network: true
+override:
+  - --prompts {tmp}/prompts/prompts.txt
+  - --dataset {tmp}/prompt_ds --split test
+  - --model sshleifer/tiny-gpt2
+  - --checkpoint {tmp}/chk_infer/model_best.pt
+  - -.--lora_adapter
+-->
 ```bash
 # Prompts from a file (one per line, or JSONL with --prompt_column)
 genml-kit-llm generate --model sshleifer/tiny-gpt2 \
@@ -2208,6 +2410,13 @@ keeps the raw prompt for base-model completion.
   invokes `score(prompt, completion, reference) -> float` `K` times per item
   and reports the pass rate. No code execution is built in.
 
+<!-- genml-cli-test
+name: llm-eval
+network: true
+override:
+  - --dataset {tmp}/eval
+  - --model sshleifer/tiny-gpt2
+-->
 ```bash
 genml-kit-llm eval --model sshleifer/tiny-gpt2 \
                    --dataset ./my_eval_corpus --split test \
@@ -2227,6 +2436,12 @@ Preference-based post-training runs through the same branchless driver: a new
 `reward_model` methods. The typical recipe is SFT → DPO → (optional) reward
 model:
 
+<!-- genml-cli-test
+name: preference-chain
+network: true
+extras: lora
+extra: --epochs 1
+-->
 ```bash
 # 1. Supervised fine-tune (masking the prompt out of the loss)
 genml-kit-train --pipeline text --method causal_lm \
@@ -2295,7 +2510,12 @@ pip install 'genml_kit[rl]'
 
 ### Quick start
 
-```
+<!-- genml-cli-test
+name: rl-quick-start
+extras: rl
+extra: --epochs 1
+-->
+```bash
 # DQN on CartPole (discrete)
 genml-kit-train --pipeline rl --method dqn --env_id CartPole-v1 \
     --epochs 20 --batch_size 64
@@ -2320,7 +2540,12 @@ Every RL method resolves its network through the same model registry as the
 rest of the framework: `--model` selects a registered factory and
 `--model_arg key=value` forwards constructor kwargs.
 
-```
+<!-- genml-cli-test
+name: rl-custom-models
+extras: rl
+extra: --epochs 1
+-->
+```bash
 # DQN: dueling Q-head (also the default for --dqn_dueling)
 genml-kit-train --pipeline rl --method dqn --model rl/qnet_dueling
 
@@ -2514,7 +2739,12 @@ a small positive default as light regularization.
 
 A typical "serious" continuous-PPO setup (Pendulum-style) looks like:
 
-```
+<!-- genml-cli-test
+name: rl-ppo-serious
+extras: rl
+extra: --epochs 1
+-->
+```bash
 genml-kit-train --pipeline rl --method ppo --env_id Pendulum-v1 \
     --ppo_continuous --obs_normalize --reward_normalize --param_init ortho \
     --ppo_target_kl 0.03 --epochs 500
@@ -2613,6 +2843,14 @@ instead of scrolling past.  Code is formatted with
 [yapf](https://github.com/google/yapf) using the project's `.style.yapf`
 (Google style, 2-space indent) and linted with
 [Ruff](https://docs.astral.sh/ruff/) (`ruff check .`).
+
+### Verifying README commands
+
+Command blocks preceded by a `<!-- genml-cli-test ... -->` HTML comment are
+executed by `tests/test_readme_cli.py`.  The comment is invisible on
+GitHub; its YAML body controls limiting args, network/token markers, and
+substitutions.  Run them with `pytest -m network` (needs internet, no
+credentials) — the offline suite excludes them by default.
 
 ### Naming Conventions For Class Members
 

@@ -29,9 +29,9 @@ llm = ["peft>=0.7.0"]
 llm-spm = ["sentencepiece>=0.1.99"]
 timm = ["timm>=1.0"]
 uvito = ["segmentation_models_pytorch>=0.3.0"]
-rl = ["gymnasium>=0.29", "pygame>=2.1", "imageio[ffmpeg]>=2.31"]
+rl = ["gymnasium>=0.29", "pygame>=2.1", "imageio[ffmpeg]>=2.31", "box2d>=2.3.10"]
 all = ["genml_kit[gcs,s3,lora,llm,llm-spm,timm,uvito,rl]"]
-dev = ["pytest", "ruff", "yapf"]
+dev = ["pytest", "ruff", "yapf", "pyyaml"]
 
 [project.urls]
 Homepage = "https://github.com/davidel/genml_kit"
@@ -60,9 +60,11 @@ ignore = ["I001", "LOG015", "PLC0415", "RUF012", "PLR0402"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config -m 'not slow'"
+addopts = "-ra --strict-markers --strict-config -m 'not slow and not network and not hf'"
 markers = [
   "slow: long-running learning/convergence tests (deselected by default; run with -m slow)",
+  "network: command downloads models/data over the internet (deselected by default)",
+  "hf: command additionally requires HF_TOKEN (implies network; deselected by default)",
 ]
 filterwarnings = [
   "error",
