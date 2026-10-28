@@ -377,8 +377,16 @@ Overall: **32 in-scope fences**, all marked except #08 (`--seed 42 ...`).
 
 ## 7. CI integration
 
-The README CLI suite runs in GitHub Actions with **no secrets** — see the
-`readme-cli` job in `.github/workflows/ci.yml`.
+The README CLI suite is deliberately **not wired into GitHub Actions yet**.
+`.github/workflows/ci.yml` keeps its original shape: the slow job still runs
+plain `pytest -q -m slow` and `pyproject.toml` does not register the `network`
+/ `hf` markers.  Wiring the job in before `tests/test_readme_cli.py` exists
+makes CI fail outright, because `-m 'slow and not network and not hf'` aborts
+with `ERROR: Unknown marker(s) in '-m' expression: hf, network` (a marker is
+only known to `-m` once it is registered in `[tool.pytest.ini_options]`).
+
+Enable the job **as part of the commit that adds the test module** — s 7.3 has
+the exact steps and YAML.
 
 ### 7.1 Token-free by design
 
@@ -399,9 +407,10 @@ Two practical CI details:
 
 * `pytest` exits **5** ("no tests collected") when no network tests exist yet.
   While the suite is being populated, the job treats exit 5 as success.
-* The pre-existing slow job was narrowed to
+* When the job is enabled, the slow job must be narrowed to
   `pytest -q -m 'slow and not network and not hf'`, because the execution
-  tests are `slow` **and** `network`; this keeps the slow job offline.
+  tests are `slow` **and** `network`; this keeps the slow job offline.  Do not
+  narrow it before the markers are registered (see the note in s 7).
 
 ### 7.2 If a gated resource is ever added
 
@@ -452,6 +461,72 @@ Actions flows are cached/refreshed by `huggingface_hub`); trusted-publisher
 claims match **exactly** (no regex) so pin `repository`/`branch`/`workflow`;
 managing repo publishers needs the Hub **Write** role; only GitHub Actions is
 auto-minted (other providers must pre-mint via `HF_OIDC_ID_TOKEN`).
+
+### 7.3 Turning the CI job on (do this with the test module commit)
+
+The workflow is currently **clean** — no `readme-cli` job and no
+`network`/`hf`/`slow and not ...` expression.  Flip it on in the *same* commit
+that lands `tests/test_readme_cli.py` and the marker registration, in this
+order, otherwise CI goes red ("Unknown marker(s) in '-m' expression").
+
+1. **Register the markers first** (`pyproject.toml`, exact diff in s 8.7).
+   Without `network` and `hf` in `[tool.pytest.ini_options].markers`, any
+   `-m` expression naming them is a hard error under `--strict-markers`.
+
+2. **Narrow the slow job** in `.github/workflows/ci.yml`:
+
+   ```yaml
+         - name: Run slow tests
+           run: pytest -q -m 'slow and not network and not hf'
+   ```
+
+   (was `pytest -q -m slow`).  The execution tests are `slow` **and**
+   `network`, so this keeps the slow job offline.
+
+3. **Add the `readme-cli` job** as a sibling of `test:` under `jobs:`:
+
+   ```yaml
+     readme-cli:
+       runs-on: ubuntu-latest
+
+       steps:
+         - name: Check out repository
+           uses: actions/checkout@v4
+
+         - name: Set up Python
+           uses: actions/setup-python@v5
+           with:
+             python-version: "3.11"
+
+         - name: Install package and development dependencies
+           run: python -m pip install -e ".[dev,llm,llm-spm,timm,uvito,lora,s3,rl]"
+
+         - name: Run README CLI examples (tokenless network)
+           run: |
+             set +e
+             pytest -q -m 'network and not hf'
+             code=$?
+             # Exit code 5 == "no tests collected": not an error while the
+             # marker suite is still being populated.
+             if [ "$code" -eq 5 ]; then
+               echo "No network README CLI tests collected yet."
+               exit 0
+             fi
+             exit "$code"
+   ```
+
+   Token-free (no secrets); s 7.2 covers the OIDC path if a gated resource is
+   ever added.
+
+**Sanity check before pushing** (the failure mode that produced the CI red):
+
+```bash
+pytest -q -m 'slow and not network and not hf'   # must NOT say "Unknown marker(s)"
+pytest -q -m 'network and not hf'                # exit 5 (none yet) is fine post-registration
+```
+
+If `-m` still reports unknown markers, step 1 did not land — the marker
+registration is what makes the expressions legal, not the workflow.
 
 ---
 
@@ -836,8 +911,8 @@ Add to the root README "Development" section, after the yapf/ruff paragraph:
 ## 12. Open items / risks
 
 * **Network blocks can't be fully validated in an offline sandbox.** They
-  will be authored, rate-limited by `timeout`, and marked `network`; a
-  maintainer with connectivity confirms them via the CI `readme-cli` job.
+  will be authored, rate-limited by `timeout`, and marked `network`; once the
+  `readme-cli` job is enabled (s 7.3), CI confirms them on a connected runner.
 * **`--max_items` is ignored by image/segmentation pipelines** (only
   `text`/`preference`/`llm` honour it).  Image blocks therefore rely on tiny
   self-sized fixtures + `--epochs 1`.
