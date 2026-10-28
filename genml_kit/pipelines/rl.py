@@ -388,22 +388,21 @@ class RLPipeline(DataPipeline):
         action_dim=action_dim,
         action_dtype=action_dtype,
         discrete=not is_continuous,
-        n_step=getattr(args, "n_step", 1),
-        gamma=getattr(args, "gamma", 0.99),
-        prioritized=getattr(args, "prioritized", False),
+        n_step=args.n_step,
+        # Placeholder: the method owning the discount installs the real value
+        # in ``wire_data`` (init_env runs before the method is built).
+        gamma=0.99,
+        prioritized=args.prioritized,
         alpha=getattr(args, "per_alpha", 0.6),
         beta_start=getattr(args, "per_beta_start", 0.4),
         beta_frames=getattr(args, "per_beta_frames", 100_000),
         seed=buffer_seed,
     )
 
-    # On-policy rollout buffer (used by PPO; ignored by DQN/SAC).  The
-    # buffer size is read directly from the PPO flag -- the method's
-    # ``wire_data`` no longer aliases it onto ``args.rollout_len`` (see
-    # plans/FIX_FRAP.md).
+    # On-policy rollout buffer (used by PPO; ignored by DQN/SAC).
     self.rollout_buffer = RolloutBuffer(
         obs_dim=obs_dim,
-        rollout_len=getattr(args, "ppo_rollout_len", 2048),
+        rollout_len=args.ppo_rollout_len,
         action_dim=self.space.action_dim,
         device="cpu",
         seed=buffer_seed,
@@ -421,7 +420,7 @@ class RLPipeline(DataPipeline):
     # SAC auto-alpha already adapts to the reward scale (see the plan).
     self._reward_normalize = getattr(args, "reward_normalize", False)
     self._reward_norm_clip = getattr(args, "reward_norm_clip", 10.0)
-    self._ret_norm_gamma = getattr(args, "ppo_gamma", 0.99)
+    self._ret_norm_gamma = args.ppo_gamma
     if self._reward_normalize:
       self.ret_norm = ReturnNormalizer(gamma=self._ret_norm_gamma,
                                        clip_reward=self._reward_norm_clip)

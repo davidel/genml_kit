@@ -164,7 +164,7 @@ reuse the same hook.
 | `genml_kit.datasets` | `hf_proxy.py` (HuggingFace → PyTorch bridge), `image_folder.py`, `seg_folder.py` (paired image/mask), `det_folder.py` (COCO detection), `text_proxy.py` (HF text → items), `preference_proxy.py` (chosen/rejected pairs), `ensemble.py`, `field_dataset.py`, `balanced_sampler.py`, `weighted_sampler.py`, `retry.py`, `vo_pairs.py` (synthetic VO pairs) |
 | `genml_kit.geometry` | `similarity.py` (2-D similarity algebra, batched differentiable Umeyama, backward-map warp) — the math behind the visual-odometry front-end lives in [`vo/README.md`](vo/README.md) |
 | `genml_kit.io` | `checkpointing.py` (atomic saves, LoRA state, remote fetch), `storage_utils.py` (S3 / GCS / R2) |
-| `genml_kit.utils` | glog-style logging, CLI arg groups, seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers, `generation.py` (samplers + batched `generate`) |
+| `genml_kit.utils` | glog-style logging, CLI arg groups + `shared_args.py` (globally shared `ARG_*` CLI flags), seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers, `generation.py` (samplers + batched `generate`) |
 | `genml_kit.llm_cli` | `genml-kit-llm` entry point (`generate` / `eval` subcommands) |
 
 ## Installation
@@ -2077,8 +2077,11 @@ for validation instead.
 | `--pad_to_multiple_of` | — | round padded length up to a multiple (e.g. `8`) |
 | `--max_items` | — | cap the number of loaded items (smoke tests) |
 
-`--dataset`, `--split`, `--val_split` and `--cache_dir` are shared with the
-`images` pipeline and are not re-declared.
+`--dataset`, `--split`, `--val_split`, `--cache_dir`, `--image_column`,
+`--max_seq_len`, `--mask_prompt`, `--pad_to_multiple_of` and `--max_items` are
+**globally shared** CLI arguments: they are declared once by the harness
+(`genml_kit/utils/shared_args.py`), so every pipeline and method can read
+`args.<flag>` directly instead of guarding with `getattr(...)`.
 
 ### Method flags (`--method causal_lm`)
 
@@ -2532,6 +2535,13 @@ Relevant flags:
   - `--env_id`, `--obs_dim`, `--env_script` -- environment selection.
   - `--replay_capacity`, `--batch_size`, `--n_step`, `--prioritized`,
     `--per_alpha`, `--per_beta_start`, `--per_beta_frames` -- replay tuning.
+  - **Discount factor** -- there is intentionally **no** global `--gamma`: each
+    method owns its own because RL objectives are not active simultaneously and
+    tune it differently. DQN uses `--dqn_gamma`, PPO `--ppo_gamma`, SAC
+    `--sac_gamma` (all default `0.99`). The n-step returns computed by the
+    shared replay buffer use the discount of the **selected method**; the
+    method installs it into the buffer during `wire_data`, so a single run never
+    mixes discounts.
   - `--obs_normalize`, `--obs_norm_clip` -- running observation
     normalization (Welford).  Both train and eval observations are
     normalized with the same RMS statistics.

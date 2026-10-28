@@ -31,6 +31,11 @@ from genml_kit.utils.args import add_logging_args
 from genml_kit.utils.generation import (SamplingConfig, generate_from_prompts)
 from genml_kit.utils.logging import fatal, setup_logging
 from genml_kit.utils.script import is_script_spec, load_extern
+from genml_kit.utils.shared_args import (ARG_ATTN_IMPLEMENTATION, ARG_BATCH_SIZE,
+                                         ARG_CACHE_DIR, ARG_DATASET, ARG_MAX_ITEMS,
+                                         ARG_MAX_SEQ_LEN, ARG_MODEL, ARG_SEED,
+                                         ARG_SPLIT, ARG_TOKENIZER,
+                                         ARG_TRUST_REMOTE_CODE, add_shared_arg)
 
 _METRICS = ("ppl", "exact_match", "token_f1", "pass_at_k")
 
@@ -38,13 +43,13 @@ _METRICS = ("ppl", "exact_match", "token_f1", "pass_at_k")
 def add_eval_args(parser):
   """Add the ``eval`` subcommand arguments to *parser*."""
   group = parser.add_argument_group("model")
-  group.add_argument("--model",
-                     type=str,
-                     required=True,
-                     help="HuggingFace model id or registered custom model.")
-  group.add_argument("--tokenizer",
-                     type=str,
-                     help="Tokenizer name/path; defaults to --model.")
+  add_shared_arg(
+      group,
+      ARG_MODEL,
+      required=True,
+      help="HuggingFace model id or registered custom model.",
+  )
+  add_shared_arg(group, ARG_TOKENIZER)
   group.add_argument("--checkpoint",
                      type=str,
                      help="State-dict checkpoint, or a <root> with "
@@ -53,22 +58,13 @@ def add_eval_args(parser):
                      type=str,
                      help="PEFT adapter directory (save_pretrained layout).")
   group.add_argument("--device", type=str, help="Device: cuda or cpu.")
-  group.add_argument("--cache_dir", type=str, help="HuggingFace cache directory.")
-  group.add_argument("--trust_remote_code",
-                     action="store_true",
-                     help="Allow custom code from the model hub.")
-  group.add_argument("--attn_implementation",
-                     type=str,
-                     help="Attention backend (e.g. 'sdpa').")
+  add_shared_arg(group, ARG_CACHE_DIR)
+  add_shared_arg(group, ARG_TRUST_REMOTE_CODE)
+  add_shared_arg(group, ARG_ATTN_IMPLEMENTATION)
 
   group = parser.add_argument_group("data")
-  group.add_argument("--dataset",
-                     type=str,
-                     help="HuggingFace dataset name or save_to_disk directory.")
-  group.add_argument("--split",
-                     type=str,
-                     default="test",
-                     help="Dataset split to read (default: test).")
+  add_shared_arg(group, ARG_DATASET)
+  add_shared_arg(group, ARG_SPLIT, default="test")
   group.add_argument("--text_column",
                      type=str,
                      default="text",
@@ -81,17 +77,11 @@ def add_eval_args(parser):
                      type=str,
                      default="reference",
                      help="Column holding the reference (default: reference).")
-  group.add_argument("--max_items",
-                     type=int,
-                     help="Cap the number of items (smoke tests).")
-  group.add_argument("--max_seq_len",
-                     type=int,
-                     default=512,
-                     help="Perplexity window length (default: 512).")
-  group.add_argument("--batch_size",
-                     type=int,
-                     default=8,
-                     help="Items per forward batch (default: 8).")
+  add_shared_arg(group, ARG_MAX_ITEMS)
+  add_shared_arg(group,
+                 ARG_MAX_SEQ_LEN,
+                 help="Perplexity window length (default: 512).")
+  add_shared_arg(group, ARG_BATCH_SIZE, default=8)
 
   group = parser.add_argument_group("metrics")
   group.add_argument("--metrics",
@@ -119,7 +109,7 @@ def add_eval_args(parser):
                      type=float,
                      default=1.0,
                      help="Nucleus sampling threshold (1.0 disables).")
-  group.add_argument("--seed", type=int, help="Sampling seed.")
+  add_shared_arg(group, ARG_SEED, help="Sampling seed.")
   group.add_argument("--no_chat_template",
                      action="store_true",
                      help="Do not apply the tokenizer chat template.")

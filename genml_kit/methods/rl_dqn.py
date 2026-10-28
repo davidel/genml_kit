@@ -111,6 +111,12 @@ class DQNMethod(Method):
     """Read n_actions from the pipeline (set after env init)."""
     self.n_actions = pipeline.n_actions
     self._pipeline = pipeline
+    # The replay buffer's n-step return needs this method's discount; the
+    # pipeline builds the buffer in init_env (before the method is wired), so
+    # install the real value now.  Guarded so callers that wire against a
+    # bare pipeline (no env/buffer yet) still work.
+    if getattr(pipeline, "replay_buffer", None) is not None:
+      pipeline.replay_buffer.gamma = args.dqn_gamma
 
   def build_model(self, args, device):
     """Build the Q-network and initialise epsilon schedule."""
@@ -118,8 +124,8 @@ class DQNMethod(Method):
     # ('dqn') or an external script; partial script bundles are merged
     # over the built-in bundle (see genml_kit.losses.registry.load_loss).
     # ``None`` (default) selects the method's built-in ``'dqn'`` bundle.
-    loss_spec = getattr(args, "loss", None) or "dqn"
-    loss_kwargs = dict(getattr(args, "loss_args", None) or {})
+    loss_spec = args.loss or "dqn"
+    loss_kwargs = dict(args.loss_args or {})
     self._losses = load_loss(loss_spec, protocol="dqn", **loss_kwargs)
 
     # Epsilon schedule state.
@@ -134,7 +140,7 @@ class DQNMethod(Method):
     self._tau = getattr(args, "dqn_tau", 1.0)
 
     # Q-learning hyper-params.
-    self._gamma = getattr(args, "dqn_gamma", 0.99)
+    self._gamma = args.dqn_gamma
     self._ddqn = getattr(args, "dqn_ddqn", True)
     self._n_step = getattr(args, "dqn_n_step", 1)
 
@@ -142,12 +148,12 @@ class DQNMethod(Method):
     # falling back to the two DQN defaults preserves today's behaviour
     # when the user does not pass ``--model`` (the shared parser default
     # is the vision model, which must not leak into RL runs).
-    model_name = getattr(args, "model", None)
+    model_name = args.model
     if not model_name or model_name == "google/vit-base-patch16-224":
       model_name = ("rl/qnet_dueling"
                     if getattr(args, "dqn_dueling", False) else "rl/qnet")
     dqn_kwargs = {
-        k: v for k, v in getattr(args, "model_arg", {}).items() if k not in {
+        k: v for k, v in args.model_arg.items() if k not in {
             "dqn_gamma", "dqn_tau", "dqn_epsilon_start", "dqn_epsilon_end",
             "dqn_epsilon_decay_steps", "dqn_ddqn", "dqn_dueling", "dqn_n_step"
         }
@@ -157,7 +163,7 @@ class DQNMethod(Method):
         num_labels=0,
         space=self._pipeline.space,
         device=device,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         **dqn_kwargs,
     )
     model = self._apply_model_extras(args, model, device)

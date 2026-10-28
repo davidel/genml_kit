@@ -43,6 +43,12 @@ from genml_kit.utils.args import (
 from genml_kit.utils.attr import maybe_call
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import resolve_device
+from genml_kit.utils.shared_args import (
+    ARG_BATCH_SIZE, ARG_CACHE_DIR, ARG_DATASET, ARG_EPOCHS, ARG_GRAD_CHECKPOINT,
+    ARG_HF_TOKEN, ARG_IMAGE_COLUMN, ARG_IMAGE_SIZE, ARG_IN_CH, ARG_LORA, ARG_MAX_ITEMS,
+    ARG_MAX_SEQ_LEN, ARG_MASK_PROMPT, ARG_METHOD, ARG_MODEL, ARG_MODEL_ARG,
+    ARG_NUM_WORKERS, ARG_PAD_TO_MULTIPLE_OF, ARG_PARAM_INIT, ARG_SEED, ARG_SPLIT,
+    ARG_VAL_SPLIT, add_shared_arg)
 from genml_kit.utils.logging import fatal, open_writer, setup_logging
 from genml_kit.utils.seed import resolve_seed, seed_everything
 
@@ -169,41 +175,30 @@ def build_parser():
       choices=PIPELINES.list_names(),
       help="Data pipeline (available: {}).".format(", ".join(PIPELINES.list_names())),
   )
-  parser.add_argument(
-      "--method",
-      type=str,
+  add_shared_arg(
+      parser,
+      ARG_METHOD,
       default="classification",
       choices=METHODS.list_names(),
       help="Objective (available: {}).".format(", ".join(METHODS.list_names())),
   )
-  parser.add_argument(
-      "--model",
-      type=str,
-      default="google/vit-base-patch16-224",
-      help="HF model name/path or timm model (e.g. 'timm:eva02_base_patch14'). "
-      "RL methods accept registered factories (e.g. 'rl/qnet_dueling').",
-  )
-  parser.add_argument(
-      "--model_arg",
-      nargs="+",
-      action=KVPairAction,
-      metavar="KEY=VALUE",
+  add_shared_arg(parser, ARG_MODEL, default="google/vit-base-patch16-224")
+  add_shared_arg(
+      parser,
+      ARG_MODEL_ARG,
       help="Override model configuration (repeatable). "
       "Example: --model_arg depth=6 num_heads=8. For "
       "--model cls_model_wrapper:<hf_name> the classifier head travels "
       "here too: --model_arg classifier=mlp:hidden=512,dropout=0.3",
   )
-  parser.add_argument(
-      "--grad_checkpoint",
-      action=argparse.BooleanOptionalAction,
-      default=False,
-      help="Enable gradient checkpointing to reduce VRAM usage.",
-  )
+  add_shared_arg(parser,
+                 ARG_GRAD_CHECKPOINT,
+                 action=argparse.BooleanOptionalAction,
+                 default=False)
   init_group = parser.add_argument_group("param init")
-  init_group.add_argument(
-      "--param_init",
-      type=str,
-      choices=[None, "ortho"],
+  add_shared_arg(
+      init_group,
+      ARG_PARAM_INIT,
       help="Parameter init strategy (default None = PyTorch default "
       "init). 'ortho' applies SB3-style orthogonal init (gain sqrt(2) for "
       "policy/hidden layers, 1.0 for value/head layers, zero biases) -- the "
@@ -213,12 +208,7 @@ def build_parser():
       "backbones whose own init is already tuned -- keep None there.",
   )
   lora_group = parser.add_argument_group("lora")
-  lora_group.add_argument(
-      "--lora",
-      action="store_true",
-      default=False,
-      help="Apply LoRA adapters to the model.",
-  )
+  add_shared_arg(lora_group, ARG_LORA, help="Apply LoRA adapters to the model.")
   lora_group.add_argument("--lora_r", type=int, default=8, help="LoRA rank.")
   lora_group.add_argument("--lora_alpha",
                           type=float,
@@ -234,27 +224,38 @@ def build_parser():
       default="",
       help="Comma-separated LoRA target module names.",
   )
-  parser.add_argument("--image_size",
-                      type=int,
-                      default=448,
-                      help="Model input resolution.")
-  parser.add_argument("--batch_size",
-                      type=int,
-                      default=32,
-                      help="Training batch size per step.")
-  parser.add_argument("--num_workers",
-                      type=int,
-                      default=4,
-                      help="DataLoader worker processes.")
-  parser.add_argument(
-      "--seed",
-      type=int,
-      help="RNG seed (deterministic kernels when set).",
-  )
-  parser.add_argument("--epochs",
-                      type=int,
-                      default=5,
-                      help="Number of training epochs.")
+  add_shared_arg(parser, ARG_IMAGE_SIZE, default=448)
+  add_shared_arg(parser, ARG_BATCH_SIZE, help="Training batch size per step.")
+  add_shared_arg(parser, ARG_NUM_WORKERS)
+  add_shared_arg(parser, ARG_SEED)
+  add_shared_arg(parser, ARG_EPOCHS)
+
+  # Data-side shared args: declared here (once, globally) rather than by a
+  # selectable pipeline, so consuming components can rely on them existing.
+  data_group = parser.add_argument_group("data")
+  add_shared_arg(data_group,
+                 ARG_DATASET,
+                 help="Single dataset (classification): HF name/path, or "
+                 "'imagefolder/<dir>'.")
+  add_shared_arg(data_group,
+                 ARG_IMAGE_COLUMN,
+                 default="image",
+                 help="Dataset column holding the image.")
+  add_shared_arg(data_group, ARG_SPLIT)
+  add_shared_arg(data_group,
+                 ARG_VAL_SPLIT,
+                 help="Fraction held out as validation "
+                 "(classification, --dataset).")
+  add_shared_arg(data_group, ARG_CACHE_DIR)
+  add_shared_arg(data_group, ARG_MAX_ITEMS)
+  add_shared_arg(data_group, ARG_MAX_SEQ_LEN)
+  add_shared_arg(data_group,
+                 ARG_MASK_PROMPT,
+                 help="Mask prompt tokens out of the loss (instruction mode).")
+  add_shared_arg(data_group,
+                 ARG_PAD_TO_MULTIPLE_OF,
+                 help="Round the padded length up to this multiple "
+                 "(e.g. 8 for tensor-core friendliness).")
   parser.add_argument(
       "--grad_monitor",
       type=int,
@@ -366,17 +367,8 @@ def parse_args(argv=None):
       type=str,
       help="TensorBoard log directory.",
   )
-  parser.add_argument(
-      "--hf_token",
-      type=str,
-      help="HuggingFace token.",
-  )
-  parser.add_argument(
-      "--in_ch",
-      type=int,
-      default=1,
-      help="Input channels (VO pipelines use single-channel imagery).",
-  )
+  add_shared_arg(parser, ARG_HF_TOKEN)
+  add_shared_arg(parser, ARG_IN_CH)
   parser.add_argument(
       "--vis_every",
       type=int,

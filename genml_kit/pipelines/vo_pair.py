@@ -81,6 +81,7 @@ class VOPairPipeline(DataPipeline):
                        help="Camera pitch for the ground-plane render.")
     group.add_argument("--terrain",
                        type=str,
+                       default="field",
                        help="Optional terrain profile name (VOPairDataset).")
     group.add_argument("--seeded_pairs",
                        type=int,
@@ -89,17 +90,18 @@ class VOPairPipeline(DataPipeline):
 
   def build_loader(self, args, mode="train", **kwargs):
     """Build (and cache) the train/val loaders for *mode*."""
-    seed = getattr(args, "seeded_pairs", 0)
-    size = (getattr(args, "image_size", 64), getattr(args, "image_size", 64))
-    pitch_deg = getattr(args, "pitch_deg", 45.0)
+    seed = args.seeded_pairs
+    image_size = args.image_size or 64
+    size = (image_size, image_size)
+    pitch_deg = args.pitch_deg
 
     if mode == "train":
       if self.train_loader is None:
         self.train_dataset = VOPairDataset(
-            length=int(getattr(args, "vo_length", 20000)),
+            length=args.vo_length,
             size=size,
             pitch_deg=pitch_deg,
-            terrain=getattr(args, "terrain", "field"),
+            terrain=args.terrain,
             seed=int(seed),
         )
         self.train_loader = self._make_loader(args, self.train_dataset)
@@ -107,10 +109,10 @@ class VOPairPipeline(DataPipeline):
 
     if self.val_loader is None:
       self.val_dataset = VOPairDataset(
-          length=int(getattr(args, "vo_val_length", 2000)),
+          length=args.vo_val_length,
           size=size,
           pitch_deg=pitch_deg,
-          terrain=getattr(args, "terrain", "field"),
+          terrain=args.terrain,
           seed=int(seed),
       )
       self.val_loader = self._make_loader(args, self.val_dataset, shuffle=False)
@@ -119,9 +121,9 @@ class VOPairPipeline(DataPipeline):
   def _make_loader(self, args, dataset, shuffle=True):
     return DataLoader(
         dataset,
-        batch_size=getattr(args, "batch_size", 32),
+        batch_size=args.batch_size,
         shuffle=shuffle,
-        num_workers=getattr(args, "num_workers", 0),
+        num_workers=args.num_workers,
         worker_init_fn=seed_worker,
         pin_memory=False,
         drop_last=True,

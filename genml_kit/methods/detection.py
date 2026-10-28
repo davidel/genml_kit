@@ -175,7 +175,7 @@ class DetectionMethod(Method):
     """
     from genml_kit.datasets.det_transforms import build_det_transform
 
-    image_size = getattr(args, "image_size", 224)
+    image_size = args.image_size or 224
     self.train_transforms = build_det_transform(image_size, is_train=True)
     self.val_transforms = build_det_transform(image_size, is_train=False)
 
@@ -205,10 +205,10 @@ class DetectionMethod(Method):
         args.model,
         num_labels=self._num_classes,
         id2label=self._id2label,
-        image_size=getattr(args, "image_size", 224),
+        image_size=args.image_size or 224,
         device=device,
-        cache_dir=getattr(args, "cache_dir", None),
-        **getattr(args, "model_args", {}),
+        cache_dir=args.cache_dir,
+        **args.model_arg,
     )
     return self._apply_model_extras(args, model, device)
 
@@ -302,8 +302,8 @@ class DetectionMethod(Method):
     Defaults to ``fcos``; ``--loss`` / ``--loss_args`` override it.  The
     inferred ``num_classes`` is injected here (it is not a CLI flag).
     """
-    spec = getattr(args, "loss", None) or "fcos"
-    loss_args = dict(getattr(args, "loss_args", None) or {})
+    spec = args.loss or "fcos"
+    loss_args = dict(args.loss_args or {})
     loss_args.setdefault("num_classes", self._num_classes)
     criterion = load_loss(spec, **loss_args)
     logging.info("DetectionMethod criterion: %s %s", spec, loss_args)

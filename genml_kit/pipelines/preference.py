@@ -41,12 +41,11 @@ class PreferencePipeline(DataPipeline):
 
   @classmethod
   def add_args(cls, parser):
-    # Only flags no other owner registers.  ``--dataset`` / ``--split`` /
-    # ``--val_split`` / ``--cache_dir`` belong to the ``images`` pipeline and
-    # ``--max_seq_len`` / ``--mask_prompt`` / ``--pad_to_multiple_of`` /
-    # ``--max_items`` to the ``text`` pipeline -- argparse option strings are
-    # global to the single shared parser, so re-declaring them here would
-    # raise ``ArgumentError``.  They are read via ``getattr`` instead.
+    # Only preference-specific flags are declared here.  ``--dataset`` /
+    # ``--split`` / ``--val_split`` / ``--cache_dir`` and ``--max_seq_len`` /
+    # ``--mask_prompt`` / ``--pad_to_multiple_of`` / ``--max_items`` are
+    # globally shared (genml_kit.utils.shared_args), registered by the
+    # harness/entry point; they are read directly as ``args.<flag>``.
     group = parser.add_argument_group("preference pipeline")
     group.add_argument("--chosen_column",
                        type=str,
@@ -86,7 +85,7 @@ class PreferencePipeline(DataPipeline):
                               pad_to_multiple_of=self._pad_to_multiple_of)
 
   def _build(self, args, method=None):
-    if not getattr(args, "dataset", None):
+    if not args.dataset:
       fatal("The preference pipeline requires --dataset.", ValueError)
     tokenizer = getattr(method, "tokenizer", None) if method is not None else None
     if tokenizer is None:
@@ -95,9 +94,9 @@ class PreferencePipeline(DataPipeline):
           "prepare_transforms must set method.tokenizer before the loaders "
           "are built.", ValueError)
 
-    self._max_seq_len = getattr(args, "max_seq_len", 512)
-    self._mask_prompt = getattr(args, "mask_prompt", False)
-    self._pad_to_multiple_of = getattr(args, "pad_to_multiple_of", None)
+    self._max_seq_len = args.max_seq_len
+    self._mask_prompt = args.mask_prompt
+    self._pad_to_multiple_of = args.pad_to_multiple_of
 
     self.train_dataset, self.val_dataset = self._load_splits(args)
     self.train_collator = self._make_collator(tokenizer)
@@ -139,9 +138,9 @@ class PreferencePipeline(DataPipeline):
         held-out fraction of the training split, then a ``validation`` split on
         the hub.  Nothing is downloaded twice.
         """
-    chosen_column = getattr(args, "chosen_column", "chosen")
-    rejected_column = getattr(args, "rejected_column", "rejected")
-    prompt_column = getattr(args, "prompt_column", None)
+    chosen_column = args.chosen_column
+    rejected_column = args.rejected_column
+    prompt_column = args.prompt_column
 
     def _wrap(hf, cap=None):
       from genml_kit.datasets.preference_proxy import PreferenceDatasetProxy
@@ -151,13 +150,11 @@ class PreferencePipeline(DataPipeline):
                                     prompt_column=prompt_column,
                                     max_items=cap)
 
-    val_split = getattr(args, "val_split", None)
+    val_split = args.val_split
     if val_split:
       # Held-out fraction of the training split -- one load, split in memory.
-      full = _wrap(
-          load_raw_split(args.dataset,
-                         getattr(args, "split", "train"),
-                         cache_dir=getattr(args, "cache_dir", None))).dataset
+      full = _wrap(load_raw_split(args.dataset, args.split,
+                                  cache_dir=args.cache_dir)).dataset
       n = len(full)
       n_val = max(1, int(n * val_split))
       if n_val >= n:
@@ -166,15 +163,11 @@ class PreferencePipeline(DataPipeline):
       return _wrap(full.select(range(n - n_val))), _wrap(
           full.select(range(n - n_val, n)))
 
-    train = _wrap(load_raw_split(args.dataset,
-                                 getattr(args, "split", "train"),
-                                 cache_dir=getattr(args, "cache_dir", None)),
-                  cap=getattr(args, "max_items", None))
+    train = _wrap(load_raw_split(args.dataset, args.split, cache_dir=args.cache_dir),
+                  cap=args.max_items)
     try:
-      val_raw = load_raw_split(args.dataset,
-                               "validation",
-                               cache_dir=getattr(args, "cache_dir", None))
-      val = _wrap(val_raw, cap=getattr(args, "max_items", None))
+      val_raw = load_raw_split(args.dataset, "validation", cache_dir=args.cache_dir)
+      val = _wrap(val_raw, cap=args.max_items)
     except (ValueError, KeyError, FileNotFoundError) as exc:
       logging.info("No validation split for %s (%s); val_loader disabled.",
                    args.dataset, exc)

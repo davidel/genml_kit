@@ -57,9 +57,9 @@ class BYOLMethod(Method):
         id2label={},
         label2id={},
         image_size=args.image_size,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         device=device,
-        **getattr(args, "model_arg", {}),
+        **args.model_arg,
     )
     # Apply LoRA / freeze / checkpointing to the online encoder BEFORE
     # constructing the composite: BYOL deep-copies the online encoder into
@@ -105,7 +105,7 @@ class BYOLMethod(Method):
       # Iterable-only datasets: no len().
       total = len(pipeline.train_loader)
     if total:
-      total = total * args.epochs // max(getattr(args, "grad_accum_steps", 1), 1)
+      total = total * args.epochs // max(args.grad_accum_steps, 1)
     self._total_steps = total
 
   def train_step(self, model, blob, global_step, *, labels=None):

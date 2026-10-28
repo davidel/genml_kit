@@ -91,9 +91,9 @@ class ClassificationMethod(Method):
         id2label=self._id2label,
         label2id=self._label2id,
         image_size=args.image_size,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         device=device,
-        **getattr(args, "model_arg", {}),
+        **args.model_arg,
     )
     return self._apply_model_extras(args, model, device)
 
@@ -118,7 +118,7 @@ class ClassificationMethod(Method):
     processor = load_processor(
         args.model,
         image_size=args.image_size,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
     )
     self.train_transforms, self.val_transforms, self.tta_transform = \
         resolve_augmentations(args, processor)
@@ -198,10 +198,10 @@ class ClassificationMethod(Method):
     (``class_weights``) is always injected unless the spec already
     carries a ``weights`` key.
     """
-    kwargs = dict(getattr(args, "loss_args", None) or {})
+    kwargs = dict(args.loss_args or {})
     if class_weights is not None:
       kwargs.setdefault("weights", class_weights)
-    spec = getattr(args, "loss", None) or "focal"
+    spec = args.loss or "focal"
     self._criterion = load_loss(spec, **kwargs)
     logging.info("Criterion: %s", self._criterion)
     return self._criterion

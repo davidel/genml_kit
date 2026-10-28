@@ -179,6 +179,10 @@ class _ImageFolderArgs(argparse.Namespace):
   strict_datasets = False
   image_size = 32
   val_split = 0.2
+  image_column = "image"
+  label_column = None
+  dataset = None
+  datasets = None
 
 
 def _make_imagefolder(root, n=8, classes=("a", "b")):
@@ -362,6 +366,8 @@ class TestClassificationMethod:
     class Cfg:
       focal_gamma = 0.0
       label_smoothing = 0.0
+      loss = None
+      loss_args = None
 
     method.set_mixup_alpha(0.0)
     method.set_label_space(2, {0: "a", 1: "b"}, {"a": 0, "b": 1})

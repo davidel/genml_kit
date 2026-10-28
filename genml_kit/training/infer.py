@@ -13,6 +13,8 @@ from genml_kit.utils.args import add_logging_args
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.label import get_label
 from genml_kit.utils.logging import fatal, setup_logging
+from genml_kit.utils.shared_args import (ARG_CACHE_DIR, ARG_IMAGE_SIZE, ARG_MODEL,
+                                         ARG_MODEL_ARG, add_shared_arg)
 
 
 def parse_args(argv=None):
@@ -20,8 +22,9 @@ def parse_args(argv=None):
       description="Classify images with a fine-tuned model (HuggingFace or timm).",
       formatter_class=argparse.ArgumentDefaultsHelpFormatter,
   )
-  parser.add_argument(
-      "--model",
+  add_shared_arg(
+      parser,
+      ARG_MODEL,
       required=True,
       help="HuggingFace model name/path or timm model "
       "(e.g. 'timm:eva02_base_patch14_224.mim_in22k'). "
@@ -32,12 +35,7 @@ def parse_args(argv=None):
       required=True,
       help="Path to .pt checkpoint (raw or wrapped state dictionary).",
   )
-  parser.add_argument(
-      "--image_size",
-      type=int,
-      default=448,
-      help="Image resize target.",
-  )
+  add_shared_arg(parser, ARG_IMAGE_SIZE, default=448, help="Image resize target.")
   parser.add_argument(
       "--output",
       type=str,
@@ -53,11 +51,7 @@ def parse_args(argv=None):
       type=str,
       help="Device: cuda or cpu.",
   )
-  parser.add_argument(
-      "--cache_dir",
-      type=str,
-      help="HuggingFace cache directory.",
-  )
+  add_shared_arg(parser, ARG_CACHE_DIR)
   add_logging_args(parser)
   parser.add_argument(
       "--xgboost_model",
@@ -65,11 +59,9 @@ def parse_args(argv=None):
       help="Optional XGBoost model path. If provided, run XGBoost alongside "
       "the PyTorch classifier.",
   )
-  parser.add_argument(
-      "--model_arg",
-      nargs="+",
-      action=KVPairAction,
-      metavar="KEY=VALUE",
+  add_shared_arg(
+      parser,
+      ARG_MODEL_ARG,
       help="Override model configuration (repeatable). "
       "Example: --model_arg depth=6 num_heads=8. For "
       "--model cls_model_wrapper:<hf_name> the head travels here too: "

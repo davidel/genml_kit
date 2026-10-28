@@ -67,8 +67,8 @@ class CausalLMMethod(Method):
     del device
     from genml_kit.models.tokenizer import load_tokenizer
     self.tokenizer = load_tokenizer(
-        getattr(args, "tokenizer", None) or args.model,
-        cache_dir=getattr(args, "cache_dir", None),
+        args.tokenizer or args.model,
+        cache_dir=args.cache_dir,
     )
 
   def build_model(self, args, device):
@@ -79,11 +79,11 @@ class CausalLMMethod(Method):
         args.model,
         task="causal_lm",
         num_labels=0,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         device=device,
-        trust_remote_code=getattr(args, "trust_remote_code", False),
-        attn_implementation=getattr(args, "attn_implementation", None),
-        **getattr(args, "model_arg", {}),
+        trust_remote_code=args.trust_remote_code,
+        attn_implementation=args.attn_implementation,
+        **args.model_arg,
     )
     return self._apply_model_extras(args, model, device)
 
@@ -143,6 +143,6 @@ class CausalLMMethod(Method):
   def get_checkpoint_state(self, model, args):
     return {
         "method": "causal_lm",
-        "tokenizer": getattr(args, "tokenizer", None) or args.model,
-        "max_seq_len": getattr(args, "max_seq_len", None)
+        "tokenizer": args.tokenizer or args.model,
+        "max_seq_len": args.max_seq_len
     }

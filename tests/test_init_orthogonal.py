@@ -75,7 +75,13 @@ class TestParamInitArg:
     args = argparse.Namespace(param_init=param_init,
                               freeze=None,
                               lora=False,
-                              lora_target_modules=None)
+                              lora_r=8,
+                              lora_alpha=16,
+                              lora_dropout=0.0,
+                              lora_target_modules=None,
+                              grad_checkpoint=False,
+                              source_checkpoint=None,
+                              param_rename=None)
     return args
 
   def test_ortho_applied_via_extras(self):

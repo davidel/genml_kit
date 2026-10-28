@@ -58,6 +58,7 @@ def _base_args(**overrides):
       lora_target_modules="",
       source_checkpoint=None,
       param_rename=None,
+      param_init=None,
       freeze="",
   )
   defaults.update(overrides)
@@ -169,6 +170,7 @@ class TestApplyModelExtras:
     args.cache_dir = None
     args.source_checkpoint = None
     args.param_rename = None
+    args.param_init = None
     args.freeze = ""
     args.grad_checkpoint = False
     with patch.object(MODELS, "_entries",
@@ -227,7 +229,10 @@ class TestClassificationLifecycle:
         lora_target_modules="fc",
         source_checkpoint=None,
         param_rename=None,
+        param_init=None,
         freeze="",
+        loss=None,
+        loss_args=None,
     )
 
   def test_build_model_requires_wire_data(self):

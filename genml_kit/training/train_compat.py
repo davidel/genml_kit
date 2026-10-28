@@ -128,7 +128,7 @@ def apply_freeze_patterns(args, model):
 
 def maybe_train_xgboost(args, pipeline, device):
   """Free training VRAM, then optionally train the XGBoost head."""
-  if not getattr(args, "xgboost_model", None):
+  if not args.xgboost_model:
     return
   from genml_kit.training.xgb_pipeline import train_xgboost_on_backbone
 

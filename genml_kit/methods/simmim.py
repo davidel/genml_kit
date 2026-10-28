@@ -98,9 +98,9 @@ class SimMIMMethod(Method):
         id2label={},
         label2id={},
         image_size=args.image_size,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         device=device,
-        **getattr(args, "model_arg", {}),
+        **args.model_arg,
     )
     enc = ConvViTMaskedImageEncoder(base_model)
     model = SimMIM(

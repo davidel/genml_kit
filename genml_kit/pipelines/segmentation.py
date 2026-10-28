@@ -112,9 +112,9 @@ class SegmentationPipeline(DataPipeline):
   @classmethod
   def add_args(cls, parser):
     # Only the segmentation-specific flag is declared here: ``--dataset``,
-    # ``--image_column``, ``--val_split`` and ``--cache_dir`` are owned by
-    # the always-registered ``images`` pipeline and must not be re-declared
-    # (argparse option strings are global to the single parser).
+    # ``--image_column``, ``--val_split`` and ``--cache_dir`` are globally
+    # shared (genml_kit.utils.shared_args) and registered once by the harness,
+    # so they are read directly as ``args.<flag>`` rather than re-declared.
     group = parser.add_argument_group("segmentation data")
     group.add_argument("--mask_column",
                        type=str,
@@ -133,7 +133,7 @@ class SegmentationPipeline(DataPipeline):
     return self.build_loader(args, mode="val", **kwargs)
 
   def _build(self, args, method=None):
-    if not getattr(args, "dataset", None):
+    if not args.dataset:
       fatal(
           "SegmentationPipeline requires --dataset "
           "(e.g. segfolder:/data/voc2012 or a HF name + --mask_column)", ValueError)
@@ -168,8 +168,7 @@ class SegmentationPipeline(DataPipeline):
         v2.ToImage(),
         v2.ToDtype(torch.float32, scale=True),
     ])
-    return PairedSegTransform(geometric=build_seg_geometric(getattr(
-        args, "image_size", 224),
+    return PairedSegTransform(geometric=build_seg_geometric(args.image_size or 224,
                                                             is_train=is_train),
                               normalize=normalize)
 
@@ -177,7 +176,7 @@ class SegmentationPipeline(DataPipeline):
     """Resolve train/val datasets from segfolder or HF sources."""
     specs = parse_dataset_specs(
         [args.dataset],
-        image_column=getattr(args, "image_column", "image"),
+        image_column=args.image_column,
         split="train",
     )
     spec = specs[0]
@@ -192,13 +191,13 @@ class SegmentationPipeline(DataPipeline):
     else:
       # No explicit val split: derive one from the train set.
       train_full = splits["train"]
-      n_val = max(1, int(len(train_full) * getattr(args, "val_split", 0.2)))
+      n_val = max(1, int(len(train_full) * args.val_split))
       n_train = len(train_full) - n_val
       if n_train <= 0:
         fatal("SegmentationPipeline: val_split leaves no training samples", ValueError)
       logging.info("SegmentationPipeline: deriving %d val / %d train samples", n_val,
                    n_train)
-      generator = torch.Generator().manual_seed(getattr(args, "seed", 0) or 0)
+      generator = torch.Generator().manual_seed(args.seed or 0)
       train_raw, val_raw = random_split(train_full, [n_train, n_val],
                                         generator=generator)
 
@@ -208,7 +207,7 @@ class SegmentationPipeline(DataPipeline):
     # sparse / 1-based id set compacts to [0, C) and a class split entirely
     # into validation is still covered (never fatal).  Both returned
     # datasets remap through the shared `apply_mask_map`.
-    ignore_index = getattr(args, "seg_ignore_index", 255)
+    ignore_index = args.seg_ignore_index
     all_masks = [
         np.asarray(s[i]["mask"]) for s in (train_raw, val_raw) for i in range(len(s))
     ]
@@ -223,12 +222,12 @@ class SegmentationPipeline(DataPipeline):
   def _load_hf(self, args, name):
     import datasets as _datasets
 
-    raw = _datasets.load_dataset(name, cache_dir=getattr(args, "cache_dir", None))
+    raw = _datasets.load_dataset(name, cache_dir=args.cache_dir)
     train_raw, val_raw = self._split_hf(raw, args)
 
     # Image column: an explicit --image_column wins; otherwise auto-detect
     # (pixel_values / image / ...) instead of forcing a literal "image".
-    image_col = getattr(args, "image_column", None)
+    image_col = args.image_column
     if image_col is None or image_col not in train_raw.column_names:
       image_col = (HFDatasetProxy.detect_image_column(train_raw) or "image")
 
@@ -243,7 +242,7 @@ class SegmentationPipeline(DataPipeline):
           f"{name!r} (columns {train_raw.column_names}). Pass --mask_column.",
           ValueError)
 
-    ignore_index = getattr(args, "seg_ignore_index", 255)
+    ignore_index = args.seg_ignore_index
     mask_map = self._load_or_build_mask_map(args, name, image_col, mask_col,
                                             ignore_index, raw)
 
@@ -265,7 +264,7 @@ class SegmentationPipeline(DataPipeline):
     Priority: ``--cache_dir`` when given, else ``$HOME/.cache/genml_kit``
     when writeable, else a temp directory.
     """
-    if getattr(args, "cache_dir", None):
+    if args.cache_dir:
       d = os.path.join(args.cache_dir, "seg_class_maps")
     else:
       home = os.path.expanduser("~")
@@ -290,7 +289,7 @@ class SegmentationPipeline(DataPipeline):
     content hash of the underlying masks (B11), so any change to the data
     (not just the spec) invalidates the cache.
     """
-    ignore_index = getattr(args, "seg_ignore_index", 255)
+    ignore_index = args.seg_ignore_index
     spec = "|".join([name, image_col, mask_col, str(ignore_index)])
     if content_hash:
       spec = "|".join([spec, content_hash])
@@ -374,8 +373,8 @@ class SegmentationPipeline(DataPipeline):
     """Return ``(train_split, val_split)`` from an HF Dataset / DatasetDict."""
     import datasets as _datasets
 
-    val_frac = getattr(args, "val_split", 0.2)
-    seed = getattr(args, "seed", 0) or 0
+    val_frac = args.val_split
+    seed = args.seed or 0
     if isinstance(raw, _datasets.Dataset):
       split = raw.train_test_split(test_size=val_frac, seed=seed)
       return split["train"], split["test"]
@@ -391,7 +390,7 @@ class SegmentationPipeline(DataPipeline):
 
   def _make_loader(self, dataset, args, *, shuffle):
     generator = None
-    if shuffle and getattr(args, "seed", None) is not None:
+    if shuffle and args.seed is not None:
       generator = torch.Generator()
       generator.manual_seed(args.seed)
     return DataLoader(

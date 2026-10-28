@@ -112,23 +112,23 @@ class RewardModelMethod(Method):
     del device
     from genml_kit.models.tokenizer import load_tokenizer
     self.tokenizer = load_tokenizer(
-        getattr(args, "tokenizer", None) or args.model,
-        cache_dir=getattr(args, "cache_dir", None),
+        args.tokenizer or args.model,
+        cache_dir=args.cache_dir,
     )
 
   def build_model(self, args, device):
     """Build the backbone through the registry and attach the reward head."""
     from genml_kit.models import load_model
 
-    self._bt_loss = load_loss(getattr(args, "loss", None) or "bradley_terry")
+    self._bt_loss = load_loss(args.loss or "bradley_terry")
     model = load_model(
         args.model,
         task="causal_lm",
         num_labels=0,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         device=device,
-        trust_remote_code=getattr(args, "trust_remote_code", False),
-        attn_implementation=getattr(args, "attn_implementation", None),
+        trust_remote_code=args.trust_remote_code,
+        attn_implementation=args.attn_implementation,
     )
     # Attach the head BEFORE model extras so freeze/LoRA/source-checkpoint
     # treat score.* like any other parameter.
@@ -174,6 +174,6 @@ class RewardModelMethod(Method):
   def get_checkpoint_state(self, model, args):
     return {
         "method": "reward_model",
-        "tokenizer": getattr(args, "tokenizer", None) or args.model,
+        "tokenizer": args.tokenizer or args.model,
         "reward_head_hidden": getattr(args, "reward_head_hidden", None),
     }

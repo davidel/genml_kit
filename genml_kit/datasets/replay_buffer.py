@@ -358,6 +358,17 @@ class ReplayBufferDataset(Dataset):
   def gamma(self):
     return self._gamma
 
+  @gamma.setter
+  def gamma(self, value):
+    """Update the discount used for n-step returns.
+
+    The pipeline creates the buffer in ``init_env`` (before the method is
+    wired), so the selected method's discount is installed here once it is
+    known -- see ``RLPipeline.wire_data``.  n-step aggregation only happens
+    at push time, so updating it before training starts is safe.
+    """
+    self._gamma = float(value)
+
   @property
   def n_step(self):
     return self._n_step

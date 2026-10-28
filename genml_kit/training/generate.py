@@ -20,18 +20,22 @@ from genml_kit.training.llm_model import load_lm_for_inference
 from genml_kit.utils.args import add_logging_args
 from genml_kit.utils.generation import SamplingConfig, generate_from_prompts
 from genml_kit.utils.logging import fatal, setup_logging
+from genml_kit.utils.shared_args import (ARG_ATTN_IMPLEMENTATION, ARG_BATCH_SIZE,
+                                         ARG_CACHE_DIR, ARG_DATASET, ARG_MAX_ITEMS,
+                                         ARG_MODEL, ARG_SEED, ARG_SPLIT, ARG_TOKENIZER,
+                                         ARG_TRUST_REMOTE_CODE, add_shared_arg)
 
 
 def add_generate_args(parser):
   """Add the ``generate`` subcommand arguments to *parser*."""
   group = parser.add_argument_group("model")
-  group.add_argument("--model",
-                     type=str,
-                     required=True,
-                     help="HuggingFace model id or registered custom model.")
-  group.add_argument("--tokenizer",
-                     type=str,
-                     help="Tokenizer name/path; defaults to --model.")
+  add_shared_arg(
+      group,
+      ARG_MODEL,
+      required=True,
+      help="HuggingFace model id or registered custom model.",
+  )
+  add_shared_arg(group, ARG_TOKENIZER)
   group.add_argument("--checkpoint",
                      type=str,
                      help="State-dict checkpoint, or a <root> with "
@@ -40,25 +44,16 @@ def add_generate_args(parser):
                      type=str,
                      help="PEFT adapter directory (save_pretrained layout).")
   group.add_argument("--device", type=str, help="Device: cuda or cpu.")
-  group.add_argument("--cache_dir", type=str, help="HuggingFace cache directory.")
-  group.add_argument("--trust_remote_code",
-                     action="store_true",
-                     help="Allow custom code from the model hub.")
-  group.add_argument("--attn_implementation",
-                     type=str,
-                     help="Attention backend (e.g. 'sdpa', 'flash_attention_2').")
+  add_shared_arg(group, ARG_CACHE_DIR)
+  add_shared_arg(group, ARG_TRUST_REMOTE_CODE)
+  add_shared_arg(group, ARG_ATTN_IMPLEMENTATION)
 
   group = parser.add_argument_group("prompts")
   group.add_argument("--prompts",
                      type=str,
                      help="Text file (one prompt per line) or JSONL file.")
-  group.add_argument("--dataset",
-                     type=str,
-                     help="HuggingFace dataset name or save_to_disk directory.")
-  group.add_argument("--split",
-                     type=str,
-                     default="test",
-                     help="Dataset split to read (default: test).")
+  add_shared_arg(group, ARG_DATASET)
+  add_shared_arg(group, ARG_SPLIT, default="test")
   group.add_argument("--prompt_column",
                      type=str,
                      default="prompt",
@@ -66,9 +61,7 @@ def add_generate_args(parser):
   group.add_argument("--text_column",
                      type=str,
                      help="Plain-text column, when reading a text dataset.")
-  group.add_argument("--max_items",
-                     type=int,
-                     help="Cap the number of prompts (smoke tests).")
+  add_shared_arg(group, ARG_MAX_ITEMS)
 
   group = parser.add_argument_group("sampling")
   group.add_argument("--max_new_tokens",
@@ -102,16 +95,13 @@ def add_generate_args(parser):
                      type=int,
                      default=1,
                      help="Completions to produce per prompt.")
-  group.add_argument("--seed", type=int, help="Sampling seed.")
+  add_shared_arg(group, ARG_SEED, help="Sampling seed.")
   group.add_argument("--no_chat_template",
                      action="store_true",
                      help="Do not apply the tokenizer chat template.")
 
   group = parser.add_argument_group("output")
-  group.add_argument("--batch_size",
-                     type=int,
-                     default=8,
-                     help="Prompts per forward batch (default: 8).")
+  add_shared_arg(group, ARG_BATCH_SIZE, default=8)
   group.add_argument("--output",
                      type=str,
                      help="JSONL output path; stdout when omitted.")

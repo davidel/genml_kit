@@ -67,6 +67,10 @@ def _make_args(**overrides):
       freeze_patterns=None,
       param_rename=None,
       freeze=False,
+      cache_dir=None,
+      loss=None,
+      loss_args=None,
+      grad_clip=1.0,
   )
   defaults.update(overrides)
   return argparse.Namespace(**defaults)

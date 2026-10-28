@@ -232,11 +232,11 @@ class Method(abc.ABC):
         target -- typically the student-side backbone -- and build the composite
         afterwards; see DINO/BYOL/IJEPA for the pattern.
         """
-    if getattr(args, "grad_checkpoint", False):
+    if args.grad_checkpoint:
       from genml_kit.training.model_utils import enable_grad_checkpointing
 
       enable_grad_checkpointing(model)
-    if getattr(args, "lora", False):
+    if args.lora:
       from genml_kit.training.model_utils import apply_lora, resolve_lora_targets
 
       if args.lora_target_modules:
@@ -255,7 +255,7 @@ class Method(abc.ABC):
           dropout=args.lora_dropout,
           target_modules=target_modules,
       )
-    elif getattr(args, "source_checkpoint", None):
+    elif args.source_checkpoint:
       from genml_kit.io.checkpointing import load_checkpoint_weights
 
       load_checkpoint_weights(
@@ -267,7 +267,7 @@ class Method(abc.ABC):
     # Generic parameter-init strategy (SB3-style orthogonal init).
     # Applied AFTER source-weight loading so it cannot be silently
     # overridden, and BEFORE freeze patterns (freeze wins over init).
-    param_init = getattr(args, "param_init", None)
+    param_init = args.param_init
     if param_init == "ortho":
       from genml_kit.models.init import init_orthogonal
 

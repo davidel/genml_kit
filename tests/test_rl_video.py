@@ -81,6 +81,21 @@ def _make_args(**overrides):
       # build_model extras (train_compat)
       freeze=None,
       lora=False,
+      lora_r=8,
+      lora_dropout=0.0,
+      grad_checkpoint=False,
+      param_init=None,
+      source_checkpoint=None,
+      param_rename=None,
+      model=None,
+      model_arg={},
+      cache_dir=None,
+      loss=None,
+      loss_args=None,
+      ppo_gamma=0.99,
+      sac_gamma=0.99,
+      n_step=1,
+      grad_clip=1.0,
   )
   defaults.update(overrides)
   return argparse.Namespace(**defaults)

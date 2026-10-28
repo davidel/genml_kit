@@ -264,7 +264,7 @@ class DistillationMethod(Method):
         label2id=self._label2id,
         image_size=args.image_size,
         device=device,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
     )
     # Apply --grad_checkpoint / --lora / --freeze / --source_checkpoint to the
     # student BEFORE the teacher copy is made, so the teacher mirrors the
@@ -299,7 +299,7 @@ class DistillationMethod(Method):
         label2id=self._label2id,
         image_size=args.image_size,
         device=device,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         checkpoint_path=args.teacher_checkpoint,
     )
     # Frozen target: eval mode (no dropout/BN updates) + no gradients.
@@ -515,14 +515,14 @@ def _step_budget(args, pipeline):
   ``grad_accum_steps`` flushes), so the budget divides the micro-batch total.
   """
   loader = getattr(pipeline, "train_loader", None)
-  epochs = getattr(args, "epochs", None)
+  epochs = args.epochs
   if loader is None or not epochs:
     return None
   try:
     total = len(loader) * epochs
   except TypeError:  # iterable-only dataset (no len()): leave the ramp a no-op
     return None
-  return total // max(getattr(args, "grad_accum_steps", 1) or 1, 1)
+  return total // max(args.grad_accum_steps or 1, 1)
 
 
 def _flatten(feature):
@@ -558,7 +558,7 @@ def _activation_dims(args, model, modules, device):
   """
   if not modules:
     return []
-  size = getattr(args, "image_size", 224)
+  size = args.image_size or 224
   # Dummy batch (1, 3, S, S): shapes are batch-independent for these modules.
   dummy = torch.zeros(1, 3, size, size, device=device)
   # One forward pass captures every module's activation (list of (1, ...) or None).

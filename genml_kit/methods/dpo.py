@@ -74,8 +74,8 @@ class DPOMethod(Method):
     del device
     from genml_kit.models.tokenizer import load_tokenizer
     self.tokenizer = load_tokenizer(
-        getattr(args, "tokenizer", None) or args.model,
-        cache_dir=getattr(args, "cache_dir", None),
+        args.tokenizer or args.model,
+        cache_dir=args.cache_dir,
     )
 
   def _build_lm(self, args, device, model_name, checkpoint):
@@ -86,10 +86,10 @@ class DPOMethod(Method):
         model_name,
         task="causal_lm",
         num_labels=0,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         device=device,
-        trust_remote_code=getattr(args, "trust_remote_code", False),
-        attn_implementation=getattr(args, "attn_implementation", None),
+        trust_remote_code=args.trust_remote_code,
+        attn_implementation=args.attn_implementation,
     )
     if checkpoint:
       from genml_kit.training.llm_model import load_checkpoint_into_model
@@ -98,7 +98,7 @@ class DPOMethod(Method):
 
   def build_model(self, args, device):
     """Build the policy (with model extras) and the frozen reference."""
-    self._dpo_loss = load_loss(getattr(args, "loss", None) or "dpo")
+    self._dpo_loss = load_loss(args.loss or "dpo")
     self._beta = getattr(args, "beta", 0.1)
     policy = self._build_lm(args, device, args.model, None)
     policy = self._apply_model_extras(args, policy, device)
@@ -168,7 +168,7 @@ class DPOMethod(Method):
     """Record the reference spec so it can be rebuilt on resume."""
     return {
         "method": "dpo",
-        "tokenizer": getattr(args, "tokenizer", None) or args.model,
+        "tokenizer": args.tokenizer or args.model,
         "reference_model": getattr(args, "reference_model", None) or args.model,
         "reference_checkpoint": getattr(args, "reference_checkpoint", None),
         "beta": getattr(args, "beta", 0.1),

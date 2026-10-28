@@ -122,6 +122,8 @@ class TestSegfolderClassCompaction:
     import argparse
 
     p = SegmentationPipeline()
+    kwargs.setdefault("seed", 0)
+    kwargs.setdefault("seg_ignore_index", 255)
     args = argparse.Namespace(cache_dir=str(tmp_path / "cache"), **kwargs)
     return p, args
 

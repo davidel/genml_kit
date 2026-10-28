@@ -153,20 +153,26 @@ class SACMethod(Method):
       )
     self._action_dim = int(action_shape[0])
     self._env_steps = 0
+    # The replay buffer's n-step return needs this method's discount; the
+    # pipeline builds the buffer in init_env (before the method is wired), so
+    # install the real value now.  Guarded so callers that wire against a
+    # bare pipeline (no env/buffer yet) still work.
+    if getattr(pipeline, "replay_buffer", None) is not None:
+      pipeline.replay_buffer.gamma = args.sac_gamma
 
   def build_model(self, args, device):
-    self._gamma = getattr(args, "sac_gamma", 0.99)
+    self._gamma = args.sac_gamma
     self._tau = getattr(args, "sac_tau", 0.005)
     self._auto_alpha = getattr(args, "sac_auto_alpha", True)
     # Global grad-norm clip for the three SAC optimizers (0 disables).
-    self._grad_clip = getattr(args, "grad_clip", 0.0) or 0.0
+    self._grad_clip = args.grad_clip or 0.0
 
     # Loss bundle: the shared ``--loss`` may select a registered bundle
     # ('sac') or an external script; partial script bundles are merged
     # over the built-in bundle (see genml_kit.losses.registry.load_loss).
     # ``None`` (default) selects the method's built-in ``'sac'`` bundle.
-    loss_spec = getattr(args, "loss", None) or "sac"
-    loss_kwargs = dict(getattr(args, "loss_args", None) or {})
+    loss_spec = args.loss or "sac"
+    loss_kwargs = dict(args.loss_args or {})
     self._losses = load_loss(loss_spec, protocol="sac", **loss_kwargs)
 
     # Temperature alpha.  The *learned* parameter is ``log_alpha`` (its
@@ -187,12 +193,12 @@ class SACMethod(Method):
     # critic, with the default ``rl/actor_critic`` actor -- or a dict
     # ``{"actor": ..., "critic": ...}`` supplying both parts.
     sac_kwargs = {
-        k: v for k, v in getattr(args, "model_arg", {}).items() if k not in {
+        k: v for k, v in args.model_arg.items() if k not in {
             "sac_gamma", "sac_tau", "sac_alpha", "sac_auto_alpha", "sac_target_entropy",
             "sac_critic_lr", "sac_actor_lr", "sac_alpha_lr"
         }
     }
-    model_name = getattr(args, "model", None)
+    model_name = args.model
     if not model_name or model_name == "google/vit-base-patch16-224":
       model_name = "rl/sac_critic"
     result = load_model(

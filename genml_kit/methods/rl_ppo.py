@@ -161,7 +161,7 @@ class PPOMethod(Method):
     self._action_dim = getattr(pipeline, "action_dim", None)
 
   def build_model(self, args, device):
-    self._gamma = getattr(args, "ppo_gamma", 0.99)
+    self._gamma = args.ppo_gamma
     self._lam = getattr(args, "ppo_lam", 0.95)
     self._clip_eps = getattr(args, "ppo_clip_eps", 0.2)
     self._ppo_epochs = getattr(args, "ppo_epochs", 4)
@@ -176,20 +176,20 @@ class PPOMethod(Method):
     # ('ppo') or an external script; partial script bundles are merged
     # over the built-in bundle (see genml_kit.losses.registry.load_loss).
     # ``None`` (default) selects the method's built-in ``'ppo'`` bundle.
-    loss_spec = getattr(args, "loss", None) or "ppo"
-    loss_kwargs = dict(getattr(args, "loss_args", None) or {})
+    loss_spec = args.loss or "ppo"
+    loss_kwargs = dict(args.loss_args or {})
     self._losses = load_loss(loss_spec, protocol="ppo", **loss_kwargs)
 
     # Model: ``--model`` selects the registered factory (interface A).
     # The ``space`` spec (built from the env) decides obs/action sizes
     # and discreteness; ``--ppo_log_std_*`` stay method-level knobs read
     # here, and everything else in ``--model_arg`` is forwarded.
-    model_name = getattr(args, "model", None)
+    model_name = args.model
     if not model_name or model_name == "google/vit-base-patch16-224":
       model_name = "rl/actor_critic"
     model_kwargs = {
         k: v
-        for k, v in getattr(args, "model_arg", {}).items()
+        for k, v in args.model_arg.items()
         if k not in {"log_std_init", "log_std_min", "log_std_max"}
     }
     model = load_model(
@@ -200,7 +200,7 @@ class PPOMethod(Method):
         log_std_init=getattr(args, "ppo_log_std_init", math.log(0.5)),
         log_std_min=getattr(args, "ppo_log_std_min", -10.0),
         log_std_max=getattr(args, "ppo_log_std_max", 2.0),
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         **model_kwargs,
     )
     model = self._apply_model_extras(args, model, device)

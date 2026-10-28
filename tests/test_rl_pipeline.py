@@ -263,7 +263,11 @@ class TestInitEnvActionSpace:
                               obs_dim=None,
                               record_eval_video=False,
                               replay_capacity=10,
-                              env_seed=0)
+                              env_seed=0,
+                              n_step=1,
+                              prioritized=False,
+                              ppo_rollout_len=16,
+                              ppo_gamma=0.99)
     pipeline = RLPipeline()
     pipeline.init_env(args)
     return pipeline

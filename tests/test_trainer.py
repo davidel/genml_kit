@@ -19,6 +19,7 @@ from genml_kit.training.trainer import BaseTrainer
 
 class _Args:
   epochs = 2
+  cache_dir = None
   # Optimizer/scheduler/AMP states not saved.
   state_save = "none"
   # Set per-test.
@@ -277,6 +278,9 @@ def test_vo_trainer_uses_shared_loop(tmp_path):
   args.batch_size = 4
   args.num_workers = 0
   args.in_ch = 1
+  args.seeded_pairs = 0
+  args.pitch_deg = 45.0
+  args.terrain = "field"
   args.seed = None
   args.state_save = "none"
   # _apply_model_extras is invoked by build_model; give it its neutral
@@ -289,6 +293,7 @@ def test_vo_trainer_uses_shared_loop(tmp_path):
   args.lora_target_modules = ""
   args.source_checkpoint = None
   args.param_rename = None
+  args.param_init = None
   args.freeze = ""
 
   pipeline = VOPairPipeline()

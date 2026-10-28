@@ -5,32 +5,33 @@ of the checkpoint/optimization argparse blocks (including help text),
 which had already drifted apart (e.g. a mangled ``--param_rename``
 example in one of the two).  These helpers add the shared flags so the
 two CLIs cannot drift again.
+
+The individually shared flags (``--loss``, ``--grad_clip``, ...) are
+declared once in :mod:`genml_kit.utils.shared_args`; the helpers below are
+thin wrappers that register them, preserving the historical call sites.
 """
 
 import argparse
-import json
 
 import torch
 
+from genml_kit.utils.shared_args import (ARG_GRAD_ACCUM_STEPS, ARG_GRAD_CLIP, ARG_LOSS,
+                                         ARG_LOSS_ARGS, ARG_SOURCE_CHECKPOINT,
+                                         add_shared_arg)
+from genml_kit.utils.shared_args import json_dict_type
+
 _AMP_DTYPES = {"float16": torch.float16, "bfloat16": torch.bfloat16}
 
-
-def json_dict_type(value):
-  """Argparse type converter: a JSON string that must parse to a dict.
-
-  Used for the ``--loss_args`` flag.  ``None``/empty maps to ``{}``; a
-  JSON non-dict (e.g. ``"[]"``) raises ``ArgumentTypeError`` so the CLI
-  fails fast instead of silently building a wrong loss.
-  """
-  if not value:
-    return {}
-  try:
-    data = json.loads(value)
-  except json.JSONDecodeError as e:
-    raise argparse.ArgumentTypeError(f"Invalid JSON: {e}") from e
-  if not isinstance(data, dict):
-    raise argparse.ArgumentTypeError("Expected a JSON object (dict).")
-  return data
+__all__ = [
+    "json_dict_type",
+    "amp_dtype_from_args",
+    "add_checkpoint_args",
+    "add_training_state_args",
+    "add_optimization_args",
+    "add_source_checkpoint_args",
+    "add_loss_args",
+    "add_logging_args",
+]
 
 
 def amp_dtype_from_args(args):
@@ -125,17 +126,15 @@ def add_optimization_args(parser,
         "float16 requires GradScaler; bfloat16 is recommended for "
         "Ampere+ GPUs.",
     )
-  parser.add_argument(
-      "--grad_clip",
-      type=float,
-      default=grad_clip_default,
-      help="Maximum gradient norm for clipping. 0 disables clipping.",
-  )
+  add_shared_arg(parser,
+                 ARG_GRAD_CLIP,
+                 default=grad_clip_default,
+                 help="Maximum gradient norm for clipping. 0 disables "
+                 "clipping.")
   if with_grad_accum:
-    parser.add_argument(
-        "--grad_accum_steps",
-        type=int,
-        default=1,
+    add_shared_arg(
+        parser,
+        ARG_GRAD_ACCUM_STEPS,
         help="Gradient accumulation steps. Effective batch "
         "size = batch_size * grad_accum_steps.",
     )
@@ -154,9 +153,9 @@ def add_source_checkpoint_args(parser):
       from ``genml_kit-pretrain``); ``--param_rename`` optionally rewrites
       keys before shape-based alignment.
     """
-  parser.add_argument(
-      "--source_checkpoint",
-      type=str,
+  add_shared_arg(
+      parser,
+      ARG_SOURCE_CHECKPOINT,
       help="Path to a source checkpoint to absorb parameters from. "
       "Keys are aligned by shape and name before loading. "
       "Typically produced by genml_kit-pretrain.",
@@ -181,20 +180,8 @@ def add_loss_args(parser):
   when unset (e.g. ``'focal'`` for classification, ``'ppo'`` for PPO).
   ``--loss_args`` is a JSON dict forwarded to the loss builder.
   """
-  parser.add_argument(
-      "--loss",
-      type=str,
-      help="Loss spec: registered name or a path/URL to a .py script "
-      "defining build_loss(**kwargs).  None (default) selects the "
-      "method's built-in loss (e.g. 'focal' for classification, 'ppo' "
-      "for PPO).",
-  )
-  parser.add_argument(
-      "--loss_args",
-      type=json_dict_type,
-      help="JSON kwargs forwarded to the loss builder, e.g. "
-      "'{\"gamma\": 1.0, \"label_smoothing\": 0.1}'.",
-  )
+  add_shared_arg(parser, ARG_LOSS)
+  add_shared_arg(parser, ARG_LOSS_ARGS)
 
 
 def add_logging_args(parser):

@@ -68,9 +68,9 @@ class DetectionPipeline(DataPipeline):
   @classmethod
   def add_args(cls, parser):
     # Only detection-specific flags are declared here: ``--dataset``,
-    # ``--image_column``, ``--val_split`` and ``--cache_dir`` are owned by the
-    # always-registered ``images`` pipeline and must not be re-declared
-    # (argparse option strings are global to the single parser).
+    # ``--image_column``, ``--val_split`` and ``--cache_dir`` are globally
+    # shared (genml_kit.utils.shared_args) and registered once by the harness,
+    # so they are read directly as ``args.<flag>`` rather than re-declared.
     group = parser.add_argument_group("detection data")
     group.add_argument("--det_annotation_file",
                        type=str,
@@ -91,7 +91,7 @@ class DetectionPipeline(DataPipeline):
     return self.build_loader(args, mode="val", **kwargs)
 
   def _build(self, args, method=None):
-    if not getattr(args, "dataset", None):
+    if not args.dataset:
       fatal("DetectionPipeline requires --dataset "
             "(e.g. detfolder//data/coco2017)", ValueError)
 
@@ -123,13 +123,13 @@ class DetectionPipeline(DataPipeline):
     flip (train only) and tensor conversion are box-aware (see
     :mod:`genml_kit.datasets.det_transforms`).
     """
-    return build_det_transform(getattr(args, "image_size", 224), is_train=is_train)
+    return build_det_transform(args.image_size or 224, is_train=is_train)
 
   def _load_datasets(self, args):
     """Resolve train/val datasets from a detfolder source."""
     specs = parse_dataset_specs(
         [args.dataset],
-        image_column=getattr(args, "image_column", "image"),
+        image_column=args.image_column,
         split="train",
     )
     spec = specs[0]
@@ -143,7 +143,7 @@ class DetectionPipeline(DataPipeline):
   def _load_detfolder(self, root, args):
     splits = load_detfolder(
         root,
-        annotation_file=getattr(args, "det_annotation_file", "annotations.json"),
+        annotation_file=args.det_annotation_file or "annotations.json",
     )
     if "val" in splits:
       return splits["train"], splits["val"]
@@ -152,13 +152,13 @@ class DetectionPipeline(DataPipeline):
     # implement __getitem__/__len__ but not Subset-friendly bookkeeping, so
     # torch's random_split works directly on the base dataset.
     train_full = splits["train"]
-    n_val = max(1, int(len(train_full) * getattr(args, "val_split", 0.2)))
+    n_val = max(1, int(len(train_full) * args.val_split))
     n_train = len(train_full) - n_val
     if n_train <= 0:
       fatal("DetectionPipeline: val_split leaves no training samples", ValueError)
     logging.info("DetectionPipeline: deriving %d val / %d train samples", n_val,
                  n_train)
-    generator = torch.Generator().manual_seed(getattr(args, "seed", 0) or 0)
+    generator = torch.Generator().manual_seed(args.seed or 0)
     train_subset, val_subset = random_split(train_full, [n_train, n_val],
                                             generator=generator)
     return _SubsetWithMeta(train_subset,
@@ -166,7 +166,7 @@ class DetectionPipeline(DataPipeline):
 
   def _make_loader(self, dataset, args, *, shuffle):
     generator = None
-    if shuffle and getattr(args, "seed", None) is not None:
+    if shuffle and args.seed is not None:
       generator = torch.Generator()
       generator.manual_seed(args.seed)
     return DataLoader(

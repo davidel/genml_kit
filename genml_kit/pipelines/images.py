@@ -35,7 +35,7 @@ from genml_kit.utils.seed import seed_worker
 
 def resolve_hf_token(args):
   """Return the HuggingFace token: ``--hf_token`` wins, else ``HF_TOKEN``."""
-  return getattr(args, "hf_token", None) or getenv("HF_TOKEN", str, None)
+  return args.hf_token or getenv("HF_TOKEN", str, None)
 
 
 class _ProxyAdapter(Dataset):
@@ -94,11 +94,11 @@ class ImagesPipeline(DataPipeline):
 
   @classmethod
   def add_args(cls, parser):
+    # ``--dataset`` / ``--image_column`` / ``--split`` / ``--val_split`` /
+    # ``--cache_dir`` are globally shared (genml_kit.utils.shared_args) and
+    # registered once by the harness/entry point; they are consumed directly
+    # as ``args.<flag>`` rather than re-declared here.
     group = parser.add_argument_group("images pipeline")
-    group.add_argument("--dataset",
-                       type=str,
-                       help="Single dataset (classification): HF name/path, or "
-                       "'imagefolder/<dir>'.")
     group.add_argument("--datasets",
                        nargs="+",
                        help="Dataset names or local paths for the ensemble "
@@ -106,15 +106,6 @@ class ImagesPipeline(DataPipeline):
     group.add_argument("--label_column",
                        type=str,
                        help="Dataset column holding the class label.")
-    group.add_argument("--image_column",
-                       type=str,
-                       default="image",
-                       help="Dataset column holding the image.")
-    group.add_argument("--split",
-                       type=str,
-                       default="train",
-                       help="HF dataset split to load.")
-    group.add_argument("--cache_dir", type=str, help="HuggingFace cache directory.")
     group.add_argument("--sampler",
                        type=str,
                        default="none",
@@ -133,11 +124,6 @@ class ImagesPipeline(DataPipeline):
                        help="Samples per class in each balanced batch. "
                        "batch_size need not be divisible by it; the remainder "
                        "is spread evenly across the per-class groups.")
-    group.add_argument("--val_split",
-                       type=float,
-                       default=0.2,
-                       help="Fraction held out as validation "
-                       "(classification, --dataset).")
 
   def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
     """Build (and cache) the loader for *mode* (train/val).
@@ -164,13 +150,13 @@ class ImagesPipeline(DataPipeline):
       else:
         needs_labels = False
     # The two data paths are mutually exclusive (v4.2 plan s 6.1).
-    if getattr(args, "dataset", None) and getattr(args, "datasets", None):
+    if args.dataset and args.datasets:
       fatal(
           "Provide either --dataset (classification) or --datasets (ensemble), "
           "not both.",
           ValueError,
       )
-    if getattr(args, "dataset", None):
+    if args.dataset:
       if self.train_loader is None or self.val_loader is None:
         self._build_classification(args, method=method, needs_labels=needs_labels)
       return self.val_loader if mode == "val" else self.train_loader
@@ -267,8 +253,8 @@ class ImagesPipeline(DataPipeline):
     """Build the ensemble loader (pre-training path)."""
     configs = parse_dataset_specs(
         args.datasets,
-        image_column=getattr(args, "image_column", "image"),
-        label_column=getattr(args, "label_column", None),
+        image_column=args.image_column,
+        label_column=args.label_column,
     )
     ensemble = DatasetEnsemble(
         configs,
@@ -284,7 +270,7 @@ class ImagesPipeline(DataPipeline):
         fatal(
             f"Datasets {[d.name for d in ensemble.unlabeled_datasets]} "
             f"provide no labels but a label-requiring method "
-            f"({getattr(args, 'method', '?')}) was selected.",
+            f"({args.method or '?'}) was selected.",
             ValueError,
         )
 
@@ -294,7 +280,7 @@ class ImagesPipeline(DataPipeline):
     pipeline_transform = self.build_transform(args, method)
     method_transform = None
     if method is not None and hasattr(method, "build_transform"):
-      method_transform = method.build_transform(args, getattr(args, "image_size", 224))
+      method_transform = method.build_transform(args, args.image_size or 224)
 
     if pipeline_transform is not None and method_transform is not None:
       # Compose: pipeline first, then method.
@@ -307,7 +293,7 @@ class ImagesPipeline(DataPipeline):
     else:
       transform = getattr(method, "train_transforms", None)
       if transform is None:
-        transform = build_pretrain_transform(getattr(args, "image_size", 224))
+        transform = build_pretrain_transform(args.image_size or 224)
 
     dataset = DictFieldTransform(ensemble, transform, fields=(ensemble.image_column,))
     if not needs_labels:
@@ -405,8 +391,8 @@ def build_pretrain_dataset(args, needs_labels=False, transform=None):
   """
   configs = parse_dataset_specs(
       args.datasets,
-      image_column=getattr(args, "image_column", "image"),
-      label_column=getattr(args, "label_column", None),
+      image_column=args.image_column,
+      label_column=args.label_column,
   )
 
   ensemble = DatasetEnsemble(

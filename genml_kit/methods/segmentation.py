@@ -76,7 +76,7 @@ class SegmentationMethod(Method):
     processor = load_processor(
         args.model,
         image_size=args.image_size,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
     )
     self.train_transforms = self._build_transforms(args, processor, is_train=True)
     self.val_transforms = self._build_transforms(args, processor, is_train=False)
@@ -109,7 +109,7 @@ class SegmentationMethod(Method):
     Lifecycle position 2.  The loaders exist, so we can scan the training
     masks for the maximum label id.
     """
-    self._ignore_index_raw = getattr(args, "seg_ignore_index", 255)
+    self._ignore_index_raw = args.seg_ignore_index
     self._num_classes = self._resolve_num_classes(args, pipeline)
     self._id2label = {i: f"class_{i}" for i in range(self._num_classes)}
     self._criterion = self._build_criterion(args)
@@ -128,10 +128,10 @@ class SegmentationMethod(Method):
         num_labels=self._num_classes,
         id2label=self._id2label,
         image_size=args.image_size,
-        cache_dir=getattr(args, "cache_dir", None),
+        cache_dir=args.cache_dir,
         device=device,
         task="segmentation",
-        **getattr(args, "model_arg", {}),
+        **args.model_arg,
     )
     return self._apply_model_extras(args, model, device)
 
@@ -251,8 +251,8 @@ class SegmentationMethod(Method):
     Defaults to ``dice_ce`` for segmentation; ignore index follows
     ``--seg_ignore_index`` unless the user overrides it via ``--loss``.
     """
-    spec = getattr(args, "loss", None) or "dice_ce"
-    loss_args = dict(getattr(args, "loss_args", None) or {})
+    spec = args.loss or "dice_ce"
+    loss_args = dict(args.loss_args or {})
     loss_args.setdefault("ignore_index", self._ignore_index_raw)
     criterion = load_loss(spec, **loss_args)
     logging.info("SegmentationMethod criterion: %s %s", spec, loss_args)
