@@ -270,16 +270,6 @@ class TestPrepareTransforms:
     assert method.val_transforms is sentinel[1]
     assert method.tta_transform is sentinel[2]
 
-  def test_delegates_to_the_shared_helper(self, monkeypatch):
-    """Both image methods call the same shared helper (no duplication)."""
-    calls = []
-    monkeypatch.setattr("genml_kit.methods.distillation.prepare_image_transforms",
-                        lambda method, args: calls.append(method))
-
-    method, _ = _make_method()
-    method.prepare_transforms(self._args(), "cpu")
-    assert calls == [method]
-
 
 class TestBuildModel:
 

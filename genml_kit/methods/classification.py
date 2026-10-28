@@ -5,7 +5,7 @@ import logging
 import torch
 import torch.nn.functional as F
 
-from genml_kit.methods.base import Method, prepare_image_transforms
+from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.losses import load_loss
@@ -104,14 +104,23 @@ class ClassificationMethod(Method):
     self._label2id = label2id
 
   def prepare_transforms(self, args, device):
-    """Resolve train/val/TTA transforms via the shared image helper.
+    """Resolve train/val/TTA transforms from the model processor.
 
     The HF processor owns the normalization (image_mean/std) the
     classification data path must use, so this runs before the loaders
-    are built (lifecycle position 1).  See
-    :func:`genml_kit.methods.base.prepare_image_transforms`.
+    are built (lifecycle position 1).  Transforms are stored on the
+    method -- never in ``args`` -- and read back by the pipeline.
     """
-    prepare_image_transforms(self, args)
+    from genml_kit.models import load_processor
+    from genml_kit.training.train_compat import resolve_augmentations
+
+    processor = load_processor(
+        args.model,
+        image_size=args.image_size,
+        cache_dir=args.cache_dir,
+    )
+    self.train_transforms, self.val_transforms, self.tta_transform = (
+        resolve_augmentations(args, processor))
 
   def wire_data(self, args, pipeline):
     """Read the pipeline's label space and weights; build the criterion.
