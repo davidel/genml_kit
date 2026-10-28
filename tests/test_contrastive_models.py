@@ -117,6 +117,28 @@ class TestContrastiveEncoder:
     model = ContrastiveEncoder(backbone, proj_dim=16, proj_hidden=32)
     assert model._backbone_dim == 64
 
+  def test_detect_backbone_dim_from_config_embed_dim(self):
+    """Headless backbones (num_labels=0) expose only ``config.embed_dim``.
+
+    ConvViT pre-training (supcon / scdiag) builds the adapter with
+    ``num_labels=0``, so ``classifier`` and ``model.head`` are None and the
+    dim must come from the config -- the only path that resolves there.
+    """
+
+    class _HeadlessEmbedDimBackbone(nn.Module):
+
+      def __init__(self):
+        super().__init__()
+        self.config = type("C", (), {"embed_dim": 768})()
+        self.linear = nn.Linear(3, 768)
+
+      def forward(self, x):
+        return self.linear(x.mean(dim=[2, 3]))
+
+    backbone = _HeadlessEmbedDimBackbone()
+    model = ContrastiveEncoder(backbone, proj_dim=64, proj_hidden=128)
+    assert model._backbone_dim == 768
+
   def test_projection_head_not_in_encode(self):
     """encode() returns raw backbone features, not projected."""
     backbone = _FakeBackbone(out_dim=128)

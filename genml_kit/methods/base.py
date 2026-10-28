@@ -7,6 +7,32 @@ import logging
 import torch
 
 
+def prepare_image_transforms(method, args):
+  """Load the model processor and resolve train/val/TTA transforms.
+
+  Shared by image methods that consume the HF processor's normalization
+  (classification, distillation).  Called at lifecycle position 1, before
+  the loaders are built.  The transforms are stored on *method* -- never
+  stuffed into ``args`` -- and the pipeline reads them back via
+  ``method.train_transforms`` / ``.val_transforms`` / ``.tta_transform``.
+
+  Args:
+      method: The method instance to populate.
+      args: Parsed CLI args (``model``, ``image_size``, ``cache_dir``,
+          ``train_augmentation_script``, ``tta``).
+  """
+  from genml_kit.models import load_processor
+  from genml_kit.training.train_compat import resolve_augmentations
+
+  processor = load_processor(
+      args.model,
+      image_size=args.image_size,
+      cache_dir=args.cache_dir,
+  )
+  method.train_transforms, method.val_transforms, method.tta_transform = \
+      resolve_augmentations(args, processor)
+
+
 class Method(abc.ABC):
   """Objective side of training: model + loss + metric.
 

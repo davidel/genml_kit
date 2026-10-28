@@ -404,6 +404,24 @@ class TestClsModelWrapper:
     assert hasattr(model, "backbone")
     assert not hasattr(model.classifier, "backbone")
 
+  def test_base_model_prefix_names_the_backbone_attribute(self):
+    # PEFT scopes adapter keys via this attribute; see ClsModelWrapper docs.
+    model = self._make_wrapper()
+    assert type(model).base_model_prefix == "backbone"
+    assert hasattr(model, "backbone")
+
+  def test_apply_lora_injects_adapters(self):
+    """Regression for peft reading base_model_prefix during injection."""
+    pytest.importorskip("peft")
+    from genml_kit.training.model_utils import apply_lora, resolve_lora_targets
+
+    model = self._make_wrapper()
+    targets = resolve_lora_targets(model)
+    wrapped = apply_lora(model, r=4, alpha=8, target_modules=targets)
+    lora_params = [p for n, p in wrapped.named_parameters() if "lora_" in n]
+    assert lora_params
+    assert all(p.requires_grad for p in lora_params)
+
   def test_extract_backbone_features_mlp(self):
     model = self._make_wrapper(classifier="mlp")
     x = torch.randn(2, 3, 224, 224)

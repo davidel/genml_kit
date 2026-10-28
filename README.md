@@ -905,7 +905,6 @@ genml-kit-train \
     --model cls_model_wrapper:facebook/dinov2-with-registers-large \
     --model_arg classifier=mlp:hidden=512 \
     --lora --lora_r 16 --lora_alpha 32 \
-    --lora_target_modules "query,key,value" \
     --freeze "classifier\.(head|pool|encoder)" \
     --lr 3e-5 \
     --dataset my-org/my-labeled-images \
@@ -1157,7 +1156,7 @@ resume point.
 | `--lora_r` | `8` | LoRA rank. |
 | `--lora_alpha` | `16` | LoRA alpha (scaling = `alpha / r`). |
 | `--lora_dropout` | `0.0` | Dropout on LoRA layers. |
-| `--lora_target_modules` | `None` | Comma-separated module names for LoRA (e.g. `"query,key,value"`). |
+| `--lora_target_modules` | `None` | Comma-separated module names for LoRA (e.g. `"q_proj,k_proj,v_proj"`). When omitted, targets are resolved from the model (see LoRA section). |
 | `--optimizer` | `AdamW` | `torch.optim` optimizer class name or `.py` script path. |
 | `--opt_arg` | `{}` | Extra optimizer kwargs (repeatable). |
 | `--scheduler` | `None` | `torch.optim.lr_scheduler` class name or `.py` script path. |
@@ -2188,7 +2187,7 @@ extra: --epochs 1
 # Self-distillation: teacher is an EMA of the student (no external model)
 genml-kit-train \
   --pipeline images --method distillation \
-  --model google/vit-base-patch16-224 \
+  --model google/vit-base-patch16-224 --image_size 224 \
   --dataset uoft-cs/cifar10 --image_column img --label_column label \
   --teacher_kind ema --kd_temperature 4.0 --kd_alpha 1.0 \
   --epochs 10
@@ -2196,7 +2195,7 @@ genml-kit-train \
 # External teacher: frozen checkpoint hands over its soft targets
 genml-kit-train \
   --pipeline images --method distillation \
-  --model google/vit-base-patch16-224 \
+  --model google/vit-base-patch16-224 --image_size 224 \
   --dataset uoft-cs/cifar10 --image_column img --label_column label \
   --teacher_kind external \
   --teacher_model google/vit-large-patch16-224 \

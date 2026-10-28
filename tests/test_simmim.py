@@ -148,7 +148,47 @@ class TestSimMIM:
     mask = random_mask(2, num_patches, mask_ratio=0.60)
     pred, target = simmim_model(images, mask)
     assert pred.shape == target.shape
-    assert pred.shape == (2, num_patches, 768)
+
+  def test_embed_dim_from_pos_embedding(self):
+    """ConvViT exposes its width via pos_embedding (the primary path)."""
+    encoder = load_convvit(image_size=224,
+                           num_labels=0,
+                           id2label={},
+                           label2id={},
+                           device="cpu")
+    assert ConvViTMaskedImageEncoder(encoder).embed_dim == 768
+
+  def test_embed_dim_falls_back_to_config_hidden_size(self):
+    """An HF ViT has no ``pos_embedding``; the width is config.hidden_size.
+
+    Guards the SimMIM/HF-ViT path: reading ``self.model.pos_embedding``
+    unconditionally would raise AttributeError here.
+    """
+    from transformers import ViTConfig, ViTModel
+
+    vit = ViTModel(
+        ViTConfig(image_size=224,
+                  hidden_size=64,
+                  num_hidden_layers=2,
+                  num_attention_heads=4,
+                  intermediate_size=128))
+    assert not hasattr(vit, "pos_embedding")
+    encoder = ConvViTMaskedImageEncoder(vit)
+    assert encoder.embed_dim == 64
+
+  def test_embed_dim_fatal_when_unresolvable(self):
+    """A model exposing neither attribute fails loudly, not with AttributeError."""
+    import torch.nn as nn
+
+    class _Opaque(nn.Module):
+
+      def __init__(self):
+        super().__init__()
+        self.config = type("C", (), {})()
+        self.patch_embed = type("P", (), {"patch_size": 16, "num_patches": 196})()
+
+    with pytest.raises(ValueError, match="embed"):
+      _ = ConvViTMaskedImageEncoder(_Opaque()).embed_dim
 
   def test_loss_finite(self, simmim_model):
     images = torch.randn(2, 3, 224, 224)

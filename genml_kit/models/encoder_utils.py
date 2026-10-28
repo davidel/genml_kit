@@ -39,6 +39,9 @@ _BACKBONE_DIM_PATHS = (
     "model.head.in_features",
     "classifier.in_features",
     "classifier.feat_dim",
+    # Headless backbones (e.g. ConvViT pre-training with num_labels=0) have
+    # no classifier/head to probe, so fall back to the config width.
+    "config.embed_dim",
 )
 
 

@@ -41,7 +41,7 @@ from genml_kit.losses.distillation import (
     kd_relation_loss,
     kd_response_loss,
 )
-from genml_kit.methods.base import Method
+from genml_kit.methods.base import Method, prepare_image_transforms
 from genml_kit.methods.registry import METHODS
 from genml_kit.models import load_model
 from genml_kit.models.contrastive import ProjectionHead
@@ -235,6 +235,15 @@ class DistillationMethod(Method):
         default=1.0,
         help="Final EMA momentum for --teacher_kind ema.",
     )
+
+  def prepare_transforms(self, args, device):
+    """Resolve train/val/TTA transforms like the classification method.
+
+    Distillation consumes labeled image data through the same
+    classification pipeline path, so without this the loader is built with
+    ``transform=None`` and raw PIL images reach the collate fn.
+    """
+    prepare_image_transforms(self, args)
 
   def set_label_space(self, num_labels, id2label, label2id):
     """Record the label space (mirrors the classification method)."""

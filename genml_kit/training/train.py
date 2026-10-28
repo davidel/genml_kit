@@ -315,7 +315,6 @@ def parse_args(argv=None):
   opt.add_argument(
       "--lr_group",
       nargs="+",
-      action=KVPairAction,
       metavar="REGEX=LR",
       help="Per-parameter-group learning rates. "
       "E.g. --lr_group 'backbone.*=1e-5' 'classifier.*=1e-3'. "

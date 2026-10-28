@@ -18,6 +18,19 @@ class ClsModelWrapper(nn.Module):
   ``(B, N, D)`` tensors and does **not** hold a reference to the
   backbone.
 
+  Attributes
+  ----------
+  base_model_prefix : str
+      Name of the attribute that holds the wrapped HuggingFace model
+      (``"backbone"``).  This is a transformers/PEFT convention, not a
+      genml_kit one: PEFT's adapter injection calls
+      ``transformers.conversion_mapping.get_model_conversion_mapping``,
+      which reads ``model.base_model_prefix`` to scope checkpoint key
+      names to the submodule that owns them.  Declaring it keeps this
+      plain ``nn.Module`` wrapper loadable by ``peft.get_peft_model``
+      (``--lora``) without a ``PreTrainedModel`` subclass.  See
+      ``genml_kit/training/model_utils.py::apply_lora``.
+
   Parameters
   ----------
   backbone_name : str
@@ -31,6 +44,9 @@ class ClsModelWrapper(nn.Module):
   cache_dir
       HuggingFace cache directory for the backbone download.
   """
+
+  # PEFT scopes adapter keys by this prefix (see Attributes above).
+  base_model_prefix = "backbone"
 
   def __init__(
       self,

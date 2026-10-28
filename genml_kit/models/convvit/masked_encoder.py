@@ -1,6 +1,7 @@
 """ConvViT adapter for the generic masked-image encoder interface."""
 
 from genml_kit.models.masked_encoder import MaskedImageEncoder
+from genml_kit.utils.logging import fatal
 
 
 class ConvViTMaskedImageEncoder(MaskedImageEncoder):
@@ -11,7 +12,21 @@ class ConvViTMaskedImageEncoder(MaskedImageEncoder):
 
   @property
   def embed_dim(self):
-    return self.model.pos_embedding.shape[-1]
+    """Embedding width of the wrapped model.
+
+    ConvViT stores it in ``pos_embedding``; a HuggingFace ViT has no such
+    attribute and exposes its width via ``config.hidden_size`` instead.
+    """
+    pos_embedding = getattr(self.model, "pos_embedding", None)
+    if pos_embedding is not None:
+      return pos_embedding.shape[-1]
+    config = getattr(self.model, "config", None)
+    hidden_size = getattr(config, "hidden_size", None)
+    if hidden_size is not None:
+      return hidden_size
+    fatal(
+        "Cannot infer encoder embed_dim: model exposes neither "
+        "pos_embedding nor config.hidden_size.", ValueError)
 
   @property
   def patch_size(self):

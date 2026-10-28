@@ -36,14 +36,20 @@ def test_sched_arg_multiple_tokens():
 
 
 def test_lr_group_multiple_tokens():
+  """``--lr_group`` stays a list of ``"regex=lr"`` strings.
+
+  ``build_param_groups`` splits each spec on ``=``; a dict would iterate
+  its keys and fatal with "expected 'regex=lr'".
+  """
   args = parse_args(["--lr_group", "backbone.*=1e-5", "classifier.*=1e-3"])
-  assert args.lr_group == {"backbone.*": 1e-05, "classifier.*": 0.001}
+  assert args.lr_group == ["backbone.*=1e-5", "classifier.*=1e-3"]
 
 
 def test_kv_args_default_to_empty_dict():
-  """Absent flags yield ``{}`` (safe for ``**args.opt_arg`` etc.)."""
+  """Absent ``**``-unpacked flags yield ``{}``; ``--lr_group`` yields ``None``."""
   args = parse_args([])
   assert args.model_arg == {}
   assert args.opt_arg == {}
   assert args.sched_arg == {}
-  assert args.lr_group == {}
+  # build_param_groups guards with ``if lr_groups:`` so None means "no groups".
+  assert args.lr_group is None

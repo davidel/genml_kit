@@ -236,6 +236,51 @@ class TestExternalTeacher:
     assert method.validate(None, None, 0) is None
 
 
+class TestPrepareTransforms:
+  """DistillationMethod must resolve image transforms (regression: PIL leak).
+
+  Without a ``prepare_transforms`` override the pipeline builds the loader
+  with ``transform=None``, so raw PIL images reach the collate fn and
+  ``torch.stack`` fails.
+  """
+
+  def _args(self):
+    args = _parse_args()
+    args.model = "cls_model_wrapper:fake"
+    args.cache_dir = None
+    args.train_augmentation_script = None
+    args.tta = None
+    return args
+
+  def test_sets_train_val_tta_transforms(self, monkeypatch):
+    import genml_kit.models
+
+    sentinel = (object(), object(), object())
+
+    def _fake_resolve(args, processor):
+      return sentinel
+
+    monkeypatch.setattr(genml_kit.models, "load_processor", lambda *a, **k: object())
+    monkeypatch.setattr("genml_kit.training.train_compat.resolve_augmentations",
+                        _fake_resolve)
+
+    method, _ = _make_method()
+    method.prepare_transforms(self._args(), "cpu")
+    assert method.train_transforms is sentinel[0]
+    assert method.val_transforms is sentinel[1]
+    assert method.tta_transform is sentinel[2]
+
+  def test_delegates_to_the_shared_helper(self, monkeypatch):
+    """Both image methods call the same shared helper (no duplication)."""
+    calls = []
+    monkeypatch.setattr("genml_kit.methods.distillation.prepare_image_transforms",
+                        lambda method, args: calls.append(method))
+
+    method, _ = _make_method()
+    method.prepare_transforms(self._args(), "cpu")
+    assert calls == [method]
+
+
 class TestBuildModel:
 
   def test_requires_teacher_model_for_external(self):
