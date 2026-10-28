@@ -51,7 +51,7 @@ class TestSequenceLogps:
     log_probs = F.log_softmax(logits, dim=-1)
     for b, row in enumerate(labels.tolist()):
       vals = [log_probs[b, t, tok] for t, tok in enumerate(row) if tok != -100]
-      assert logps[b].item() == pytest.approx(sum(vals) / len(vals), rel=1e-5)
+      assert logps[b].item() == pytest.approx(float(sum(vals) / len(vals)), rel=1e-5)
 
 
 class TestDpoLoss:
