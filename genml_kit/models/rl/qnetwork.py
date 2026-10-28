@@ -162,6 +162,7 @@ def load_rl_qnet(space=None,
                  n_actions=2,
                  hidden_dims=None,
                  num_labels=0,
+                 cache_dir=None,
                  **_kwargs):
   """Factory registered as ``rl/qnet`` (standard Q-head).
 
@@ -171,6 +172,7 @@ def load_rl_qnet(space=None,
 
   Returns the ``QNetwork`` module (no image processor for vector obs).
   """
+  del cache_dir  # Q-network is built from scratch; nothing to cache.
   if space is not None:
     obs_dim = space.obs_dim
     n_actions = space.n_actions
@@ -186,6 +188,7 @@ def load_rl_qnet_dueling(space=None,
                          n_actions=2,
                          hidden_dims=None,
                          num_labels=0,
+                         cache_dir=None,
                          **_kwargs):
   """Factory registered as ``rl/qnet_dueling`` (dueling Q-head).
 
@@ -195,6 +198,7 @@ def load_rl_qnet_dueling(space=None,
 
   Returns the ``QNetwork`` module (no image processor for vector obs).
   """
+  del cache_dir  # Q-network is built from scratch; nothing to cache.
   if space is not None:
     obs_dim = space.obs_dim
     n_actions = space.n_actions

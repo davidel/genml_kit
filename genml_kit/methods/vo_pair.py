@@ -81,6 +81,7 @@ class VOPairMethod(Method):
         num_labels=0,
         image_size=getattr(args, "image_size", 64),
         in_ch=getattr(args, "in_ch", 1),
+        cache_dir=getattr(args, "cache_dir", None),
     ).model
     model.to(device)
     # Extras (LoRA / freeze / checkpointing) apply to the VOSimilarityNet

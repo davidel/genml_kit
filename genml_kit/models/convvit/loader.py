@@ -70,6 +70,7 @@ def load_convvit(
     image_size,
     device,
     checkpoint_path=None,
+    cache_dir=None,
     **kwargs,
 ):
   """Instantiate ConvViT model.
@@ -88,11 +89,14 @@ def load_convvit(
         Target device for the model.
     checkpoint_path : str or None
         Optional path to a ``.pt`` checkpoint to load weights from.
+    cache_dir
+        Accepted for registry protocol parity; unused (built from scratch).
     **kwargs
         Extra configuration overrides (e.g. ``depth=6``, ``num_heads=8``,
         ``dropout=0.2``).  Typically passed via ``--model_arg`` from the
         command line.
     """
+  del cache_dir  # ConvViT is built from scratch; nothing to download/cache.
   # Allow CLI / caller overrides via --model_arg (e.g. depth=6 num_heads=8).
   config = SimpleNamespace(
       **{
@@ -158,6 +162,7 @@ def load_convvit(
 
 
 @PROCESSORS.register("convvit")
-def load_convvit_processor(*, image_size=224, **kwargs):
+def load_convvit_processor(*, image_size=224, cache_dir=None, **kwargs):
   """Return a ConvViTProcessor for the given *image_size*."""
+  del cache_dir  # ConvViT processor builds from a local data config.
   return ConvViTProcessor(image_size=image_size)

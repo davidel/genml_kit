@@ -77,6 +77,7 @@ def load_rl_sac_critic(
     action_dim=2,
     hidden_dims=None,
     num_labels=0,
+    cache_dir=None,
     **_kwargs,
 ):
   """Factory registered as ``rl/sac_critic``.
@@ -85,6 +86,7 @@ def load_rl_sac_critic(
   truth for the sizes; the scalar fallbacks keep direct callers (unit
   tests) working unchanged.
   """
+  del cache_dir  # Critic is built from scratch; nothing to cache.
   if space is not None:
     obs_dim = space.obs_dim
     action_dim = space.action_dim

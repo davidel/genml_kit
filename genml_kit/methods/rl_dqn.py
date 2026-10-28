@@ -157,6 +157,7 @@ class DQNMethod(Method):
         num_labels=0,
         space=self._pipeline.space,
         device=device,
+        cache_dir=getattr(args, "cache_dir", None),
         **dqn_kwargs,
     )
     model = self._apply_model_extras(args, model, device)

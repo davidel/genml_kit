@@ -28,6 +28,8 @@ class ClsModelWrapper(nn.Module):
       Classifier spec (registered name or ``.py`` path).
   classifier_args : dict
       Extra kwargs forwarded to the classifier constructor.
+  cache_dir
+      HuggingFace cache directory for the backbone download.
   """
 
   def __init__(
@@ -36,9 +38,10 @@ class ClsModelWrapper(nn.Module):
       num_labels,
       classifier,
       classifier_args=None,
+      cache_dir=None,
   ):
     super().__init__()
-    base = AutoModel.from_pretrained(backbone_name)
+    base = AutoModel.from_pretrained(backbone_name, cache_dir=cache_dir)
     logging.info(
         "ClsModelWrapper: loaded backbone '%s' (%.1fM params)",
         backbone_name,

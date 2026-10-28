@@ -21,7 +21,11 @@ from genml_kit.models.seg_model_wrapper.loader import _timm_name
 from genml_kit.utils.logging import fatal
 
 
-def _build_timm_encoder(backbone, out_indices=None, pretrained=True, **kwargs):
+def _build_timm_encoder(backbone,
+                        out_indices=None,
+                        pretrained=True,
+                        cache_dir=None,
+                        **kwargs):
   """Create a :class:`TimmEncoder` from a timm model string."""
   import timm
 
@@ -30,6 +34,7 @@ def _build_timm_encoder(backbone, out_indices=None, pretrained=True, **kwargs):
       name,
       features_only=True,
       pretrained=pretrained,
+      cache_dir=cache_dir,
       **kwargs,
   )
   return TimmEncoder(model, out_indices=out_indices)
@@ -86,6 +91,7 @@ def load_det_wrapper(
   encoder = _build_timm_encoder(backbone,
                                 out_indices=out_indices,
                                 pretrained=pretrained,
+                                cache_dir=cache_dir,
                                 **kwargs)
 
   # Validate the head spec early so a typo fails before the probe.
@@ -124,7 +130,7 @@ def _resolve_num_labels(num_labels, id2label, label2id):
 
 
 @PROCESSORS.register("det_wrapper")
-def load_det_processor(*, backbone=None, image_size=224, **kwargs):
+def load_det_processor(*, backbone=None, image_size=224, cache_dir=None, **kwargs):
   """Return the encoder's processor (timm data config).
 
   Reuses the timm processor so detection shares the exact normalization /
@@ -136,4 +142,6 @@ def load_det_processor(*, backbone=None, image_size=224, **kwargs):
     fatal(
         "det_wrapper processor requires a backbone "
         "(use --model det_wrapper:<backbone>).", ValueError)
-  return load_timm_processor(backbone=_timm_name(backbone), image_size=image_size)
+  return load_timm_processor(backbone=_timm_name(backbone),
+                             image_size=image_size,
+                             cache_dir=cache_dir)

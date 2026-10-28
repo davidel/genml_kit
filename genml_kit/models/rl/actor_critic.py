@@ -432,6 +432,7 @@ def load_actor_critic(
     log_std_min=-10.0,
     log_std_max=2.0,
     log_std_init=math.log(0.5),  # noqa: B008
+    cache_dir=None,
     **_kwargs):
   """Factory registered as ``rl/actor_critic``.
 
@@ -439,6 +440,7 @@ def load_actor_critic(
   truth for the sizes and discreteness; the scalar fallbacks keep direct
   callers (unit tests) working unchanged.
   """
+  del cache_dir  # Actor-critic is built from scratch; nothing to cache.
   if space is not None:
     obs_dim = space.obs_dim
     discrete = space.is_discrete

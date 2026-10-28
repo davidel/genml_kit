@@ -25,7 +25,11 @@ from genml_kit.models.seg_model_wrapper.model import build_seg_model
 from genml_kit.utils.logging import fatal
 
 
-def _build_timm_encoder(backbone, out_indices=None, pretrained=True, **kwargs):
+def _build_timm_encoder(backbone,
+                        out_indices=None,
+                        pretrained=True,
+                        cache_dir=None,
+                        **kwargs):
   """Create a :class:`TimmEncoder` from a timm model string."""
   import timm
 
@@ -34,6 +38,7 @@ def _build_timm_encoder(backbone, out_indices=None, pretrained=True, **kwargs):
       name,
       features_only=True,
       pretrained=pretrained,
+      cache_dir=cache_dir,
       **kwargs,
   )
   return TimmEncoder(model, out_indices=out_indices)
@@ -96,7 +101,7 @@ def load_seg_wrapper(
   num_labels = _resolve_num_labels(num_labels, id2label, label2id)
   out_indices = _parse_out_indices(encoder_out_indices)
 
-  encoder = _build_encoder(backbone, out_indices, pretrained, kwargs)
+  encoder = _build_encoder(backbone, out_indices, pretrained, cache_dir, kwargs)
 
   # Validate the decoder spec early so a typo fails before the probe.
   dec_name, _ = parse_decoder_spec(decoder)
@@ -142,7 +147,7 @@ def _parse_out_indices(value):
   return list(value)
 
 
-def _build_encoder(backbone, out_indices, pretrained, kwargs):
+def _build_encoder(backbone, out_indices, pretrained, cache_dir, kwargs):
   """Build a timm encoder or a registered custom encoder."""
   # A registered custom encoder name wins over a timm string.
   custom = backbone[len("timm/"):] if backbone.startswith("timm/") else backbone
@@ -151,16 +156,18 @@ def _build_encoder(backbone, out_indices, pretrained, kwargs):
     return MODELS.get(custom)(
         num_labels=0,
         image_size=kwargs.pop("image_size", 224),
+        cache_dir=cache_dir,
         **kwargs,
     )
   return _build_timm_encoder(backbone,
                              out_indices=out_indices,
                              pretrained=pretrained,
+                             cache_dir=cache_dir,
                              **kwargs)
 
 
 @PROCESSORS.register("seg_wrapper")
-def load_seg_processor(*, backbone=None, image_size=224, **kwargs):
+def load_seg_processor(*, backbone=None, image_size=224, cache_dir=None, **kwargs):
   """Return the encoder's processor (timm data config).
 
   Reuses the timm processor so segmentation shares the exact
@@ -172,4 +179,6 @@ def load_seg_processor(*, backbone=None, image_size=224, **kwargs):
     fatal(
         "seg_wrapper processor requires a backbone "
         "(use --model seg_wrapper:<backbone>).", ValueError)
-  return load_timm_processor(backbone=_timm_name(backbone), image_size=image_size)
+  return load_timm_processor(backbone=_timm_name(backbone),
+                             image_size=image_size,
+                             cache_dir=cache_dir)

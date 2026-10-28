@@ -55,6 +55,7 @@ def load_uvito(
     image_size,
     device,
     checkpoint_path=None,
+    cache_dir=None,
     **kwargs,
 ):
   """Instantiate UVito model.
@@ -68,7 +69,10 @@ def load_uvito(
   image_size : int
   device : str or torch.device
   checkpoint_path : str or None
+  cache_dir
+      Accepted for registry protocol parity; unused (built from scratch).
   """
+  del cache_dir  # UVito is built from scratch; nothing to download/cache.
   config = SimpleNamespace(
       **{
           "num_labels": num_labels,
@@ -111,7 +115,8 @@ def load_uvito(
 
 
 @PROCESSORS.register("uvito")
-def load_uvito_processor(*, image_size=224, **kwargs):
+def load_uvito_processor(*, image_size=224, cache_dir=None, **kwargs):
   """Return a UVitoProcessor for the given *image_size*."""
   from genml_kit.models.uvito.processor import UVitoProcessor
+  del cache_dir  # UVito processor builds from a local data config.
   return UVitoProcessor(image_size=image_size)

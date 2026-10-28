@@ -202,6 +202,7 @@ class PPOMethod(Method):
         log_std_init=getattr(args, "ppo_log_std_init", math.log(0.5)),
         log_std_min=getattr(args, "ppo_log_std_min", -10.0),
         log_std_max=getattr(args, "ppo_log_std_max", 2.0),
+        cache_dir=getattr(args, "cache_dir", None),
         **model_kwargs,
     )
     model = self._apply_model_extras(args, model, device)

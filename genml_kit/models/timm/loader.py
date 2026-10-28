@@ -65,6 +65,7 @@ def load_timm_model(
       backbone,
       pretrained=pretrained,
       num_classes=num_labels,
+      cache_dir=cache_dir,
       **kwargs,
   )
 
@@ -86,7 +87,7 @@ def load_timm_model(
 
 
 @PROCESSORS.register("timm")
-def load_timm_processor(*, backbone, image_size=224, **kwargs):
+def load_timm_processor(*, backbone, image_size=224, cache_dir=None, **kwargs):
   """Return a :class:`TimmProcessor` for the given *image_size*.
 
   Reads the model's ``pretrained_cfg`` to obtain the correct
@@ -95,7 +96,7 @@ def load_timm_processor(*, backbone, image_size=224, **kwargs):
   # Local import so the module is optional.
   import timm
 
-  timm_model = timm.create_model(backbone, pretrained=False)
+  timm_model = timm.create_model(backbone, pretrained=False, cache_dir=cache_dir)
   data_config = timm.data.resolve_data_config(timm_model.pretrained_cfg)
 
   logging.info(

@@ -17,7 +17,13 @@ VOModelBundle = collections.namedtuple("VOModelBundle", ["model", "processor"])
 
 
 @MODELS.register("vo/npu-small")
-def load_vo_npu_small(*, image_size=256, in_ch=1, cost_range=6, **kwargs):
+def load_vo_npu_small(*,
+                      image_size=256,
+                      in_ch=1,
+                      cost_range=6,
+                      cache_dir=None,
+                      **kwargs):
+  del cache_dir  # VO is built from scratch; nothing to download/cache.
   return _load_vo(
       VOSimilarityConfig(profile="npu-small",
                          in_ch=in_ch,
@@ -26,7 +32,13 @@ def load_vo_npu_small(*, image_size=256, in_ch=1, cost_range=6, **kwargs):
 
 
 @MODELS.register("vo/edge-mid")
-def load_vo_edge_mid(*, image_size=256, in_ch=1, cost_range=6, **kwargs):
+def load_vo_edge_mid(*,
+                     image_size=256,
+                     in_ch=1,
+                     cost_range=6,
+                     cache_dir=None,
+                     **kwargs):
+  del cache_dir  # VO is built from scratch; nothing to download/cache.
   return _load_vo(
       VOSimilarityConfig(profile="edge-mid",
                          in_ch=in_ch,
@@ -35,7 +47,8 @@ def load_vo_edge_mid(*, image_size=256, in_ch=1, cost_range=6, **kwargs):
 
 
 @MODELS.register("vo/station")
-def load_vo_station(*, image_size=256, in_ch=3, cost_range=6, **kwargs):
+def load_vo_station(*, image_size=256, in_ch=3, cost_range=6, cache_dir=None, **kwargs):
+  del cache_dir  # VO is built from scratch; nothing to download/cache.
   return _load_vo(
       VOSimilarityConfig(profile="station",
                          in_ch=in_ch,

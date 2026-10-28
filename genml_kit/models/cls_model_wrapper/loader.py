@@ -26,6 +26,7 @@ def load_cls_model_wrapper(*,
                            label2id=None,
                            image_size=224,
                            device="cpu",
+                           cache_dir=None,
                            **kwargs):
   """Instantiate :class:`ClsModelWrapper` and move to *device*."""
   if num_labels == 0:
@@ -47,6 +48,7 @@ def load_cls_model_wrapper(*,
       num_labels=num_labels,
       classifier=classifier,
       classifier_args=classifier_args,
+      cache_dir=cache_dir,
   )
   model.to(device)
 

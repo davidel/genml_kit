@@ -137,6 +137,7 @@ def load_model(
         image_size=image_size,
         checkpoint_path=checkpoint_path,
         device=device,
+        cache_dir=cache_dir,
         **kwargs,
     )
 
@@ -157,6 +158,7 @@ def load_model(
         image_size=image_size,
         device=device,
         checkpoint_path=checkpoint_path,
+        cache_dir=cache_dir,
         **kwargs,
     )
 
@@ -257,6 +259,7 @@ def load_processor(
       logging.info("Loading custom processor '%s' from registry.", name)
       return PROCESSORS.get(name)(
           image_size=image_size,
+          cache_dir=cache_dir,
           **kwargs,
       )
 
