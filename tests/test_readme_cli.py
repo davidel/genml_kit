@@ -461,7 +461,11 @@ def _make_hf_seg_dataset(root, n=4, size=32):
     mask[:, :size // 2] = 1
     masks.append(Image.fromarray(mask))
   hf = datasets.Dataset.from_dict({"image": images, "annotation": masks})
-  hf.save_to_disk(str(root))
+  # ``SegmentationPipeline._load_hf`` reads local sources through
+  # ``datasets.load_dataset`` (not ``load_from_disk``), so materialize the tiny
+  # corpus as a directory of parquet shards that ``load_dataset`` can discover.
+  root.mkdir(parents=True, exist_ok=True)
+  hf.to_parquet(str(root / "train-00000-of-00001.parquet"))
   return root
 
 
@@ -521,14 +525,40 @@ def _make_eval_corpus(root):
   return root
 
 
+def _is_causal_lm(model):
+  """Whether *model* is a decoder-only LM rather than an image classifier."""
+  lowered = str(model).lower()
+  return any(tag in lowered for tag in ("gpt", "llama", "mistral", "qwen", "phi"))
+
+
 def _make_inference_checkpoint(root, model="convvit", num_labels=2):
   import torch
   from genml_kit.models.registry import load_model
   root = Path(root)
   root.mkdir(parents=True, exist_ok=True)
-  net = load_model(model, num_labels=num_labels)
+  if _is_causal_lm(model):
+    # Causal-LM backbones resolve through the ``task="causal_lm"`` registry path
+    # (AutoModelForCausalLM); the image-classification path would raise on a
+    # GPT2Config.
+    net = load_model(model, task="causal_lm", num_labels=0)
+    id2label = None
+  else:
+    # HF classifiers carry a pretrained 1000-entry ``id2label``; override it so
+    # the fresh 2-class head is built consistently (transformers >= 5 errors
+    # otherwise). ``convvit`` ignores the mapping.
+    id2label = {i: f"LABEL_{i}" for i in range(num_labels)}
+    label2id = {name: i for i, name in id2label.items()}
+    net = load_model(model, num_labels=num_labels, id2label=id2label, label2id=label2id)
   path = root / "model_best.pt"
-  torch.save({"model_state_dict": net.state_dict(), "epoch": 0}, path)
+  ckpt = {
+      "model_state_dict": net.state_dict(),
+      "epoch": 0,
+      # ``load_model_for_inference`` infers the head size from these.
+      "num_labels": num_labels,
+  }
+  if id2label is not None:
+    ckpt["id2label"] = id2label
+  torch.save(ckpt, path)
   return path
 
 
@@ -550,10 +580,27 @@ def _make_custom_loss(root):
 def _make_custom_model(root):
   root = Path(root)
   root.mkdir(parents=True, exist_ok=True)
+  # ``--model ./my_model.py`` resolves both the model and its processor from the
+  # same script: ``load_model`` calls ``create_model`` and ``load_processor``
+  # calls ``create_processor`` (both are mandatory for an external script), so
+  # the fixture must expose both callables.
   (root / "my_model.py").write_text(
-      "import torch\n\n\n"
+      "import torch\n"
+      "from genml_kit.models.registry import ModelOutput\n\n\n"
+      "class _Tiny(torch.nn.Module):\n"
+      "  def __init__(self, num_labels):\n"
+      "    super().__init__()\n"
+      "    self.pool = torch.nn.AdaptiveAvgPool2d(1)\n"
+      "    self.fc = torch.nn.Linear(3, num_labels)\n\n"
+      "  def forward(self, pixel_values, **kwargs):\n"
+      "    return ModelOutput(self.fc(self.pool(pixel_values).flatten(1)))\n\n\n"
       "def create_model(num_labels, **kwargs):\n"
-      "  return torch.nn.Linear(3 * 32 * 32, num_labels)\n",
+      "  return _Tiny(num_labels)\n\n\n"
+      "def create_processor(image_size=224, **kwargs):\n"
+      "  class _Proc:\n"
+      "    image_mean = (0.485, 0.456, 0.406)\n"
+      "    image_std = (0.229, 0.224, 0.225)\n\n"
+      "  return _Proc()\n",
       encoding="utf-8")
   return root / "my_model.py"
 

@@ -207,12 +207,16 @@ The fastest way to get started:
 <!-- genml-cli-test
 name: quick-start-cifar10
 network: true
+override:
+  - --dataset {tmp}/img
+  - -.--image_column
 extra: --epochs 1 --max_items 16
 -->
 ```bash
 # Fine-tune a ViT on an image-classification dataset (5 epochs, ~2 minutes on GPU)
 genml-kit-train --model google/vit-base-patch16-224 \
-                --dataset cifar10 \
+                --dataset uoft-cs/cifar10 \
+                --image_column img \
                 --label_column label \
                 --epochs 5 \
                 --batch_size 32 \
@@ -710,6 +714,7 @@ extra: --epochs 1
 -->
 ```bash
 genml-kit-train --pipeline images --method simmim \
+                --model convvit \
                 --datasets ./prepared_images ./other-images \
                 --image_size 448 --batch_size 32 --epochs 20
 ```
@@ -876,6 +881,7 @@ extra: --epochs 1
 genml-kit-train --model cls_model_wrapper:google/vit-base-patch16-224 \
                 --dataset my-org/my-labeled-images \
                 --label_column category \
+                --image_size 224 \
                 --model_arg classifier=mlp:hidden=512,dropout=0.3 \
                 --freeze ".*\.(head|pool)"
 ```
@@ -897,6 +903,7 @@ extra: --epochs 1
 ```bash
 genml-kit-train \
     --model cls_model_wrapper:facebook/dinov2-with-registers-large \
+    --model_arg classifier=mlp:hidden=512 \
     --lora --lora_r 16 --lora_alpha 32 \
     --lora_target_modules "query,key,value" \
     --freeze "classifier\.(head|pool|encoder)" \
@@ -1448,11 +1455,14 @@ network: true
 override:
   - --dataset {tmp}/img
   - --label_column label
+  - --checkpoint {tmp}/ckpt_param_rename
   - -.--source_checkpoint
 extra: --epochs 1
 -->
 ```bash
 genml-kit-train \
+    --model google/vit-base-patch16-224 \
+    --image_size 224 \
     --checkpoint /content/eva02_finetune \
     --source_checkpoint /content/eva02_supcon_latest.pt \
     --param_rename 'encoder\\.model\\.(.*);model.$1' \
@@ -1628,6 +1638,7 @@ extra: --epochs 1
 ```bash
 genml-kit-train --model google/vit-base-patch16-224 \
   --dataset my-org/my-labeled-images --label_column category \
+  --image_size 224 \
   --loss ./my_loss.py --loss_args '{"alpha": 2.0}' \
   --epochs 20
 ```
@@ -1787,13 +1798,13 @@ connections for `unet`/`fpn`).
 name: segmentation-quick-start
 network: true
 override:
-  - --dataset segfolder:{tmp}/seg
+  - --dataset segfolder/{tmp}/seg
 extra: --epochs 1
 -->
 ```bash
 genml-kit-train \
   --pipeline segmentation --method segmentation \
-  --dataset segfolder:/data/voc2012 \
+  --dataset segfolder//data/voc2012 \
   --model seg_wrapper:timm/resnet34 \
   --model_arg decoder=unet:depth=4 \
   --loss dice_ce \
@@ -2035,7 +2046,7 @@ pipeline at it:
 name: detection-dataset-format
 network: true
 override:
-  - --dataset detfolder:{tmp}/det
+  - --dataset detfolder/{tmp}/det
 extra: --epochs 1
 -->
 ```bash
@@ -2050,7 +2061,7 @@ genml-kit-train --pipeline detection --method detection \
 name: detection-example
 network: true
 override:
-  - --dataset detfolder:{tmp}/det
+  - --dataset detfolder/{tmp}/det
 extra: --epochs 1
 -->
 ```bash
@@ -2168,6 +2179,8 @@ name: distillation-quick-start
 network: true
 override:
   - --dataset {tmp}/img
+  - -.--image_column
+  - --teacher_model google/vit-base-patch16-224
   - --teacher_checkpoint {tmp}/teacher/model_best.pt
 extra: --epochs 1
 -->
@@ -2176,7 +2189,7 @@ extra: --epochs 1
 genml-kit-train \
   --pipeline images --method distillation \
   --model google/vit-base-patch16-224 \
-  --dataset cifar10 --label_column label \
+  --dataset uoft-cs/cifar10 --image_column img --label_column label \
   --teacher_kind ema --kd_temperature 4.0 --kd_alpha 1.0 \
   --epochs 10
 
@@ -2184,7 +2197,7 @@ genml-kit-train \
 genml-kit-train \
   --pipeline images --method distillation \
   --model google/vit-base-patch16-224 \
-  --dataset cifar10 --label_column label \
+  --dataset uoft-cs/cifar10 --image_column img --label_column label \
   --teacher_kind external \
   --teacher_model google/vit-large-patch16-224 \
   --teacher_checkpoint /path/to/teacher.pt \
@@ -2318,14 +2331,14 @@ genml-kit-train --pipeline text \
                 --max_seq_len 1024 \
                 --lora --lora_r 16 --lora_alpha 32 \
                 --grad_checkpoint \
-                --amp_dtype bf16
+                --amp_dtype bfloat16
 ```
 
 `--lora`, `--lora_r`, `--lora_alpha`, `--lora_dropout` and
 `--lora_target_modules` are the shared LoRA flags; `--grad_checkpoint` enables
 per-block activation checkpointing (HF `gradient_checkpointing_enable` for
 transformers models, native APIs for timm/custom backbones); `--amp_dtype
-bf16` selects the autocast dtype.
+bfloat16` selects the autocast dtype.
 
 When the model is a PEFT `PeftModel`, checkpoints also embed a **portable
 adapter blob** (`lora_state_blob`: a tar of `adapter_model.safetensors` +
@@ -2447,18 +2460,19 @@ extra: --epochs 1
 genml-kit-train --pipeline text --method causal_lm \
                 --model sshleifer/tiny-gpt2 --dataset ./sft_corpus \
                 --instruction_column prompt --response_column response \
-                --mask_prompt --output_dir ./sft
+                --mask_prompt --checkpoint ./sft/model
 
 # 2. DPO against a frozen reference (defaults to --model)
 genml-kit-train --pipeline preference --method dpo \
-                --model ./sft --reference_checkpoint ./sft/checkpoint_best.pt \
+                --model sshleifer/tiny-gpt2 \
+                --reference_checkpoint ./sft/model_best.pt \
                 --dataset ./preferences --chosen_column chosen \
                 --rejected_column rejected --prompt_column prompt \
                 --mask_prompt --beta 0.1 --lora
 
 # 3. Train a reward model on the same pairs
 genml-kit-train --pipeline preference --method reward_model \
-                --model ./sft --dataset ./preferences \
+                --model sshleifer/tiny-gpt2 --dataset ./preferences \
                 --chosen_column chosen --rejected_column rejected
 ```
 
