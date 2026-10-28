@@ -269,16 +269,15 @@ SHARED_ARGS = {
 }
 
 
-def add_shared_arg(parser, shared_arg, *, group=None, **overrides):
+def add_shared_arg(parser, shared_arg, **overrides):
   """Register a globally declared shared argument on *parser*.
 
   Args:
-      parser: An ``argparse.ArgumentParser`` (or an argument group, if
-          ``group`` is ``None`` this is the target).
+      parser: An ``argparse.ArgumentParser`` or ``argparse._ArgumentGroup``
+          to register the flag on.  Passing a group keeps ``--help`` nicely
+          sectioned; the ``add_argument`` call is identical either way.
       shared_arg: One of the module-level ``ARG_*`` tuples, i.e. a
           ``(dest, add_argument_kwargs)`` pair.
-      group: Optional ``argparse._ArgumentGroup`` to add the flag to instead
-          of ``parser`` directly (keeps ``--help`` nicely sectioned).
       **overrides: Per-CLI overrides merged over the canonical kwargs (e.g.
           ``required=True`` or ``default=None``) so an entry point can adapt a
           shared flag without duplicating its whole spec.
@@ -288,11 +287,10 @@ def add_shared_arg(parser, shared_arg, *, group=None, **overrides):
   """
   dest, kwargs = shared_arg
   merged = {**kwargs, **overrides}
-  target = group if group is not None else parser
-  return target.add_argument(f"--{dest}", **merged)
+  return parser.add_argument(f"--{dest}", **merged)
 
 
-def add_shared_args(parser, *shared_args, group=None):
+def add_shared_args(parser, *shared_args):
   """Register several shared arguments at once (see :func:`add_shared_arg`)."""
   for shared_arg in shared_args:
-    add_shared_arg(parser, shared_arg, group=group)
+    add_shared_arg(parser, shared_arg)

@@ -116,6 +116,19 @@ def _make_args(**overrides):
       checkpoint=None,
       seed=0,
       env_seed=0,
+      # Shared CLI args read directly by the RL methods (see
+      # genml_kit/utils/shared_args.py); the real parser always provides
+      # these, so the hand-built Namespace must too.
+      model=None,
+      model_arg={},
+      cache_dir=None,
+      loss=None,
+      loss_args=None,
+      grad_clip=1.0,
+      grad_checkpoint=False,
+      param_init=None,
+      lora_r=8,
+      lora_dropout=0.0,
   )
   defaults.update(overrides)
   return argparse.Namespace(**defaults)
@@ -225,6 +238,7 @@ class TestContinuousConvergence:
                       steps_per_epoch=100,
                       eval_episodes=50,
                       sac_lr=3e-4,
+                      sac_gamma=0.99,
                       sac_tau=0.005,
                       sac_alpha=0.2,
                       sac_auto_alpha=True,
