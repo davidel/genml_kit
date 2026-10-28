@@ -148,6 +148,7 @@ class TestSimMIM:
     mask = random_mask(2, num_patches, mask_ratio=0.60)
     pred, target = simmim_model(images, mask)
     assert pred.shape == target.shape
+    assert pred.shape == (2, num_patches, 768)
 
   def test_embed_dim_from_pos_embedding(self):
     """ConvViT exposes its width via pos_embedding (the primary path)."""
