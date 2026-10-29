@@ -612,7 +612,6 @@ genml-kit-train --pipeline images --method supcon \
 | `--datasets` | (required) | Space-separated dataset names or local paths. |
 | `--cache_dir` | `None` | HuggingFace cache directory for downloads. |
 | `--remote_checkpoint` | `None` | Remote URI for checkpoint sync (`gs://BUCKET/PREFIX`, `r2://BUCKET/PREFIX`, or `s3://BUCKET/PREFIX`). |
-| `--hf_token` | `None` | HuggingFace token for gated datasets (or set `HF_TOKEN` env var). |
 | `--image_column` | auto-detected | Explicit HF image column name. |
 | `--label_column` | `None` | Explicit HF label column name. Required by `--method supcon` if non-standard. |
 | `STRICT_DATASETS` (env) | `False` | Abort on first dataset-loading failure instead of skipping. |
@@ -670,8 +669,8 @@ single dataset is large enough for effective pre-training on its own.
 
 Supported dataset types:
 - **HuggingFace datasets** — any HF dataset ID that returns decoded image
-  data (e.g. `cifar10`, `food101`). Gated datasets require `--hf_token` or
-  `HF_TOKEN`.
+  data (e.g. `cifar10`, `food101`). Gated datasets require the `HF_TOKEN`
+  environment variable.
 - **Local image directories** — pass a path to a folder of images
   (ImageFolder format).
 
@@ -720,7 +719,7 @@ keeps these examples fast (the full `cifar10` train split is 50k images).
 ### Gated / Private Datasets
 
 Gated datasets require a HuggingFace token whose owner has been granted access.
-Pass it with `--hf_token` or set the `HF_TOKEN` environment variable:
+Set the `HF_TOKEN` environment variable:
 
 <!-- genml-cli-test
 name: hf-dataset-gated

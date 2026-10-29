@@ -45,7 +45,6 @@ def _declared_cli_dests():
   parser.add_argument("--save_every", type=int, default=500)
   parser.add_argument("--device", type=str)
   parser.add_argument("--log_dir", type=str)
-  parser.add_argument("--hf_token", type=str)
   parser.add_argument("--in_ch", type=int, default=1)
   parser.add_argument("--vis_every", type=int, default=0)
   return {action.dest for action in parser._actions if action.dest is not None}

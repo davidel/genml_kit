@@ -46,7 +46,7 @@ from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import resolve_device
 from genml_kit.utils.shared_args import (
     ARG_BATCH_SIZE, ARG_CACHE_DIR, ARG_DATASET, ARG_EPOCHS, ARG_GRAD_CHECKPOINT,
-    ARG_HF_TOKEN, ARG_IMAGE_COLUMN, ARG_IMAGE_SIZE, ARG_IN_CH, ARG_LORA, ARG_MAX_ITEMS,
+    ARG_IMAGE_COLUMN, ARG_IMAGE_SIZE, ARG_IN_CH, ARG_LORA, ARG_MAX_ITEMS,
     ARG_MAX_SEQ_LEN, ARG_MASK_PROMPT, ARG_METHOD, ARG_MODEL, ARG_MODEL_ARG,
     ARG_NUM_WORKERS, ARG_PAD_TO_MULTIPLE_OF, ARG_PARAM_INIT, ARG_SEED, ARG_SPLIT,
     ARG_VAL_SPLIT, add_shared_arg)
@@ -372,7 +372,6 @@ def parse_args(argv=None):
       type=str,
       help="TensorBoard log directory.",
   )
-  add_shared_arg(parser, ARG_HF_TOKEN)
   add_shared_arg(parser, ARG_IN_CH)
   parser.add_argument(
       "--vis_every",

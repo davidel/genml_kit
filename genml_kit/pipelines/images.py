@@ -33,11 +33,6 @@ from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
 
 
-def resolve_hf_token(args):
-  """Return the HuggingFace token: ``--hf_token`` wins, else ``HF_TOKEN``."""
-  return args.hf_token or getenv("HF_TOKEN", str, None)
-
-
 class _ProxyAdapter(Dataset):
   """Adapt HFDatasetProxy (tuple items ``(image, label)``) to dict items."""
 
@@ -260,7 +255,7 @@ class ImagesPipeline(DataPipeline):
     ensemble = DatasetEnsemble(
         configs,
         cache_dir=args.cache_dir,
-        hf_token=resolve_hf_token(args),
+        hf_token=getenv("HF_TOKEN", str, None),
         strict=getenv("STRICT_DATASETS", bool, False),
         max_items=getattr(args, "max_items", None),
     )
@@ -400,7 +395,7 @@ def build_pretrain_dataset(args, needs_labels=False, transform=None):
   ensemble = DatasetEnsemble(
       configs,
       cache_dir=args.cache_dir,
-      hf_token=resolve_hf_token(args),
+      hf_token=getenv("HF_TOKEN", str, None),
       strict=getenv("STRICT_DATASETS", bool, False),
   )
   if needs_labels:

@@ -64,7 +64,6 @@ def _pretrain_args(tmp_path):
       ],
       image_size=16,
       cache_dir=None,
-      hf_token=None,
       strict_datasets=False,
       image_column="image",
       label_column=None,

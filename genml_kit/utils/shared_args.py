@@ -86,11 +86,6 @@ ARG_ATTN_IMPLEMENTATION = ("attn_implementation", {
     "help": "Attention backend (e.g. 'sdpa').",
 })
 
-ARG_HF_TOKEN = ("hf_token", {
-    "type": str,
-    "help": "HuggingFace token.",
-})
-
 ARG_IN_CH = ("in_ch", {
     "type": int,
     "default": 1,
@@ -242,7 +237,6 @@ SHARED_ARGS = {
         ARG_TOKENIZER,
         ARG_TRUST_REMOTE_CODE,
         ARG_ATTN_IMPLEMENTATION,
-        ARG_HF_TOKEN,
         ARG_IN_CH,
         ARG_DATASET,
         ARG_SPLIT,

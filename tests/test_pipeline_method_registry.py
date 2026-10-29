@@ -175,7 +175,6 @@ class _ImageFolderArgs(argparse.Namespace):
   num_workers = 0
   seed = 42
   cache_dir = None
-  hf_token = None
   strict_datasets = False
   image_size = 32
   val_split = 0.2
@@ -294,7 +293,6 @@ class TestImagesPipelineLoader:
     args.label_column = "label"
     args.image_column = "image"
     args.needs_labels = False
-    args.hf_token = None
     args.strict_datasets = False
 
     pipeline = ImagesPipeline()
