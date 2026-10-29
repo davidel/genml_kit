@@ -60,11 +60,17 @@ ignore = ["I001", "LOG015", "PLC0415", "RUF012", "PLR0402"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config -m 'not slow and not network and not hf'"
+addopts = "-ra --strict-markers --strict-config -m 'not slow and not network and not service'"
 markers = [
   "slow: long-running learning/convergence tests (deselected by default; run with -m slow)",
   "network: command downloads models/data over the internet (deselected by default)",
-  "hf: command additionally requires HF_TOKEN (implies network; deselected by default)",
+  "service: command needs an external service, satisfied by its credentials or an endpoint-override proxy/emulator (implies network; deselected by default)",
+  "hf: service marker for HuggingFace (HF_TOKEN / HUGGING_FACE_HUB_TOKEN or HF_ENDPOINT)",
+  "s3: service marker for AWS S3 (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY or AWS_ENDPOINT_URL_S3 / AWS_ENDPOINT_URL)",
+  "r2: service marker for Cloudflare R2 (R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY or R2_ENDPOINT_URL / AWS_ENDPOINT_URL_S3)",
+  "gcs: service marker for Google Cloud Storage (GOOGLE_APPLICATION_CREDENTIALS or STORAGE_EMULATOR_HOST)",
+  "github: service marker for GitHub (GITHUB_TOKEN / GH_TOKEN or GITHUB_API_URL)",
+  "wandb: service marker for Weights & Biases (WANDB_API_KEY or WANDB_BASE_URL)",
 ]
 filterwarnings = [
   "error",

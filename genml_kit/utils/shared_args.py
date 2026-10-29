@@ -124,7 +124,7 @@ ARG_IMAGE_COLUMN = ("image_column", {
 
 ARG_MAX_ITEMS = ("max_items", {
     "type": int,
-    "help": "Cap the number of items (smoke tests).",
+    "help": "Cap the number of items per dataset/split (smoke tests).",
 })
 
 # --- Training loop -----------------------------------------------------------

@@ -693,6 +693,30 @@ Labels are automatically remapped to a shared global label space across all
 datasets, so mixing datasets with overlapping but differently-named classes
 works transparently.
 
+### HuggingFace Datasets
+
+Any HF dataset ID whose rows carry decoded image data works directly as
+`--dataset` (classification) or inside `--datasets` (ensemble). Public
+datasets need no credentials:
+
+<!-- genml-cli-test
+name: hf-dataset-public
+network: true
+service: hf
+extra: --epochs 1 --max_items 64 --batch_size 8
+-->
+```bash
+genml-kit-train --model convvit \
+                --dataset uoft-cs/cifar10 \
+                --image_column img \
+                --label_column label \
+                --image_size 224 \
+                --epochs 5
+```
+
+`--max_items` caps each dataset/split, which keeps these examples fast
+(the full `cifar10` train split is 50k images).
+
 ### Gated / Private Datasets
 
 Gated datasets require a HuggingFace token whose owner has been granted access.
@@ -701,8 +725,9 @@ Pass it with `--hf_token` or set the `HF_TOKEN` environment variable:
 <!-- genml-cli-test
 name: hf-dataset-gated
 network: true
-hf_token: true
-extra: --epochs 1 --max_items 8 --batch_size 2
+service: hf
+gated: true
+extra: --epochs 1 --batch_size 2
 -->
 ```bash
 genml-kit-train --model convvit \
@@ -712,6 +737,10 @@ genml-kit-train --model convvit \
                 --image_size 224 \
                 --epochs 5
 ```
+
+Because the gated dataset cannot be fetched without a grant, the README test
+harness remaps `--dataset` to a synthesized local fixture and runs the
+example offline.
 
 ### Preparing Datasets
 
@@ -2885,6 +2914,24 @@ executed by `tests/test_readme_cli.py`.  The comment is invisible on
 GitHub; its YAML body controls limiting args, network/token markers, and
 substitutions.  Run them with `pytest -m network` (needs internet, no
 credentials) — the offline suite excludes them by default.
+
+A fence that talks to an external service names it with `service: <name>`
+(`hf`, `s3`, `r2`, `gcs`, `github`, `wandb`).  Such a fence is run when the
+service is reachable either through its credentials **or** through an
+endpoint-override proxy/emulator, because the underlying client libraries
+honour their own override variables natively:
+
+| `service:` | credentials | endpoint override |
+|---|---|---|
+| `hf` | `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN` | `HF_ENDPOINT` |
+| `s3` | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | `AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL` |
+| `r2` | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` | `R2_ENDPOINT_URL`, `AWS_ENDPOINT_URL_S3` |
+| `gcs` | `GOOGLE_APPLICATION_CREDENTIALS` | `STORAGE_EMULATOR_HOST` |
+| `github` | `GITHUB_TOKEN`, `GH_TOKEN` | `GITHUB_API_URL` |
+| `wandb` | `WANDB_API_KEY` | `WANDB_BASE_URL` |
+
+Select them with `pytest -m service` (all services) or a per-service marker
+such as `pytest -m hf`.  `service:` implies `network: true`.
 
 Every `bash`/`sh` block that contains a `genml-kit-*` command must either be
 marked for execution as above or explicitly opted out with a

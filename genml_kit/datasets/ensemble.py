@@ -27,7 +27,8 @@ class _HFDataset:
                image_column=None,
                label_column=None,
                cache_dir=None,
-               hf_token=None):
+               hf_token=None,
+               max_items=None):
     self.name = name
     self._image_column = image_column
     self._label_col = None
@@ -39,6 +40,9 @@ class _HFDataset:
 
     logging.info(f"Loading HF dataset '{name}' (split={split}) ...")
     ds = load_dataset(name, split=split, cache_dir=cache_dir, token=hf_token)
+    if max_items and 0 < max_items < len(ds):
+      logging.info(f"Capping '{name}' at {max_items} items (from {len(ds)}).")
+      ds = ds.select(range(max_items))
     if len(ds) == 0:
       fatal(f"Dataset '{name}' (split={split}) has 0 samples", ValueError)
     col = self._image_column or HFDatasetProxy.detect_image_column(ds)
@@ -165,8 +169,14 @@ class DatasetEnsemble:
   a ``"label"`` key (integer) is also present.
   """
 
-  def __init__(self, dataset_configs, cache_dir=None, hf_token=None, strict=False):
+  def __init__(self,
+               dataset_configs,
+               cache_dir=None,
+               hf_token=None,
+               strict=False,
+               max_items=None):
     self._datasets = []
+    self._max_items = max_items
     self._offsets = None
     self._global_label_names = []
     self._global_label2id = {}
@@ -183,6 +193,7 @@ class DatasetEnsemble:
               label_column=cfg.get("label_column"),
               cache_dir=cache_dir,
               hf_token=hf_token,
+              max_items=self._max_items,
           )
         elif source == "imagefolder":
           ds = ImageFolderDataset(root_dir=name)

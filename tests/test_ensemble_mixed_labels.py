@@ -212,6 +212,15 @@ class TestHFDatasetColumnRemap:
     assert isinstance(item["image"], Image.Image)
     assert item["label"] in (0, 1)
 
+  def test_max_items_caps_hf_dataset(self, monkeypatch):
+    import datasets
+
+    hf_ds = self._hf_dataset_with_odd_columns()
+    monkeypatch.setattr(datasets, "load_dataset", lambda *a, **k: hf_ds)
+    assert len(_HFDataset(name="capped", max_items=2)) == 2
+    # ``None`` leaves the dataset untouched.
+    assert len(_HFDataset(name="uncapped")) == 4
+
   def test_ensemble_emits_canonical_keys_for_odd_columns(self, monkeypatch):
     import datasets
 

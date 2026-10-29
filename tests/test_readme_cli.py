@@ -21,6 +21,12 @@ Marker body (YAML)::
     env: {HF_HOME: "{tmp}/hf"}
     -->
 
+``network: true`` marks a fence that touches the internet.  ``service:
+<name>`` additionally names an external dependency (``hf``, ``s3``, ``r2``,
+``gcs``, ``github``, ``wandb``) and implies ``network: true``; the fence
+then runs when that service is reachable, either through its credentials
+or through an endpoint-override proxy/emulator (see ``tests/_services.py``).
+
 A fence that contains a core ``genml-kit-*`` command but must *not* be
 executed opts out with a sibling comment instead::
 
@@ -51,6 +57,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests import _services
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Fence opener: leading whitespace, >=3 backticks/tildes, an info string.
@@ -78,9 +86,17 @@ _ENTRY_MODULES = {
 _README_GLOBS = ["README.md", "*/README.md"]
 
 _ALLOWED_KEYS = {
-    "name", "skip", "network", "hf_token", "timeout", "extra", "override", "extras",
-    "env", "cwd"
+    "name", "skip", "network", "service", "gated", "timeout", "extra", "override",
+    "extras", "env", "cwd"
 }
+
+# Fixture directory a ``gated: true`` fence has its HF dataset remapped to, so a
+# gated example is exercisable without a token (or access grant).  Reuses the
+# ``img`` ImageFolder fixture built by ``_prepare_fixtures``.
+_GATED_FIXTURE = "{tmp}/img"
+_GATED_DATASET_FLAGS = ("--dataset", "--datasets")
+# The fixture's columns are ``image``/``label``; remap any explicit column flag.
+_GATED_COLUMN_FLAGS = {"--image_column": "image", "--label_column": "label"}
 
 _EXTRA_IMPORTS = {
     "lora": "peft",
@@ -100,7 +116,8 @@ class CommandSpec:
   name: str  # marker name, or f"{md}:{line}"
   commands: list  # list[list[str]]: each inner list is one argv
   network: bool = False
-  hf_token: bool = False
+  service: str | None = None
+  gated: bool = False
   timeout: int = _DEFAULT_TIMEOUT
   extra: list = field(default_factory=list)  # argv appended to each cmd
   override: list = field(default_factory=list)  # override spec strings
@@ -242,10 +259,13 @@ def _parse_marker(rel, line, heading, marker_body, body_lines):
                      f"{sorted(unknown)}")
 
   network = bool(data.get("network", False))
-  hf_token = bool(data.get("hf_token", False))
-  if hf_token:
+  service = data.get("service")
+  if service is not None:
+    if service not in _services.SERVICES:
+      raise ValueError(f"{rel}:{line}: unknown service: {service!r} "
+                       f"(expected one of {sorted(_services.SERVICES)})")
     if "network" in data and not network:
-      raise ValueError(f"{rel}:{line}: hf_token: true with network: false")
+      raise ValueError(f"{rel}:{line}: service: {service} with network: false")
     network = True
 
   timeout = data.get("timeout", _DEFAULT_TIMEOUT)
@@ -272,6 +292,10 @@ def _parse_marker(rel, line, heading, marker_body, body_lines):
   if not isinstance(env, dict):
     raise ValueError(f"{rel}:{line}: env must be a mapping")
 
+  gated = bool(data.get("gated", False))
+  if gated and not service:
+    raise ValueError(f"{rel}:{line}: gated: true requires a service: key")
+
   name = data.get("name") or f"{rel}:{line}"
   skip = data.get("skip")
   commands = split_commands("\n".join(body_lines))
@@ -283,7 +307,8 @@ def _parse_marker(rel, line, heading, marker_body, body_lines):
       name=name,
       commands=commands,
       network=network,
-      hf_token=hf_token,
+      service=service,
+      gated=gated,
       timeout=timeout,
       extra=extra,
       override=override,
@@ -429,6 +454,26 @@ def _apply_override(cmd, entry):
   return True
 
 
+def _gated_overrides(commands):
+  """Return overrides remapping HF dataset flag(s) to the local fixture.
+
+  A ``gated: true`` fence names a dataset that needs a token/access grant.
+  Rather than skip it, point its ``--dataset``/``--datasets`` values at the
+  synthesized ``img`` ImageFolder fixture so the example still executes
+  (offline, no credentials) while the README keeps documenting the gated
+  dataset verbatim.
+  """
+  overrides = []
+  for cmd in commands:
+    for flag in _GATED_DATASET_FLAGS:
+      if flag in cmd:
+        overrides.append(f"{flag} {_GATED_FIXTURE}")
+    for flag in _GATED_COLUMN_FLAGS:
+      if flag in cmd:
+        overrides.append(f"{flag} {_GATED_COLUMN_FLAGS[flag]}")
+  return overrides
+
+
 def _validate_overrides(spec):
   """Every override entry must match at least one command in the fence."""
   for entry in spec.override:
@@ -454,7 +499,10 @@ def build_argv(spec, command, run_root, cmd_index=0):
   one auto-resumes its sibling's (incompatible) weights.
   """
   cmd = list(command)
-  for entry in spec.override:
+  # Gated datasets are remapped to a local fixture before user overrides so an
+  # explicit override still wins (there are none in practice for gated fences).
+  overrides = (_gated_overrides([cmd]) if spec.gated else []) + list(spec.override)
+  for entry in overrides:
     _apply_override(cmd, entry)
   is_train = cmd[0] == "genml-kit-train"
   if is_train:
@@ -758,8 +806,10 @@ def _fixture_plan(run_root, model):
 
 
 def _referenced_fixtures(spec):
-  blob = " ".join(spec.extra + spec.override + list(spec.env.values()) + [spec.cwd] +
-                  [" ".join(command) for command in spec.commands])
+  gated = [f"{flag} {_GATED_FIXTURE}" for flag in _GATED_DATASET_FLAGS
+          ] if spec.gated else []
+  blob = " ".join(spec.extra + spec.override + gated + list(spec.env.values()) +
+                  [spec.cwd] + [" ".join(command) for command in spec.commands])
   names = set()
   for match in re.finditer(r"\{tmp\}/([A-Za-z0-9_./-]+)", blob):
     names.add(match.group(1).split("/")[0])
@@ -854,10 +904,6 @@ def _prepare_fixtures(run_root, spec):
 # ---------------------------------------------------------------------------
 
 
-def _hf_token():
-  return (os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN"))
-
-
 def _failure_message(spec, argv, proc=None, stderr=None):
   lines = [
       f"README CLI command failed: {spec.md}:{spec.line} ({spec.heading})",
@@ -885,8 +931,9 @@ def run_spec(spec, tmp_path):
       if module is None:
         raise ValueError(f"unknown extras key: {extra!r}")
       pytest.importorskip(module, reason=f"needs [{extra}]")
-    if spec.hf_token and not _hf_token():
-      pytest.skip("requires HF_TOKEN")
+    # A gated fence is remapped to a local fixture, so it needs no service.
+    if spec.service and not spec.gated:
+      _services.require(spec.service, os.environ)
 
     _prepare_fixtures(run_root, spec)
 
@@ -930,10 +977,15 @@ def _collect_specs():
 
 def _param(spec):
   marks = [pytest.mark.slow]
-  if spec.network:
+  # A gated fence runs offline against a fixture, so it carries no
+  # network/service marks and stays in the default suite.
+  if spec.network and not spec.gated:
     marks.append(pytest.mark.network)
-  if spec.hf_token:
-    marks.append(pytest.mark.hf)  # hf implies network (both emitted)
+  if spec.service and not spec.gated:
+    # Umbrella marker selects every service fence; the per-service marker
+    # (hf, s3, ...) selects one.  service implies network (both emitted).
+    marks.append(pytest.mark.service)
+    marks.append(getattr(pytest.mark, spec.service))
   return pytest.param(spec, marks=marks, id=spec.name)
 
 
@@ -1023,17 +1075,24 @@ class TestMarkerValidation:
     with pytest.raises(yaml.YAMLError):
       read_markers(path)
 
-  def test_hf_token_implies_network(self, tmp_path):
+  def test_service_implies_network(self, tmp_path):
     path = _write(
-        tmp_path, "<!-- genml-cli-test\nhf_token: true\n-->\n"
+        tmp_path, "<!-- genml-cli-test\nservice: hf\n-->\n"
         "```bash\ngenml-kit-train --epochs 5\n```\n")
     spec = read_markers(path)[0]
-    assert spec.hf_token and spec.network
+    assert spec.service == "hf" and spec.network
 
-  def test_hf_token_with_network_false_raises(self, tmp_path):
+  def test_unknown_service_raises(self, tmp_path):
+    path = _write(
+        tmp_path, "<!-- genml-cli-test\nservice: dropbox\n-->\n"
+        "```bash\ngenml-kit-train --epochs 5\n```\n")
+    with pytest.raises(ValueError, match="unknown service"):
+      read_markers(path)
+
+  def test_service_with_network_false_raises(self, tmp_path):
     path = _write(
         tmp_path, "<!-- genml-cli-test\nnetwork: false\n"
-        "hf_token: true\n-->\n"
+        "service: hf\n-->\n"
         "```bash\ngenml-kit-train --epochs 5\n```\n")
     with pytest.raises(ValueError):
       read_markers(path)
@@ -1184,3 +1243,50 @@ def test_all_candidate_fences_marked_or_excluded():
           problems.append(f"{rel}:{line}: core command in a fence that is "
                           "neither marked nor excluded")
   assert not problems, "\n".join(problems)
+
+
+class TestServices:
+  """Availability gate: credentials OR an endpoint override satisfy a service."""
+
+  def test_credentials_satisfy(self):
+    env = {"HF_TOKEN": "hf_abc"}
+    assert _services.has_credentials("hf", env)
+    assert _services.available("hf", env)
+
+  def test_endpoint_override_satisfies_without_credentials(self):
+    env = {"HF_ENDPOINT": "http://proxy/hf"}
+    assert not _services.has_credentials("hf", env)
+    assert _services.endpoint_override("hf", env) == "HF_ENDPOINT"
+    assert _services.available("hf", env)
+
+  def test_blank_values_do_not_satisfy(self):
+    env = {"HF_TOKEN": "  ", "HF_ENDPOINT": ""}
+    assert not _services.available("hf", env)
+
+  def test_neither_satisfies(self):
+    assert not _services.available("hf", {})
+    assert _services.skip_reason("hf") == (
+        "requires HF_TOKEN or HUGGING_FACE_HUB_TOKEN or HF_ENDPOINT")
+
+  def test_alternative_tokens_each_satisfy(self):
+    for var in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+      assert _services.has_credentials("hf", {var: "tok"})
+
+  def test_credential_pair_requires_both(self):
+    assert not _services.available("s3", {"AWS_ACCESS_KEY_ID": "k"})
+    assert not _services.available("s3", {"AWS_SECRET_ACCESS_KEY": "s"})
+    assert _services.available("s3", {
+        "AWS_ACCESS_KEY_ID": "k",
+        "AWS_SECRET_ACCESS_KEY": "s"
+    })
+
+  def test_second_endpoint_alternative_satisfies(self):
+    for var in ("AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"):
+      assert _services.available("s3", {var: "http://emu/s3"})
+
+  def test_require_skips_when_unavailable(self):
+    with pytest.raises(pytest.skip.Exception):
+      _services.require("gcs", {})
+
+  def test_require_passes_when_endpoint_present(self):
+    _services.require("gcs", {"STORAGE_EMULATOR_HOST": "http://emu"})

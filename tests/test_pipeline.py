@@ -315,6 +315,32 @@ class TestLoadAndSplit:
     assert len(train_proxy.dataset) == 15
     assert len(val_proxy.dataset) == 5
 
+  def test_max_items_caps_before_split(self):
+    train_mod = _import_train()
+    raw = _make_synthetic_dataset(n=100)
+
+    train_proxy, val_proxy = train_mod.load_and_split_dataset(
+        "fake_dataset",
+        test_size=0.5,
+        seed=42,
+        loader=lambda *a, **k: raw,
+        max_items=10)
+
+    assert len(train_proxy.dataset) + len(val_proxy.dataset) == 10
+
+  def test_max_items_none_is_a_noop(self):
+    train_mod = _import_train()
+    raw = _make_synthetic_dataset(n=20)
+
+    train_proxy, val_proxy = train_mod.load_and_split_dataset(
+        "fake_dataset",
+        test_size=0.5,
+        seed=42,
+        loader=lambda *a, **k: raw,
+        max_items=None)
+
+    assert len(train_proxy.dataset) + len(val_proxy.dataset) == 20
+
   def test_preserves_original_label_column_name(self):
     train_mod = _import_train()
     raw = _make_synthetic_dataset(label_col="dx", image_col="image")

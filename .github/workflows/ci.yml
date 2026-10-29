@@ -30,7 +30,7 @@ jobs:
         run: pytest -q
 
       - name: Run slow tests
-        run: pytest -q -m 'slow and not network and not hf'
+        run: pytest -q -m 'slow and not network and not service'
 
   readme-cli:
     runs-on: ubuntu-latest
@@ -50,7 +50,7 @@ jobs:
       - name: Run README CLI examples (tokenless network)
         run: |
           set +e
-          pytest -q -m 'network and not hf'
+          pytest -q -m 'network and not service'
           code=$?
           # Exit code 5 == "no tests collected": not an error while the
           # marker suite is still being populated.
@@ -68,12 +68,34 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           set +e
-          pytest -q -m 'hf'
+          pytest -q -m 'service'
           code=$?
           # Exit code 5 == "no tests collected": not an error while the
           # marker suite is still being populated.
           if [ "$code" -eq 5 ]; then
-            echo "No hf README CLI tests collected yet."
+            echo "No service README CLI tests collected yet."
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Run README CLI examples (proxied / emulated services)
+        env:
+          # Optional repo variables pointing the clients at a proxy or
+          # emulator.  When unset the corresponding spec skips, so this
+          # never hard-fails for lack of an endpoint.
+          HF_ENDPOINT: ${{ vars.HF_ENDPOINT }}
+          AWS_ENDPOINT_URL_S3: ${{ vars.AWS_ENDPOINT_URL_S3 }}
+          AWS_ENDPOINT_URL: ${{ vars.AWS_ENDPOINT_URL }}
+          STORAGE_EMULATOR_HOST: ${{ vars.STORAGE_EMULATOR_HOST }}
+          GITHUB_API_URL: ${{ vars.GITHUB_API_URL }}
+          WANDB_BASE_URL: ${{ vars.WANDB_BASE_URL }}
+        run: |
+          set +e
+          # ``not hf`` avoids re-running the gated step above.
+          pytest -q -m 'service and not hf'
+          code=$?
+          if [ "$code" -eq 5 ]; then
+            echo "No proxied README CLI tests collected yet."
             exit 0
           fi
           exit "$code"
