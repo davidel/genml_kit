@@ -21,9 +21,18 @@ Marker body (YAML)::
     env: {HF_HOME: "{tmp}/hf"}
     -->
 
-Fixture invocation (not specified by the design doc): ``run_spec`` calls
-:func:`_prepare_fixtures`, which lazily builds only the catalogue fixtures
-whose canonical names (``img``, ``seg``, ``det``, ``hf_seg``, ``text``,
+A fence that contains a core ``genml-kit-*`` command but must *not* be
+executed opts out with a sibling comment instead::
+
+    <!-- genml-cli-test-exclude: illustrative ellipsis, no dataset -->
+
+``test_all_candidate_fences_marked_or_excluded`` requires every such fence to
+carry one of the two comments, so a new README example cannot be added without
+being either tested or explicitly excluded.
+
+Fixture invocation is an implementation detail: :func:`_prepare_fixtures`
+lazily builds only the catalogue fixtures whose canonical names
+(``img``, ``seg``, ``det``, ``hf_seg``, ``text``,
 ``instr``, ``pref``, ``prompts``, ``chk``, ``teacher``, ``my_loss.py`` ...)
 are actually referenced by the spec's overrides / commands / env / cwd.
 Unreferenced fixtures are never built; unknown ``{tmp}/<name>`` references
@@ -48,8 +57,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 _FENCE_RE = re.compile(r"^(?P<indent>\s*)(?P<ticks>`{3,}|~{3,})\s*"
                        r"(?P<info>[A-Za-z0-9_+.\-]*)\s*$")
 
-# HTML comment carrying the marker (may span multiple lines).
-_MARKER_RE = re.compile(r"<!--\s*genml-cli-test\b(?P<body>.*?)-->", re.DOTALL)
+# HTML comment carrying the marker (may span multiple lines).  The trailing
+# ``(?![-\w])`` keeps the sibling ``genml-cli-test-exclude`` token from being
+# mistaken for a marker (``\b`` alone matches between ``t`` and ``-``).
+_MARKER_RE = re.compile(r"<!--\s*genml-cli-test(?![-\w])(?P<body>.*?)-->", re.DOTALL)
+
+# Opt-out comment for a candidate fence that must not be executed.
+_EXCLUDE_RE = re.compile(r"<!--\s*genml-cli-test-exclude\s*:\s*"
+                         r"(?P<reason>.*?)-->", re.DOTALL)
 
 # README command -> python -m module.  Only the *correct* hyphen spellings are
 # recognised; the underscore typo (``genml_kit-train``) is deliberately absent
@@ -100,10 +115,11 @@ class CommandSpec:
 # ---------------------------------------------------------------------------
 
 
-def _marker_above(lines, fence_idx):
-  """Return the marker body immediately above ``lines[fence_idx]`` or None.
+def _comment_above(lines, fence_idx):
+  """Return the HTML comment block immediately above ``lines[fence_idx]``.
 
-  Only blank lines may separate the closing ``-->`` from the fence.
+  Only blank lines may separate the closing ``-->`` from the fence.  Returns
+  the raw comment text (``<!-- ... -->``), or None when no comment sits there.
   """
   j = fence_idx - 1
   while j >= 0 and lines[j].strip() == "":
@@ -116,10 +132,38 @@ def _marker_above(lines, fence_idx):
   if k < 0:
     return None
   block = "\n".join(lines[k:j + 1])
+  if not block.rstrip().endswith("-->"):
+    return None
+  return block
+
+
+def _marker_above(lines, fence_idx):
+  """Return the marker body immediately above ``lines[fence_idx]`` or None."""
+  block = _comment_above(lines, fence_idx)
+  if block is None:
+    return None
   match = _MARKER_RE.search(block)
-  if match is None or not block.rstrip().endswith("-->"):
+  if match is None:
     return None
   return match.group("body")
+
+
+def _exclude_reason_above(lines, fence_idx):
+  """Return the exclusion reason above ``lines[fence_idx]``, or None.
+
+  Raises when an exclusion comment is present but carries an empty reason.
+  """
+  block = _comment_above(lines, fence_idx)
+  if block is None:
+    return None
+  match = _EXCLUDE_RE.search(block)
+  if match is None:
+    return None
+  reason = match.group("reason").strip()
+  if not reason:
+    raise ValueError("empty genml-cli-test-exclude reason above the fence; "
+                     "state why the example is not executed")
+  return reason
 
 
 def _collect_fence(lines, open_idx):
@@ -137,8 +181,8 @@ def _collect_fence(lines, open_idx):
   raise ValueError(f"unterminated fence at line {open_idx + 1}")
 
 
-def split_commands(text):
-  """Split a fence body into one argv per core command (see design s 8.3)."""
+def _logical_lines(text):
+  """Join backslash-continued lines of a fence body into logical commands."""
   logical = []
   buf = ""
   for raw in text.splitlines():
@@ -151,9 +195,25 @@ def split_commands(text):
     buf = ""
   if buf:
     logical.append(buf)
+  return logical
 
+
+def fence_has_core_command(text):
+  """True if any logical line of *text* starts with a core entry point."""
+  for line in _logical_lines(text):
+    stripped = line.strip()
+    if stripped == "" or stripped.startswith("#"):
+      continue
+    tokens = shlex.split(stripped, posix=True)
+    if tokens and tokens[0] in _ENTRY_MODULES:
+      return True
+  return False
+
+
+def split_commands(text):
+  """Split a fence body into one argv per core command."""
   commands = []
-  for line in logical:
+  for line in _logical_lines(text):
     stripped = line.strip()
     if stripped == "" or stripped.startswith("#"):
       continue
@@ -276,6 +336,33 @@ def read_markers(md_path):
   return specs
 
 
+def candidate_fences(md_path):
+  """Yield ``(line, info, marked, excluded)`` for every candidate fence.
+
+  A *candidate* is a ``bash``/``sh`` fence whose body contains a core
+  ``genml-kit-*`` command.  Unlike :func:`read_markers`, this
+  does not skip unmarked fences: it reports whether each is opted in via a
+  marker (``marked``) or opted out via an exclusion comment (``excluded``).
+  """
+  md = Path(md_path)
+  lines = md.read_text(encoding="utf-8").splitlines()
+  i = 0
+  while i < len(lines):
+    fence = _FENCE_RE.match(lines[i])
+    if fence is None:
+      i += 1
+      continue
+    if fence.group("info").lower() not in ("bash", "sh"):
+      i += 1
+      continue
+    body, close = _collect_fence(lines, i)
+    if fence_has_core_command("\n".join(body)):
+      marked = _marker_above(lines, i) is not None
+      excluded = _exclude_reason_above(lines, i) is not None
+      yield i + 1, fence.group("info").lower(), marked, excluded
+    i = close + 1
+
+
 # ---------------------------------------------------------------------------
 # Command building
 # ---------------------------------------------------------------------------
@@ -320,8 +407,8 @@ def _apply_override(cmd, entry):
   """Apply one override entry to *cmd* in place; return True if it matched.
 
   A non-matching command is normal: an entry is validated against the whole
-  fence, and only the commands that carry the flag are edited (design s 3.1,
-  e.g. block [02] where Step 1 uses ``--datasets`` and Step 2 ``--dataset``).
+  fence, and only the commands that carry the flag are edited (e.g. a fence
+  whose Step 1 uses ``--datasets`` and Step 2 ``--dataset``).
   """
   if entry.startswith("-."):
     flag = entry[2:].strip()
@@ -385,7 +472,7 @@ def build_argv(spec, command, run_root, cmd_index=0):
 
 
 # ---------------------------------------------------------------------------
-# Fixtures (synthesized under run_root; see design s 9)
+# Fixtures (synthesized under run_root)
 # ---------------------------------------------------------------------------
 
 
@@ -873,6 +960,8 @@ def _write(tmp_path, text, name="doc.md"):
 
 _MARKER = "<!-- genml-cli-test\nnetwork: true\nextra: --epochs 1\n-->\n"
 
+_EXCLUDE = "<!-- genml-cli-test-exclude: not a runnable command -->\n"
+
 
 class TestReadMarkers:
 
@@ -885,6 +974,10 @@ class TestReadMarkers:
 
   def test_identical_fence_without_marker_ignored(self, tmp_path):
     path = _write(tmp_path, "```bash\ngenml-kit-train --epochs 5\n```\n")
+    assert read_markers(path) == []
+
+  def test_exclude_token_is_not_a_marker(self, tmp_path):
+    path = _write(tmp_path, f"{_EXCLUDE}```bash\ngenml-kit-train --epochs 5\n```\n")
     assert read_markers(path) == []
 
   def test_marker_above_unlabeled_fence_raises(self, tmp_path):
@@ -1044,9 +1137,50 @@ class TestBuildArgv:
     assert "--checkpoint" not in argv and "--no-resume" not in argv
 
 
-def test_spec_count_is_stable():
-  """Guard against a README edit silently dropping a marker (s 8.6 #12).
+class TestCandidateFences:
 
-  32 in-scope fences exist (s 5); block [08] is unmarked, so 31 markers.
+  def test_marked_candidate_reported_marked(self, tmp_path):
+    path = _write(tmp_path, f"{_MARKER}```bash\ngenml-kit-train --epochs 5\n```\n")
+    assert [(m, x) for _, _, m, x in candidate_fences(path)] == [(True, False)]
+
+  def test_unmarked_candidate_reported(self, tmp_path):
+    path = _write(tmp_path, "```bash\ngenml-kit-train --epochs 5\n```\n")
+    assert [(m, x) for _, _, m, x in candidate_fences(path)] == [(False, False)]
+
+  def test_excluded_candidate_reported_excluded(self, tmp_path):
+    path = _write(tmp_path, f"{_EXCLUDE}```bash\ngenml-kit-train --epochs 5\n```\n")
+    assert [(m, x) for _, _, m, x in candidate_fences(path)] == [(False, True)]
+
+  def test_non_core_fence_is_not_a_candidate(self, tmp_path):
+    path = _write(tmp_path, "```bash\npip install genml_kit\n```\n")
+    assert list(candidate_fences(path)) == []
+
+  def test_unlabeled_fence_is_not_a_candidate(self, tmp_path):
+    path = _write(tmp_path, "```\ngenml-kit-train --epochs 5\n```\n")
+    assert list(candidate_fences(path)) == []
+
+  def test_empty_exclude_reason_raises(self, tmp_path):
+    path = _write(
+        tmp_path, "<!-- genml-cli-test-exclude: -->\n"
+        "```bash\ngenml-kit-train --epochs 5\n```\n")
+    with pytest.raises(ValueError, match="empty genml-cli-test-exclude"):
+      list(candidate_fences(path))
+
+
+def test_all_candidate_fences_marked_or_excluded():
+  """No README example may slip in untested and unexcluded.
+
+  Every ``bash``/``sh`` fence that carries a core ``genml-kit-*`` command must
+  be opted in with a marker or opted out with an exclusion comment.  This
+  replaces the old magic-number count assertion: it catches a brand-new
+  unmarked example, not just a dropped marker.
   """
-  assert len(_SPECS) == 31
+  problems = []
+  for pattern in _README_GLOBS:
+    for md in sorted(REPO_ROOT.glob(pattern)):
+      rel = md.relative_to(REPO_ROOT)
+      for line, _info, marked, excluded in candidate_fences(md):
+        if not marked and not excluded:
+          problems.append(f"{rel}:{line}: core command in a fence that is "
+                          "neither marked nor excluded")
+  assert not problems, "\n".join(problems)

@@ -1090,6 +1090,7 @@ Two levels of determinism:
 Passing an explicit `--seed` therefore buys full determinism at a
 throughput cost (typically 10–20%); omit it for maximum speed:
 
+<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
 ```bash
 genml-kit-train --model convvit --seed 42 ...
 ```
@@ -2864,6 +2865,11 @@ executed by `tests/test_readme_cli.py`.  The comment is invisible on
 GitHub; its YAML body controls limiting args, network/token markers, and
 substitutions.  Run them with `pytest -m network` (needs internet, no
 credentials) — the offline suite excludes them by default.
+
+Every `bash`/`sh` block that contains a `genml-kit-*` command must either be
+marked for execution as above or explicitly opted out with a
+`<!-- genml-cli-test-exclude: <reason> -->` comment; a test enforces this so a
+new example cannot be added untested by accident.
 
 ### Naming Conventions For Class Members
 
