@@ -315,7 +315,7 @@ class TestDriverIsBranchless:
   def test_main_has_no_method_type_sniffing(self):
     import inspect
 
-    from genml_kit.training import train
+    from genml_kit.cli import train
 
     source = inspect.getsource(train.main)
     assert "isinstance(method" not in source
@@ -328,7 +328,7 @@ class TestDriverIsBranchless:
   def test_driver_module_has_no_method_type_sniffing(self):
     import inspect
 
-    from genml_kit.training import train
+    from genml_kit.cli import train
 
     source = inspect.getsource(train)
     assert 'get_method("classification")' not in source

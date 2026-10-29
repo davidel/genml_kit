@@ -78,9 +78,9 @@ _EXCLUDE_RE = re.compile(r"<!--\s*genml-cli-test-exclude\s*:\s*"
 # recognised; the underscore typo (``genml_kit-train``) is deliberately absent
 # so a marked fence that still uses it is a hard error (regression guard).
 _ENTRY_MODULES = {
-    "genml-kit-train": "genml_kit.training.train",
-    "genml-kit-infer": "genml_kit.training.infer",
-    "genml-kit-llm": "genml_kit.llm_cli",
+    "genml-kit-train": "genml_kit.cli.train",
+    "genml-kit-infer": "genml_kit.cli.infer",
+    "genml-kit-llm": "genml_kit.cli.llm",
 }
 
 _README_GLOBS = ["README.md", "*/README.md"]
@@ -1131,7 +1131,7 @@ class TestBuildArgv:
         commands=[["genml-kit-train", "--dataset", "hf/name", "--epochs", "5"]],
         override=["--dataset {tmp}/img"])
     argv = build_argv(spec, spec.commands[0], tmp_path)
-    assert argv[:3] == [sys.executable, "-m", "genml_kit.training.train"]
+    assert argv[:3] == [sys.executable, "-m", "genml_kit.cli.train"]
     assert argv[3:5] == ["--dataset", str(tmp_path / "img")]
     assert argv[5:] == ["--epochs", "5", "--cache_dir", str(tmp_path / "hf_cache")]
 

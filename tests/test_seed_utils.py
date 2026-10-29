@@ -129,20 +129,20 @@ class TestResolveSeed:
 class TestTrainFlags:
 
   def test_train_defaults_seed_none(self):
-    from genml_kit.training.train import parse_args
+    from genml_kit.cli.train import parse_args
 
     args = parse_args(["--dataset", "my-org/my-images"])
     assert args.seed is None
     assert not hasattr(args, "deterministic")
 
   def test_train_explicit_seed(self):
-    from genml_kit.training.train import parse_args
+    from genml_kit.cli.train import parse_args
 
     args = parse_args(["--dataset", "my-org/my-images", "--seed", "42"])
     assert args.seed == 42
 
   def test_pretrain_defaults_seed_none(self):
-    from genml_kit.training.train import parse_args
+    from genml_kit.cli.train import parse_args
 
     args = parse_args(
         ["--pipeline", "images", "--method", "simmim", "--datasets", "dummy"])
@@ -152,7 +152,7 @@ class TestTrainFlags:
     assert args.save_every == 500
 
   def test_pretrain_save_every_override(self):
-    from genml_kit.training.train import parse_args
+    from genml_kit.cli.train import parse_args
 
     args = parse_args([
         "--pipeline", "images", "--method", "simmim", "--datasets", "dummy",
@@ -167,7 +167,7 @@ class TestTrainFlags:
     ``add_optimization_args``) makes parse_args raise
     ``ArgumentError: conflicting option string``.
     """
-    from genml_kit.training.train import parse_args
+    from genml_kit.cli.train import parse_args
 
     parser_actions = []
     orig_add = argparse.ArgumentParser.add_argument
@@ -184,26 +184,26 @@ class TestTrainFlags:
 class TestDeviceFlag:
 
   def test_train_device_default_is_none(self):
-    from genml_kit.training.train import parse_args
+    from genml_kit.cli.train import parse_args
 
     args = parse_args(["--dataset", "my-org/my-images"])
     assert args.device is None
 
   def test_pretrain_device_default_is_none(self):
-    from genml_kit.training.train import parse_args
+    from genml_kit.cli.train import parse_args
 
     args = parse_args(
         ["--pipeline", "images", "--method", "simmim", "--datasets", "dummy"])
     assert args.device is None
 
   def test_train_device_cpu(self):
-    from genml_kit.training.train import parse_args
+    from genml_kit.cli.train import parse_args
 
     args = parse_args(["--dataset", "my-org/my-images", "--device", "cpu"])
     assert args.device == "cpu"
 
   def test_pretrain_device_cuda_index(self):
-    from genml_kit.training.train import parse_args
+    from genml_kit.cli.train import parse_args
 
     args = parse_args([
         "--pipeline", "images", "--method", "simmim", "--datasets", "dummy", "--device",

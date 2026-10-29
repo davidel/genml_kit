@@ -156,7 +156,7 @@ reuse the same hook.
 
 | Module | Contents |
 |---|---|
-| `genml_kit.training` | `train.py` and `infer.py` CLI harnesses, `optim_factory.py` (optimizers, LLRD, schedulers), `model_utils.py` (loading, freezing, feature extraction), `param_align.py`, `eval.py` + `metrics.py`, `grad_monitor.py`, `train_reporting.py`, `tta.py`, `xgb_utils.py` + `xgb_pipeline.py`, `text_collator.py` + `preference_collator.py` (text / preference batches), `llm_model.py` + `generate.py` + `llm_eval.py` (LLM inference, generation, eval), `classifiers/` (pluggable heads) |
+| `genml_kit.training` | `train.py` (dataset loading: `load_and_split_dataset`, plus legacy compat re-exports) and `infer.py` (inference helpers), `optim_factory.py` (optimizers, LLRD, schedulers), `model_utils.py` (loading, freezing, feature extraction), `param_align.py`, `eval.py` + `metrics.py`, `grad_monitor.py`, `train_reporting.py`, `tta.py`, `xgb_utils.py` + `xgb_pipeline.py`, `text_collator.py` + `preference_collator.py` (text / preference batches), `llm_model.py` + `generate.py` + `llm_eval.py` (LLM inference, generation, eval), `classifiers/` (pluggable heads) |
 | `genml_kit.methods` | objective-side registry (classification, segmentation, detection, vo_pair, SimMIM, I-JEPA, DINO, BYOL, SupCon, distillation, `causal_lm`, `dpo`, `reward_model`) |
 | `genml_kit.losses` | shared loss library (focal, Dice+CE segmentation, NT-Xent contrastive, DINO self-distillation, BYOL, KD distillation, alignment: `sequence_logps` / `dpo_loss` / `bradley_terry_loss`) |
 | `genml_kit.augmentations` | objective-level transforms (dual-view, multi-crop) |
@@ -165,7 +165,7 @@ reuse the same hook.
 | `genml_kit.geometry` | `similarity.py` (2-D similarity algebra, batched differentiable Umeyama, backward-map warp) — the math behind the visual-odometry front-end lives in [`vo/README.md`](vo/README.md) |
 | `genml_kit.io` | `checkpointing.py` (atomic saves, LoRA state, remote fetch), `storage_utils.py` (S3 / GCS / R2) |
 | `genml_kit.utils` | glog-style logging, CLI arg groups + `shared_args.py` (globally shared `ARG_*` CLI flags), seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers, `generation.py` (samplers + batched `generate`) |
-| `genml_kit.llm_cli` | `genml-kit-llm` entry point (`generate` / `eval` subcommands) |
+| `genml_kit.cli` | console-script entry points: `train.py` (`genml-kit-train`), `infer.py` (`genml-kit-infer`), `llm.py` (`genml-kit-llm`, `generate` / `eval` subcommands) |
 
 ## Installation
 

@@ -16,7 +16,6 @@ from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.training.text_collator import IGNORE_INDEX
-from genml_kit.training.train_reporting import derived_metric
 from genml_kit.utils.logging import fatal
 
 
@@ -89,6 +88,11 @@ class CausalLMMethod(Method):
 
   def train_step(self, model, blob, global_step, *, labels=None):
     """Forward, shifted cross-entropy over ``labels`` (ignore index -100)."""
+    # Imported lazily: train_reporting pulls in optim_factory -> methods,
+    # so a module-level import here would close a circular import
+    # (train_reporting -> optim_factory -> methods -> causal_lm).
+    from genml_kit.training.train_reporting import derived_metric
+
     del global_step, labels
     targets = blob.meta.get("labels")
     if targets is None:

@@ -10,13 +10,13 @@ from unittest.mock import MagicMock, patch
 
 
 def _import_train():
-  """Lazy-import genml_kit.training.train so module-level fixtures resolve cleanly."""
+  """Lazy-import genml_kit.cli.train so module-level fixtures resolve cleanly."""
   import importlib
 
-  import genml_kit.training.train
+  import genml_kit.cli.train
 
-  importlib.reload(genml_kit.training.train)
-  return genml_kit.training.train
+  importlib.reload(genml_kit.cli.train)
+  return genml_kit.cli.train
 
 
 def _make_fake_logger():

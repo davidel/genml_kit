@@ -28,6 +28,16 @@ def _import_train():
   return genml_kit.training.train
 
 
+def _import_train_cli():
+  """Lazy-import genml_kit.cli.train so module-level fixtures resolve cleanly."""
+  import importlib
+
+  import genml_kit.cli.train
+
+  importlib.reload(genml_kit.cli.train)
+  return genml_kit.cli.train
+
+
 def _make_synthetic_dataset(label_col="label", image_col="image", n=64, num_classes=3):
   """Create a synthetic HuggingFace Dataset with images and labels."""
   labels = [f"class_{i}" for i in range(num_classes)]
@@ -691,7 +701,7 @@ class TestBuildTransformsWithCustomAug:
 class TestArgParsing:
 
   def test_defaults(self):
-    train_mod = _import_train()
+    train_mod = _import_train_cli()
     args = train_mod.parse_args(["--dataset", "my-org/my-images"])
     assert args.model == "google/vit-base-patch16-224"
     assert args.dataset == "my-org/my-images"
@@ -704,7 +714,7 @@ class TestArgParsing:
     assert args.amp_dtype is None
 
   def test_overrides(self):
-    train_mod = _import_train()
+    train_mod = _import_train_cli()
     args = train_mod.parse_args([
         "--model",
         "my-model",
@@ -721,7 +731,7 @@ class TestArgParsing:
     assert args.image_size == 224
 
   def test_amp_dtype_choices(self):
-    train_mod = _import_train()
+    train_mod = _import_train_cli()
     args = train_mod.parse_args(
         ["--dataset", "my-org/my-images", "--amp_dtype", "bfloat16"])
     assert args.amp_dtype == "bfloat16"

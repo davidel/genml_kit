@@ -10,7 +10,7 @@ exact builder used by the ``genml_kit-train`` entry point -- so the flag
 declaration and the action are never allowed to drift apart again.
 """
 
-from genml_kit.training.train import parse_args
+from genml_kit.cli.train import parse_args
 
 
 def test_model_arg_multiple_tokens():

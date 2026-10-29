@@ -16,7 +16,7 @@ dests the unified parser declares.
 import ast
 import pathlib
 
-from genml_kit.training.train import build_parser, register_all_owners
+from genml_kit.cli.train import build_parser, register_all_owners
 from genml_kit.utils.args import (add_checkpoint_args, add_logging_args,
                                   add_optimization_args, add_source_checkpoint_args,
                                   add_training_state_args)

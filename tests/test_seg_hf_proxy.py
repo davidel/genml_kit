@@ -50,7 +50,7 @@ class TestHFDatasetProxyMask:
 class TestSegCLISurface:
 
   def test_parser_builds_with_seg_owner(self):
-    from genml_kit.training.train import build_parser, register_all_owners
+    from genml_kit.cli.train import build_parser, register_all_owners
 
     parser = build_parser()
     register_all_owners(parser)  # must not raise on option collisions
@@ -62,7 +62,7 @@ class TestSegCLISurface:
     assert args.method == "segmentation"
 
   def test_seg_method_flags(self):
-    from genml_kit.training.train import build_parser, register_all_owners
+    from genml_kit.cli.train import build_parser, register_all_owners
 
     parser = build_parser()
     register_all_owners(parser)

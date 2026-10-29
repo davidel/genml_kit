@@ -628,7 +628,7 @@ Output structure:
 
   print("\n" + "=" * 60)
   print("DONE! Use the following command to train with grouped splits:")
-  print(f"  python -m genml_kit.training.train --dataset imagefolder/{args.output_dir}")
+  print(f"  python -m genml_kit.cli.train --dataset imagefolder/{args.output_dir}")
   print("=" * 60)
 
 

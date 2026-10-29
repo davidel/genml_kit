@@ -1,6 +1,6 @@
 """Smoke test for the unified genml-kit-train harness (self-supervised).
 
-Registers a tiny self-supervised method and runs ``genml_kit.training.train.main()``
+Registers a tiny self-supervised method and runs ``genml_kit.cli.train.main()``
 for 1 epoch on a small on-disk imagefolder fixture (no HuggingFace hub
 calls).  Verifies that checkpoints are written, that the method-specific
 state round-trips through the saver's ``extra_fn``, and that a resumed
@@ -124,7 +124,7 @@ def _run_smoke(tmp_path, resume=False):
       patch("genml_kit.models.load_model", return_value=TinyBackbone()),
       patch("genml_kit.training.trainer.create_model_report", side_effect=_report_spy),
   ):
-    from genml_kit.training.train import main
+    from genml_kit.cli.train import main
 
     main()
 

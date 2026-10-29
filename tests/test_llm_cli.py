@@ -13,7 +13,7 @@ import datasets
 import pytest
 import torch
 
-from genml_kit.llm_cli import build_parser
+from genml_kit.cli.llm import build_parser
 from genml_kit.training.generate import run_generate
 from genml_kit.training.llm_eval import run_eval
 

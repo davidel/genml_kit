@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 
 import pytest
 
-from genml_kit.training.train import build_parser, parse_args, register_all_owners
+from genml_kit.cli.train import build_parser, parse_args, register_all_owners
 
 
 class TestRegisterAllOwners:

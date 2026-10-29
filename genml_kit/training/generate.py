@@ -7,7 +7,7 @@ custom model both work.  Output is a JSONL stream of
 ``{"prompt": ..., "completion": ...}`` records.
 
 This module exposes :func:`add_generate_args` (wired into the ``generate``
-subparser by :mod:`genml_kit.llm_cli`) and :func:`run_generate`.
+subparser by :mod:`genml_kit.cli.llm`) and :func:`run_generate`.
 """
 
 import json

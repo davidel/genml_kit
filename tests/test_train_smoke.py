@@ -128,7 +128,7 @@ def _run_train_smoke(tmp_path):
           return_value=TinyModel(num_labels=3),
       ),
   ):
-    from genml_kit.training.train import main
+    from genml_kit.cli.train import main
 
     main()
 
@@ -209,7 +209,7 @@ def test_sampler_skips_freq_in_loss_weights(tmp_path):
       patch("genml_kit.models.load_processor", return_value=TinyProcessor()),
       patch("genml_kit.models.load_model", return_value=TinyModel(num_labels=2)),
   ):
-    from genml_kit.training.train import main
+    from genml_kit.cli.train import main
     main()
 
   # Verify checkpoint was created (model trained successfully).

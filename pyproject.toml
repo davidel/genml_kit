@@ -39,9 +39,9 @@ Repository = "https://github.com/davidel/genml_kit"
 Issues = "https://github.com/davidel/genml_kit/issues"
 
 [project.scripts]
-genml-kit-train = "genml_kit.training.train:main"
-genml-kit-infer = "genml_kit.training.infer:main"
-genml-kit-llm = "genml_kit.llm_cli:main"
+genml-kit-train = "genml_kit.cli.train:main"
+genml-kit-infer = "genml_kit.cli.infer:main"
+genml-kit-llm = "genml_kit.cli.llm:main"
 
 [tool.setuptools.packages.find]
 include = ["genml_kit*"]
