@@ -25,7 +25,7 @@ Marker body (YAML)::
 <name>`` additionally names an external dependency (``hf``, ``s3``, ``r2``,
 ``gcs``, ``github``, ``wandb``) and implies ``network: true``; the fence
 then runs when that service is reachable, either through its credentials
-or through an endpoint-override proxy/emulator (see ``tests/_services.py``).
+or through an endpoint-override proxy/emulator (see ``tests/services.py``).
 
 A fence that contains a core ``genml-kit-*`` command but must *not* be
 executed opts out with a sibling comment instead::
@@ -57,7 +57,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests import _services
+from tests import services
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -261,9 +261,9 @@ def _parse_marker(rel, line, heading, marker_body, body_lines):
   network = bool(data.get("network", False))
   service = data.get("service")
   if service is not None:
-    if service not in _services.SERVICES:
+    if service not in services.SERVICES:
       raise ValueError(f"{rel}:{line}: unknown service: {service!r} "
-                       f"(expected one of {sorted(_services.SERVICES)})")
+                       f"(expected one of {sorted(services.SERVICES)})")
     if "network" in data and not network:
       raise ValueError(f"{rel}:{line}: service: {service} with network: false")
     network = True
@@ -933,7 +933,7 @@ def run_spec(spec, tmp_path):
       pytest.importorskip(module, reason=f"needs [{extra}]")
     # A gated fence is remapped to a local fixture, so it needs no service.
     if spec.service and not spec.gated:
-      _services.require(spec.service, os.environ)
+      services.require(spec.service, os.environ)
 
     _prepare_fixtures(run_root, spec)
 
@@ -1250,43 +1250,43 @@ class TestServices:
 
   def test_credentials_satisfy(self):
     env = {"HF_TOKEN": "hf_abc"}
-    assert _services.has_credentials("hf", env)
-    assert _services.available("hf", env)
+    assert services.has_credentials("hf", env)
+    assert services.available("hf", env)
 
   def test_endpoint_override_satisfies_without_credentials(self):
     env = {"HF_ENDPOINT": "http://proxy/hf"}
-    assert not _services.has_credentials("hf", env)
-    assert _services.endpoint_override("hf", env) == "HF_ENDPOINT"
-    assert _services.available("hf", env)
+    assert not services.has_credentials("hf", env)
+    assert services.endpoint_override("hf", env) == "HF_ENDPOINT"
+    assert services.available("hf", env)
 
   def test_blank_values_do_not_satisfy(self):
     env = {"HF_TOKEN": "  ", "HF_ENDPOINT": ""}
-    assert not _services.available("hf", env)
+    assert not services.available("hf", env)
 
   def test_neither_satisfies(self):
-    assert not _services.available("hf", {})
-    assert _services.skip_reason("hf") == (
+    assert not services.available("hf", {})
+    assert services.skip_reason("hf") == (
         "requires HF_TOKEN or HUGGING_FACE_HUB_TOKEN or HF_ENDPOINT")
 
   def test_alternative_tokens_each_satisfy(self):
     for var in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
-      assert _services.has_credentials("hf", {var: "tok"})
+      assert services.has_credentials("hf", {var: "tok"})
 
   def test_credential_pair_requires_both(self):
-    assert not _services.available("s3", {"AWS_ACCESS_KEY_ID": "k"})
-    assert not _services.available("s3", {"AWS_SECRET_ACCESS_KEY": "s"})
-    assert _services.available("s3", {
+    assert not services.available("s3", {"AWS_ACCESS_KEY_ID": "k"})
+    assert not services.available("s3", {"AWS_SECRET_ACCESS_KEY": "s"})
+    assert services.available("s3", {
         "AWS_ACCESS_KEY_ID": "k",
         "AWS_SECRET_ACCESS_KEY": "s"
     })
 
   def test_second_endpoint_alternative_satisfies(self):
     for var in ("AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"):
-      assert _services.available("s3", {var: "http://emu/s3"})
+      assert services.available("s3", {var: "http://emu/s3"})
 
   def test_require_skips_when_unavailable(self):
     with pytest.raises(pytest.skip.Exception):
-      _services.require("gcs", {})
+      services.require("gcs", {})
 
   def test_require_passes_when_endpoint_present(self):
-    _services.require("gcs", {"STORAGE_EMULATOR_HOST": "http://emu"})
+    services.require("gcs", {"STORAGE_EMULATOR_HOST": "http://emu"})
