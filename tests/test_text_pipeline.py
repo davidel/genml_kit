@@ -11,6 +11,7 @@ import datasets
 import pytest
 import torch
 
+from genml_kit.datasets.capped import maybe_cap
 from genml_kit.datasets.text_proxy import TextDatasetProxy
 from genml_kit.models.tokenizer import load_tokenizer
 from genml_kit.pipelines import PIPELINES
@@ -67,7 +68,7 @@ class TestTextDatasetProxy:
 
   def test_max_items_caps_length(self):
     hf = datasets.Dataset.from_dict({"text": ["a", "b", "c"]})
-    proxy = TextDatasetProxy(hf, text_column="text", max_items=2)
+    proxy = TextDatasetProxy(maybe_cap(hf, 2), text_column="text")
     assert len(proxy) == 2
 
   def test_missing_column_is_fatal(self):
@@ -84,7 +85,8 @@ class TestBuildLoader:
   def _patch_load(self, monkeypatch, proxy):
     import genml_kit.pipelines.text as text_mod
 
-    monkeypatch.setattr(text_mod, "load_raw_split",
+    monkeypatch.setattr(text_mod,
+                        "load_raw_split",
                         lambda name, split="train", **kw: proxy.dataset)
 
   def test_build_loader_contract(self, monkeypatch):

@@ -149,12 +149,12 @@ class TextPipeline(DataPipeline):
     response_column = args.response_column
 
     def _wrap(hf, cap=None):
+      from genml_kit.datasets.capped import maybe_cap
       from genml_kit.datasets.text_proxy import TextDatasetProxy
-      return TextDatasetProxy(hf,
+      return TextDatasetProxy(maybe_cap(hf, cap),
                               text_column=text_column,
                               prompt_column=prompt_column,
-                              response_column=response_column,
-                              max_items=cap)
+                              response_column=response_column)
 
     val_split = args.val_split
     if val_split:

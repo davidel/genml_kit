@@ -89,7 +89,16 @@ class TestPreferenceProxy:
     assert proxy[0] == {"chosen": "good", "rejected": "bad"}
 
   def test_max_items_caps_len(self):
-    proxy = self._proxy(max_items=1)
+    import datasets
+
+    from genml_kit.datasets.capped import maybe_cap
+
+    hf = datasets.Dataset.from_dict({
+        "chosen": ["good", "great"],
+        "rejected": ["bad", "awful"],
+        "prompt": ["q1", "q2"],
+    })
+    proxy = PreferenceDatasetProxy(maybe_cap(hf, 1))
     assert len(proxy) == 1
 
   def test_missing_column_fails(self):

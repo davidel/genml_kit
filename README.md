@@ -714,8 +714,8 @@ genml-kit-train --model convvit \
                 --epochs 5
 ```
 
-`--max_items` caps each dataset/split, which keeps these examples fast
-(the full `cifar10` train split is 50k images).
+`--max_items` caps each split (applied *after* the train/val split), which
+keeps these examples fast (the full `cifar10` train split is 50k images).
 
 ### Gated / Private Datasets
 

@@ -16,6 +16,7 @@ import os
 
 import datasets
 
+from genml_kit.datasets.capped import maybe_cap
 from genml_kit.utils.logging import fatal
 
 
@@ -30,21 +31,17 @@ class PreferenceDatasetProxy:
         Column holding the shared prompt (masked out of the loss).
     chosen_column, rejected_column : str
         Columns holding the preferred and dispreferred responses.
-    max_items : int or None
-        Optional cap (useful for smoke tests on tiny corpora).
     """
 
   def __init__(self,
                hf_dataset,
                chosen_column="chosen",
                rejected_column="rejected",
-               prompt_column=None,
-               max_items=None):
+               prompt_column=None):
     self.dataset = hf_dataset
     self.chosen_column = chosen_column
     self.rejected_column = rejected_column
     self.prompt_column = prompt_column
-    self.max_items = max_items
     self._validate()
 
   def _validate(self):
@@ -64,8 +61,7 @@ class PreferenceDatasetProxy:
     return self.prompt_column is not None
 
   def __len__(self):
-    n = len(self.dataset)
-    return min(n, self.max_items) if self.max_items else n
+    return len(self.dataset)
 
   def __getitem__(self, idx):
     row = self.dataset[idx]
@@ -102,11 +98,11 @@ def load_preference_dataset(name,
     """
   logging.info("Loading preference dataset %s (split=%s).", name, split)
   hf = load_raw_split(name, split, cache_dir=cache_dir, token=token)
+  hf = maybe_cap(hf, max_items)
   return PreferenceDatasetProxy(hf,
                                 chosen_column=chosen_column,
                                 rejected_column=rejected_column,
-                                prompt_column=prompt_column,
-                                max_items=max_items)
+                                prompt_column=prompt_column)
 
 
 def load_raw_split(name, split, *, cache_dir=None, token=None):

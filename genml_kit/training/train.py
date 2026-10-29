@@ -12,6 +12,7 @@ import logging
 
 import datasets as _datasets
 
+from genml_kit.datasets.capped import maybe_cap
 from genml_kit.datasets.hf_proxy import HFDatasetProxy  # noqa: F401
 from genml_kit.io.checkpointing import open_resume_context, parse_state_flags
 from genml_kit.methods import METHODS, build_method
@@ -53,29 +54,6 @@ from genml_kit.utils.logging import fatal, open_writer, setup_logging
 from genml_kit.utils.seed import resolve_seed, seed_everything
 
 
-def _cap_dataset(raw, max_items):
-  """Truncate a loaded dataset (or dataset dict) to *max_items* rows per split.
-
-  ``datasets.load_dataset`` has already materialized the data by the time we
-  get here, so this bounds *training* work, not download size.  A ``None``
-  or non-positive cap is a no-op; anything without a usable length (e.g. a
-  streaming/iterable dataset) is passed through untouched.
-  """
-  if not max_items or max_items <= 0:
-    return raw
-  if isinstance(raw, _datasets.Dataset):
-    if len(raw) > max_items:
-      logging.info("Capping dataset at %d items (from %d).", max_items, len(raw))
-      return raw.select(range(max_items))
-    return raw
-  if isinstance(raw, _datasets.DatasetDict):
-    capped = {}
-    for name, split in raw.items():
-      capped[name] = split.select(range(max_items)) if len(split) > max_items else split
-    return _datasets.DatasetDict(capped)
-  return raw
-
-
 def load_and_split_dataset(
     dataset_name,
     cache_dir=None,
@@ -97,8 +75,8 @@ def load_and_split_dataset(
     ``main()`` / the pipeline without threading the loader explicitly.
 
     *max_items* caps each split to at most that many rows (a smoke-test
-    convenience, applied before the train/val split for the single-split
-    path so the cap bounds both halves).
+    convenience; the cap is applied to each split *after* the train/val
+    split, so both halves get their own full budget).
     """
   if loader is None:
     loader = _datasets.load_dataset
@@ -107,7 +85,6 @@ def load_and_split_dataset(
     raw = loader("imagefolder", data_dir=data_dir, cache_dir=cache_dir)
   else:
     raw = loader(dataset_name, cache_dir=cache_dir)
-  raw = _cap_dataset(raw, max_items)
 
   # Single split: validate, split and wrap.
   if isinstance(raw, _datasets.Dataset):
@@ -121,13 +98,13 @@ def load_and_split_dataset(
     split = raw.train_test_split(test_size=test_size, seed=seed)
     return (
         HFDatasetProxy(
-            split["train"],
+            maybe_cap(split["train"], max_items),
             transform=train_transform,
             image_column=image_column,
             label_column=label_column,
         ),
         HFDatasetProxy(
-            split["test"],
+            maybe_cap(split["test"], max_items),
             transform=val_transform,
             image_column=image_column,
             label_column=label_column,
@@ -176,13 +153,13 @@ def load_and_split_dataset(
   )
   return (
       HFDatasetProxy(
-          train_split,
+          maybe_cap(train_split, max_items),
           transform=train_transform,
           image_column=image_column,
           label_column=label_column,
       ),
       HFDatasetProxy(
-          val_split,
+          maybe_cap(val_split, max_items),
           transform=val_transform,
           image_column=image_column,
           label_column=label_column,

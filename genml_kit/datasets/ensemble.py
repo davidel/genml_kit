@@ -12,6 +12,7 @@ import logging
 import numpy as np
 from PIL import Image
 
+from genml_kit.datasets.capped import maybe_cap
 from genml_kit.datasets.hf_proxy import HFDatasetProxy
 from genml_kit.datasets.image_folder import ImageFolderDataset
 from genml_kit.datasets.retry import getitem_retry
@@ -40,9 +41,6 @@ class _HFDataset:
 
     logging.info(f"Loading HF dataset '{name}' (split={split}) ...")
     ds = load_dataset(name, split=split, cache_dir=cache_dir, token=hf_token)
-    if max_items and 0 < max_items < len(ds):
-      logging.info(f"Capping '{name}' at {max_items} items (from {len(ds)}).")
-      ds = ds.select(range(max_items))
     if len(ds) == 0:
       fatal(f"Dataset '{name}' (split={split}) has 0 samples", ValueError)
     col = self._image_column or HFDatasetProxy.detect_image_column(ds)
@@ -53,7 +51,8 @@ class _HFDataset:
           ValueError,
       )
     self._image_column = col
-    self._ds = HFDatasetProxy.normalize_image_column(ds, self._image_column)
+    ds = HFDatasetProxy.normalize_image_column(ds, self._image_column)
+    self._ds = maybe_cap(ds, max_items)
     self._detect_labels(label_column)
     logging.info(f"  '{name}': {len(self._ds):,} samples "
                  f"(image column: '{self._image_column}')")

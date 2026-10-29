@@ -315,7 +315,7 @@ class TestLoadAndSplit:
     assert len(train_proxy.dataset) == 15
     assert len(val_proxy.dataset) == 5
 
-  def test_max_items_caps_before_split(self):
+  def test_max_items_caps_each_split(self):
     train_mod = _import_train()
     raw = _make_synthetic_dataset(n=100)
 
@@ -326,7 +326,10 @@ class TestLoadAndSplit:
         loader=lambda *a, **k: raw,
         max_items=10)
 
-    assert len(train_proxy.dataset) + len(val_proxy.dataset) == 10
+    # The cap is applied to each split *after* the 50/50 split, so each
+    # half gets its own full budget of 10 rows.
+    assert len(train_proxy.dataset) == 10
+    assert len(val_proxy.dataset) == 10
 
   def test_max_items_none_is_a_noop(self):
     train_mod = _import_train()

@@ -143,12 +143,12 @@ class PreferencePipeline(DataPipeline):
     prompt_column = args.prompt_column
 
     def _wrap(hf, cap=None):
+      from genml_kit.datasets.capped import maybe_cap
       from genml_kit.datasets.preference_proxy import PreferenceDatasetProxy
-      return PreferenceDatasetProxy(hf,
+      return PreferenceDatasetProxy(maybe_cap(hf, cap),
                                     chosen_column=chosen_column,
                                     rejected_column=rejected_column,
-                                    prompt_column=prompt_column,
-                                    max_items=cap)
+                                    prompt_column=prompt_column)
 
     val_split = args.val_split
     if val_split:

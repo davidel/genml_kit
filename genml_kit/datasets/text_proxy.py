@@ -16,6 +16,7 @@ import os
 
 import datasets
 
+from genml_kit.datasets.capped import maybe_cap
 from genml_kit.utils.logging import fatal
 
 
@@ -30,21 +31,17 @@ class TextDatasetProxy:
         Column holding a raw LM sequence.
     prompt_column, response_column : str or None
         Columns holding an instruction and its response.
-    max_items : int or None
-        Optional cap (useful for smoke tests on tiny corpora).
     """
 
   def __init__(self,
                hf_dataset,
                text_column=None,
                prompt_column=None,
-               response_column=None,
-               max_items=None):
+               response_column=None):
     self.dataset = hf_dataset
     self.text_column = text_column
     self.prompt_column = prompt_column
     self.response_column = response_column
-    self.max_items = max_items
     self._validate()
 
   def _validate(self):
@@ -73,8 +70,7 @@ class TextDatasetProxy:
     return self.text_column is None
 
   def __len__(self):
-    n = len(self.dataset)
-    return min(n, self.max_items) if self.max_items else n
+    return len(self.dataset)
 
   def __getitem__(self, idx):
     row = self.dataset[idx]
@@ -110,11 +106,11 @@ def load_text_dataset(name,
     """
   logging.info("Loading text dataset %s (split=%s).", name, split)
   hf = load_raw_split(name, split, cache_dir=cache_dir, token=token)
+  hf = maybe_cap(hf, max_items)
   return TextDatasetProxy(hf,
                           text_column=text_column,
                           prompt_column=prompt_column,
-                          response_column=response_column,
-                          max_items=max_items)
+                          response_column=response_column)
 
 
 def load_raw_split(name, split, *, cache_dir=None, token=None):
