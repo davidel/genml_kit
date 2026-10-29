@@ -59,3 +59,21 @@ jobs:
             exit 0
           fi
           exit "$code"
+
+      - name: Run README CLI examples (gated / HF_TOKEN)
+        env:
+          # Gated datasets need a token whose owner has been granted access.
+          # On forks without the secret the spec skips, so this never
+          # hard-fails for lack of a token.
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set +e
+          pytest -q -m 'hf'
+          code=$?
+          # Exit code 5 == "no tests collected": not an error while the
+          # marker suite is still being populated.
+          if [ "$code" -eq 5 ]; then
+            echo "No hf README CLI tests collected yet."
+            exit 0
+          fi
+          exit "$code"

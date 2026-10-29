@@ -693,6 +693,26 @@ Labels are automatically remapped to a shared global label space across all
 datasets, so mixing datasets with overlapping but differently-named classes
 works transparently.
 
+### Gated / Private Datasets
+
+Gated datasets require a HuggingFace token whose owner has been granted access.
+Pass it with `--hf_token` or set the `HF_TOKEN` environment variable:
+
+<!-- genml-cli-test
+name: hf-dataset-gated
+network: true
+hf_token: true
+extra: --epochs 1 --max_items 8 --batch_size 2
+-->
+```bash
+genml-kit-train --model convvit \
+                --dataset sirtolkien/autotrain-data-test \
+                --image_column image \
+                --label_column target \
+                --image_size 224 \
+                --epochs 5
+```
+
 ### Preparing Datasets
 
 Some datasets store images inside zip archives or need custom preprocessing
