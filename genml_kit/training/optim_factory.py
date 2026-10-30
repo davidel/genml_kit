@@ -401,34 +401,35 @@ def create_optimizer(params, *, name="AdamW", lr=1e-4, weight_decay=0.01, **kwar
   return optimizer
 
 
-def report_lr(optimizer, writer=None, step=0):
+def report_lr(optimizer, logger=None, step=0):
   """Return a string representation of the current learning rate(s).
 
   For a single param group returns ``"lr=1.23e-04"``.  For multiple
   groups returns ``"lr=[1.23e-04, 5.67e-05]"`` (min, max).
 
-  If *writer* is provided, also writes ``Train/lr`` (single group) or
-  ``Train/lr_group{i}`` (multiple groups) scalars to TensorBoard.
+  If *logger* is provided, also emits ``Train/lr`` (single group) or
+  ``Train/lr_group{i}`` (multiple groups) per-step scalars to the sinks.
 
   Args:
       optimizer: An optimizer with one or more param groups.
-      writer: Optional ``SummaryWriter``.
-      step: The global training step for TensorBoard.
+      logger: Optional ``MetricsLogger``.
+      step: The global training step for the metric sinks.
   """
+  from genml_kit.training.metrics_sinks import ensure_logger
+
+  logger = ensure_logger(logger)
   groups = optimizer.param_groups
   if not groups:
     return "lr=?"
   if len(groups) == 1:
     lr = groups[0]["lr"]
-    if writer is not None:
-      writer.add_scalar("Train/lr", lr, step)
+    logger.log_step("Train/lr", lr, step=step, resolution="running")
     return f"lr={lr:.2e}"
   lrs = []
   for i, g in enumerate(groups):
     lr = g["lr"]
     lrs.append(lr)
-    if writer is not None:
-      writer.add_scalar(f"Train/lr_group{i}", lr, step)
+    logger.log_step(f"Train/lr_group{i}", lr, step=step, resolution="running")
   lr_min, lr_max = min(lrs), max(lrs)
   if lr_min == lr_max:
     return f"lr={lr_min:.2e}"

@@ -137,7 +137,7 @@ def test_reported_loss_is_never_below_its_mce_component(caplog):
   true_loss = mce + 0.1545 + 0.0392 + 0.1260
   r = ImageTrainReporting(total_batches=1,
                           log_every=100,
-                          writer=None,
+                          logger=None,
                           device=torch.device("cpu"),
                           optimizer=opt,
                           throughput_unit="img")

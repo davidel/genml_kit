@@ -409,7 +409,7 @@ class SegmentationPipeline(DataPipeline):
     data = blob.data.to(device, non_blocking=True)
     mask = blob.meta.get("mask")
     meta = {"mask": mask.to(device, non_blocking=True) if mask is not None else None}
-    return DataBlob(data=data, meta=meta)
+    return blob._replace(data=data, meta=meta)
 
 
 def _seg_collate(batch):

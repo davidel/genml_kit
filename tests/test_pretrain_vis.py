@@ -13,14 +13,14 @@ from genml_kit.methods import METHODS
 from genml_kit.pipelines.contracts import DataBlob
 
 
-class _Writer:
-  """Minimal TensorBoard writer stand-in recording add_image calls."""
+class _Logger:
+  """Minimal MetricsLogger stand-in recording image artifacts."""
 
   def __init__(self):
     self._images = []
 
-  def add_image(self, tag, tensor, global_step):
-    self._images.append((tag, tensor.clone(), global_step))
+  def log_artifact(self, tag, payload_kind, payload, *, step=None):
+    self._images.append((tag, payload.clone(), step))
 
 
 class _FakeSimMIM(nn.Module):
@@ -67,20 +67,20 @@ def _blob_loader(num_batches=1, batch_size=2, size=16):
 def test_base_log_validation_is_noop():
   """Methods without vis support log nothing (silent no-op)."""
   method = METHODS.get("dino")()
-  writer = _Writer()
+  logger = _Logger()
   loader = _blob_loader()
 
   def _to_device(blob, device):
     return blob
 
-  method.log_validation(None, loader, _to_device, writer, 0, torch.device("cpu"))
-  assert writer._images == []
+  method.log_validation(None, loader, _to_device, logger, 0, torch.device("cpu"))
+  assert logger._images == []
 
 
 def test_simmim_logs_recon_pair():
   """SimMIM logs one original + one reconstructed image."""
   method = METHODS.get("simmim")()
-  writer = _Writer()
+  logger = _Logger()
   loader = _blob_loader(batch_size=2, size=16)
 
   def _to_device(blob, device):
@@ -90,20 +90,20 @@ def test_simmim_logs_recon_pair():
   method.log_validation(model,
                         loader,
                         _to_device,
-                        writer,
+                        logger,
                         7,
                         torch.device("cpu"),
                         num_samples=2)
-  tags = [tag for tag, _, _ in writer._images]
+  tags = [tag for tag, _, _ in logger._images]
   assert "recon/original" in tags
   assert "recon/reconstructed" in tags
-  assert all(step == 7 for _, _, step in writer._images)
+  assert all(step == 7 for _, _, step in logger._images)
 
 
 def test_simmim_logs_first_view_of_multiview():
   """A multi-view blob logs the first view only."""
   method = METHODS.get("simmim")()
-  writer = _Writer()
+  logger = _Logger()
 
   class _Loader:
 
@@ -118,10 +118,10 @@ def test_simmim_logs_first_view_of_multiview():
   method.log_validation(model,
                         _Loader(),
                         _to_device,
-                        writer,
+                        logger,
                         0,
                         torch.device("cpu"),
                         num_samples=2)
-  original = [t for tag, t, _ in writer._images if tag == "recon/original"][0]
+  original = [t for tag, t, _ in logger._images if tag == "recon/original"][0]
   # Single image (C, H, W) after [0] indexing.
   assert original.ndim == 3

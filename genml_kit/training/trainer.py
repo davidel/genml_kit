@@ -28,9 +28,10 @@ from genml_kit.io.checkpointing import (
     parse_state_flags,
 )
 from genml_kit.training.grad_monitor import create_grad_monitor
-from genml_kit.utils.args import amp_dtype_from_args
-from genml_kit.training.train_reporting import ImageTrainReporting, Metric, metric
+from genml_kit.training.metrics_sinks import ensure_logger
 from genml_kit.training.model_utils import set_train_mode
+from genml_kit.training.train_reporting import ImageTrainReporting, Metric, metric
+from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
 TrainingResult = namedtuple("TrainingResult", [
@@ -58,7 +59,7 @@ class BaseTrainer:
   #: Whether frozen-parameter state is included in checkpoints.
   SAVE_FROZEN = False
 
-  def __init__(self, args, model, method, pipeline, optimization, device, writer,
+  def __init__(self, args, model, method, pipeline, optimization, device, logger,
                start_epoch, best_metric, global_step):
     """Bind the run's collaborators and restored training state.
 
@@ -72,7 +73,7 @@ class BaseTrainer:
         optimization: Object with ``optimizer``, optional ``scheduler``
             and optional ``scaler``.
         device: The run's ``torch.device``.
-        writer: TensorBoard ``SummaryWriter`` (closed here on exit).
+        logger: ``MetricsLogger`` fan-out (closed here on exit).
         start_epoch: First epoch to run (0 on a fresh run).
         best_metric: Best validation metric so far, in this method's own
             direction (e.g. ``float("inf")`` before the first validation
@@ -85,7 +86,8 @@ class BaseTrainer:
     self.pipeline = pipeline
     self.optimization = optimization
     self.device = device
-    self.writer = writer
+    # Always present: a NullSink-backed logger when none is supplied.
+    self.logger = ensure_logger(logger)
     self.start_epoch = start_epoch
     self.best_metric = best_metric
     self.global_step = global_step
@@ -106,10 +108,11 @@ class BaseTrainer:
     reporter = ImageTrainReporting(
         total_batches=total_batches,
         log_every=getattr(self.args, "log_every", 50),
-        writer=self.writer,
+        logger=self.logger,
         device=self.device,
         optimizer=self.optimization.optimizer,
         throughput_unit=getattr(self.pipeline, "THROUGHPUT_UNIT", "sample"),
+        epoch=epoch,
     )
 
     for step_in_epoch, blob in enumerate(self.pipeline.train_loader):
@@ -212,14 +215,14 @@ class BaseTrainer:
                                    self.pipeline.to_device)
     key = self.method.METRIC_KEY
     val = metrics[key]
-    if self.writer is not None:
-      # Log every scalar metric the method reports (loss, mdice, pixel_acc,
-      # per-class aggregates, ...) so nothing computed by ``evaluate`` is
-      # dropped on the floor.  Non-scalar values (e.g. ``per_class_iou``
-      # lists) are skipped -- they carry no TensorBoard scalar meaning.
-      for name, value in metrics.items():
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-          self.writer.add_scalar(f"val/{name}", value, self.epoch)
+    # Log every scalar metric the method reports (loss, mdice, pixel_acc,
+    # per-class aggregates, ...) so nothing computed by ``evaluate`` is
+    # dropped on the floor.  Non-scalar values (e.g. ``per_class_iou``
+    # lists) are skipped -- they carry no scalar meaning.  Validation is
+    # epoch-scope, so these are emitted as epoch records.
+    for name, value in metrics.items():
+      if isinstance(value, (int, float)) and not isinstance(value, bool):
+        self.logger.log_epoch(f"val/{name}", value, epoch=self.epoch)
     return val
 
   def has_metric_improved(self, old, new):
@@ -228,7 +231,7 @@ class BaseTrainer:
 
   def epoch_end(self):
     """Per-epoch hook routed to the method (e.g. momentum ramping)."""
-    self.method.on_epoch_end(self.model, self.epoch, self.writer)
+    self.method.on_epoch_end(self.model, self.epoch, self.logger)
 
   def saver_extra(self):
     """Extra state attached to every checkpoint write (method state)."""
@@ -302,15 +305,14 @@ class BaseTrainer:
           metrics = self.validate()
 
           # Log validation images if enabled and the method supports it
-          if (metrics is not None and self.writer is not None and
-              getattr(self.args, "vis_every", 0) > 0 and
+          if (metrics is not None and getattr(self.args, "vis_every", 0) > 0 and
               self.epoch % self.args.vis_every == 0):
             try:
               self.method.log_validation(
                   self.model,
                   self.pipeline.val_loader,
                   self.pipeline.to_device,
-                  self.writer,
+                  self.logger,
                   self.global_step,
                   self.device,
               )
@@ -343,8 +345,7 @@ class BaseTrainer:
             **self.ckpt_extra(self.best_metric, self.global_step),
         )
         logging.info("Checkpoint saved on exit.")
-        if self.writer is not None:
-          self.writer.close()
+        self.logger.close()
 
     return TrainingResult(completed_epoch, self.best_metric, self.global_step,
                           interrupts.received)

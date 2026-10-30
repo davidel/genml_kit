@@ -148,17 +148,20 @@ class SimMIMMethod(Method):
                      model,
                      loader,
                      to_device,
-                     writer,
+                     logger,
                      global_step,
                      device,
                      num_samples=8):
-    """Log one reconstructed vs. original image pair to TensorBoard.
+    """Log one reconstructed vs. original image pair to the sinks.
 
     Pulls a single batch from *loader* (which yields ``DataBlob``
     namedtuples via the production collate), reconstructs the first
-    ``num_samples`` images under eval mode, and writes
+    ``num_samples`` images under eval mode, and emits
     ``recon/original`` / ``recon/reconstructed``.
     """
+    from genml_kit.training.metrics_sinks import ensure_logger
+
+    logger = ensure_logger(logger)
     try:
       blob = next(iter(loader))
     except StopIteration:
@@ -178,5 +181,8 @@ class SimMIMMethod(Method):
           img_size=images.shape[2],
           channels=model.in_channels,
       )
-    writer.add_image("recon/original", images[0], global_step)
-    writer.add_image("recon/reconstructed", recon[0].clamp(0, 1), global_step)
+    logger.log_artifact("recon/original", "image", images[0], step=global_step)
+    logger.log_artifact("recon/reconstructed",
+                        "image",
+                        recon[0].clamp(0, 1),
+                        step=global_step)

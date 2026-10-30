@@ -18,6 +18,7 @@ import time
 
 import torch
 
+from genml_kit.training.metrics_sinks import ensure_logger
 from genml_kit.training.optim_factory import report_lr
 from genml_kit.utils.attr import maybe_call, MISSING
 from genml_kit.utils.gpu import gpu_stats_str
@@ -95,8 +96,9 @@ class TrainReporting:
       Number of batches in the current epoch (used for progress display).
   log_every : int
       Emit a log line every *log_every* batches (and at the last batch).
-  writer : SummaryWriter or None
-      Optional TensorBoard writer.
+  logger : MetricsLogger or None
+      Metric sink fan-out.  Defaults to a NullSink-backed logger so call
+      sites never need a None-guard.
   device : torch.device
       Device the model lives on (for GPU-stat reporting).
   optimizer : torch.optim.Optimizer
@@ -104,23 +106,31 @@ class TrainReporting:
   throughput_unit : str
       Label for throughput in the log line.  ``"img"`` → ``img/s``,
       ``"step"`` → ``step/s``.
+  epoch : int or None
+      Epoch index stamped on epoch-scope sink records (the per-epoch
+      summary).
   """
 
   def __init__(
       self,
       total_batches,
       log_every,
-      writer=None,
+      logger=None,
       device=None,
       optimizer=None,
       throughput_unit="img",
+      epoch=None,
   ):
     self._total_batches = total_batches
     self._log_every = log_every
-    self._writer = writer
+    # Always present: a NullSink-backed logger when none is supplied.
+    self._logger = ensure_logger(logger)
     self._device = device
     self._optimizer = optimizer
     self._throughput_unit = throughput_unit
+    # Epoch index stamped on epoch-scope sink records (a reporter is built
+    # per epoch, so the value is known at construction).
+    self._current_epoch = epoch
 
     # Cumulative epoch-level counters.
     self._total_loss = 0.0
@@ -278,6 +288,18 @@ class TrainReporting:
     if gpu:
       parts.append(gpu)
     logging.info("  Train Summary: " + " ".join(parts))
+
+    # Epoch-scope scalars: emit the folded values so they reach every sink
+    # (the epoch summary is otherwise console-only).  ``loss`` is emitted
+    # under the ``epoch/`` prefix to keep it a distinct series from the
+    # per-step ``Train/loss``.
+    self._logger.log_epoch("epoch/loss", avg_loss, epoch=self._current_epoch)
+    for k in sorted(self._extra):
+      m = self._extra[k]
+      self._logger.log_epoch(f"epoch/{k}",
+                             self._metric_value(k, m, ctx),
+                             epoch=self._current_epoch,
+                             kind=m.kind)
     return avg_loss
 
   def _log_step(self, batch_idx, global_step):
@@ -292,7 +314,7 @@ class TrainReporting:
 
     # Hardware / optimizer info.
     gpu = gpu_stats_str(self._device)
-    lr_str = report_lr(self._optimizer, writer=self._writer, step=global_step)
+    lr_str = report_lr(self._optimizer, logger=self._logger, step=global_step)
 
     # Throughput label.
     unit = f"{self._throughput_unit}/s"
@@ -310,27 +332,37 @@ class TrainReporting:
       msg += f" {name}={self._metric_value(name, m, ctx):{m.fmt}}"
     logging.info(msg)
 
-    # TensorBoard scalars.
-    if self._writer is not None:
-      self._writer.add_scalar("Train/loss", w_loss, global_step)
-      self._writer.add_scalar("Train/loss_avg", avg_loss, global_step)
-      self._writer.add_scalar("Train/throughput", throughput, global_step)
-      for name, m in self._extra.items():
-        self._writer.add_scalar(f"Train/{name}", self._metric_value(name, m, ctx),
-                                global_step)
-      if self._device is not None and self._device.type == "cuda":
-        self._writer.add_scalar(
-            "GPU/memory_MB",
-            torch.cuda.memory_allocated(self._device) / 1024**2,
-            global_step,
-        )
-        utilization = maybe_call(torch.cuda, "utilization", self._device)
-        if utilization is not MISSING:
-          self._writer.add_scalar(
-              "GPU/utilization_pct",
-              utilization,
-              global_step,
-          )
+    # Metric sinks.  ``loss`` / ``throughput`` are window-resolved; the
+    # running ``loss_avg`` and the extras are cumulative -- the
+    # ``resolution`` tag records that distinction without changing it.
+    self._logger.log_step("Train/loss", w_loss, step=global_step, resolution="window")
+    self._logger.log_step("Train/loss_avg",
+                          avg_loss,
+                          step=global_step,
+                          resolution="running")
+    self._logger.log_step("Train/throughput",
+                          throughput,
+                          step=global_step,
+                          resolution="window")
+    for name, m in self._extra.items():
+      self._logger.log_step(f"Train/{name}",
+                            self._metric_value(name, m, ctx),
+                            step=global_step,
+                            resolution="running",
+                            kind=m.kind)
+    if self._device is not None and self._device.type == "cuda":
+      self._logger.log_step(
+          "GPU/memory_MB",
+          torch.cuda.memory_allocated(self._device) / 1024**2,
+          step=global_step,
+          resolution="window",
+      )
+      utilization = maybe_call(torch.cuda, "utilization", self._device)
+      if utilization is not MISSING:
+        self._logger.log_step("GPU/utilization_pct",
+                              utilization,
+                              step=global_step,
+                              resolution="window")
 
     # Reset window buffers and update timestamp.  ``self._extra`` is
     # intentionally NOT cleared: it carries the latest metric per name so
@@ -352,18 +384,20 @@ class ImageTrainReporting(TrainReporting):
       self,
       total_batches,
       log_every,
-      writer=None,
+      logger=None,
       device=None,
       optimizer=None,
       throughput_unit="img",
+      epoch=None,
   ):
     super().__init__(
         total_batches=total_batches,
         log_every=log_every,
-        writer=writer,
+        logger=logger,
         device=device,
         optimizer=optimizer,
         throughput_unit=throughput_unit,
+        epoch=epoch,
     )
 
     # Image-specific cumulative counters.  ``_has_accuracy`` stays False
@@ -495,6 +529,21 @@ class ImageTrainReporting(TrainReporting):
     if gpu:
       parts.append(gpu)
     logging.info("  Train Summary: " + " ".join(parts))
+
+    # Epoch-scope scalars: emit folded values so the epoch summary reaches
+    # every sink (it is otherwise console-only).  ``epoch/`` prefixes keep
+    # them distinct from the per-step ``Train/*`` series.
+    self._logger.log_epoch("epoch/loss", avg_loss, epoch=self._current_epoch)
+    if self._has_accuracy:
+      self._logger.log_epoch("epoch/top1", top1, epoch=self._current_epoch)
+    ctx = self._context(avg_loss, avg_loss)
+    for name, m in self._extra.items():
+      if name == "top1":
+        continue
+      self._logger.log_epoch(f"epoch/{name}",
+                             self._metric_value(name, m, ctx),
+                             epoch=self._current_epoch,
+                             kind=m.kind)
     return avg_loss, top1
 
   def _log_step(self, batch_idx, global_step):
@@ -509,7 +558,7 @@ class ImageTrainReporting(TrainReporting):
 
     # Hardware / optimizer info.
     gpu = gpu_stats_str(self._device)
-    lr_str = report_lr(self._optimizer, writer=self._writer, step=global_step)
+    lr_str = report_lr(self._optimizer, logger=self._logger, step=global_step)
 
     # Console log.  Accuracy is appended only when this run actually
     # tracked it: a method with no classification head would otherwise
@@ -527,33 +576,52 @@ class ImageTrainReporting(TrainReporting):
     msg += f" {lr_str}"
     logging.info(msg)
 
-    # TensorBoard scalars.
-    if self._writer is not None:
-      self._writer.add_scalar("Train/loss", w_loss, global_step)
-      if self._has_accuracy:
-        self._writer.add_scalar("Train/top1", self._window_accuracy(), global_step)
-        self._writer.add_scalar("Train/macro_f1", self._window_macro_f1(), global_step)
-        self._writer.add_scalar("Train/top1_avg", top1, global_step)
-      self._writer.add_scalar("Train/loss_avg", avg_loss, global_step)
-      self._writer.add_scalar("Train/throughput", throughput, global_step)
-      for name, m in self._extra.items():
-        if name == "top1":
-          continue  # Already tracked separately.
-        self._writer.add_scalar(f"Train/{name}", self._metric_value(name, m, ctx),
-                                global_step)
-      if self._device is not None and self._device.type == "cuda":
-        self._writer.add_scalar(
-            "GPU/memory_MB",
-            torch.cuda.memory_allocated(self._device) / 1024**2,
-            global_step,
-        )
-        utilization = maybe_call(torch.cuda, "utilization", self._device)
-        if utilization is not MISSING:
-          self._writer.add_scalar(
-              "GPU/utilization_pct",
-              utilization,
-              global_step,
-          )
+    # Metric sinks.  Window-resolved values (``loss``, accuracy, throughput)
+    # are tagged ``window``; cumulative ones (``loss_avg``, extras) are
+    # tagged ``running``.
+    self._logger.log_step("Train/loss", w_loss, step=global_step, resolution="window")
+    if self._has_accuracy:
+      self._logger.log_step("Train/top1",
+                            self._window_accuracy(),
+                            step=global_step,
+                            resolution="window")
+      self._logger.log_step("Train/macro_f1",
+                            self._window_macro_f1(),
+                            step=global_step,
+                            resolution="window")
+      self._logger.log_step("Train/top1_avg",
+                            top1,
+                            step=global_step,
+                            resolution="running")
+    self._logger.log_step("Train/loss_avg",
+                          avg_loss,
+                          step=global_step,
+                          resolution="running")
+    self._logger.log_step("Train/throughput",
+                          throughput,
+                          step=global_step,
+                          resolution="window")
+    for name, m in self._extra.items():
+      if name == "top1":
+        continue  # Already tracked separately.
+      self._logger.log_step(f"Train/{name}",
+                            self._metric_value(name, m, ctx),
+                            step=global_step,
+                            resolution="running",
+                            kind=m.kind)
+    if self._device is not None and self._device.type == "cuda":
+      self._logger.log_step(
+          "GPU/memory_MB",
+          torch.cuda.memory_allocated(self._device) / 1024**2,
+          step=global_step,
+          resolution="window",
+      )
+      utilization = maybe_call(torch.cuda, "utilization", self._device)
+      if utilization is not MISSING:
+        self._logger.log_step("GPU/utilization_pct",
+                              utilization,
+                              step=global_step,
+                              resolution="window")
 
     # Reset window buffers and update timestamp.
     self._last_log_time = time.time()

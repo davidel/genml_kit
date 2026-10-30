@@ -4,7 +4,16 @@ import collections
 
 # One DataLoader step.  data is opaque to the loop; meta carries anything
 # the method's train_step needs (labels, GT similarity, ...).
-DataBlob = collections.namedtuple("DataBlob", ["data", "meta"])
+#
+# ``records`` carries pipeline-side, method-consumable metric records (e.g.
+# work-amount facts such as the batch's sample/token count).  The method folds
+# them into ``LossOutput.metrics`` so pipeline facts reach the metric sinks
+# through the one existing channel.  It defaults to ``None`` so every existing
+# constructor keeps working unchanged; code that *modifies* a blob (notably
+# ``to_device``) must use ``blob._replace(...)`` so this field -- and any field
+# added later -- flows through untouched.
+DataBlob = collections.namedtuple("DataBlob", ["data", "meta", "records"],
+                                  defaults=[None])
 
 # NOTE: do NOT define a generic "ModelOutput" here -- the name is taken by
 # genml_kit.models.registry.ModelOutput (holds .logits, used by every custom

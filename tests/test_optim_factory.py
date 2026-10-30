@@ -353,18 +353,18 @@ class TestReportLr:
     model = nn.Linear(10, 2)
     opt = optim.AdamW(model.parameters(), lr=0.001)
 
-    class FakeWriter:
+    class FakeLogger:
 
       def __init__(self):
         self.scalars = {}
 
-      def add_scalar(self, tag, value, step):
+      def log_step(self, tag, value, *, step, resolution=None, kind=None):
         self.scalars[tag] = (value, step)
 
-    writer = FakeWriter()
-    result = report_lr(opt, writer=writer, step=42)
+    logger = FakeLogger()
+    result = report_lr(opt, logger=logger, step=42)
     assert result == "lr=1.00e-03"
-    assert writer.scalars["Train/lr"] == (0.001, 42)
+    assert logger.scalars["Train/lr"] == (0.001, 42)
 
   def test_tensorboard_multi_group(self):
     model = nn.Sequential(nn.Linear(10, 8), nn.Linear(8, 2))
@@ -375,19 +375,19 @@ class TestReportLr:
                                 lr_groups=["0.*=1e-5", "1.*=1e-3"])
     opt = create_optimizer(groups, name="AdamW")
 
-    class FakeWriter:
+    class FakeLogger:
 
       def __init__(self):
         self.scalars = {}
 
-      def add_scalar(self, tag, value, step):
+      def log_step(self, tag, value, *, step, resolution=None, kind=None):
         self.scalars[tag] = (value, step)
 
-    writer = FakeWriter()
-    result = report_lr(opt, writer=writer, step=42)
+    logger = FakeLogger()
+    result = report_lr(opt, logger=logger, step=42)
     assert result == "lr=[1.00e-05, 1.00e-03]"
-    assert writer.scalars["Train/lr_group0"] == (1e-5, 42)
-    assert writer.scalars["Train/lr_group1"] == (1e-3, 42)
+    assert logger.scalars["Train/lr_group0"] == (1e-5, 42)
+    assert logger.scalars["Train/lr_group1"] == (1e-3, 42)
 
 
 class TestComputeParamsDepths:

@@ -238,7 +238,7 @@ class IJEPAMethod(Method):
         "predictor_heads": args.predictor_heads,
     }
 
-  def on_epoch_end(self, model, epoch, writer):
+  def on_epoch_end(self, model, epoch, logger):
     """Ramp teacher EMA momentum."""
     if isinstance(model, IJEPA):
       model.update_momentum(epoch)

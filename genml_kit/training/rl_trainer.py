@@ -120,10 +120,11 @@ class RLTrainer(BaseTrainer):
     reporter = TrainReporting(
         total_batches=self.args.steps_per_epoch,
         log_every=getattr(self.args, "log_every", 50),
-        writer=self.writer,
+        logger=self.logger,
         device=self.device,
         optimizer=self.optimization.optimizer,
         throughput_unit="step",
+        epoch=epoch,
     )
 
     # Determine if continuous action space (needed for step_env)
@@ -173,16 +174,20 @@ class RLTrainer(BaseTrainer):
 
       self._apply_grad(loss_out, scaler, amp_dtype)
 
-      if self.writer is not None and hasattr(self.method, 'apply_grad'):
+      if hasattr(self.method, 'apply_grad'):
         pass
-      elif self.writer is not None and self.optimization.optimizer is not None:
+      elif self.optimization.optimizer is not None:
         total_norm = 0.0
         for p in self.model.parameters():
           if p.grad is not None:
             param_norm = p.grad.data.norm(2)
             total_norm += param_norm.item()**2
         total_norm = total_norm**0.5
-        self.writer.add_scalar("train/grad_norm", total_norm, step)
+        self.logger.log_step("train/grad_norm",
+                             total_norm,
+                             step=step,
+                             resolution="window",
+                             kind=MetricKind.LAST)
 
       step += 1
       self.method.update_target(self.model, global_step=step)
@@ -304,10 +309,11 @@ class RLTrainer(BaseTrainer):
     reporter = TrainReporting(
         total_batches=total_pico_batches,
         log_every=getattr(self.args, "log_every", 50),
-        writer=self.writer,
+        logger=self.logger,
         device=self.device,
         optimizer=self.optimization.optimizer,
         throughput_unit="step",
+        epoch=epoch,
     )
 
     target_kl = getattr(self.method, "_target_kl", None)
@@ -340,14 +346,18 @@ class RLTrainer(BaseTrainer):
 
         self._apply_grad(loss_out, scaler, amp_dtype)
 
-        if self.writer is not None and self.optimization.optimizer is not None:
+        if self.optimization.optimizer is not None:
           total_norm = 0.0
           for p in self.model.parameters():
             if p.grad is not None:
               param_norm = p.grad.data.norm(2)
               total_norm += param_norm.item()**2
           total_norm = total_norm**0.5
-          self.writer.add_scalar("train/grad_norm", total_norm, step)
+          self.logger.log_step("train/grad_norm",
+                               total_norm,
+                               step=step,
+                               resolution="window",
+                               kind=MetricKind.LAST)
 
         step += 1
 

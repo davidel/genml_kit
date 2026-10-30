@@ -616,7 +616,7 @@ class RLPipeline(DataPipeline):
       }
 
     if isinstance(blob, DataBlob):
-      return DataBlob(data=data, meta=meta)
+      return blob._replace(data=data, meta=meta)
     return data
 
   @classmethod

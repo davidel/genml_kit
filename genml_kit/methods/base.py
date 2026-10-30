@@ -168,7 +168,7 @@ class Method(abc.ABC):
 
     return build_pretrain_transform(image_size)
 
-  def on_epoch_end(self, model, epoch, writer):  # noqa: B027
+  def on_epoch_end(self, model, epoch, logger):  # noqa: B027
     """Hook called at the end of each training epoch (optional)."""
 
   def log_validation(  # noqa: B027
@@ -176,18 +176,19 @@ class Method(abc.ABC):
       model,
       loader,
       to_device,
-      writer,
+      logger,
       global_step,
       device,
       num_samples=8):
-    """Log method-specific validation images to the writer (optional).
+    """Log method-specific validation images to the sinks (optional).
 
         Called by the trainer after a validation pass when ``--vis_every`` is
         enabled.  The default implementation is a silent no-op; methods that
         can visualise their objective (e.g. SimMIM reconstructions) override
         this to pull one batch from *loader* (which yields ``DataBlob``
-        namedtuples via the production collate) and call ``writer.add_image``
-        under ``model_mode(model, "eval")``.
+        namedtuples via the production collate) and call
+        ``logger.log_artifact(..., "image", ...)`` under
+        ``model_mode(model, "eval")``.
         """
 
   def prepare_transforms(self, args, device):  # noqa: B027

@@ -22,7 +22,7 @@ def _make_reporter(**kwargs):
   defaults = {
       "total_batches": 10,
       "log_every": 5,
-      "writer": None,
+      "logger": None,
       "device": torch.device("cpu"),
       "optimizer": opt,
   }
@@ -38,7 +38,7 @@ def _make_base_reporter(**kwargs):
   defaults = {
       "total_batches": 10,
       "log_every": 5,
-      "writer": None,
+      "logger": None,
       "device": torch.device("cpu"),
       "optimizer": opt,
   }
@@ -79,10 +79,10 @@ def test_init_counters_are_zero():
 
 def test_init_stores_references():
   device = torch.device("cpu")
-  writer = MagicMock()
+  logger = MagicMock()
   opt = MagicMock()
-  r = _make_reporter(writer=writer, device=device, optimizer=opt)
-  assert r._writer is writer
+  r = _make_reporter(logger=logger, device=device, optimizer=opt)
+  assert r._logger is logger
   assert r._device is device
   assert r._optimizer is opt
   assert r._total_batches == 10
@@ -464,23 +464,23 @@ def test_image_macro_f1_zero_when_no_correct(caplog):
 
 
 def test_image_tensorboard_scalars_written():
-  writer = MagicMock()
-  r = _make_reporter(log_every=1, writer=writer)
+  logger = MagicMock()
+  r = _make_reporter(log_every=1, logger=logger)
   logits, targets = _dummy_batch(batch_size=4, num_correct=3)
   r.step(0, 4, 2.0, 42, logits=logits, targets=targets)
 
   expected_calls = {
-      ("Train/loss",),
-      ("Train/top1",),
-      ("Train/macro_f1",),
-      ("Train/loss_avg",),
-      ("Train/top1_avg",),
-      ("Train/throughput",),
+      "Train/loss",
+      "Train/top1",
+      "Train/macro_f1",
+      "Train/loss_avg",
+      "Train/top1_avg",
+      "Train/throughput",
   }
-  written = {(c[0][0],) for c in writer.add_scalar.call_args_list}
+  written = {c[0][0] for c in logger.log_step.call_args_list}
   assert expected_calls <= written
-  for call in writer.add_scalar.call_args_list:
-    assert call[0][2] == 42
+  for call in logger.log_step.call_args_list:
+    assert call[1]["step"] == 42
 
 
 def test_image_single_batch_epoch():
@@ -613,15 +613,15 @@ def test_base_summary_returns_float():
   assert abs(avg_loss - 3.0) < 1e-6
 
 
-def test_base_no_tensorboard_calls_when_writer_none():
-  r = _make_base_reporter(log_every=1, writer=None)
+def test_base_no_tensorboard_calls_when_logger_none():
+  r = _make_base_reporter(log_every=1, logger=None)
   r.step(0, 4, 1.0, 0)
 
 
 def test_base_tensorboard_extra_metrics():
   from genml_kit.training.train_reporting import metric
-  writer = MagicMock()
-  r = _make_base_reporter(log_every=1, writer=writer)
+  logger = MagicMock()
+  r = _make_base_reporter(log_every=1, logger=logger)
   r.step(0,
          4,
          1.0,
@@ -630,6 +630,6 @@ def test_base_tensorboard_extra_metrics():
              "epsilon": metric("epsilon", 0.5),
              "q_mean": metric("q_mean", 10.0),
          })
-  written = {(c[0][0],) for c in writer.add_scalar.call_args_list}
-  assert ("Train/epsilon",) in written
-  assert ("Train/q_mean",) in written
+  written = {c[0][0] for c in logger.log_step.call_args_list}
+  assert "Train/epsilon" in written
+  assert "Train/q_mean" in written

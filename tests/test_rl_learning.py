@@ -159,7 +159,7 @@ def _run(method, pipeline, args, epochs):
                         pipeline=pipeline,
                         optimization=optimization,
                         device=torch.device("cpu"),
-                        writer=None,
+                        logger=None,
                         start_epoch=0,
                         best_metric=float("-inf"),
                         global_step=0)

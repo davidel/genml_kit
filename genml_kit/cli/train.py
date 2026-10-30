@@ -29,7 +29,8 @@ from genml_kit.utils.args import (
 from genml_kit.utils.attr import maybe_call
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.gpu import resolve_device
-from genml_kit.utils.logging import open_writer, setup_logging
+from genml_kit.training.metrics_sinks import build_metrics_logger
+from genml_kit.utils.logging import setup_logging
 from genml_kit.utils.seed import resolve_seed, seed_everything
 from genml_kit.utils.shared_args import (
     ARG_BATCH_SIZE, ARG_CACHE_DIR, ARG_DATASET, ARG_EPOCHS, ARG_GRAD_CHECKPOINT,
@@ -337,7 +338,7 @@ def main(argv=None):
   # constructed. This is intentional memory hygiene, not vestigial code.
   del ckpt_extra
 
-  writer = open_writer(log_dir=args.log_dir, checkpoint=args.checkpoint)
+  logger = build_metrics_logger(args)
   # Select trainer class via Method.get_trainer_class() (C13 fix).
   trainer_cls = method.get_trainer_class()
   trainer = trainer_cls(
@@ -347,7 +348,7 @@ def main(argv=None):
       pipeline=pipeline,
       optimization=optimization,
       device=device,
-      writer=writer,
+      logger=logger,
       start_epoch=start_epoch,
       best_metric=best_metric,
       global_step=global_step,

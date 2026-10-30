@@ -181,11 +181,11 @@ class SegmentationMethod(Method):
                      model,
                      loader,
                      to_device,
-                     writer,
+                     logger,
                      global_step,
                      device,
                      num_samples=8):
-    """Log image / GT-mask / predicted-mask overlays to TensorBoard.
+    """Log image / GT-mask / predicted-mask overlays to the metric sinks.
 
     Called by the trainer when ``--vis_every`` hits; without this override
     the base class is a no-op and the flag silently does nothing for
@@ -198,7 +198,10 @@ class SegmentationMethod(Method):
     Runs the model in eval mode (``model_mode(model, "eval")``) and
     restores the previous training state afterwards.
     """
-    if writer is None or loader is None:
+    from genml_kit.training.metrics_sinks import ensure_logger
+
+    logger = ensure_logger(logger)
+    if loader is None:
       return
     n = max(2, min(int(num_samples), 8))
     rows = []
@@ -227,7 +230,7 @@ class SegmentationMethod(Method):
           break
     if rows:
       grid = np.concatenate(rows, axis=0)  # (n*H, 3*W, 3) uint8
-      writer.add_image("seg/overlay", grid, global_step)
+      logger.log_artifact("seg/overlay", "image", grid, step=global_step)
 
   def get_checkpoint_state(self, model, args):
     return {

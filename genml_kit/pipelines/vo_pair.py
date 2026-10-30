@@ -141,5 +141,6 @@ class VOPairPipeline(DataPipeline):
 
   def to_device(self, blob, device):
     moved_meta = {k: self._move_to_device(v, device) for k, v in blob.meta.items()}
-    return DataBlob((blob.data[0].to(device, non_blocking=True), blob.data[1].to(
-        device, non_blocking=True)), moved_meta)
+    return blob._replace(data=(blob.data[0].to(device, non_blocking=True),
+                               blob.data[1].to(device, non_blocking=True)),
+                         meta=moved_meta)

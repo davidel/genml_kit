@@ -85,7 +85,7 @@ class FakeMethod:
     if "value" in state:
       self._loss = 0.0
 
-  def on_epoch_end(self, model, epoch, writer):
+  def on_epoch_end(self, model, epoch, logger):
     self.epoch_ends += 1
 
   @classmethod
@@ -132,11 +132,20 @@ class FakePipeline:
     return DataBlob(blob.data.to(device), blob.meta)
 
 
-class _Writer:
-  """Minimal TensorBoard writer stand-in."""
+class _Logger:
+  """Minimal MetricsLogger stand-in (semantic API + passthrough)."""
 
   def __init__(self):
     self.scalars = []
+
+  def log_step(self, tag, value, *, step, resolution=None, kind=None):
+    self.scalars.append((tag, value, step))
+
+  def log_epoch(self, tag, value, *, epoch, kind=None):
+    self.scalars.append((tag, value, epoch))
+
+  def log_artifact(self, tag, payload_kind, payload, *, step=None):
+    pass
 
   def add_scalar(self, tag, value, step):
     self.scalars.append((tag, value, step))
@@ -160,7 +169,7 @@ def _make_trainer(tmp_path, method=None, pipeline=None, args=None):
                      pipeline=pipeline,
                      optimization=optimization,
                      device=torch.device("cpu"),
-                     writer=_Writer(),
+                     logger=_Logger(),
                      start_epoch=0,
                      best_metric=0.0,
                      global_step=0)
@@ -304,14 +313,14 @@ def test_vo_trainer_uses_shared_loop(tmp_path):
   model = method.build_model(args, torch.device("cpu"))
   optimization.optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-  writer = _Writer()
+  logger = _Logger()
   trainer = BaseTrainer(args=args,
                         model=model,
                         method=method,
                         pipeline=pipeline,
                         optimization=optimization,
                         device=torch.device("cpu"),
-                        writer=writer,
+                        logger=logger,
                         start_epoch=0,
                         best_metric=float("inf"),
                         global_step=0)

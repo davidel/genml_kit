@@ -11,14 +11,14 @@ from genml_kit.methods.segmentation import (
 from genml_kit.utils.seg import class_mask_to_rgb
 
 
-class _FakeWriter:
-  """Minimal stand-in for the TensorBoard writer (records add_image calls)."""
+class _FakeLogger:
+  """Minimal MetricsLogger stand-in (records image artifacts)."""
 
   def __init__(self):
     self.images = {}  # tag -> (grid ndarray, global_step)
 
-  def add_image(self, tag, img, global_step):
-    self.images[tag] = (img, global_step)
+  def log_artifact(self, tag, payload_kind, payload, *, step=None):
+    self.images[tag] = (payload, step)
 
 
 class _FakeModel(torch.nn.Module):
@@ -119,7 +119,7 @@ def test_overlay_row_concat_shape():
 
 def test_log_validation_writes_overlay(tmp_path):
   method = _make_method(num_classes=3)
-  writer = _FakeWriter()
+  logger = _FakeLogger()
   images, mask = _sample_batch(batch=2)
   loader = _FakeLoader([_FakeBlob(images, mask)])
   model = _FakeModel(num_classes=3)
@@ -127,13 +127,13 @@ def test_log_validation_writes_overlay(tmp_path):
   method.log_validation(model,
                         loader,
                         lambda x, d: x,
-                        writer,
+                        logger,
                         global_step=7,
                         device="cpu",
                         num_samples=2)
 
-  assert "seg/overlay" in writer.images
-  grid, step = writer.images["seg/overlay"]
+  assert "seg/overlay" in logger.images
+  grid, step = logger.images["seg/overlay"]
   assert step == 7
   assert isinstance(grid, np.ndarray)
   # 2 rows x (16 x 3) wide x 3 channels.
@@ -141,9 +141,9 @@ def test_log_validation_writes_overlay(tmp_path):
   assert grid.dtype == np.uint8
 
 
-def test_log_validation_none_writer_noop():
+def test_log_validation_none_logger_noop():
   method = _make_method()
-  writer = None
+  logger = None
   images, mask = _sample_batch()
   loader = _FakeLoader([_FakeBlob(images, mask)])
   model = _FakeModel()
@@ -151,14 +151,14 @@ def test_log_validation_none_writer_noop():
   method.log_validation(model,
                         loader,
                         lambda x, d: x,
-                        writer,
+                        logger,
                         global_step=1,
                         device="cpu")
 
 
 def test_log_validation_restores_model_mode():
   method = _make_method()
-  writer = _FakeWriter()
+  logger = _FakeLogger()
   images, mask = _sample_batch()
   loader = _FakeLoader([_FakeBlob(images, mask)])
   model = _FakeModel()
@@ -166,7 +166,7 @@ def test_log_validation_restores_model_mode():
   method.log_validation(model,
                         loader,
                         lambda x, d: x,
-                        writer,
+                        logger,
                         global_step=1,
                         device="cpu",
                         num_samples=1)

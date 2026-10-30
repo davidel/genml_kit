@@ -207,3 +207,11 @@ def add_logging_args(parser):
       "standard error; any other entry is a log file path "
       "appended to. Example: 'STDERR,/tmp/train.log' logs to both.",
   )
+  parser.add_argument(
+      "--metrics_sinks",
+      type=str,
+      default="tb,jsonl",
+      help="Comma-separated list of metric sinks. 'tb' writes TensorBoard "
+      "scalars; 'jsonl' appends structured records to <log_dir>/metrics.jsonl; "
+      "'none' disables metrics output. Example: 'tb,jsonl'.",
+  )

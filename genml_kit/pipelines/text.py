@@ -17,7 +17,6 @@ from torch.utils.data import DataLoader
 
 from genml_kit.datasets.text_proxy import load_raw_split
 from genml_kit.pipelines.base import DataPipeline
-from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
@@ -187,4 +186,4 @@ class TextPipeline(DataPipeline):
     labels = meta.get("labels")
     if labels is not None:
       meta["labels"] = labels.to(device, non_blocking=True)
-    return DataBlob(data, meta)
+    return blob._replace(data=data, meta=meta)

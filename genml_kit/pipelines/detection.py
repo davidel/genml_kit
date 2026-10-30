@@ -186,7 +186,7 @@ class DetectionPipeline(DataPipeline):
     data = blob.data.to(device, non_blocking=True)
     boxes = [b.to(device, non_blocking=True) for b in blob.meta.get("boxes", [])]
     labels = [lab.to(device, non_blocking=True) for lab in blob.meta.get("labels", [])]
-    return DataBlob(data=data, meta={"boxes": boxes, "labels": labels})
+    return blob._replace(data=data, meta={"boxes": boxes, "labels": labels})
 
 
 class _SubsetWithMeta:

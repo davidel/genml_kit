@@ -338,7 +338,7 @@ class ImagesPipeline(DataPipeline):
         ]
       else:
         meta[k] = v
-    return DataBlob(data=data, meta=meta)
+    return blob._replace(data=data, meta=meta)
 
   @staticmethod
   def _collate(batch):
