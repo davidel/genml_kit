@@ -35,6 +35,7 @@ in [`vo/README.md`](vo/README.md).
 - [Knowledge Distillation](#knowledge-distillation)
 - [Large Language Models (causal LM)](#large-language-models-causal-lm)
 - [Reinforcement Learning](#reinforcement-learning)
+- [Hyperparameter Search](#hyperparameter-search)
 - [References And Further Reading](#references-and-further-reading)
 - [Development](#development)
 - [License](#license)
@@ -165,7 +166,8 @@ reuse the same hook.
 | `genml_kit.geometry` | `similarity.py` (2-D similarity algebra, batched differentiable Umeyama, backward-map warp) — the math behind the visual-odometry front-end lives in [`vo/README.md`](vo/README.md) |
 | `genml_kit.io` | `checkpointing.py` (atomic saves, LoRA state, remote fetch), `storage_utils.py` (S3 / GCS / R2) |
 | `genml_kit.utils` | glog-style logging, CLI arg groups + `shared_args.py` (globally shared `ARG_*` CLI flags), seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers, `generation.py` (samplers + batched `generate`) |
-| `genml_kit.cli` | console-script entry points: `train.py` (`genml-kit-train`), `infer.py` (`genml-kit-infer`), `llm.py` (`genml-kit-llm`, `generate` / `eval` subcommands) |
+| `genml_kit.cli` | console-script entry points: `train.py` (`genml-kit-train`), `infer.py` (`genml-kit-infer`), `llm.py` (`genml-kit-llm`, `generate` / `eval` subcommands), `tune.py` (`genml-kit-tune`, `run` / `report` subcommands) |
+| `genml_kit.search` | hyperparameter search: `space.py` (typed dimensions + argv encoding), `study.py` (declarative study spec), `samplers.py` (`SEARCHERS`: grid/random/tpe/gpei), `pruners.py` (`PRUNERS`: none/median/asha), `runner.py` (subprocess-isolated trials), `store.py` (resumable ledger), `trial.py` |
 
 ## Installation
 
@@ -193,7 +195,10 @@ pip install "genml_kit[llm-spm]"
 # With UVito model support:
 pip install "genml_kit[uvito]"
 
-# Everything above in one shot (gcs, s3, lora, llm, llm-spm, timm, uvito):
+# With the scipy-backed hyperparameter sampler (genml-kit-tune gpei):
+pip install "genml_kit[tune]"
+
+# Everything above in one shot (gcs, s3, lora, llm, llm-spm, timm, uvito, rl, tune):
 pip install "genml_kit[all]"
 ```
 
@@ -2865,6 +2870,89 @@ rollout buffer, GAE, and the TD targets: a truncated final step still
 bootstraps `γ V(s′)`, while a terminated one does not.  Environments using
 the legacy 4-tuple gym API (no `terminated`/`truncated` split) fall back to
 treating `done` as `terminated`.
+
+## Hyperparameter Search
+
+`genml-kit-tune` runs a hyperparameter *study* on top of the unified trainer.
+It is deliberately decoupled from the training code: **every trial is a fresh
+`genml-kit-train` subprocess**, and the only contracts between the tuner and a
+trial are the command line it is handed and the `<log_dir>/metrics.jsonl` file
+the JSONL sink already writes.  No training internals are imported, so the
+isolation boundary *is* the process boundary.
+
+A study is data, not code — describe it in YAML (or all on the command line):
+
+```yaml
+# study.yaml
+objective: val/macro_f1      # metric tag to optimise
+direction: max               # max | min
+sampler: tpe                 # grid | random | tpe | gpei
+pruner: asha                 # none | median | asha
+max_trials: 50
+max_epochs_per_trial: 20     # budget caps each trial
+space:
+  opt.lr: log(1e-4:1e-1)     # log-uniform float range
+  batch_size: [32, 64, 128]  # categorical choice
+  dropout: 0.0:0.5           # uniform float range
+  model.embed_dim: 64:1024   # integer range
+base_args: ["--pipeline", "images", "--method", "classification"]
+```
+
+### Running a study
+
+Points after a literal `--` are forwarded verbatim to every trial:
+
+<!-- genml-cli-test-exclude: tune spawns nested training subprocesses; covered by tests/test_search_runner.py instead -->
+```bash
+genml-kit-tune run \
+    --space opt.lr=log(1e-4:1e-1) --space batch_size=32,64 \
+    --objective val/macro_f1 --sampler tpe --pruner asha \
+    --max_trials 8 --workers 2 \
+    -- --model google/vit-base-patch16-224 --dataset uoft-cs/cifar10
+```
+
+The equivalent all-YAML form is `genml-kit-tune run --study study.yaml`; command
+line flags override the file.  Trials land under
+`runs/study-<timestamp>/trials/<id>/` (each with its own `metrics.jsonl` and
+checkpoints) and the study ledger is `runs/study-<timestamp>/study.jsonl`.
+
+### Samplers and pruners
+
+| Name | Kind | Notes |
+|---|---|---|
+| `grid` | sampler | Deterministic Cartesian product; resume-safe. |
+| `random` | sampler | Uniform draws over the space. |
+| `tpe` | sampler | Tree-structured Parzen Estimator — sample-efficient Bayesian optimisation (numpy only). The default. |
+| `gpei` | sampler | Gaussian-Process Expected Improvement (registered only when `scipy` is installed; `pip install "genml_kit[tune]"`). |
+| `none` | pruner | Run every trial to its full budget. |
+| `median` | pruner | Stop trials below the running median at a rung. |
+| `asha` | pruner | Asynchronous Successive Halving / Hyperband; keeps the top `1/reduction_factor` at each rung. |
+
+Pruning is delivered as a clean `SIGTERM` to the trial subprocess, which the
+trainer's existing signal guard turns into a consistent checkpoint before exit.
+
+### Concurrency, GPUs and resume
+
+By default studies run **one trial at a time**.  `--workers N` runs `N` trials
+concurrently, and `--gpus 0,1,2,3` pins each trial to a slot from that pool via
+`CUDA_VISIBLE_DEVICES`.  Interrupt a study at any time and continue it later:
+
+<!-- genml-cli-test-exclude: illustrative resume/report of an existing study dir; covered by tests/test_search_runner.py -->
+```bash
+genml-kit-tune run --study_dir runs/study-20250101-120000 --resume \
+    --space opt.lr=log(1e-4:1e-1) --objective val/macro_f1 --max_trials 50
+genml-kit-tune report runs/study-20250101-120000 --top 10
+```
+
+### Extending
+
+Both algorithm families are registries, exactly like `METHODS`/`PIPELINES`.
+A new sampler subclasses `Sampler` (implementing `suggest(observed, n)`) and
+decorates itself with `@SEARCHERS.register`; a new pruner subclasses `Pruner`
+(implementing `_decide(rung, value)`) and uses `@PRUNERS.register`.  The
+subsystem stays zero-dependency: `tpe`, `grid` and `random` need only numpy,
+and the scipy-backed `gpei` registers itself only when scipy is importable
+(`pip install "genml_kit[tune]"`).
 
 ## References And Further Reading
 

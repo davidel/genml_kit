@@ -30,7 +30,8 @@ llm-spm = ["sentencepiece>=0.1.99"]
 timm = ["timm>=1.0"]
 uvito = ["segmentation_models_pytorch>=0.3.0"]
 rl = ["gymnasium>=0.29", "pygame>=2.1", "imageio[ffmpeg]>=2.31", "box2d>=2.3.10"]
-all = ["genml_kit[gcs,s3,lora,llm,llm-spm,timm,uvito,rl]"]
+tune = ["scipy"]
+all = ["genml_kit[gcs,s3,lora,llm,llm-spm,timm,uvito,rl,tune]"]
 dev = ["pytest", "ruff", "yapf", "pyyaml"]
 
 [project.urls]
@@ -42,6 +43,7 @@ Issues = "https://github.com/davidel/genml_kit/issues"
 genml-kit-train = "genml_kit.cli.train:main"
 genml-kit-infer = "genml_kit.cli.infer:main"
 genml-kit-llm = "genml_kit.cli.llm:main"
+genml-kit-tune = "genml_kit.cli.tune:main"
 
 [tool.setuptools.packages.find]
 include = ["genml_kit*"]

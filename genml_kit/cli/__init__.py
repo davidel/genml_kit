@@ -7,4 +7,5 @@ generation/eval) stays in the ``genml_kit.*`` library modules.
     * :mod:`genml_kit.cli.train`  -- ``genml-kit-train``
     * :mod:`genml_kit.cli.infer`  -- ``genml-kit-infer``
     * :mod:`genml_kit.cli.llm`    -- ``genml-kit-llm``
+    * :mod:`genml_kit.cli.tune`   -- ``genml-kit-tune``
 """

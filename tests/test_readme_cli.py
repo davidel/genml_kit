@@ -81,6 +81,7 @@ _ENTRY_MODULES = {
     "genml-kit-train": "genml_kit.cli.train",
     "genml-kit-infer": "genml_kit.cli.infer",
     "genml-kit-llm": "genml_kit.cli.llm",
+    "genml-kit-tune": "genml_kit.cli.tune",
 }
 
 _README_GLOBS = ["README.md", "*/README.md"]
