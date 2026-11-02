@@ -198,7 +198,10 @@ pip install "genml_kit[uvito]"
 # With the scipy-backed hyperparameter sampler (genml-kit-tune gpei):
 pip install "genml_kit[tune]"
 
-# Everything above in one shot (gcs, s3, lora, llm, llm-spm, timm, uvito, rl, tune):
+# With NVML GPU utilization in the training logs (the 'util=...%' field):
+pip install "genml_kit[gpu]"
+
+# Everything above in one shot (gcs, s3, lora, llm, llm-spm, timm, uvito, rl, tune, gpu):
 pip install "genml_kit[all]"
 ```
 
@@ -1561,7 +1564,10 @@ The periodic `GPU:` line reports memory in MiB and SM utilization as a
 percentage sampled at log time (`mem=allocated/totalMiB (pct) res=…MiB
 util=…%`). `mem` counts live tensors, `res` is the caching allocator's
 pool, and `util` is one instant — not an average — so an isolated 0 is
-normal. A *persistent* pattern of `util=0` at every log line, with
+normal. The `util=` field needs the optional NVML bindings
+(`pip install "genml_kit[gpu]"`); when they are absent, `util=` is simply
+omitted from the `GPU:` line — the run is never affected.
+A *persistent* pattern of `util=0` at every log line, with
 `mem`/`res` byte-identical between samples, means the GPU finished the
 last batch and is idle waiting for the next one: the run is **input
 bound**, not compute bound. The throughput line (`img/s=`) is the ground
