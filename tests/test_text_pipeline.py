@@ -32,6 +32,7 @@ def _args(**overrides):
       max_seq_len=16,
       mask_prompt=False,
       packing=False,
+      length_bucket=False,
       pad_to_multiple_of=None,
       batch_size=2,
       num_workers=0,

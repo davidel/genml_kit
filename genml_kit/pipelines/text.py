@@ -58,9 +58,20 @@ class TextPipeline(DataPipeline):
                        type=str,
                        help="Column holding the response (instruction mode).")
     group.add_argument("--packing",
-                       action="store_true",
+                       nargs="?",
+                       const="wrapped",
+                       default=None,
+                       choices=["wrapped", "bfd"],
                        help="Pack sequences into fixed max_seq_len windows "
-                       "(removes padding waste on short documents).")
+                       "(removes padding waste on short documents).  Bare "
+                       "--packing = 'wrapped' (concatenate and slice); "
+                       "'bfd' = best-fit-decreasing bin packing (fewer "
+                       "windows, but reorders documents).")
+    group.add_argument("--length_bucket",
+                       action="store_true",
+                       help="Batch items of similar length (length-bucketing "
+                       "sampler) so padded batches waste little compute "
+                       "without packing.  Mutually exclusive with --packing.")
 
   def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
     """Build (and cache) the loader for *mode* (train/val).
@@ -76,6 +87,33 @@ class TextPipeline(DataPipeline):
   def build_val_loader(self, args, **kwargs):
     return self.build_loader(args, mode="val", **kwargs)
 
+  def _build_bucketed_train_loader(self, args):
+    """Train loader using the length-bucketing batch sampler.
+
+        Groups similar-length items into the same batch so the collator pads
+        little, without packing and *without* any change to the attention
+        mask (it stays exactly document-exact).
+        """
+    from genml_kit.datasets.length_bucket_sampler import (LengthBucketBatchSampler,
+                                                          text_length_proxy)
+    # One length proxy per item drives the bucketing; computed once here (not
+    # per epoch) since it is a property of the data, not of the run.
+    lengths = text_length_proxy(self.train_dataset)
+    sampler = LengthBucketBatchSampler(lengths,
+                                       batch_size=args.batch_size,
+                                       drop_last=False,
+                                       seed=args.seed)
+    # ``batch_sampler`` fully determines the batches, so DataLoader forbids
+    # passing ``batch_size`` / ``shuffle`` alongside it.
+    return DataLoader(
+        self.train_dataset,
+        batch_sampler=sampler,
+        num_workers=args.num_workers,
+        worker_init_fn=seed_worker,
+        pin_memory=False,
+        collate_fn=self.train_collator,
+    )
+
   def _make_collator(self, tokenizer):
     # Imported lazily: text_collator imports pipelines.contracts, which
     # triggers the pipelines package __init__ (and therefore this module's
@@ -84,7 +122,8 @@ class TextPipeline(DataPipeline):
     return TextCollator(tokenizer,
                         max_seq_len=self._max_seq_len,
                         mask_prompt=self._mask_prompt,
-                        packing=self._packing,
+                        packing=bool(self._packing),
+                        packing_strategy=self._packing or "wrapped",
                         pad_to_multiple_of=self._pad_to_multiple_of)
 
   def _build(self, args, method=None):
@@ -100,7 +139,12 @@ class TextPipeline(DataPipeline):
     self._max_seq_len = args.max_seq_len
     self._mask_prompt = args.mask_prompt
     self._packing = args.packing
+    self._length_bucket = args.length_bucket
     self._pad_to_multiple_of = args.pad_to_multiple_of
+    # ``--length_bucket`` and ``--packing`` are two answers to the same problem
+    # (pad waste) with different semantics; only one may be active.
+    if self._packing and self._length_bucket:
+      fatal("--packing and --length_bucket are mutually exclusive.", ValueError)
 
     self.train_dataset, self.val_dataset = self._load_splits(args)
     self.train_collator = self._make_collator(tokenizer)
@@ -110,17 +154,20 @@ class TextPipeline(DataPipeline):
     if args.seed is not None:
       self.data_generator.manual_seed(args.seed)
 
-    self.train_loader = DataLoader(
-        self.train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.num_workers,
-        worker_init_fn=seed_worker,
-        generator=self.data_generator,
-        pin_memory=False,
-        drop_last=self._packing,
-        collate_fn=self.train_collator,
-    )
+    if self._length_bucket:
+      self.train_loader = self._build_bucketed_train_loader(args)
+    else:
+      self.train_loader = DataLoader(
+          self.train_dataset,
+          batch_size=args.batch_size,
+          shuffle=True,
+          num_workers=args.num_workers,
+          worker_init_fn=seed_worker,
+          generator=self.data_generator,
+          pin_memory=False,
+          drop_last=bool(self._packing),
+          collate_fn=self.train_collator,
+      )
     if self.val_dataset is not None:
       self.val_loader = DataLoader(
           self.val_dataset,

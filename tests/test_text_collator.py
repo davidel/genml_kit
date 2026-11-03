@@ -77,6 +77,50 @@ class TestPacking:
     full = out.data["attention_mask"].sum(dim=1)
     assert full.tolist() == [4, 4, 4, 3]
 
+  def test_pack_emits_boundary_tensors(self):
+    coll = TextCollator(_tok(), max_seq_len=4, packing=True)
+    out = coll([{"text": "ab"}, {"text": "cd"}])
+    assert {"segment_ids", "position_ids"} <= set(out.data)
+    seg, pos = out.data["segment_ids"], out.data["position_ids"]
+    assert seg.shape == pos.shape == out.data["input_ids"].shape
+    # Padding positions are marked -1 in segment_ids and 0 in position_ids.
+    pad = out.data["attention_mask"] == 0
+    assert (seg[pad] == -1).all()
+    assert (pos[pad] == 0).all()
+    # Within a document, position_ids start at 0 and increase by one; a new
+    # document (segment change) resets the running position back to 0.
+    real = out.data["attention_mask"] == 1
+    for row_seg, row_pos, row_real in zip(seg, pos, real):
+      rs, rp = row_seg[row_real].tolist(), row_pos[row_real].tolist()
+      prev_seg, prev_pos = None, None
+      for s, p in zip(rs, rp):
+        if s != prev_seg:
+          assert p == 0
+        else:
+          assert p == prev_pos + 1
+        prev_seg, prev_pos = s, p
+
+  def test_no_boundary_tensors_when_not_packing(self):
+    coll = TextCollator(_tok(), max_seq_len=8)
+    out = coll([{"text": "ab"}, {"text": "cd"}])
+    assert set(out.data) == {"input_ids", "attention_mask"}
+
+  def test_bfd_uses_no_more_windows_than_wrapped(self):
+    items = [{"text": "a" * (2 + i)} for i in range(6)]
+    wrapped = TextCollator(_tok(), max_seq_len=8,
+                           packing=True,
+                           packing_strategy="wrapped")(items)
+    bfd = TextCollator(_tok(),
+                       max_seq_len=8,
+                       packing=True,
+                       packing_strategy="bfd")(items)
+    assert bfd.data["input_ids"].shape[0] <= wrapped.data["input_ids"].shape[0]
+
+  def test_bad_strategy_is_rejected(self):
+    import pytest
+    with pytest.raises(ValueError, match="packing_strategy"):
+      TextCollator(_tok(), packing=True, packing_strategy="nope")
+
 
 class TestErrors:
 

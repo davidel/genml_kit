@@ -28,10 +28,27 @@ import torch.nn as nn
 class GenerativeLM(nn.Module):
   """Base class marking a model as capable of autoregressive decoding.
 
+    Subclasses that can keep documents isolated inside a *packed* window
+    (``--packing``) declare it with the class attribute :attr:`PACKED_ATTENTION`:
+
+    - ``"none"`` (default) -- the model only understands a 2-D key-padding
+      mask; the method refuses ``--packing`` rather than let tokens attend
+      across document boundaries.
+    - ``"block_diagonal"`` -- the ``forward`` accepts a 4-D additive
+      ``[B, 1, L, L]`` ``attention_mask``; the method builds one from the
+      batch's ``segment_ids`` so packed attention equals padded attention.
+    - ``"varlen"`` -- the ``forward`` accepts ``cu_seqlens`` and per-document
+      ``position_ids`` and routes to a variable-length (flash) kernel.
+
     Subclasses inherit a working :meth:`generate`.  Override it only to route
     to a faster or native decoder; the default implementation handles the
     common case (a model whose ``forward`` returns ``.logits``).
     """
+
+  #: How this model isolates documents inside a packed window.  See the class
+  #: docstring; ``"none"`` (the safe default) makes the causal_lm method refuse
+  #: ``--packing`` rather than silently leak attention across documents.
+  PACKED_ATTENTION = "none"
 
   def generate(self, input_ids, attention_mask=None, config=None):
     """Decode tokens after *input_ids* and return full sequences.

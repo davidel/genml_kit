@@ -7,6 +7,7 @@ reports perplexity as the validation metric.  The tokenizer is resolved in
 pipeline, mirroring how the classification method resolves its processor.
 """
 
+import logging
 import math
 
 import torch
@@ -15,8 +16,77 @@ import torch.nn.functional as F
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.training.packed_attention import build_block_diagonal_mask
 from genml_kit.training.text_collator import IGNORE_INDEX
+from genml_kit.utils.attr import MISSING, get_attribute
 from genml_kit.utils.logging import fatal
+
+
+def _is_hf_model(model):
+  """True for a HuggingFace ``PreTrainedModel`` (not a custom generative LM)."""
+  try:
+    from transformers import PreTrainedModel
+  except Exception:
+    return False
+  return isinstance(model, PreTrainedModel)
+
+
+def _hf_attention_backend(model):
+  """Best-effort read of a HuggingFace model's resolved attention backend.
+
+  NOTE: this peeks at ``config._attn_implementation``, which -- despite the
+  leading underscore -- is the *only* place HF exposes the resolved backend
+  (the public ``attn_implementation`` name is a constructor kwarg, not an
+  attribute).  It is therefore not a stable public API; the read is defensive
+  (dotted-path ``get_attribute`` returning ``MISSING``) and the caller falls
+  back to the safe assumption when it cannot be resolved.  Prefers HF's own
+  helper when importable, else the property directly.
+
+  Returns the backend string, or ``MISSING`` if it cannot be determined.
+  """
+  # Preferred: HF's public classifier, which also recognises flash variants
+  # beyond the literal "flash_attention_2" (e.g. flash_attention_3, kernels
+  # package aliases).  Guarded: importing it or calling it may fail across
+  # transformers versions, in which case we fall through to the raw property.
+  try:
+    from transformers.modeling_utils import is_flash_attention_requested
+    config = get_attribute(model, "config")
+    if config is not MISSING and is_flash_attention_requested(config=config):
+      return "flash"
+  except Exception:
+    pass
+  # Fallback: the private resolved-backend property (public alias first).
+  backend = get_attribute(model, "config.attn_implementation")
+  if backend is MISSING:
+    backend = get_attribute(model, "config._attn_implementation")
+  return backend
+
+
+def _resolve_packed_capability(model):
+  """How *model* keeps documents isolated in a packed window.
+
+  Custom models declare :attr:`GenerativeLM.PACKED_ATTENTION` (default
+  ``"none"``).  HuggingFace decoders are inferred from their attention
+  backend: a flash kernel packs natively (varlen), the other backends
+  (sdpa/eager) take a 4-D additive mask (block diagonal).
+  """
+  # A declared attribute wins (custom models always carry one via the base
+  # class).  Resolved with the recursive (dotted-path) helper so a missing
+  # attribute yields MISSING instead of raising.
+  declared = get_attribute(model, "PACKED_ATTENTION")
+  if declared is not MISSING:
+    return declared
+  # HuggingFace decoder: infer from the resolved attention backend.
+  if _is_hf_model(model):
+    backend = _hf_attention_backend(model)
+    if backend is MISSING:
+      # Backend unknown (older/newer transformers): assume the conservative,
+      # kernel-free path.  block_diagonal is pure torch and always available.
+      return "block_diagonal"
+    # Any flash flavor consumes packed (varlen) boundaries.
+    return "varlen" if "flash" in str(backend) else "block_diagonal"
+  # Unknown module with no declaration: assume it cannot isolate documents.
+  return "none"
 
 
 def _perplexity(ctx):
@@ -84,7 +154,61 @@ class CausalLMMethod(Method):
         attn_implementation=args.attn_implementation,
         **args.model_arg,
     )
-    return self._apply_model_extras(args, model, device)
+    model = self._apply_model_extras(args, model, device)
+    # The model is the only authority on how it keeps documents isolated in a
+    # packed window.  Resolved (and memoized) here -- the one point where both
+    # the model and the packing intent are known.
+    self._packed_capability = _resolve_packed_capability(model)
+    if getattr(args, "packing", None):
+      if self._packed_capability == "none":
+        fatal(
+            f"--packing was requested but model {args.model!r} declares "
+            f"PACKED_ATTENTION='none', so document boundaries cannot be "
+            f"enforced (tokens would attend across documents).  Use a model "
+            f"declaring 'block_diagonal' or 'varlen', or drop --packing.", ValueError)
+      logging.info("Packed attention: capability=%s.", self._packed_capability)
+    return model
+
+  def _forward(self, model, blob):
+    """Call *model*, enforcing document boundaries when the batch is packed.
+
+        The collator emits ``segment_ids`` (and ``position_ids``) only under
+        ``--packing``.  When present, the batch is translated to whatever the
+        model declared it can consume; otherwise the historical 2-D call is
+        made verbatim.
+        """
+    data = blob.data
+    # No boundary tensors => the batch was not packed: keep the historical call
+    # exactly as it was (2-D key-padding mask only).
+    if "segment_ids" not in data:
+      return model(input_ids=data["input_ids"], attention_mask=data["attention_mask"])
+    # Packed batch.  ``segment_ids`` is [B, L] (document run per token, -1 pad).
+    segment_ids = data["segment_ids"]
+    capability = getattr(self, "_packed_capability", None)
+    if capability is None:
+      # Resolve lazily for callers that never went through build_model (e.g. a
+      # standalone evaluate on a freshly loaded model).
+      capability = _resolve_packed_capability(model)
+      self._packed_capability = capability
+    if capability == "varlen":
+      # The model owns its kernel internals: hand it the raw boundary tensors
+      # (position_ids [B, L], segment_ids [B, L]) and let it derive cu_seqlens
+      # and route to a variable-length (flash) kernel.
+      return model(input_ids=data["input_ids"],
+                   attention_mask=data["attention_mask"],
+                   position_ids=data["position_ids"],
+                   segment_ids=segment_ids)
+    if capability == "block_diagonal":
+      # Build the [B, 1, L, L] additive mask from the [B, L] segment ids and
+      # pass it in place of the 2-D attention_mask; the model stays oblivious
+      # to document structure beyond the mask it already understands.
+      mask = build_block_diagonal_mask(segment_ids)
+      return model(input_ids=data["input_ids"],
+                   attention_mask=mask,
+                   position_ids=data["position_ids"])
+    fatal(
+        "Packed batch received but the model cannot isolate documents "
+        "(PACKED_ATTENTION='none').", ValueError)
 
   def train_step(self, model, blob, global_step, *, labels=None):
     """Forward, shifted cross-entropy over ``labels`` (ignore index -100)."""
@@ -99,12 +223,14 @@ class CausalLMMethod(Method):
       fatal(
           "CausalLMMethod.train_step requires meta['labels'] "
           "(the text collator provides them).", ValueError)
-    out = model(input_ids=blob.data["input_ids"],
-                attention_mask=blob.data["attention_mask"])
-    logits = out.logits
-    # Shift: token t is predicted from positions < t.
+    out = self._forward(model, blob)
+    logits = out.logits  # [B, L, V]
+    # Shift: token t is predicted from positions < t.  Drop the last logit and
+    # the first label so both align to positions 1..L-1: [B, L, V] -> [B, L-1, V]
+    # and [B, L] -> [B, L-1].
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = targets[:, 1:].contiguous()
+    # Flatten to a single (B*(L-1)) token axis for the cross-entropy.
     loss = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)),
                            shift_labels.view(-1),
                            ignore_index=IGNORE_INDEX)
@@ -125,13 +251,15 @@ class CausalLMMethod(Method):
       for blob in loader:
         blob = to_device(blob, device)
         targets = blob.meta["labels"]
-        out = model(input_ids=blob.data["input_ids"],
-                    attention_mask=blob.data["attention_mask"])
+        out = self._forward(model, blob)
+        # Same causal shift as train_step: align logits[..., :L-1, :] with
+        # labels[..., 1:, ...] ([B, L, V] -> [B, L-1, V], [B, L] -> [B, L-1]).
         shift_logits = out.logits[:, :-1, :].contiguous()
         shift_labels = targets[:, 1:].contiguous()
         n_tokens = (shift_labels != IGNORE_INDEX).sum().item()
         if n_tokens == 0:
           continue
+        # Sum (not mean) so the caller can weight by the true token count.
         loss_sum = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)),
                                    shift_labels.view(-1),
                                    ignore_index=IGNORE_INDEX,

@@ -48,6 +48,7 @@ def _args(corpus_dir, model_dir, **overrides):
       max_seq_len=32,
       mask_prompt=False,
       packing=False,
+      length_bucket=False,
       pad_to_multiple_of=None,
       model=str(model_dir),
       tokenizer="byte",

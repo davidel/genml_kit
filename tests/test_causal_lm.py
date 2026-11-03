@@ -141,3 +141,100 @@ class TestEvaluate:
     assert report["ppl"] == pytest.approx(float(torch.exp(torch.tensor(
         report["loss"]))),
                                           rel=1e-5)
+
+
+class _RecordingLM(torch.nn.Module):
+  """LM that records the kwargs its forward was called with."""
+
+  PACKED_ATTENTION = "none"
+
+  def __init__(self, vocab_size=3):
+    super().__init__()
+    self.vocab_size = vocab_size
+    self.calls = []
+
+  def forward(self, input_ids, attention_mask=None, **kwargs):
+    self.calls.append({"attention_mask": attention_mask, "kwargs": kwargs})
+    logits = torch.zeros(input_ids.shape[0], input_ids.shape[1], self.vocab_size)
+    logits[..., 0] = 5.0
+    return _FakeOutput(logits)
+
+  def train(self, mode=True):
+    return self
+
+  def eval(self):
+    return self
+
+
+def _packed_blob():
+  return DataBlob(data={
+      "input_ids": torch.tensor([[1, 2, 3, 4]]),
+      "attention_mask": torch.tensor([[1, 1, 1, 1]]),
+      "segment_ids": torch.tensor([[0, 0, 1, 1]]),
+      "position_ids": torch.tensor([[0, 1, 0, 1]]),
+  },
+                  meta={"labels": torch.tensor([[2, 3, 4, 0]])})
+
+
+class TestPackedDispatch:
+
+  def test_plain_batch_uses_2d_mask(self):
+    method = build_method("causal_lm")
+    model = _RecordingLM()
+    blob = DataBlob(data={
+        "input_ids": torch.tensor([[1, 2, 3]]),
+        "attention_mask": torch.tensor([[1, 1, 1]]),
+    },
+                    meta={"labels": torch.tensor([[2, 3, 0]])})
+    method._forward(model, blob)
+    assert model.calls[-1]["attention_mask"].dim() == 2
+
+  def test_block_diagonal_model_gets_4d_mask(self):
+    method = build_method("causal_lm")
+    method._packed_capability = "block_diagonal"
+    model = _RecordingLM()
+    method._forward(model, _packed_blob())
+    mask = model.calls[-1]["attention_mask"]
+    assert mask.dim() == 4 and mask.shape == (1, 1, 4, 4)
+    assert "position_ids" in model.calls[-1]["kwargs"]
+
+  def test_varlen_model_gets_boundary_tensors(self):
+    method = build_method("causal_lm")
+    method._packed_capability = "varlen"
+    model = _RecordingLM()
+    method._forward(model, _packed_blob())
+    kwargs = model.calls[-1]["kwargs"]
+    assert "segment_ids" in kwargs and "position_ids" in kwargs
+
+  def test_capability_resolved_from_model_attribute(self):
+    from genml_kit.methods.causal_lm import _resolve_packed_capability
+    model = _RecordingLM()
+    model.PACKED_ATTENTION = "block_diagonal"
+    assert _resolve_packed_capability(model) == "block_diagonal"
+
+  def test_capability_reads_hf_private_attn_attr(self):
+    from genml_kit.methods.causal_lm import _resolve_packed_capability
+    from transformers import GPT2Config, GPT2LMHeadModel
+    model = GPT2LMHeadModel(
+        GPT2Config(vocab_size=64,
+                   n_embd=16,
+                   n_layer=1,
+                   n_head=2,
+                   attn_implementation="sdpa"))
+    # ``PACKED_ATTENTION`` is absent on HF models -> falls through to the
+    # ``config._attn_implementation`` property (the public ``attn_implementation``
+    # name does not exist as an attribute).
+    assert getattr(type(model), "PACKED_ATTENTION", None) is None
+    assert _resolve_packed_capability(model) == "block_diagonal"
+    # A flash backend resolves to the varlen path.
+    model.config._attn_implementation_internal = "flash_attention_2"
+    assert _resolve_packed_capability(model) == "varlen"
+    # Any flash *variant* (not just the literal "flash_attention_2") does too.
+    model.config._attn_implementation_internal = "flash_attention_3"
+    assert _resolve_packed_capability(model) == "varlen"
+
+  def test_none_capability_is_fatal_on_packed_batch(self):
+    method = build_method("causal_lm")
+    method._packed_capability = "none"
+    with pytest.raises(ValueError, match="cannot isolate documents"):
+      method._forward(_RecordingLM(), _packed_blob())
