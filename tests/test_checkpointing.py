@@ -18,6 +18,7 @@ from genml_kit.io.checkpointing import (
     should_save_periodic,
 )
 from genml_kit.io.storage_utils import save_checkpoint
+from genml_kit.training.model_utils import trainable_state_dict
 
 
 class TestFormatCount:
@@ -162,6 +163,62 @@ class TestFilterStateDict:
     filtered, skipped = filter_state_dict(ckpt, model)
     assert "extra" not in filtered
     assert any("extra" in s[0] for s in skipped)
+
+
+class _TiedLM(nn.Module):
+  """Toy LM whose output head is tied to its input embedding."""
+
+  def __init__(self, vocab=11, dim=4):
+    super().__init__()
+    self.wte = nn.Embedding(vocab, dim)
+    self.ln_f = nn.LayerNorm(dim)
+    self.lm_head = nn.Linear(dim, vocab, bias=False)
+    self.lm_head.weight = self.wte.weight
+
+  def forward(self, x):
+    return self.lm_head(self.ln_f(self.wte(x)))
+
+
+class TestTrainableStateDict:
+
+  def test_plain_model_keys_match_named_parameters(self):
+    model = nn.Sequential(nn.Linear(4, 3), nn.LayerNorm(3))
+    sd = trainable_state_dict(model)
+    assert set(sd) == {name for name, _ in model.named_parameters()}
+
+  def test_tied_head_alias_is_retained(self):
+    model = _TiedLM()
+    # named_parameters() de-duplicates shared storage, dropping the alias...
+    assert "lm_head.weight" not in dict(model.named_parameters())
+    # ...but the saved state dict must keep it, otherwise a reload reports a
+    # spurious missing key even though wte.weight restores the same storage.
+    sd = trainable_state_dict(model)
+    assert "lm_head.weight" in sd
+    reloaded = _TiedLM()
+    result = reloaded.load_state_dict(sd, strict=False)
+    assert result.missing_keys == []
+
+  def test_frozen_param_is_excluded(self):
+    model = _TiedLM()
+    model.ln_f.weight.requires_grad_(False)
+    sd = trainable_state_dict(model)
+    assert "ln_f.weight" not in sd
+    assert "ln_f.bias" in sd
+
+  def test_frozen_tied_embedding_drops_both_aliases(self):
+    model = _TiedLM()
+    model.wte.weight.requires_grad_(False)  # same object as lm_head.weight
+    sd = trainable_state_dict(model)
+    assert "wte.weight" not in sd
+    assert "lm_head.weight" not in sd
+
+  def test_values_match_plain_state_dict(self):
+    model = _TiedLM()
+    sd = trainable_state_dict(model)
+    full = model.state_dict()
+    assert set(sd) <= set(full)
+    for key in sd:
+      assert torch.equal(sd[key], full[key])
 
 
 class TestSaveAndLoadCheckpoint:

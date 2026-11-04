@@ -265,9 +265,20 @@ def trainable_state_dict(model):
   Useful when saving checkpoints for fine-tuning with a frozen backbone:
   frozen weights can be reloaded from the original source, so only the
   trainable parameters need to be persisted.
+
+  Selection is by parameter identity rather than by name: ``named_parameters``
+  de-duplicates shared parameters, so a weight-tied head (e.g. ``lm_head.weight``
+  aliasing ``wte.weight``) would otherwise be dropped from the state dict.  The
+  surviving key then shows up as a spurious "missing key" on reload even though
+  the underlying storage is restored.  Matching on ``id(param)`` keeps every
+  alias name, while non-tied models are unaffected.
   """
-  trainable = {name for name, p in model.named_parameters() if p.requires_grad}
-  return {k: v for k, v in model.state_dict().items() if k in trainable}
+  trainable_ids = {id(p) for p in model.parameters() if p.requires_grad}
+  return {
+      k: v.detach()
+      for k, v in model.state_dict(keep_vars=True).items()
+      if id(v) in trainable_ids
+  }
 
 
 def apply_lora(model, *, r=8, alpha=16, dropout=0.0, target_modules=None):
