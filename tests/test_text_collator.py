@@ -116,10 +116,50 @@ class TestPacking:
                        packing_strategy="bfd")(items)
     assert bfd.data["input_ids"].shape[0] <= wrapped.data["input_ids"].shape[0]
 
+  def test_bfd_never_exceeds_window_with_eos(self):
+    # A document of exactly max_seq_len tokens plus its EOS would formerly
+    # become a max_seq_len + 1 window; the BFD strategy must cap it.
+    coll = TextCollator(_tok(), max_seq_len=8, packing=True, packing_strategy="bfd")
+    long_ids = list(range(100, 108))  # exactly max_seq_len tokens
+    out = coll([{"input_ids": long_ids}, {"input_ids": [1, 2, 3]}])
+    assert out.data["input_ids"].shape[1] <= 8
+    # position_ids must stay inside the model's window (no overflow index).
+    assert int(out.data["position_ids"].max()) < 8
+
+  def test_mask_prompt_is_honored_under_packing(self):
+    # Regression: packing used to rebuild labels from ids, silently dropping
+    # the prompt masking (prompt tokens got trained on).
+    coll = TextCollator(_tok(), max_seq_len=16, mask_prompt=True, packing=True)
+    out = coll([{"prompt": "abc", "response": "de"}])
+    labels = out.meta["labels"][0]
+    assert (labels == IGNORE_INDEX).sum() == 3  # the whole 'abc' prompt
+    # The prompt 'abc' (3 bytes, no special tokens) is the masked head.  The
+    # response gets an EOS ('de' -> d, e, EOS) and packing appends a separator
+    # EOS, so four labels are scored and the first three are ignored.
+    scored = labels[labels != IGNORE_INDEX]
+    assert scored.tolist() == [100, 101, 257, 257]  # 'd', 'e', EOS, separator
+
+  def test_no_cross_document_label_leak(self):
+    # The shifted cross-entropy pairs logits[j-1] with labels[j].  A label that
+    # opens a new document must not be predicted from the previous document, so
+    # it is masked.  Two docs -> the first token of the second run is -100.
+    coll = TextCollator(_tok(), max_seq_len=16, packing=True)
+    out = coll([{"text": "ab"}, {"text": "cd"}])
+    labels = out.meta["labels"][0]
+    seg = out.data["segment_ids"][0]
+    # Establish the leak condition: a run boundary exists at position 5.
+    assert seg[5] != seg[4]
+    assert int(labels[5]) == IGNORE_INDEX
+
   def test_bad_strategy_is_rejected(self):
     import pytest
     with pytest.raises(ValueError, match="packing_strategy"):
       TextCollator(_tok(), packing=True, packing_strategy="nope")
+
+  def test_non_positive_max_seq_len_is_rejected(self):
+    import pytest
+    with pytest.raises(ValueError, match="max_seq_len"):
+      TextCollator(_tok(), max_seq_len=0)
 
 
 class TestErrors:

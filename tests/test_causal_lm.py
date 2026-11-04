@@ -198,13 +198,22 @@ class TestPackedDispatch:
     assert mask.dim() == 4 and mask.shape == (1, 1, 4, 4)
     assert "position_ids" in model.calls[-1]["kwargs"]
 
-  def test_varlen_model_gets_boundary_tensors(self):
+  def test_varlen_model_gets_flash_boundaries(self):
     method = build_method("causal_lm")
     method._packed_capability = "varlen"
     model = _RecordingLM()
-    method._forward(model, _packed_blob())
+    out = method._forward(model, _packed_blob())
     kwargs = model.calls[-1]["kwargs"]
-    assert "segment_ids" in kwargs and "position_ids" in kwargs
+    # The batch is flattened to [1, total] and the document boundaries are the
+    # HF FlashAttentionKwargs, not a raw segment_ids kwarg.
+    assert model.calls[-1]["attention_mask"] is None
+    assert "segment_ids" not in kwargs
+    assert kwargs["cu_seq_lens_q"].tolist() == [0, 2, 4]
+    assert kwargs["cu_seq_lens_k"].tolist() == [0, 2, 4]
+    assert kwargs["max_length_q"] == kwargs["max_length_k"] == 2
+    # Logits are scattered back to the full [B, L, V] shape so the shifted
+    # cross-entropy keeps lining up with labels.
+    assert out.logits.shape == (1, 4, 3)
 
   def test_capability_resolved_from_model_attribute(self):
     from genml_kit.methods.causal_lm import _resolve_packed_capability

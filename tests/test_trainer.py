@@ -270,6 +270,35 @@ def test_extras_flow_into_checkpoints(tmp_path):
   trainer.run()
 
 
+def test_trainer_calls_set_epoch_on_batch_sampler(tmp_path):
+  """The epoch index reaches a batch sampler that exposes ``set_epoch``.
+
+  The length-bucketing sampler varies its per-epoch shuffle by epoch index; the
+  loop must tell it which epoch it is (a no-op for loaders without one).
+  """
+
+  class _Sampler:
+
+    def __init__(self):
+      self.epochs = []
+
+    def set_epoch(self, epoch):
+      self.epochs.append(epoch)
+
+  class _LoaderWithSampler(_WrappedLoader):
+
+    def __init__(self, batches):
+      super().__init__(batches)
+      self.batch_sampler = _Sampler()
+
+  pipeline = FakePipeline(torch.zeros(4, 3, 8, 8))
+  pipeline.train_loader = _LoaderWithSampler(pipeline.train_loader.batches)
+  trainer = _make_trainer(tmp_path, pipeline=pipeline)
+  trainer.run()
+  # args.epochs == 2 in the fake args.
+  assert pipeline.train_loader.batch_sampler.epochs == [0, 1]
+
+
 def test_vo_trainer_uses_shared_loop(tmp_path):
   """The VO objective trains through the same generic loop."""
   from genml_kit.methods.vo_pair import VOPairMethod

@@ -16,7 +16,9 @@ import torch.nn.functional as F
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput
-from genml_kit.training.packed_attention import build_block_diagonal_mask
+from genml_kit.training.packed_attention import (build_block_diagonal_mask,
+                                                 flash_varlen_available,
+                                                 flash_varlen_layout)
 from genml_kit.training.text_collator import IGNORE_INDEX
 from genml_kit.utils.attr import MISSING, get_attribute
 from genml_kit.utils.logging import fatal
@@ -166,6 +168,12 @@ class CausalLMMethod(Method):
             f"PACKED_ATTENTION='none', so document boundaries cannot be "
             f"enforced (tokens would attend across documents).  Use a model "
             f"declaring 'block_diagonal' or 'varlen', or drop --packing.", ValueError)
+      if self._packed_capability == "varlen" and not flash_varlen_available():
+        fatal(
+            f"--packing with model {args.model!r} needs the optional 'flash_attn' "
+            f"package (its attention backend is flash).  Install it "
+            f"(pip install flash-attn) or select a non-flash backend "
+            f"(--attn_implementation sdpa).", ValueError)
       logging.info("Packed attention: capability=%s.", self._packed_capability)
     return model
 
@@ -191,13 +199,31 @@ class CausalLMMethod(Method):
       capability = _resolve_packed_capability(model)
       self._packed_capability = capability
     if capability == "varlen":
-      # The model owns its kernel internals: hand it the raw boundary tensors
-      # (position_ids [B, L], segment_ids [B, L]) and let it derive cu_seqlens
-      # and route to a variable-length (flash) kernel.
-      return model(input_ids=data["input_ids"],
-                   attention_mask=data["attention_mask"],
-                   position_ids=data["position_ids"],
-                   segment_ids=segment_ids)
+      # HuggingFace flash decoders do not accept a 4-D additive mask: they take
+      # the document boundaries as ``FlashAttentionKwargs`` on a padding-free
+      # flattened [1, total] batch (attention_mask=None).  Flatten the kept
+      # tokens row-major (documents stay contiguous), pass the derived
+      # cu_seqlens / max_length, then scatter the flattened logits back to
+      # [B, L, V] so the unchanged shifted cross-entropy lines up with labels.
+      valid, cu_seqlens, max_length = flash_varlen_layout(data["attention_mask"],
+                                                          segment_ids)
+      input_ids = data["input_ids"]
+      position_ids = data["position_ids"]
+      out = model(input_ids=input_ids[valid].unsqueeze(0),
+                  attention_mask=None,
+                  position_ids=position_ids[valid].unsqueeze(0),
+                  use_cache=False,
+                  cu_seq_lens_q=cu_seqlens,
+                  cu_seq_lens_k=cu_seqlens,
+                  max_length_q=max_length,
+                  max_length_k=max_length)
+      b, length = input_ids.shape
+      full = out.logits.new_zeros(b, length, out.logits.shape[-1])
+      # ``full[valid]`` and ``input_ids[valid]`` both fill in row-major order,
+      # so the flattened positions line up.
+      full[valid] = out.logits[0]
+      out.logits = full
+      return out
     if capability == "block_diagonal":
       # Build the [B, 1, L, L] additive mask from the [B, L] segment ids and
       # pass it in place of the 2-D attention_mask; the model stays oblivious

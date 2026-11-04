@@ -11,6 +11,7 @@ import torch
 
 from genml_kit.training.packed_attention import (build_block_diagonal_mask,
                                                  flash_varlen_available,
+                                                 flash_varlen_layout,
                                                  segments_to_cu_seqlens)
 
 
@@ -83,6 +84,42 @@ class TestBlockDiagonalMask:
   def test_requires_2d(self):
     with pytest.raises(ValueError, match=r"\[B, L\]"):
       build_block_diagonal_mask(torch.zeros(4, dtype=torch.long))
+
+
+class TestFlashVarlenLayout:
+
+  def test_flattens_and_counts_documents(self):
+    # Batch of 1, two 2-token documents: [0, 0, 1, 1].
+    mask = torch.ones(1, 4, dtype=torch.long)
+    seg = torch.tensor([[0, 0, 1, 1]])
+    valid, cu, max_len = flash_varlen_layout(mask, seg)
+    assert valid.tolist() == [[True, True, True, True]]
+    assert cu.dtype == torch.int32
+    assert cu.tolist() == [0, 2, 4]
+    assert max_len == 2
+
+  def test_drops_padding(self):
+    # Padding (segment -1 / mask 0) is removed and does not open a document.
+    mask = torch.tensor([[1, 1, 0, 1, 1]])
+    seg = torch.tensor([[0, 0, -1, 1, 1]])
+    valid, cu, max_len = flash_varlen_layout(mask, seg)
+    assert valid.tolist() == [[True, True, False, True, True]]
+    assert cu.tolist() == [0, 2, 4]
+    assert max_len == 2
+
+  def test_batch_offsets_stay_contiguous(self):
+    # Two rows, each a single 3-token document: ids must not collide at the row
+    # boundary, so the flattened runs total 6 tokens over 2 documents.
+    mask = torch.ones(2, 3, dtype=torch.long)
+    seg = torch.tensor([[0, 0, 0], [0, 0, 0]])
+    valid, cu, max_len = flash_varlen_layout(mask, seg)
+    assert valid.all()
+    assert cu.tolist() == [0, 3, 6]
+    assert max_len == 3
+
+  def test_requires_2d(self):
+    with pytest.raises(ValueError, match=r"\[B, L\]"):
+      flash_varlen_layout(None, torch.zeros(4, dtype=torch.long))
 
 
 class TestFlashAvailability:

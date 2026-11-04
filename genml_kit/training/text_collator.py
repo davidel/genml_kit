@@ -69,6 +69,8 @@ class TextCollator:
                packing=False,
                packing_strategy="wrapped",
                pad_to_multiple_of=None):
+    if max_seq_len < 1:
+      fatal(f"max_seq_len must be positive, got {max_seq_len}", ValueError)
     self.tokenizer = tokenizer
     self.max_seq_len = max_seq_len
     self.mask_prompt = mask_prompt
@@ -114,38 +116,41 @@ class TextCollator:
   def _pack(self, sequences):
     """Pack sequences into windows with per-token segment/position ids.
 
-        Returns a list of ``(ids, segment_ids, position_ids)`` triples, one per
-        window.  ``segment_ids`` numbers the contiguous *runs* of tokens that
-        belong to one document inside that window; ``position_ids`` restarts at
-        ``0`` at every run start.  A short document fully inside the window is
-        a single run; a document split across a window boundary leaves a run in
-        each window (positions restart), and the EOS separator is attributed to
-        the document it follows.
+        *sequences* is a list of ``(ids, labels)`` pairs.  Returns a list of
+        ``(ids, labels, segment_ids, position_ids)`` tuples, one per window.
+        ``segment_ids`` numbers the contiguous *runs* of tokens that belong to
+        one document inside that window; ``position_ids`` restarts at ``0`` at
+        every run start.  A short document fully inside the window is a single
+        run; a document split across a window boundary leaves a run in each
+        window (positions restart), and the EOS separator is attributed to the
+        document it follows.
         """
     if self.packing_strategy == "bfd":
       raw_windows = self._pack_bfd(sequences)
     else:
       raw_windows = self._pack_wrapped(sequences)
-    # Each raw window is [<= max_seq_len] (tok, doc_idx) pairs; convert every
-    # one into the (ids, segment_ids, position_ids) triple the batch expects.
+    # Each raw window is [<= max_seq_len] (tok, label, doc_idx) triples; convert
+    # every one into the (ids, labels, segment_ids, position_ids) tuple the
+    # batch expects.
     return [self._runs_for_window(w) for w in raw_windows]
 
   @staticmethod
   def _runs_for_window(tokens):
-    """Turn ``[(tok, doc_idx), ...]`` into ``(ids, segment_ids, position_ids)``.
+    """Turn ``[(tok, label, doc_idx), ...]`` into the window's four lists.
 
-        Runs break whenever the source document changes, and position ids reset
-        at every run start so each window is self-describing (this matches the
+        Returns ``(ids, labels, segment_ids, position_ids)``.  Runs break
+        whenever the source document changes, and position ids reset at every
+        run start so each window is self-describing (this matches the
         transformers ``position_ids.min()`` sequence-start convention).
         """
-    # Three parallel lists, each of length len(tokens).
-    ids, segment_ids, position_ids = [], [], []
+    # Four parallel lists, each of length len(tokens).
+    ids, labels, segment_ids, position_ids = [], [], [], []
     # ``run`` is the window-local segment index (0-based, increments at every
     # document change); ``pos`` is the position within the current run and is
     # reset to 0 exactly when a new run starts.
     run = -1
     prev_doc = None
-    for tok, doc_idx in tokens:
+    for tok, label, doc_idx in tokens:
       if doc_idx != prev_doc:
         # New document here (or the very first token): open a fresh run and
         # restart position numbering.  This is what makes a window split across
@@ -153,28 +158,40 @@ class TextCollator:
         run += 1
         pos = 0
       ids.append(tok)
+      labels.append(label)
       segment_ids.append(run)
       position_ids.append(pos)
       pos += 1
       prev_doc = doc_idx
-    return ids, segment_ids, position_ids
+    # Break the next-token target at document boundaries.  The causal shift
+    # pairs the logit at position j-1 with the label at position j, so a label
+    # opening a new run would otherwise be predicted from the previous document
+    # (a cross-document leak).  Masking it makes packed training equivalent to
+    # the per-document padded case.  Position 0 has no predecessor, so it is
+    # never a shifted target and is left untouched.
+    for j in range(1, len(labels)):
+      if segment_ids[j] != segment_ids[j - 1]:
+        labels[j] = IGNORE_INDEX
+    return ids, labels, segment_ids, position_ids
 
   def _pack_wrapped(self, sequences):
     """Concatenate sequences and slice into ``max_seq_len`` windows.
 
-        Returns a list of windows, each a list of ``(token, doc_idx)`` pairs.
+        *sequences* is a list of ``(ids, labels)`` pairs.  Returns a list of
+        windows, each a list of ``(token, label, doc_idx)`` triples.
         """
     sep = self.tokenizer.eos_token_id
-    # Flatten the batch into one [(tok, doc_idx), ...] stream, tagging each token
-    # with the source document so boundaries survive the concatenation.  The
-    # EOS separator is attributed to the document it terminates (so it never
-    # opens a spurious new run).
+    # Flatten the batch into one [(tok, label, doc_idx), ...] stream, tagging
+    # each token with the source document so boundaries survive the
+    # concatenation.  The EOS separator is attributed to the document it
+    # terminates (so it never opens a spurious new run) and carries the EOS id
+    # as its label (a real target, matching the non-packing contract).
     stream = []
-    for doc_idx, ids in enumerate(sequences):
-      for tok in ids:
-        stream.append((tok, doc_idx))
+    for doc_idx, (ids, labels) in enumerate(sequences):
+      for tok, label in zip(ids, labels):
+        stream.append((tok, label, doc_idx))
       if sep is not None:
-        stream.append((sep, doc_idx))
+        stream.append((sep, sep, doc_idx))
     windows = []
     # Slice the flat stream into fixed max_seq_len windows: [flat] -> [n_win,
     # <= max_seq_len].  A document may straddle two windows; the run split is
@@ -188,23 +205,28 @@ class TextCollator:
   def _pack_bfd(self, sequences):
     """Best-fit-decreasing bin packing into ``max_seq_len`` windows.
 
-        Documents are sorted longest-first and each is placed in the open bin
-        with the least remaining space that still fits (a new bin otherwise),
-        which yields fewer, fuller windows than :meth:`_pack_wrapped`.  A
-        document longer than ``max_seq_len`` is truncated to the window size.
-        Because documents are reordered, batch composition is not reproducible
-        with respect to ``--seed``.
+        *sequences* is a list of ``(ids, labels)`` pairs.  Documents are sorted
+        longest-first and each is placed in the open bin with the least
+        remaining space that still fits (a new bin otherwise), which yields
+        fewer, fuller windows than :meth:`_pack_wrapped`.  Because documents are
+        reordered, batch composition is not reproducible with respect to
+        ``--seed``.
 
-        Returns a list of windows, each a list of ``(token, doc_idx)`` pairs.
+        Returns a list of windows, each a list of ``(token, label, doc_idx)``
+        triples.
         """
     sep = self.tokenizer.eos_token_id
-    # Truncate each document to the window size and tag its tokens with the
-    # source document, producing one [(tok, doc_idx), ...] list per document.
+    # Reserve room for the EOS separator so a document plus its separator never
+    # exceeds the window (a document of exactly max_seq_len tokens would
+    # otherwise become a max_seq_len + 1 window).  Tag each document's tokens
+    # with the source document, producing one [(tok, label, doc_idx), ...] list
+    # per document.
+    keep = self.max_seq_len - 1 if sep is not None else self.max_seq_len
     docs = []
-    for doc_idx, ids in enumerate(sequences):
-      toks = [(tok, doc_idx) for tok in ids[:self.max_seq_len]]
+    for doc_idx, (ids, labels) in enumerate(sequences):
+      toks = [(tok, label, doc_idx) for tok, label in zip(ids[:keep], labels[:keep])]
       if sep is not None:
-        toks.append((sep, doc_idx))
+        toks.append((sep, sep, doc_idx))
       docs.append(toks)
     # Decreasing-length order: the long items are placed first, so they open
     # bins rather than being left with an unusable remainder at the end.
@@ -237,6 +259,11 @@ class TextCollator:
       flat = []
       for toks in b["items"]:
         flat.extend(toks)
+      # Invariant guard: BFD must never emit a window wider than max_seq_len.
+      if len(flat) > self.max_seq_len:
+        fatal(
+            f"BFD produced a window of {len(flat)} tokens, max_seq_len is "
+            f"{self.max_seq_len}.", ValueError)
       windows.append(flat)
     return windows
 
@@ -246,9 +273,9 @@ class TextCollator:
     # contract and no boundary tensors are produced).
     padded = []
     if self.packing:
-      for ids, doc_ids, pos_ids in self._pack(
-          [self._encode_item(it)[0] for it in batch]):
-        padded.append((ids, list(ids), doc_ids, pos_ids))
+      for ids, packed_labels, doc_ids, pos_ids in self._pack(
+          [self._encode_item(it) for it in batch]):
+        padded.append((ids, packed_labels, doc_ids, pos_ids))
     else:
       for item in batch:
         ids, labels = self._encode_item(item)

@@ -37,8 +37,12 @@ class GenerativeLM(nn.Module):
     - ``"block_diagonal"`` -- the ``forward`` accepts a 4-D additive
       ``[B, 1, L, L]`` ``attention_mask``; the method builds one from the
       batch's ``segment_ids`` so packed attention equals padded attention.
-    - ``"varlen"`` -- the ``forward`` accepts ``cu_seqlens`` and per-document
-      ``position_ids`` and routes to a variable-length (flash) kernel.
+    - ``"varlen"`` -- the ``forward`` accepts the HuggingFace
+      ``FlashAttentionKwargs`` (``cu_seq_lens_q`` / ``cu_seq_lens_k`` and
+      ``max_length_q`` / ``max_length_k``) on a padding-free flattened
+      ``[1, total]`` batch, plus per-document ``position_ids``, and routes to a
+      variable-length (flash) kernel.  The method flattens the batch and derives
+      the boundaries; the model only has to forward those kwargs to the kernel.
 
     Subclasses inherit a working :meth:`generate`.  Override it only to route
     to a faster or native decoder; the default implementation handles the

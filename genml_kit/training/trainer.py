@@ -32,6 +32,7 @@ from genml_kit.training.metrics_sinks import ensure_logger
 from genml_kit.training.model_utils import set_train_mode
 from genml_kit.training.train_reporting import ImageTrainReporting, Metric, metric
 from genml_kit.utils.args import amp_dtype_from_args
+from genml_kit.utils.attr import maybe_call
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
 TrainingResult = namedtuple("TrainingResult", [
@@ -294,6 +295,9 @@ class BaseTrainer:
           # as "latched" without ever stopping.  Re-raise at this safe
           # epoch boundary so the interrupt is honoured regardless.
           interrupts.check_interrupt()
+          # Tell the batch sampler the epoch so it can vary its per-epoch
+          # shuffle (no-op for loaders whose batch_sampler has no set_epoch).
+          maybe_call(self.pipeline.train_loader, "batch_sampler.set_epoch", epoch)
           logging.info(f"=== Epoch {epoch + 1}/{args.epochs} ===")
           _, self.global_step = self.train_epoch(epoch, saver, self.global_step,
                                                  grad_monitor)
