@@ -1203,7 +1203,7 @@ resume point.
 | `--num_workers` | `2` | DataLoader worker processes. |
 | `--log_level` | `INFO` | Logging level. |
 | `--log_targets` | `STDERR` | Comma-separated log destinations. `STDERR` logs to standard error; any other entry is a log file path (appended). Example: `STDERR,/tmp/train.log` logs to both. |
-| `--log_dir` | `None` | TensorBoard log directory (default: `<checkpoint_dir>/logs`). Requires the `tensorboard` package (installed by the `dev` extra). |
+| `--log_dir` | `None` | TensorBoard log directory (default: `<checkpoint_dir>/logs`). Requires the `tensorboard` package. |
 | `--cache_dir` | `None` | HuggingFace cache directory. |
 | `--remote_checkpoint` | `None` | Remote URI for checkpoint sync (`gs://BUCKET/PREFIX`, `r2://BUCKET/PREFIX`, or `s3://BUCKET/PREFIX`). |
 | `--source_checkpoint` | `None` | Path to source checkpoint to absorb parameters from. |
