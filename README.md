@@ -2338,8 +2338,21 @@ for validation instead.
 
 Padding every item up to the batch's longest wastes compute on short documents;
 packing removes that waste but, naively, lets tokens of one document attend to a
-*different* document sharing the same window.  genml-kit makes packing
-document-aware without binding the data side to any model:
+*different* document sharing the same window.  Three modes trade padding for
+compute, and packing stays document-aware without binding the data side to any
+model:
+
+| Mode | How it batches | Document isolation |
+|---|---|---|
+| *(default)* | pad every row to the batch's longest item | plain, document-exact 2-D mask |
+| `--packing wrapped` | concatenate the tokenized stream (EOS-separated) and slice into `max_seq_len` windows | via `segment_ids` (below) |
+| `--packing bfd` | best-fit-decreasing: longest document first into the open bin with the least remaining space | via `segment_ids` (below) |
+| `--length_bucket` | no packing: sort by a cheap character-length proxy, group into buckets, shuffle within and across them, emit similar-length batches | plain, document-exact 2-D mask |
+
+`wrapped` is the historical behaviour and may split a document across two
+windows; `bfd` yields fewer, fuller windows but reorders documents, so batch
+order is **not** reproducible with respect to `--seed` (it warns once).
+`--length_bucket` is mutually exclusive with `--packing`.
 
 - Under `--packing`, the collator emits two extra tensors per batch, requiring
   no model knowledge: `segment_ids` (the contiguous run -- i.e. source document
@@ -2353,20 +2366,20 @@ document-aware without binding the data side to any model:
   |---|---|---|
   | `"none"` (default) | nothing extra | `--packing` is refused with a clear error |
   | `"block_diagonal"` | a 4-D `[B, 1, L, L]` additive mask | exact (no flash kernel) |
-  | `"varlen"` | `position_ids` + `segment_ids` for a variable-length kernel | exact (flash when `flash-attn` is installed) |
+  | `"varlen"` | `FlashAttentionKwargs` (`cu_seq_lens_q/k`, `max_length_q/k`) on a flattened `[1, total]` batch | exact (flash when `flash-attn` is installed) |
 
   HuggingFace decoders are inferred automatically: `--attn_implementation
   flash_attention_2` implies `varlen`, otherwise `block_diagonal`.  Custom
   models (subclasses of `GenerativeLM`) opt in explicitly.
 
-Because the mask is generated from `segment_ids` (not the raw `attention_mask`),
-packing a model that only understands a 2-D mask is a hard error rather than a
-silent cross-document leak.  `flash-attn` is an optional extra
+Because document boundaries are derived from `segment_ids` (not the raw
+`attention_mask`), packing a model that only understands a 2-D mask is a hard
+error rather than a silent cross-document leak.  The collator also masks the
+label opening each document, so the causal shift never predicts across a
+boundary -- packed training stays equivalent to the per-document padded case and
+`--mask_prompt` is honoured.  `flash-attn` is an optional extra
 (`pip install genml_kit[flash]`); without it everything runs on the
 block-diagonal (pure-torch) path, so CPU and CI never require a GPU.
-
-`--length_bucket` is the no-packing alternative: it batches similar-length items
-so little padding is produced, keeping the plain document-exact 2-D mask.
 
 `--dataset`, `--split`, `--val_split`, `--cache_dir`, `--image_column`,
 `--max_seq_len`, `--mask_prompt`, `--pad_to_multiple_of` and `--max_items` are
