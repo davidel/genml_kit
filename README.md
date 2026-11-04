@@ -201,7 +201,12 @@ pip install "genml_kit[tune]"
 # With NVML GPU utilization in the training logs (the 'util=...%' field):
 pip install "genml_kit[gpu]"
 
+# With flash-attn packing support (requires the CUDA toolkit with CUDA_HOME
+# set to an nvcc, plus torch already installed):
+pip install "genml_kit[flash]"
+
 # Everything above in one shot (gcs, s3, lora, llm, llm-spm, timm, uvito, rl, tune, gpu):
+# (flash is intentionally excluded: it needs a CUDA toolkit to build)
 pip install "genml_kit[all]"
 ```
 
