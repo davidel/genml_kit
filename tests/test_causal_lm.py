@@ -198,6 +198,21 @@ class TestPackedDispatch:
     assert mask.dim() == 4 and mask.shape == (1, 1, 4, 4)
     assert "position_ids" in model.calls[-1]["kwargs"]
 
+  def test_segment_ids_model_gets_raw_boundaries(self):
+    method = build_method("causal_lm")
+    method._packed_capability = "segment_ids"
+    model = _RecordingLM()
+    method._forward(model, _packed_blob())
+    call = model.calls[-1]
+    # The raw document runs are handed through as a kwarg...
+    assert "segment_ids" in call["kwargs"]
+    assert call["kwargs"]["segment_ids"].tolist() == [[0, 0, 1, 1]]
+    assert "position_ids" in call["kwargs"]
+    # ... alongside the *ordinary* 2-D key-padding mask (not a 4-D one), so a
+    # model that never materializes the L x L scores still gets padding info.
+    assert call["attention_mask"].dim() == 2
+    assert call["attention_mask"].tolist() == [[1, 1, 1, 1]]
+
   def test_varlen_model_gets_flash_boundaries(self):
     method = build_method("causal_lm")
     method._packed_capability = "varlen"
@@ -220,6 +235,9 @@ class TestPackedDispatch:
     model = _RecordingLM()
     model.PACKED_ATTENTION = "block_diagonal"
     assert _resolve_packed_capability(model) == "block_diagonal"
+    # The segment_ids mode is a declared capability too.
+    model.PACKED_ATTENTION = "segment_ids"
+    assert _resolve_packed_capability(model) == "segment_ids"
 
   def test_capability_reads_hf_private_attn_attr(self):
     from genml_kit.methods.causal_lm import _resolve_packed_capability

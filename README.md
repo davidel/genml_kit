@@ -2372,10 +2372,16 @@ order is **not** reproducible with respect to `--seed` (it warns once).
   | `"none"` (default) | nothing extra | `--packing` is refused with a clear error |
   | `"block_diagonal"` | a 4-D `[B, 1, L, L]` additive mask | exact (no flash kernel) |
   | `"varlen"` | `FlashAttentionKwargs` (`cu_seq_lens_q/k`, `max_length_q/k`) on a flattened `[1, total]` batch | exact (flash when `flash-attn` is installed) |
+  | `"segment_ids"` | the raw `[B, L]` `segment_ids` runs plus the 2-D padding mask and `position_ids` | model-defined (reset state per run) |
 
   HuggingFace decoders are inferred automatically: `--attn_implementation
   flash_attention_2` implies `varlen`, otherwise `block_diagonal`.  Custom
-  models (subclasses of `GenerativeLM`) opt in explicitly.
+  models (subclasses of `GenerativeLM`) opt in explicitly.  The `segment_ids`
+  mode is for models that compute attention *without* materializing the `L x L`
+  score matrix (linear / kernelized, streaming or recurrent attention): a dense
+  block-diagonal mask would defeat the cost such a mechanism is built to avoid,
+  so the model instead receives the raw per-token document runs and resets its
+  state at each boundary.
 
 Because document boundaries are derived from `segment_ids` (not the raw
 `attention_mask`), packing a model that only understands a 2-D mask is a hard

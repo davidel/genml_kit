@@ -232,6 +232,17 @@ class CausalLMMethod(Method):
       return model(input_ids=data["input_ids"],
                    attention_mask=mask,
                    position_ids=data["position_ids"])
+    if capability == "segment_ids":
+      # A model that computes attention without materializing the L x L score
+      # matrix (linear / streaming / recurrent) cannot consume a dense
+      # block-diagonal mask -- doing so would defeat the very cost it saves.
+      # Hand it the raw boundary tensors instead: the full untranslated batch
+      # (the ordinary 2-D key-padding mask, ``position_ids``) plus the per-token
+      # document runs, and let the model reset its state at each boundary.
+      return model(input_ids=data["input_ids"],
+                   attention_mask=data["attention_mask"],
+                   position_ids=data["position_ids"],
+                   segment_ids=segment_ids)
     fatal(
         "Packed batch received but the model cannot isolate documents "
         "(PACKED_ATTENTION='none').", ValueError)

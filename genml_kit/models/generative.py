@@ -43,6 +43,13 @@ class GenerativeLM(nn.Module):
       ``[1, total]`` batch, plus per-document ``position_ids``, and routes to a
       variable-length (flash) kernel.  The method flattens the batch and derives
       the boundaries; the model only has to forward those kwargs to the kernel.
+    - ``"segment_ids"`` -- the ``forward`` accepts the raw per-token document
+      runs as a ``[B, L]`` ``segment_ids`` tensor (``-1`` for padding), alongside
+      the ordinary 2-D key-padding ``attention_mask`` and ``position_ids``.  For
+      models that compute attention *without* materializing the ``L x L`` score
+      matrix (linear / kernelized, streaming or recurrent attention): a dense
+      block-diagonal mask would defeat the very cost such a mechanism avoids, so
+      the model resets its state at each ``segment_ids`` boundary itself.
 
     Subclasses inherit a working :meth:`generate`.  Override it only to route
     to a faster or native decoder; the default implementation handles the
