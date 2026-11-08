@@ -44,6 +44,7 @@ def _common(model_dir, **overrides):
       lora_adapter=None,
       device="cpu",
       cache_dir=None,
+      dataset_arg=None,
       trust_remote_code=False,
       attn_implementation=None,
       log_level="INFO",

@@ -45,6 +45,7 @@ def _args(corpus_dir, model_dir, method="dpo", **overrides):
       chosen_column="chosen",
       rejected_column="rejected",
       prompt_column="prompt",
+      dataset_arg=None,
       cache_dir=None,
       max_items=None,
       max_seq_len=32,

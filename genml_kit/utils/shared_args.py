@@ -105,6 +105,16 @@ ARG_SPLIT = ("split", {
     "help": "HF dataset split to load.",
 })
 
+ARG_DATASET_ARG = ("dataset_arg", {
+    "nargs": "+",
+    "action": KVPairAction,
+    "metavar": "KEY=VALUE",
+    "default": None,
+    "help": "Extra kwargs forwarded verbatim to datasets.load_dataset "
+            "(repeatable). Example: --dataset_arg name=sample-10BT "
+            "revision=main.",
+})
+
 ARG_VAL_SPLIT = ("val_split", {
     "type": float,
     "default": 0.2,
@@ -239,6 +249,7 @@ SHARED_ARGS = {
         ARG_ATTN_IMPLEMENTATION,
         ARG_IN_CH,
         ARG_DATASET,
+        ARG_DATASET_ARG,
         ARG_SPLIT,
         ARG_VAL_SPLIT,
         ARG_IMAGE_COLUMN,

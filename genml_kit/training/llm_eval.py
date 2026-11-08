@@ -32,9 +32,9 @@ from genml_kit.utils.generation import (SamplingConfig, generate_from_prompts)
 from genml_kit.utils.logging import fatal, setup_logging
 from genml_kit.utils.script import is_script_spec, load_extern
 from genml_kit.utils.shared_args import (ARG_ATTN_IMPLEMENTATION, ARG_BATCH_SIZE,
-                                         ARG_CACHE_DIR, ARG_DATASET, ARG_MAX_ITEMS,
-                                         ARG_MAX_SEQ_LEN, ARG_MODEL, ARG_SEED,
-                                         ARG_SPLIT, ARG_TOKENIZER,
+                                         ARG_CACHE_DIR, ARG_DATASET, ARG_DATASET_ARG,
+                                         ARG_MAX_ITEMS, ARG_MAX_SEQ_LEN, ARG_MODEL,
+                                         ARG_SEED, ARG_SPLIT, ARG_TOKENIZER,
                                          ARG_TRUST_REMOTE_CODE, add_shared_arg)
 
 _METRICS = ("ppl", "exact_match", "token_f1", "pass_at_k")
@@ -64,6 +64,7 @@ def add_eval_args(parser):
 
   group = parser.add_argument_group("data")
   add_shared_arg(group, ARG_DATASET)
+  add_shared_arg(group, ARG_DATASET_ARG)
   add_shared_arg(group, ARG_SPLIT, default="test")
   group.add_argument("--text_column",
                      type=str,
@@ -229,7 +230,8 @@ def _load_eval_data(args):
   dataset = load_raw_split(args.dataset,
                            args.split,
                            cache_dir=args.cache_dir,
-                           token=None)
+                           token=None,
+                           dataset_arg=args.dataset_arg)
   if args.max_items:
     dataset = dataset.select(range(min(args.max_items, len(dataset))))
   return dataset

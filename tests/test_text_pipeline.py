@@ -27,6 +27,7 @@ def _args(**overrides):
       text_column="text",
       instruction_column=None,
       response_column=None,
+      dataset_arg=None,
       cache_dir=None,
       max_items=None,
       max_seq_len=16,

@@ -85,6 +85,34 @@ class TestParseValue:
     # Single-element bracket expression — parsed as a 1-element list
     assert parse_value("[hello]") == ["hello"]
 
+  quoted_cases = [
+      ('"10"', "10"),
+      ("'10'", "10"),
+      ('"true"', "true"),
+      ('"none"', "none"),
+      ('"0.5"', "0.5"),
+      ('"sample-10BT"', "sample-10BT"),
+  ]
+
+  @pytest.mark.parametrize("input_val,expected", quoted_cases)
+  def test_matching_quotes_force_string(self, input_val, expected):
+    # A matching-quote wrapper suppresses coercion and strips the quotes.
+    result = parse_value(input_val)
+    assert result == expected
+    assert isinstance(result, str)
+
+  def test_empty_quoted_string(self):
+    assert parse_value('""') == ""
+
+  def test_mismatched_quotes_fall_through_to_coercion(self):
+    # Opening/closing quotes differ -> not a quoted literal; the int
+    # coercion still applies to the raw token.
+    assert parse_value("\"10'") == "\"10'"
+
+  def test_single_quote_char_is_not_a_quoted_literal(self):
+    # A lone quote char has no matching partner, so it stays a string.
+    assert parse_value("\"") == "\""
+
 
 class TestKVPairAction:
   """Tests for the argparse KVPairAction."""
@@ -164,3 +192,9 @@ class TestKVPairAction:
     parser = self._make_parser()
     args = parser.parse_args(["--model_arg", "embed_dim=512", "num_heads=8"])
     assert args.model_arg == {"embed_dim": 512, "num_heads": 8}
+
+  def test_quoted_value_stays_string(self):
+    """A quoted value bypasses coercion for every ``*_arg`` flag."""
+    parser = self._make_parser()
+    args = parser.parse_args(["--model_arg", 'revision="10"'])
+    assert args.model_arg == {"revision": "10"}

@@ -33,11 +33,11 @@ from genml_kit.training.metrics_sinks import build_metrics_logger
 from genml_kit.utils.logging import setup_logging
 from genml_kit.utils.seed import resolve_seed, seed_everything
 from genml_kit.utils.shared_args import (
-    ARG_BATCH_SIZE, ARG_CACHE_DIR, ARG_DATASET, ARG_EPOCHS, ARG_GRAD_CHECKPOINT,
-    ARG_IMAGE_COLUMN, ARG_IMAGE_SIZE, ARG_IN_CH, ARG_LORA, ARG_MAX_ITEMS,
-    ARG_MAX_SEQ_LEN, ARG_MASK_PROMPT, ARG_METHOD, ARG_MODEL, ARG_MODEL_ARG,
-    ARG_NUM_WORKERS, ARG_PAD_TO_MULTIPLE_OF, ARG_PARAM_INIT, ARG_SEED, ARG_SPLIT,
-    ARG_VAL_SPLIT, add_shared_arg)
+    ARG_BATCH_SIZE, ARG_CACHE_DIR, ARG_DATASET, ARG_DATASET_ARG, ARG_EPOCHS,
+    ARG_GRAD_CHECKPOINT, ARG_IMAGE_COLUMN, ARG_IMAGE_SIZE, ARG_IN_CH, ARG_LORA,
+    ARG_MAX_ITEMS, ARG_MAX_SEQ_LEN, ARG_MASK_PROMPT, ARG_METHOD, ARG_MODEL,
+    ARG_MODEL_ARG, ARG_NUM_WORKERS, ARG_PAD_TO_MULTIPLE_OF, ARG_PARAM_INIT, ARG_SEED,
+    ARG_SPLIT, ARG_VAL_SPLIT, add_shared_arg)
 
 
 def build_parser():
@@ -116,6 +116,7 @@ def build_parser():
                  ARG_DATASET,
                  help="Single dataset (classification): HF name/path, or "
                  "'imagefolder/<dir>'.")
+  add_shared_arg(data_group, ARG_DATASET_ARG)
   add_shared_arg(data_group,
                  ARG_IMAGE_COLUMN,
                  default="image",

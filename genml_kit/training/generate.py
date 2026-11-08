@@ -21,9 +21,10 @@ from genml_kit.utils.args import add_logging_args
 from genml_kit.utils.generation import SamplingConfig, generate_from_prompts
 from genml_kit.utils.logging import fatal, setup_logging
 from genml_kit.utils.shared_args import (ARG_ATTN_IMPLEMENTATION, ARG_BATCH_SIZE,
-                                         ARG_CACHE_DIR, ARG_DATASET, ARG_MAX_ITEMS,
-                                         ARG_MODEL, ARG_SEED, ARG_SPLIT, ARG_TOKENIZER,
-                                         ARG_TRUST_REMOTE_CODE, add_shared_arg)
+                                         ARG_CACHE_DIR, ARG_DATASET, ARG_DATASET_ARG,
+                                         ARG_MAX_ITEMS, ARG_MODEL, ARG_SEED, ARG_SPLIT,
+                                         ARG_TOKENIZER, ARG_TRUST_REMOTE_CODE,
+                                         add_shared_arg)
 
 
 def add_generate_args(parser):
@@ -53,6 +54,7 @@ def add_generate_args(parser):
                      type=str,
                      help="Text file (one prompt per line) or JSONL file.")
   add_shared_arg(group, ARG_DATASET)
+  add_shared_arg(group, ARG_DATASET_ARG)
   add_shared_arg(group, ARG_SPLIT, default="test")
   group.add_argument("--prompt_column",
                      type=str,
@@ -148,7 +150,8 @@ def _read_prompts_dataset(args):
   dataset = load_raw_split(args.dataset,
                            args.split,
                            cache_dir=args.cache_dir,
-                           token=None)
+                           token=None,
+                           dataset_arg=args.dataset_arg)
   column = args.text_column or args.prompt_column
   if column not in dataset.column_names:
     fatal(f"Column {column!r} not in dataset "

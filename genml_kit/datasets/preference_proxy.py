@@ -81,7 +81,8 @@ def load_preference_dataset(name,
                             max_items=None,
                             chosen_column="chosen",
                             rejected_column="rejected",
-                            prompt_column=None):
+                            prompt_column=None,
+                            dataset_arg=None):
   """Load a preference dataset split wrapped in a PreferenceDatasetProxy.
 
     Args:
@@ -92,12 +93,18 @@ def load_preference_dataset(name,
         max_items: Optional cap on the number of items.
         chosen_column, rejected_column, prompt_column: Column selection,
             forwarded to :class:`PreferenceDatasetProxy`.
+        dataset_arg: Extra kwargs forwarded verbatim to
+            ``datasets.load_dataset`` (e.g. the HF subset/config ``name``).
 
     Returns:
         A :class:`PreferenceDatasetProxy`.
     """
   logging.info("Loading preference dataset %s (split=%s).", name, split)
-  hf = load_raw_split(name, split, cache_dir=cache_dir, token=token)
+  hf = load_raw_split(name,
+                      split,
+                      cache_dir=cache_dir,
+                      token=token,
+                      dataset_arg=dataset_arg)
   hf = maybe_cap(hf, max_items)
   return PreferenceDatasetProxy(hf,
                                 chosen_column=chosen_column,
@@ -105,11 +112,15 @@ def load_preference_dataset(name,
                                 prompt_column=prompt_column)
 
 
-def load_raw_split(name, split, *, cache_dir=None, token=None):
+def load_raw_split(name, split, *, cache_dir=None, token=None, dataset_arg=None):
   """Load *split* from a HF hub dataset or a ``save_to_disk`` directory.
 
     Returns the bare ``datasets.Dataset`` (no proxy wrapper), so the pipeline
     can select a held-out slice or wrap it once.
+
+    *dataset_arg* (a ``KEY=VALUE`` dict from ``--dataset_arg``) is forwarded
+    verbatim to ``datasets.load_dataset`` -- e.g. ``name`` selects an HF
+    subset/config.  It is ignored for on-disk ``save_to_disk`` directories.
     """
   if os.path.isdir(name):
     loaded = datasets.load_from_disk(name)
@@ -120,4 +131,8 @@ def load_raw_split(name, split, *, cache_dir=None, token=None):
             f"Available: {sorted(loaded.keys())}.", ValueError)
       return loaded[split]
     return loaded
-  return datasets.load_dataset(name, split=split, cache_dir=cache_dir, token=token)
+  return datasets.load_dataset(name,
+                               split=split,
+                               cache_dir=cache_dir,
+                               token=token,
+                               **(dataset_arg or {}))

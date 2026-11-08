@@ -152,8 +152,11 @@ class PreferencePipeline(DataPipeline):
     val_split = args.val_split
     if val_split:
       # Held-out fraction of the training split -- one load, split in memory.
-      full = _wrap(load_raw_split(args.dataset, args.split,
-                                  cache_dir=args.cache_dir)).dataset
+      full = _wrap(
+          load_raw_split(args.dataset,
+                         args.split,
+                         cache_dir=args.cache_dir,
+                         dataset_arg=args.dataset_arg)).dataset
       n = len(full)
       n_val = max(1, int(n * val_split))
       if n_val >= n:
@@ -162,10 +165,16 @@ class PreferencePipeline(DataPipeline):
       return _wrap(full.select(range(n - n_val))), _wrap(
           full.select(range(n - n_val, n)))
 
-    train = _wrap(load_raw_split(args.dataset, args.split, cache_dir=args.cache_dir),
+    train = _wrap(load_raw_split(args.dataset,
+                                 args.split,
+                                 cache_dir=args.cache_dir,
+                                 dataset_arg=args.dataset_arg),
                   cap=args.max_items)
     try:
-      val_raw = load_raw_split(args.dataset, "validation", cache_dir=args.cache_dir)
+      val_raw = load_raw_split(args.dataset,
+                               "validation",
+                               cache_dir=args.cache_dir,
+                               dataset_arg=args.dataset_arg)
       val = _wrap(val_raw, cap=args.max_items)
     except (ValueError, KeyError, FileNotFoundError) as exc:
       logging.info("No validation split for %s (%s); val_loader disabled.",

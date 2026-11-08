@@ -28,7 +28,15 @@ def parse_value(s):
     5. List literal ``"[1, 2, 3]"`` or ``"(1, 2, 3)"`` → ``list`` with each
        element recursively converted via ``parse_value``
     6. Everything else is returned as a ``str``.
+
+    Quoting overrides the rules above: a token wrapped in *matching* single
+    or double quotes is returned verbatim (quotes stripped) as a ``str``,
+    with no coercion -- so ``'"10"'`` stays ``"10"`` and ``'"true"'`` stays
+    ``"true"``.  This is the escape hatch for numeric-looking strings.
     """
+  if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+    return s[1:-1]
+
   if s.lower() in ("true", "false"):
     return s.lower() == "true"
 
