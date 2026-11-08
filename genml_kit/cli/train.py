@@ -28,14 +28,21 @@ from genml_kit.utils.args import (
 )
 from genml_kit.utils.attr import maybe_call
 from genml_kit.utils.cli import KVPairAction
+from genml_kit.utils.distributed import (
+    destroy_distributed,
+    init_distributed,
+    is_main_process,
+    rank,
+    wrap_model,
+)
 from genml_kit.utils.gpu import resolve_device
 from genml_kit.training.metrics_sinks import build_metrics_logger
 from genml_kit.utils.logging import setup_logging
 from genml_kit.utils.seed import resolve_seed, seed_everything
 from genml_kit.utils.shared_args import (
-    ARG_BATCH_SIZE, ARG_CACHE_DIR, ARG_DATASET, ARG_DATASET_ARG, ARG_EPOCHS,
-    ARG_GRAD_CHECKPOINT, ARG_IMAGE_COLUMN, ARG_IMAGE_SIZE, ARG_IN_CH, ARG_LORA,
-    ARG_MAX_ITEMS, ARG_MAX_SEQ_LEN, ARG_MASK_PROMPT, ARG_METHOD, ARG_MODEL,
+    ARG_BATCH_SIZE, ARG_CACHE_DIR, ARG_DATASET, ARG_DATASET_ARG, ARG_DIST_ARG,
+    ARG_EPOCHS, ARG_GRAD_CHECKPOINT, ARG_IMAGE_COLUMN, ARG_IMAGE_SIZE, ARG_IN_CH,
+    ARG_LORA, ARG_MAX_ITEMS, ARG_MAX_SEQ_LEN, ARG_MASK_PROMPT, ARG_METHOD, ARG_MODEL,
     ARG_MODEL_ARG, ARG_NUM_WORKERS, ARG_PAD_TO_MULTIPLE_OF, ARG_PARAM_INIT, ARG_SEED,
     ARG_SPLIT, ARG_VAL_SPLIT, add_shared_arg)
 
@@ -253,6 +260,9 @@ def parse_args(argv=None):
       default=0,
       help="Log validation images every N epochs (0 disables).",
   )
+
+  dist_group = parser.add_argument_group("distributed")
+  add_shared_arg(dist_group, ARG_DIST_ARG)
   return parser.parse_args(argv)
 
 
@@ -278,8 +288,27 @@ def main(argv=None):
     space).  Both are enforced by the hook order, not by convention.
     """
   args = parse_args(argv)
-  setup_logging(args.log_level, args.log_targets)
-  seed_everything(resolve_seed(args.seed), deterministic=(args.seed is not None))
+  # Join the process group before anything rank-dependent: seeding, device
+  # resolution and log-file ownership all key off the rank.  A no-op outside
+  # ``torchrun``, so the single-device path is unchanged.
+  init_distributed(backend=args.dist_arg.get("backend"))
+  try:
+    return _run(args)
+  finally:
+    destroy_distributed()
+
+
+def _run(args):
+  """Driver body, after the process group is up (see :func:`main`)."""
+  # Rank-aware logging: only rank 0 owns the file targets, so concurrent ranks
+  # do not interleave writes to the same file.  Every rank keeps stderr.
+  log_targets = args.log_targets if is_main_process() else "STDERR"
+  setup_logging(args.log_level, log_targets)
+  # Rank-aware seeding: offset by global rank so ranks draw different
+  # augmentation/dropout streams (identical streams would waste the ensemble
+  # and can mask a sharding bug).
+  seed_everything(resolve_seed(args.seed) + rank(),
+                  deterministic=(args.seed is not None))
 
   device = resolve_device(args.device)
   pipeline = build_pipeline(args.pipeline)
@@ -300,6 +329,10 @@ def main(argv=None):
   method.prepare_transforms(args, device)
   pipeline.build_loader(args, mode="train", method=method)
   pipeline.build_loader(args, mode="val", method=method)
+  # Shard the training set across ranks (no-op single-process, or when
+  # --dist_arg shard=false).  Must run before the epoch-budget math below, which
+  # reads len(train_loader).
+  maybe_call(pipeline, "shard_train_loader", args)
   # RL pipelines need environment initialized before wire_data reads n_actions/obs_dim
   # Default no-op in DataPipeline; RL pipelines override.
   pipeline.init_env(args)
@@ -338,6 +371,17 @@ def main(argv=None):
   # large optimizer/scheduler/scaler state can be GC'd before the trainer is
   # constructed. This is intentional memory hygiene, not vestigial code.
   del ckpt_extra
+
+  # Wrap LAST: the checkpoint restore and the optimizer were built against the
+  # semantic model, so both see unwrapped parameter names and keys.  From here
+  # on the trainer holds a transparent facade whose forward runs through DDP
+  # (gradient all-reduce).  Identity when world_size == 1.
+  model = wrap_model(
+      model,
+      device,
+      find_unused_parameters=args.dist_arg.get("find_unused_parameters", False),
+      static_graph=args.dist_arg.get("static_graph", False),
+  )
 
   logger = build_metrics_logger(args)
   # Select trainer class via Method.get_trainer_class() (C13 fix).

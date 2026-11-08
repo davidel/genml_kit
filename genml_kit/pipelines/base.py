@@ -64,3 +64,41 @@ class DataPipeline(abc.ABC):  # noqa: B024
     environment and any wrappers/buffers before ``wire_data`` runs.
     """
     pass
+
+  def shard_train_loader(self, args):
+    """Shard the training set across ranks (no-op when single-process).
+
+        Pipelines call this after building ``self.train_loader``.  Because
+        ``torch`` forbids mutating a ``DataLoader``'s sampler after
+        construction, this *rebuilds* the loader with a rank-sharded sampler:
+        a loader with a plain index sampler gets a ``DistributedSampler``, and
+        one driven by a ``batch_sampler`` (balanced / length-bucketed) gets a
+        rank-strided slice of that batch stream.  When ``--dist_arg shard=false``
+        is given, or the run is single-process, this does nothing, so the
+        single-device loader is bit-for-bit unchanged.
+
+        Args:
+            args: Parsed CLI args (uses ``dist_arg["shard"]``).
+        """
+    from genml_kit.utils.distributed import shard_loader, world_size
+    # Default: shard whenever more than one rank is present.  Every rank
+    # iterating the full dataset is never what a multi-GPU run wants, and it
+    # fails silently (no error, just N times the compute), so the default is
+    # derived from the rank count rather than left to an opt-in flag.
+    if not getattr(args, "dist_arg", {}).get("shard",
+                                                 world_size() > 1) or \
+            world_size() < 2:
+      return
+    if getattr(self, "train_loader", None) is not None:
+      self.train_loader = shard_loader(self.train_loader,
+                                       seed=getattr(args, "seed", 0) or 0)
+
+  def set_train_epoch(self, epoch):
+    """Advance the train loader's sampler so each epoch reshuffles."""
+    loader = self.train_loader
+    if loader is None:
+      return
+    from genml_kit.utils.distributed import sampler_epoch
+    sampler_epoch(
+        getattr(loader, "batch_sampler", None) or getattr(loader, "sampler", None),
+        epoch)

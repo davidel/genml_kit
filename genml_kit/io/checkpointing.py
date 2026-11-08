@@ -18,6 +18,7 @@ import torch
 from genml_kit.io.storage_utils import save_checkpoint, storage_download
 from genml_kit.training.param_align import AlignConfig, align_state_dicts, report_to_str
 from genml_kit.utils.attr import MISSING, get_attribute
+from genml_kit.utils.distributed import is_main_process
 from genml_kit.utils.logging import fatal
 
 
@@ -416,8 +417,16 @@ class CheckpointSaver:
     return should_save_periodic(global_step, self._save_every)
 
   def save(self, suffix, epoch, **extra):
-    """Write ``_root + suffix`` (e.g. ``"_latest.pt"``) with *extra* KV pairs."""
+    """Write ``_root + suffix`` (e.g. ``"_latest.pt"``) with *extra* KV pairs.
+
+    Under ``torchrun`` only rank 0 writes: every rank holds identical weights,
+    so a single writer is correct and avoids N processes racing on the same
+    path (and N uploads to ``--remote_checkpoint``).  Peers return the path
+    without touching the filesystem.
+    """
     path = self._root + suffix
+    if not is_main_process():
+      return path
     if self._extra_fn is not None:
       extra = {**self._extra_fn(), **extra}
     extra = self._with_lora_blob(extra)

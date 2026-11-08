@@ -35,6 +35,7 @@ in [`vo/README.md`](vo/README.md).
 - [Knowledge Distillation](#knowledge-distillation)
 - [Large Language Models (causal LM)](#large-language-models-causal-lm)
 - [Reinforcement Learning](#reinforcement-learning)
+- [Multi-GPU Training](#multi-gpu-training)
 - [Hyperparameter Search](#hyperparameter-search)
 - [References And Further Reading](#references-and-further-reading)
 - [Development](#development)
@@ -2935,6 +2936,72 @@ rollout buffer, GAE, and the TD targets: a truncated final step still
 bootstraps `γ V(s′)`, while a terminated one does not.  Environments using
 the legacy 4-tuple gym API (no `terminated`/`truncated` split) fall back to
 treating `done` as `terminated`.
+
+## Multi-GPU Training
+
+The harness runs on a single device by default and needs no launcher for that.
+To use more than one GPU, launch the same `genml-kit-train` command under
+`torchrun` (which ships with PyTorch -- it is the `torch.distributed.run`
+module, so there is nothing extra to install):
+
+```bash
+# 4 GPUs, one process per GPU
+torchrun --standalone --nproc_per_node=4 -m genml_kit.cli.train \
+                        --model convvit \
+                        --dataset /data/imagenet \
+                        --epochs 90 \
+                        --batch_size 64 \
+                        --dist_arg backend=nccl
+```
+
+Every rank reads `RANK` / `WORLD_SIZE` / `LOCAL_RANK` / `MASTER_ADDR` /
+`MASTER_PORT` from the environment; when they are absent (a plain
+`genml-kit-train ...` invocation) the distributed layer is completely inert --
+no process group is created, the model is not wrapped, and the data loader is
+untouched.  Single-GPU behaviour is therefore unchanged, and `torchrun` is
+never required.
+
+What the launcher turns on automatically:
+
+| Behaviour | Effect |
+|---|---|
+| Process group | `nccl` on CUDA, `gloo` otherwise; override with `--dist_arg backend=` |
+| Device | each rank pins to `cuda:$LOCAL_RANK` |
+| Seeding | `base_seed + rank`, so ranks shuffle differently but reproducibly |
+| Data sharding | each rank gets a disjoint slice of the training set (see below) |
+| Checkpoints | written by rank 0 only; keys carry no `module.` prefix, so a multi-GPU checkpoint loads back into a single-GPU run unchanged |
+| Metrics / log files | TensorBoard, JSONL and log files are written by rank 0 only |
+| Validation | rank 0 evaluates the full validation set; the other ranks wait |
+
+Distributed knobs travel through a single repeatable `--dist_arg KEY=VALUE`
+flag, matching `--model_arg` / `--opt_arg`.  A bare key means `true`:
+
+| Key | Default | Description |
+|---|---|---|
+| `backend` | auto (`nccl` on CUDA, else `gloo`) | Process-group backend. |
+| `shard` | `true` when more than one rank | Shard the training set across ranks. Set `shard=false` to run every rank over the full dataset (rarely what you want: it multiplies the compute with no error). |
+| `find_unused_parameters` | `false` | Pass through to `DistributedDataParallel`. Needed only for methods whose forward skips some parameters. |
+| `static_graph` | `false` | Pass through to `DistributedDataParallel`. Only valid when the autograd graph is identical every step. |
+| `validate_all` | `false` | Validate on every rank and average the metrics, instead of rank 0 evaluating everything. |
+
+Defaults are chosen so that a multi-GPU run only has to be correct, not
+tuned: sharding is on whenever it can matter, and validation stays on rank 0
+because the validation set is never sharded -- rank 0 already sees all of it.
+
+Three caveats worth knowing before reaching for more GPUs:
+
+- **Effective batch size scales with `--nproc_per_node`.** Four ranks at
+  `--batch_size 64` see 256 samples per optimizer step; scale `--lr`
+  accordingly.
+- **Sharding assumes a trainable `DataLoader`.** Pipelines that bypass it
+  (the RL pipelines drive environments and replay buffers directly) are not
+  yet covered by the sharding path.
+- **A checkpoint from a multi-GPU run is portable**, but resuming with a
+  *different* `--nproc_per_node` changes the shard boundaries, so the epoch
+  position is approximate if the dataset size is not divisible by the rank
+  count.
+
+---
 
 ## Hyperparameter Search
 

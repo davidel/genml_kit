@@ -33,6 +33,13 @@ from genml_kit.training.model_utils import set_train_mode
 from genml_kit.training.train_reporting import ImageTrainReporting, Metric, metric
 from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.utils.attr import maybe_call
+from genml_kit.utils.distributed import (
+    all_reduce_dict,
+    barrier,
+    is_distributed,
+    is_main_process,
+    unwrap,
+)
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
 TrainingResult = namedtuple("TrainingResult", [
@@ -48,6 +55,11 @@ class _NoMonitor:
 
   def step(self, *_args, **_kwargs):
     return None
+
+
+def _validate_all_ranks(args):
+  """True when every rank validates (metrics averaged), not just rank 0."""
+  return bool(getattr(args, "dist_arg", {}).get("validate_all", False))
 
 
 class BaseTrainer:
@@ -209,11 +221,21 @@ class BaseTrainer:
     ``evaluate`` owns its mode: the default implementation wraps in
     ``torch.no_grad()``; overrides that need eval-mode (SimMIM
     reconstructions, VO mce) use ``model_mode(model, "eval")`` internally.
+
+    Distributed policy: by default only rank 0 validates (the other ranks skip
+    and wait at the next barrier), which avoids N redundant evaluations.  With
+    ``--dist_arg validate_all`` every rank validates its shard and the
+    per-key scalars are averaged across ranks, so the metric reflects the whole
+    validation set rather than rank 0's slice.
     """
     if self.pipeline.val_loader is None:
       return None
+    if not self._should_validate():
+      return None
     metrics = self.method.evaluate(self.model, self.pipeline.val_loader, self.device,
                                    self.pipeline.to_device)
+    if _validate_all_ranks(self.args):
+      metrics = all_reduce_dict(metrics, average=True)
     key = self.method.METRIC_KEY
     val = metrics[key]
     # Log every scalar metric the method reports (loss, mdice, pixel_acc,
@@ -225,6 +247,12 @@ class BaseTrainer:
       if isinstance(value, (int, float)) and not isinstance(value, bool):
         self.logger.log_epoch(f"val/{name}", value, epoch=self.epoch)
     return val
+
+  def _should_validate(self):
+    """True when this rank owns validation (rank 0, or all-ranks mode)."""
+    if not is_distributed():
+      return True
+    return is_main_process() or _validate_all_ranks(self.args)
 
   def has_metric_improved(self, old, new):
     """Route direction to the method (default: maximize)."""
@@ -270,8 +298,13 @@ class BaseTrainer:
     # Pass the full optimization object (not just .optimizer) so that
     # methods with custom optimization wrappers (e.g. SACOptimization)
     # save/restore the complete state via their own state_dict().
+    #
+    # ``unwrap`` peels infrastructure wrappers only (DDP facade).  Saving must
+    # see the semantic model: its state-dict keys are the portable checkpoint
+    # contract, and ``serialize_lora_state`` tests ``isinstance(model,
+    # PeftModel)``, which a facade would fail.
     saver = CheckpointSaver(
-        self.model,
+        unwrap(self.model),
         self.optimization,
         self.optimization.scheduler,
         root=args.checkpoint,
@@ -298,6 +331,9 @@ class BaseTrainer:
           # Tell the batch sampler the epoch so it can vary its per-epoch
           # shuffle (no-op for loaders whose batch_sampler has no set_epoch).
           maybe_call(self.pipeline.train_loader, "batch_sampler.set_epoch", epoch)
+          # Advance a DistributedSampler (and the rank-strided shard offset) so
+          # every epoch reshuffles; no-op single-process.
+          maybe_call(self.pipeline, "set_train_epoch", epoch)
           logging.info(f"=== Epoch {epoch + 1}/{args.epochs} ===")
           _, self.global_step = self.train_epoch(epoch, saver, self.global_step,
                                                  grad_monitor)
@@ -307,8 +343,10 @@ class BaseTrainer:
             self.optimization.scheduler.step()
 
           metrics = self.validate()
-
-          # Log validation images if enabled and the method supports it
+          # Ranks that skipped validation (rank 0 owns it by default) wait here,
+          # so a slow validation cannot let a peer run ahead and hit the next
+          # epoch's all-reduce first (which can time out the NCCL watchdog).
+          barrier()
           if (metrics is not None and getattr(self.args, "vis_every", 0) > 0 and
               self.epoch % self.args.vis_every == 0):
             try:

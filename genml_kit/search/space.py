@@ -34,6 +34,7 @@ _PREFIX_FLAGS = OrderedDict([
     ("sched.", "--sched_arg"),
     ("model.", "--model_arg"),
     ("proc.", "--proc_arg"),
+    ("dist.", "--dist_arg"),
 ])
 
 _GRID_INTS = 12

@@ -9,6 +9,10 @@ import torch
 def resolve_device(device_arg):
   """Resolve a CLI ``--device`` argument to a ``torch.device``.
 
+  Under ``torchrun`` (``LOCAL_RANK`` set) an explicit ``--device`` is ignored
+  in favour of ``cuda:{LOCAL_RANK}``: every process must own a distinct GPU,
+  and the default ``cuda:0`` would otherwise be claimed by all of them.
+
   Args:
       device_arg: The raw ``--device`` string (``cpu``, ``cuda`` or
           ``cuda:INDEX``), or ``None`` for auto-detection.
@@ -17,12 +21,26 @@ def resolve_device(device_arg):
       ``torch.device(device_arg)`` if given, otherwise the best available
       device (CUDA if present, else CPU).  Logs the resolved device.
   """
-  if device_arg:
+  local = _local_rank_env()
+  if local is not None and torch.cuda.is_available():
+    device = torch.device("cuda", local)
+  elif device_arg:
     device = torch.device(device_arg)
   else:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
   logging.info(f"Using device: {device}")
   return device
+
+
+def _local_rank_env():
+  """Return ``LOCAL_RANK`` as an int, or ``None`` when not launched distributed."""
+  import os
+
+  raw = os.environ.get("LOCAL_RANK")
+  try:
+    return int(raw) if raw not in (None, "") else None
+  except ValueError:
+    return None
 
 
 def gpu_stats_str(device):

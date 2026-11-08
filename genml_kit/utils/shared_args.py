@@ -71,6 +71,17 @@ ARG_MODEL_ARG = ("model_arg", {
             "Example: --model_arg depth=6 num_heads=8.",
 })
 
+ARG_DIST_ARG = ("dist_arg", {
+    "nargs": "+",
+    "action": KVPairAction,
+    "metavar": "KEY=VALUE",
+    "help": "Distributed-training overrides (repeatable). Keys: backend "
+            "(nccl|gloo), shard (bool, default on when >1 rank), "
+            "find_unused_parameters (bool), static_graph (bool), "
+            "validate_all (bool). Bare keys mean true. "
+            "Example: --dist_arg backend=nccl find_unused_parameters.",
+})
+
 ARG_TOKENIZER = ("tokenizer", {
     "type": str,
     "help": "Tokenizer name/path; defaults to --model.",

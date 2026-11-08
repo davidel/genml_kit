@@ -134,7 +134,14 @@ class KVPairAction(argparse.Action):
         --model_arg depth=6 --model_arg num_heads=8
         → {"depth": 6, "num_heads": 8}
 
-    Values are auto-converted via :func:`parse_value`.  If a key is given
+    A bare token (no ``=``) is shorthand for a boolean true, so these are
+    equivalent::
+
+        --model_arg use_cls
+        --model_arg use_cls=true
+
+    Values are auto-converted via :func:`parse_value` (which already maps
+    ``true``/``True``/``false``/``False`` to ``bool``).  If a key is given
     more than once, the last value wins.
     """
 
@@ -152,8 +159,9 @@ class KVPairAction(argparse.Action):
     d = dict(getattr(namespace, self.dest))
     for token in values:
       if "=" not in token:
-        parser.error(f"Expected KEY=VALUE pair, got: {token!r} "
-                     f"(for {option_string})")
+        # Bare token is shorthand for ``key=True`` (flag-style usage).
+        d[token] = True
+        continue
       key, val = token.split("=", 1)
       d[key] = parse_value(val)
     setattr(namespace, self.dest, d)

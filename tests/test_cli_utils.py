@@ -162,10 +162,23 @@ class TestKVPairAction:
     args = parser.parse_args(["--model_arg", "depth=12", "--model_arg", "depth=6"])
     assert args.model_arg == {"depth": 6}
 
-  def test_missing_equals_raises_error(self):
+  def test_bare_key_means_true(self):
+    """A token with no ``=`` is shorthand for ``key=True``."""
     parser = self._make_parser()
-    with pytest.raises(SystemExit):
-      parser.parse_args(["--model_arg", "noequals"])
+    args = parser.parse_args(["--model_arg", "noequals"])
+    assert args.model_arg == {"noequals": True}
+
+  def test_bare_key_mixed_with_pairs(self):
+    """Bare keys and KEY=VALUE pairs can be mixed in one occurrence."""
+    parser = self._make_parser()
+    args = parser.parse_args(["--model_arg", "use_cls", "depth=6", "aux"])
+    assert args.model_arg == {"use_cls": True, "depth": 6, "aux": True}
+
+  def test_explicit_true_false_values(self):
+    """``=true``/``=True``/``=false``/``=False`` all coerce to bool."""
+    parser = self._make_parser()
+    args = parser.parse_args(["--model_arg", "a=true", "b=True", "c=false", "d=False"])
+    assert args.model_arg == {"a": True, "b": True, "c": False, "d": False}
 
   def test_multiple_flags_accumulate(self):
     parser = self._make_parser()

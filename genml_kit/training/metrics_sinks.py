@@ -274,8 +274,16 @@ def build_metrics_logger(args):
 
   Recognised sink names are ``tb`` (TensorBoard), ``jsonl`` (structured file),
   and ``none``/``null`` (explicitly nothing).  Unknown names are ignored.
+
+  Under ``torchrun`` only rank 0 gets real sinks: peers would otherwise open
+  the same TensorBoard log dir and append to the same JSONL file, interleaving
+  each other's records.  Non-main ranks get an empty logger (a no-op).
   """
+  from genml_kit.utils.distributed import is_main_process
   from genml_kit.utils.logging import open_writer
+
+  if not is_main_process():
+    return MetricsLogger([])
 
   sinks = []
   for name in parse_sink_names(getattr(args, "metrics_sinks", "tb")):
