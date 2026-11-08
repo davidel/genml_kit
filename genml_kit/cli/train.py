@@ -213,7 +213,7 @@ def parse_args(argv=None):
       action=KVPairAction,
       metavar="KEY=VALUE",
       help="Extra optimizer kwargs (repeatable). "
-      "Example: --opt_arg betas=0.9,0.999 momentum=0.9",
+      "Example: --opt_arg betas=[0.9,0.999] momentum=0.9",
   )
   opt.add_argument(
       "--scheduler",

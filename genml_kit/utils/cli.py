@@ -7,7 +7,7 @@ command line without changing the argument parser for every possible knob.
 Example::
 
     genml_kit-train --model convvit --model_arg depth=6 num_heads=8
-    genml_kit-train --model convvit --opt_arg betas=0.9,0.999
+    genml_kit-train --model convvit --opt_arg betas=[0.9,0.999]
     genml_kit-train --model convvit --model_arg depths=[3,6,12,6]
 """
 
