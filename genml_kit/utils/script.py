@@ -1,9 +1,24 @@
 """Utilities for loading and executing user-supplied Python scripts."""
 
+import atexit
+import hashlib
+import importlib.machinery
+import importlib.util
 import logging
+import os
+import posixpath
+import shutil
+import sys
+import tempfile
 import urllib.request
+from urllib.parse import urlparse
 
 from genml_kit.utils.logging import fatal
+
+# Per-process root for fetched (URL) scripts, created lazily by
+# :func:`_temp_root`.  Kept as a single directory so cleanup is one ``rmtree``
+# at interpreter exit rather than bookkeeping per fetched script.
+_TEMP_ROOT = None
 
 
 def is_script_spec(spec: str) -> bool:
@@ -16,24 +31,86 @@ def is_script_spec(spec: str) -> bool:
   return spec.endswith(".py") or spec.startswith(("http://", "https://"))
 
 
-def _load_script(path_or_url):
-  """Fetch, compile and execute a Python script, returning its namespace.
+def _temp_root():
+  """Lazily create (once per process) the root that holds fetched scripts.
 
-    Handles both local files and HTTP/HTTPS URLs.  The fetched code is
-    compiled with the source path/URL, so tracebacks show where the
-    code came from.
+    A fresh ``mkdtemp`` per process keeps concurrent instances from clobbering
+    each other's in-flight modules, and the whole tree is removed in a single
+    ``atexit`` pass rather than per fetched script.  Created lazily so purely
+    local-path loads never touch the filesystem beyond the script itself.
   """
-  namespace = {}
+  global _TEMP_ROOT
+  if _TEMP_ROOT is None:
+    _TEMP_ROOT = tempfile.mkdtemp(prefix="genml_kit_extern_")
+    atexit.register(shutil.rmtree, _TEMP_ROOT, ignore_errors=True)
+  return _TEMP_ROOT
 
-  if path_or_url.startswith(("http://", "https://")):
-    with urllib.request.urlopen(path_or_url) as resp:
-      code = resp.read().decode("utf-8")
-  else:
-    with open(path_or_url) as f:
-      code = f.read()
-  exec(compile(code, path_or_url, "exec"), namespace)  # noqa: S102
 
-  return namespace
+def _materialize(path_or_url):
+  """Return a local filesystem path holding the script source.
+
+    Local paths are returned unchanged.  URLs are fetched once and written into
+    a dedicated per-URL subdirectory of :func:`_temp_root`; the subdir keeps
+    scripts that share a basename (e.g. two ``model.py`` URLs) from colliding
+    and gives the loaded module a real ``__file__`` on disk.
+  """
+  if not path_or_url.startswith(("http://", "https://")):
+    return path_or_url
+
+  with urllib.request.urlopen(path_or_url) as resp:
+    code = resp.read().decode("utf-8")
+
+  subdir = tempfile.mkdtemp(prefix="url_", dir=_temp_root())
+  name = posixpath.basename(urlparse(path_or_url).path) or "script.py"
+  if not name.endswith(".py"):
+    name += ".py"
+  path = os.path.join(subdir, name)
+  with open(path, "w", encoding="utf-8") as f:
+    f.write(code)
+  return path
+
+
+def _module_name(path):
+  """Stable, collision-free module name derived from the source path.
+
+    Keying on the absolute path (not the basename) means two scripts that share
+    a filename register under different names, so neither shadows the other in
+    ``sys.modules`` and both stay importable/picklable.
+  """
+  digest = hashlib.sha1(os.path.abspath(path).encode("utf-8")).hexdigest()[:12]
+  return f"genml_extern_{digest}"
+
+
+def _load_script(path_or_url):
+  """Load a Python script as a module and return its namespace.
+
+    Handles both local files and HTTP/HTTPS URLs.  Unlike a bare ``exec``, the
+    script is imported as a real module: it gets a proper ``__file__`` /
+    ``__name__``, its own directory is temporarily placed on ``sys.path`` (so
+    it can import siblings by plain name), and classes it defines are picklable.
+    Any ``sys.path`` mutation is undone before returning, but the module stays
+    registered in ``sys.modules`` so pickled instances resolve later.
+  """
+  path = _materialize(path_or_url)
+  name = _module_name(path)
+  parent = os.path.dirname(os.path.abspath(path))
+  added = parent not in sys.path
+  if added:
+    sys.path.insert(0, parent)
+  try:
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+      # Fall back to an explicit source loader for extensions importlib's
+      # default hooks do not recognise.
+      loader = importlib.machinery.SourceFileLoader(name, path)
+      spec = importlib.util.spec_from_loader(name, loader)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+  finally:
+    if added:
+      sys.path.remove(parent)
+  return vars(module)
 
 
 def _extract_fn(namespace, path_or_url, fn_name):
