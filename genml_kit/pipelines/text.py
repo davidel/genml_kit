@@ -205,11 +205,14 @@ class TextPipeline(DataPipeline):
     val_split = args.val_split
     if val_split:
       # Held-out fraction of the training split -- one load, split in memory.
-      full = _wrap(
-          load_raw_split(args.dataset,
-                         args.split,
-                         cache_dir=args.cache_dir,
-                         dataset_arg=args.dataset_arg)).dataset
+      # ``--max_items`` caps the dataset *before* carving the val fraction, so
+      # a budgeted run still yields the requested number of training rows plus a
+      # real held-out set (previously the cap was silently ignored here).
+      full = _wrap(load_raw_split(args.dataset,
+                                  args.split,
+                                  cache_dir=args.cache_dir,
+                                  dataset_arg=args.dataset_arg),
+                   cap=args.max_items).dataset
       n = len(full)
       n_val = max(1, int(n * val_split))
       if n_val >= n:

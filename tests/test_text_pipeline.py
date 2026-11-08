@@ -118,3 +118,17 @@ class TestBuildLoader:
     for tensor in batch.data.values():
       assert tensor.device.type == "cpu"
     assert batch.meta["labels"].device.type == "cpu"
+
+  def test_val_split_caps_before_carving_holdout(self, monkeypatch):
+    # --max_items must be honoured *before* the held-out fraction is carved, so
+    # a budgeted run yields cap - n_val training rows plus a real val set
+    # (previously --val_split silently ignored --max_items).
+    raw = datasets.Dataset.from_dict({"text": [str(i) for i in range(10)]})
+    self._patch_load(monkeypatch, TextDatasetProxy(raw, text_column="text"))
+    method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
+    pipeline = TextPipeline()
+    pipeline.build_loader(_args(val_split=0.5, max_items=4),
+                          mode="train",
+                          method=method)
+    assert len(pipeline.train_dataset) == 2
+    assert len(pipeline.val_dataset) == 2
