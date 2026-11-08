@@ -2,6 +2,7 @@
 
 import atexit
 import hashlib
+import importlib.abc
 import importlib.machinery
 import importlib.util
 import logging
@@ -81,35 +82,78 @@ def _module_name(path):
   return f"genml_extern_{digest}"
 
 
+class _ScriptSiblingFinder(importlib.abc.MetaPathFinder):
+  """Resolve a script's *sibling* modules without mutating ``sys.path``.
+
+    Every loaded script registers the directory that holds it.  When the import
+    system asks for a top-level name that no earlier finder claimed, this finder
+    resolves it against those directories.  Sitting *after* ``PathFinder`` in
+    ``sys.meta_path``, it can never shadow a real installed module or stdlib
+    name, and because the directories stay registered for the process lifetime it
+    resolves imports performed *after* loading too -- e.g. a sibling imported
+    lazily inside a function body to break an import cycle, which the previous
+    ``sys.path`` insert/remove trick could not reach.
+  """
+
+  def __init__(self):
+    self._dirs = []
+
+  def add(self, directory):
+    """Register *directory* to be searched for sibling modules (deduped)."""
+    directory = os.path.abspath(directory)
+    if directory not in self._dirs:
+      self._dirs.append(directory)
+
+  def find_spec(self, fullname, path=None, target=None):
+    """Return a spec for a top-level *fullname* found in a script directory."""
+    if "." in fullname:
+      return None
+    for directory in self._dirs:
+      candidate = os.path.join(directory, fullname + ".py")
+      if os.path.isfile(candidate):
+        loader = importlib.machinery.SourceFileLoader(fullname, candidate)
+        return importlib.util.spec_from_file_location(fullname,
+                                                      candidate,
+                                                      loader=loader)
+    return None
+
+
+# Process-wide finder, installed lazily on the first script load.  Appended at
+# the end of ``sys.meta_path`` so the stdlib/site ``PathFinder`` always wins.
+_SIBLING_FINDER = None
+
+
+def _sibling_finder():
+  """Return the shared sibling finder, installing it once on first use."""
+  global _SIBLING_FINDER
+  if _SIBLING_FINDER is None:
+    _SIBLING_FINDER = _ScriptSiblingFinder()
+    sys.meta_path.append(_SIBLING_FINDER)
+  return _SIBLING_FINDER
+
+
 def _load_script(path_or_url):
   """Load a Python script as a module and return its namespace.
 
     Handles both local files and HTTP/HTTPS URLs.  Unlike a bare ``exec``, the
     script is imported as a real module: it gets a proper ``__file__`` /
-    ``__name__``, its own directory is temporarily placed on ``sys.path`` (so
-    it can import siblings by plain name), and classes it defines are picklable.
-    Any ``sys.path`` mutation is undone before returning, but the module stays
+    ``__name__``, its directory is registered with :class:`_ScriptSiblingFinder`
+    (so it can import siblings by plain name, eagerly or lazily), and classes it
+    defines are picklable.  ``sys.path`` is never touched, and the module stays
     registered in ``sys.modules`` so pickled instances resolve later.
   """
   path = _materialize(path_or_url)
   name = _module_name(path)
-  parent = os.path.dirname(os.path.abspath(path))
-  added = parent not in sys.path
-  if added:
-    sys.path.insert(0, parent)
-  try:
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-      # Fall back to an explicit source loader for extensions importlib's
-      # default hooks do not recognise.
-      loader = importlib.machinery.SourceFileLoader(name, path)
-      spec = importlib.util.spec_from_loader(name, loader)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-  finally:
-    if added:
-      sys.path.remove(parent)
+  _sibling_finder().add(os.path.dirname(os.path.abspath(path)))
+  spec = importlib.util.spec_from_file_location(name, path)
+  if spec is None or spec.loader is None:
+    # Fall back to an explicit source loader for extensions importlib's
+    # default hooks do not recognise.
+    loader = importlib.machinery.SourceFileLoader(name, path)
+    spec = importlib.util.spec_from_loader(name, loader)
+  module = importlib.util.module_from_spec(spec)
+  sys.modules[name] = module
+  spec.loader.exec_module(module)
   return vars(module)
 
 

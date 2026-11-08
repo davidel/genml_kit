@@ -1,5 +1,6 @@
 """Tests for script_utils (local + URL script loading)."""
 
+import importlib.util
 import os
 import pickle
 import sys
@@ -46,6 +47,55 @@ class TestScriptModuleSemantics:
                       "def make():\n"
                       "  return siblib.greet()\n")
     assert extern_call(str(script), "make") == "sibling"
+
+  def test_deferred_sibling_import_resolves_after_load(self, tmp_path):
+    # A sibling imported *inside a function body* (not at module top level)
+    # must resolve too: the directory has to stay usable after loading, not
+    # just while the script body executes.
+    (tmp_path / "lazysib.py").write_text("def hint():\n  return 'lazy'\n")
+    script = tmp_path / "ext.py"
+    script.write_text("def make():\n"
+                      "  import lazysib\n"
+                      "  return lazysib.hint()\n")
+    assert extern_call(str(script), "make") == "lazy"
+
+  def test_deferred_sibling_import_breaks_a_cycle(self, tmp_path):
+    # Mirrors the config <-> parallel_groups cycle: two siblings import each
+    # other, one via a lazy import inside a function body.
+    (tmp_path / "cyc_leaf.py").write_text("def core():\n"
+                                          "  from cyc_mid import helper\n"
+                                          "  return helper()\n")
+    (tmp_path / "cyc_mid.py").write_text("from cyc_leaf import core\n"
+                                         "def helper():\n"
+                                         "  return 'cycle-ok'\n")
+    script = tmp_path / "ext.py"
+    script.write_text("from cyc_mid import helper\n"
+                      "def build():\n"
+                      "  from cyc_leaf import core\n"
+                      "  return core()\n")
+    assert extern_call(str(script), "build") == "cycle-ok"
+
+  def test_sibling_does_not_shadow_stdlib(self, tmp_path):
+    # A sibling whose name collides with a stdlib module must not win: the
+    # finder sits after PathFinder, so the real module is always preferred.
+    # ``find_spec`` consults ``sys.meta_path`` in order, so stdlib ``colorsys``
+    # must resolve to the stdlib file, never the sibling of the same name.
+    (tmp_path / "colorsys.py").write_text("marker = 'sibling'\n")
+    script = tmp_path / "ext.py"
+    script.write_text("def make():\n  return 1\n")
+    load_extern(str(script), "make")  # registers tmp_path with the finder
+    spec = importlib.util.find_spec("colorsys")
+    assert spec is not None
+    assert os.path.realpath(spec.origin) != os.path.realpath(
+        str(tmp_path / "colorsys.py"))
+
+  def test_sibling_finder_is_installed_once(self, tmp_path):
+    script = tmp_path / "ext.py"
+    script.write_text("def make():\n  return 1\n")
+    load_extern(str(script), "make")
+    load_extern(str(script), "make")
+    finder = script_utils._sibling_finder()
+    assert sys.meta_path.count(finder) == 1
 
   def test_dunder_file_points_at_the_script(self, tmp_path):
     script = tmp_path / "ext.py"
