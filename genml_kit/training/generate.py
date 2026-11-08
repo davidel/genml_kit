@@ -23,8 +23,8 @@ from genml_kit.utils.logging import fatal, setup_logging
 from genml_kit.utils.shared_args import (ARG_ATTN_IMPLEMENTATION, ARG_BATCH_SIZE,
                                          ARG_CACHE_DIR, ARG_DATASET, ARG_DATASET_ARG,
                                          ARG_MAX_ITEMS, ARG_MODEL, ARG_SEED, ARG_SPLIT,
-                                         ARG_TOKENIZER, ARG_TRUST_REMOTE_CODE,
-                                         add_shared_arg)
+                                         ARG_TOKENIZER, ARG_TOKENIZER_ARG,
+                                         ARG_TRUST_REMOTE_CODE, add_shared_arg)
 
 
 def add_generate_args(parser):
@@ -37,6 +37,7 @@ def add_generate_args(parser):
       help="HuggingFace model id or registered custom model.",
   )
   add_shared_arg(group, ARG_TOKENIZER)
+  add_shared_arg(group, ARG_TOKENIZER_ARG)
   group.add_argument("--checkpoint",
                      type=str,
                      help="State-dict checkpoint, or a <root> with "
@@ -197,6 +198,7 @@ def run_generate(args):
       cache_dir=args.cache_dir,
       trust_remote_code=args.trust_remote_code,
       attn_implementation=args.attn_implementation,
+      tokenizer_arg=args.tokenizer_arg,
   )
 
   config = _sampling_config(args)

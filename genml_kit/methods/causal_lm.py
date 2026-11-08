@@ -22,6 +22,7 @@ from genml_kit.training.packed_attention import (build_block_diagonal_mask,
 from genml_kit.training.text_collator import IGNORE_INDEX
 from genml_kit.utils.attr import MISSING, get_attribute
 from genml_kit.utils.logging import fatal
+from genml_kit.utils.shared_args import ARG_TOKENIZER_ARG, add_shared_arg
 
 
 def _is_hf_model(model):
@@ -121,6 +122,7 @@ class CausalLMMethod(Method):
     group.add_argument("--tokenizer",
                        type=str,
                        help="Tokenizer name/path; defaults to --model.")
+    add_shared_arg(group, ARG_TOKENIZER_ARG)
     group.add_argument("--trust_remote_code",
                        action="store_true",
                        help="Allow custom code from the model hub.")
@@ -140,6 +142,7 @@ class CausalLMMethod(Method):
     self.tokenizer = load_tokenizer(
         args.tokenizer or args.model,
         cache_dir=args.cache_dir,
+        **(args.tokenizer_arg or {}),
     )
 
   def build_model(self, args, device):

@@ -76,6 +76,7 @@ class DPOMethod(Method):
     self.tokenizer = load_tokenizer(
         args.tokenizer or args.model,
         cache_dir=args.cache_dir,
+        **(getattr(args, "tokenizer_arg", None) or {}),
     )
 
   def _build_lm(self, args, device, model_name, checkpoint):

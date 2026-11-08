@@ -76,6 +76,16 @@ ARG_TOKENIZER = ("tokenizer", {
     "help": "Tokenizer name/path; defaults to --model.",
 })
 
+ARG_TOKENIZER_ARG = ("tokenizer_arg", {
+    "nargs": "+",
+    "action": KVPairAction,
+    "metavar": "KEY=VALUE",
+    "default": None,
+    "help": "Extra kwargs forwarded to the tokenizer factory "
+            "(repeatable; external tokenizer scripts receive them). "
+            "Example: --tokenizer_arg vocab_size=16384.",
+})
+
 ARG_TRUST_REMOTE_CODE = ("trust_remote_code", {
     "action": "store_true",
     "help": "Allow custom code from the model hub.",
@@ -245,6 +255,7 @@ SHARED_ARGS = {
         ARG_MODEL,
         ARG_MODEL_ARG,
         ARG_TOKENIZER,
+        ARG_TOKENIZER_ARG,
         ARG_TRUST_REMOTE_CODE,
         ARG_ATTN_IMPLEMENTATION,
         ARG_IN_CH,

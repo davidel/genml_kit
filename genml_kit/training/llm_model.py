@@ -101,7 +101,8 @@ def load_lm_for_inference(model_name,
                           device="cpu",
                           cache_dir=None,
                           trust_remote_code=False,
-                          attn_implementation=None):
+                          attn_implementation=None,
+                          tokenizer_arg=None):
   """Load a causal LM and its tokenizer, ready to generate.
 
     Args:
@@ -113,12 +114,15 @@ def load_lm_for_inference(model_name,
         cache_dir: HuggingFace cache directory.
         trust_remote_code: allow custom code from the Hub.
         attn_implementation: attention backend (e.g. ``"sdpa"``).
+        tokenizer_arg: extra kwargs forwarded to the tokenizer factory.
 
     Returns:
         ``(model, tokenizer)`` with the model in ``eval`` mode on *device*.
     """
   device = torch.device(device)
-  tokenizer = load_tokenizer(tokenizer_name or model_name, cache_dir=cache_dir)
+  tokenizer = load_tokenizer(tokenizer_name or model_name,
+                             cache_dir=cache_dir,
+                             **(tokenizer_arg or {}))
   model = load_model(
       model_name,
       task="causal_lm",

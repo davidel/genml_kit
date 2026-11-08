@@ -53,6 +53,7 @@ def _args(corpus_dir, model_dir, **overrides):
       pad_to_multiple_of=None,
       model=str(model_dir),
       tokenizer="byte",
+      tokenizer_arg=None,
       model_arg={},
       trust_remote_code=False,
       attn_implementation=None,

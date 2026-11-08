@@ -40,6 +40,7 @@ def _common(model_dir, **overrides):
   base = dict(
       model=str(model_dir),
       tokenizer="byte",
+      tokenizer_arg=None,
       checkpoint=None,
       lora_adapter=None,
       device="cpu",

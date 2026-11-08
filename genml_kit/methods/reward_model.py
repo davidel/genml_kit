@@ -114,6 +114,7 @@ class RewardModelMethod(Method):
     self.tokenizer = load_tokenizer(
         args.tokenizer or args.model,
         cache_dir=args.cache_dir,
+        **(getattr(args, "tokenizer_arg", None) or {}),
     )
 
   def build_model(self, args, device):
