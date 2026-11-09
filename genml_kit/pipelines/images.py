@@ -207,7 +207,14 @@ class ImagesPipeline(DataPipeline):
                       "shuffle=True.")
       effective_sampler = "none"
 
+    # The two samplers implement *different* DataLoader contracts, so they go
+    # into different slots: ``build_weighted_sampler`` yields per-item indices
+    # (``sampler=``), while ``BalancedBatchSampler`` yields whole batches as
+    # ``list[int]`` (``batch_sampler=``).  Passing the latter as ``sampler=``
+    # made DataLoader treat each batch of indices as a single sample, collapsing
+    # the epoch to one malformed batch.
     sampler = None
+    batch_sampler = None
     if effective_sampler == "weighted" and train_proxy.label_column:
       sampler = build_weighted_sampler(train_proxy.dataset,
                                        self.num_labels,
@@ -217,23 +224,28 @@ class ImagesPipeline(DataPipeline):
     elif effective_sampler == "balanced":
       from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
       labels = train_proxy.dataset[train_proxy.label_column]
-      sampler = BalancedBatchSampler(
+      batch_sampler = BalancedBatchSampler(
           labels,
           batch_size=args.batch_size,
           samples_per_class=args.samples_per_class,
       )
 
-    self.train_loader = DataLoader(
-        self.train_dataset,
-        batch_size=args.batch_size,
+    loader_kwargs = dict(
         num_workers=args.num_workers,
         worker_init_fn=seed_worker,
         generator=data_generator,
         pin_memory=False,
-        shuffle=sampler is None,
-        sampler=sampler,
         collate_fn=_images_collate,
     )
+    if batch_sampler is not None:
+      # ``batch_sampler`` fully determines the batches: DataLoader rejects
+      # ``batch_size`` / ``shuffle`` / ``sampler`` / ``drop_last`` alongside it.
+      loader_kwargs["batch_sampler"] = batch_sampler
+    else:
+      loader_kwargs["batch_size"] = args.batch_size
+      loader_kwargs["shuffle"] = sampler is None
+      loader_kwargs["sampler"] = sampler
+    self.train_loader = DataLoader(self.train_dataset, **loader_kwargs)
     self.val_loader = DataLoader(
         self.val_dataset,
         batch_size=args.batch_size,

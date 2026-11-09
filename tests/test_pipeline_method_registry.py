@@ -245,7 +245,15 @@ class TestImagesPipelineLoader:
     assert batch.meta["labels"].shape[0] == batch.data.shape[0]
 
   def test_balanced_sampler_wired_into_train_loader(self, tmp_path):
-    """Regression for #10: --sampler balanced builds a BalancedBatchSampler."""
+    """Regression for #10: --sampler balanced builds a BalancedBatchSampler.
+
+        It must be installed as ``batch_sampler``, not ``sampler``:
+        ``BalancedBatchSampler`` yields whole batches (``list[int]``), so as
+        ``sampler`` DataLoader would treat each index list as one *sample* and
+        collapse the epoch to a single malformed batch.  The assertions below
+        iterate the loader, which is what catches that -- checking the attribute
+        alone passes either way.
+        """
     from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
 
     data_dir = _make_imagefolder(tmp_path)
@@ -262,7 +270,18 @@ class TestImagesPipelineLoader:
 
     pipeline = ImagesPipeline()
     loader = pipeline.build_loader(args, mode="train")
-    assert isinstance(loader.sampler, BalancedBatchSampler)
+    assert isinstance(loader.batch_sampler, BalancedBatchSampler)
+
+    # Inspect the index batches rather than the collated blobs: this fixture
+    # has no image transforms, so items are raw PIL images.  What the wiring
+    # bug destroyed was the *number* of batches and the number of indices per
+    # batch, which matches the sampler's own output exactly.
+    index_batches = list(loader.batch_sampler)
+    assert len(index_batches) > 1, "balanced sampler must not collapse the epoch"
+    for indices in index_batches:
+      assert len(indices) == args.batch_size
+    # The sampler's step count is what the loop iterates over.
+    assert len(loader) == len(loader.batch_sampler)
 
   def test_balanced_sampler_used_on_indivisible_batch(self, tmp_path):
     """batch_size % samples_per_class != 0 => sampler still used with spread."""
@@ -283,8 +302,35 @@ class TestImagesPipelineLoader:
 
     pipeline = ImagesPipeline()
     loader = pipeline.build_loader(args, mode="train")
-    assert isinstance(loader.sampler, BalancedBatchSampler)
-    assert loader.sampler._group_sizes == [2, 2]
+    assert isinstance(loader.batch_sampler, BalancedBatchSampler)
+    assert loader.batch_sampler._group_sizes == [2, 2]
+    # Group sizes differ by at most one, and every batch is still well formed.
+    for indices in loader.batch_sampler:
+      assert len(indices) == args.batch_size
+
+  def test_weighted_sampler_stays_an_index_sampler(self, tmp_path):
+    """--sampler weighted yields indices, so it belongs in ``sampler=``."""
+    from torch.utils.data import WeightedRandomSampler
+
+    data_dir = _make_imagefolder(tmp_path)
+    args = self._args(tmp_path)
+    args.dataset = f"imagefolder/{data_dir}"
+    args.label_column = "label"
+    args.image_column = "image"
+    args.sampler = "weighted"
+    args.sampler_weights = "frequency"
+    args.class_multipliers = ""
+    args.batch_size = 4
+    args.needs_labels = True
+
+    pipeline = ImagesPipeline()
+    loader = pipeline.build_loader(args, mode="train")
+    assert isinstance(loader.sampler, WeightedRandomSampler)
+    # Index sampler: it must yield one index at a time, not index lists, which
+    # is what makes it the correct slot (cf. BalancedBatchSampler).
+    indices = list(loader.sampler)
+    assert len(indices) == len(loader.sampler)
+    assert all(isinstance(i, int) for i in indices[:5])
 
   def test_self_supervised_ignores_labels(self, tmp_path):
     data_dir = _make_imagefolder(tmp_path)
