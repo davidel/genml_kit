@@ -6,6 +6,7 @@ model package.
 """
 
 import json
+import logging
 import os
 
 import numpy as np
@@ -198,9 +199,6 @@ def load_mask_map_cache(cache_path, total_masks):
   A cache is stale (and therefore ignored, not fatal) when ``total_masks``
   differs, e.g. an older train-only scan once validation ids were added.
   """
-  import json
-  import logging
-
   if not os.path.exists(cache_path):
     return None
   try:
@@ -227,8 +225,6 @@ def load_mask_map_cache(cache_path, total_masks):
 
 def save_mask_map_cache(cache_path, payload):
   """Best-effort persist *payload*; cache failures only warn."""
-  import logging
-
   try:
     with open(cache_path, "w") as f:
       json.dump(payload, f, sort_keys=True)

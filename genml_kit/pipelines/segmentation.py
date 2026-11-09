@@ -27,6 +27,7 @@ import hashlib
 import logging
 import os
 import tempfile
+import time
 
 import numpy as np
 import torch
@@ -161,7 +162,6 @@ class SegmentationPipeline(DataPipeline):
     converts the PIL image to a ``(C, H, W)`` float tensor so the collate
     can stack batches (used when no method transform is present).
     """
-    import torch
     import torchvision.transforms.v2 as v2
 
     normalize = v2.Compose([
@@ -306,8 +306,6 @@ class SegmentationPipeline(DataPipeline):
     covered.  The map is cached to disk (spec-keyed) so re-runs skip the
     scan.
     """
-    import numpy as np
-
     splits = raw.values() if hasattr(raw, "values") else [raw]
     n = sum(len(s) for s in splits)
 
@@ -320,15 +318,13 @@ class SegmentationPipeline(DataPipeline):
     # B11: content hash over a cheap descriptor of every mask (count +
     # per-mask shape/dtype + byte hash), so data edits invalidate the cache
     # even when the spec string (name/columns/ignore index) is unchanged.
-    import hashlib as _hashlib
-
-    h = _hashlib.sha256()
+    h = hashlib.sha256()
     h.update(str(n).encode("utf-8"))
     seen = 0
     for arr in iter_masks():
       h.update(str(arr.shape).encode("utf-8"))
       h.update(str(arr.dtype).encode("utf-8"))
-      h.update(_hashlib.sha256(arr.tobytes()).hexdigest().encode("utf-8"))
+      h.update(hashlib.sha256(arr.tobytes()).hexdigest().encode("utf-8"))
       seen += 1
     content_hash = h.hexdigest()[:16]
 
@@ -346,7 +342,6 @@ class SegmentationPipeline(DataPipeline):
     logging.info(
         "SegmentationPipeline: scanning %d masks to build the "
         "class-id map (one-time, may take a moment)...", n)
-    import time
     t0 = time.time()
     mask_map, key_type = build_mask_map(iter_masks(), ignore_index=ignore_index)
     logging.info("SegmentationPipeline: %d classes from %d masks in %.1fs",

@@ -2,6 +2,7 @@
 
 import contextlib
 import logging
+import os
 
 import torch
 
@@ -34,8 +35,6 @@ def resolve_device(device_arg):
 
 def _local_rank_env():
   """Return ``LOCAL_RANK`` as an int, or ``None`` when not launched distributed."""
-  import os
-
   raw = os.environ.get("LOCAL_RANK")
   try:
     return int(raw) if raw not in (None, "") else None

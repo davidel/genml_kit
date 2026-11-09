@@ -22,6 +22,7 @@ model, and are assembled by :func:`run_eval`.
 import json
 import logging
 import os
+from collections import Counter
 
 import torch
 import torch.nn.functional as F
@@ -203,8 +204,6 @@ def token_f1(prediction, reference):
     return 1.0
   if not pred_tokens or not ref_tokens:
     return 0.0
-  from collections import Counter
-
   common = Counter(pred_tokens) & Counter(ref_tokens)
   overlap = sum(common.values())
   if overlap == 0:

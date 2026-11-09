@@ -39,6 +39,8 @@ never PEFT or semantic ones.
 """
 
 import logging
+import os
+import random
 
 import torch.distributed as dist
 
@@ -169,7 +171,6 @@ def destroy_distributed():
 
 def _env_ranks():
   """Return ``(rank, world_size, local_rank)`` from the launcher env vars."""
-  import os
 
   def _int(name, default):
     raw = os.environ.get(name)
@@ -546,8 +547,6 @@ class _ShardedBatchSampler:
     self.epoch = epoch
 
   def __iter__(self):
-    import random
-
     batches = list(self.batch_sampler)
     world = world_size()
     # Truncate to a whole multiple of the world size: equal step counts per

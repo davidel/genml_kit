@@ -5,6 +5,8 @@ These helpers back the ``genml-kit-infer`` console script
 code, independent of the argparse/CLI surface.
 """
 
+import urllib.request
+
 import numpy as np
 import torch
 from PIL import Image
@@ -15,7 +17,6 @@ from genml_kit.utils.logging import fatal
 def open_image(source):
   """Open an image from a file path or URL."""
   if source.startswith(("http://", "https://")):
-    import urllib.request
     with urllib.request.urlopen(source) as resp:
       return Image.open(resp).convert("RGB")
   return Image.open(source).convert("RGB")
