@@ -165,3 +165,55 @@ class KVPairAction(argparse.Action):
       key, val = token.split("=", 1)
       d[key] = parse_value(val)
     setattr(namespace, self.dest, d)
+
+
+def apply_arg_defaults(parser, owners):
+  """Merge owner-declared defaults into *parser*; explicit CLI still wins.
+
+  Owners (pipelines and methods) may declare per-flag default values via
+  ``arg_defaults()``.  This applies them *after* every ``add_argument``
+  and *before* ``parse_args``, which is the only window where the selected
+  owner is known and argparse still treats the values as defaults -- so an
+  explicit ``--flag`` on the command line always takes precedence.
+
+  Scalar dests are set outright.  Dict dests (``KVPairAction`` flags such
+  as ``dist_arg``) are merged per key with the owner value as the base, so
+  a user ``--dist_arg static_graph`` keeps a method-declared
+  ``find_unused_parameters``.  This works because ``KVPairAction.__call__``
+  copies the namespace value (seeded from the action default rewritten
+  here) before applying its own tokens.
+
+  A declared dest that names no flag is a hard error (a typo would
+  otherwise silently do nothing forever).  Validation happens against the
+  parser's own dests *before* anything is written: checking the parsed
+  namespace afterwards cannot work, because ``set_defaults`` materializes
+  the very key that has to be reported as unknown.
+
+  Args:
+      parser: The ``argparse.ArgumentParser`` under construction.
+      owners: Iterable of owner classes exposing ``arg_defaults()``.
+
+  Returns:
+      set: The dest names applied.
+  """
+  declared = {}
+  for owner in owners:
+    for dest, value in (owner.arg_defaults() or {}).items():
+      # Later owners win on a scalar; dicts merge with the later owner as
+      # the base, matching the CLI-over-default precedence below.
+      prior = declared.get(dest)
+      if isinstance(prior, dict) and isinstance(value, dict):
+        value = {**value, **prior}
+      declared[dest] = value
+
+  known = {action.dest for action in parser._actions}
+  unknown = sorted(set(declared) - known)
+  if unknown:
+    fatal(f"arg_defaults() names unknown CLI flag(s): {', '.join(unknown)}")
+
+  for dest, value in declared.items():
+    current = parser.get_default(dest)
+    if isinstance(current, dict) and isinstance(value, dict):
+      value = {**value, **current}
+    parser.set_defaults(**{dest: value})
+  return set(declared)

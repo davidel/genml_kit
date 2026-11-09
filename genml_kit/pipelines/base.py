@@ -28,6 +28,16 @@ class DataPipeline(abc.ABC):  # noqa: B024
   def add_args(cls, parser):
     """Add this pipeline's CLI flags.  No-op by default."""
 
+  @classmethod
+  def arg_defaults(cls):
+    """Return ``{dest: value}`` CLI defaults this pipeline wants.
+
+        Applied between argument registration and parsing, so an explicit
+        ``--flag`` on the command line always wins.  A dict value is merged
+        per key over the flag's current default.  No-op by default.
+        """
+    return {}
+
   def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
     """Build and cache the loader for *mode* (train/val).
 

@@ -146,30 +146,51 @@ naming it in `dependencies` would pull the wrong thing.
 Ordered roughly by value. Each entry states the gap, why it matters, where it
 lives, and the shape of the fix.
 
-### 3.1 P4a -- Per-method DDP graph knobs (needs a better mechanism)
+### 3.1 P4a -- Per-method DDP graph knobs (mechanism shipped)
 
-**Gap.** `find_unused_parameters` and `static_graph` are only settable globally
-through `--dist_arg`. The correct value is a property of the *method*: it depends
-on whether that method's forward touches every grad-requiring parameter.
-
-**Why it matters.** DDP's `find_unused_parameters=False` raises on the **second**
+**Original gap.** `find_unused_parameters` and `static_graph` were only settable
+globally through `--dist_arg`. The correct value is a property of the *method*:
+it depends on whether that method's forward touches every grad-requiring
+parameter. DDP's `find_unused_parameters=False` raises on the **second**
 iteration (not the first) for a parameter that genuinely never receives a
-gradient. Today a user hitting that has to discover the global flag and set it
-for the whole run. A per-method default plus a CLI override is the right shape.
+gradient, so the failure is late and confusing.
 
-**Where.** Method declaration surface (`genml_kit/methods/*`) plus the
-`wrap_model` call in `genml_kit/cli/train.py`.
+**Shipped mechanism.** Rather than a DDP-specific `ddp_config()` hook, the
+declaration surface is now general: any pipeline or method may define *default
+values for existing CLI flags*, while the explicit command line always wins.
 
-**Fix.** Add a `Method` hook (e.g. `ddp_config()` returning
-`{"find_unused_parameters": ..., "static_graph": ...}`, defaulting to both
-`False`), have the driver merge it with `--dist_arg`, with the explicit CLI value
-winning. This is the item `wrap_model` already accommodates -- it accepts both
-flags today, so only the declaration and the merge are missing.
+- `Method.arg_defaults()` (`genml_kit/methods/base.py`) and
+  `DataPipeline.arg_defaults()` (`genml_kit/pipelines/base.py`) return
+  `{dest: value}`, defaulting to `{}`.
+- `apply_arg_defaults(parser, owners)` (`genml_kit/utils/cli.py`) is called from
+  `parse_args` **after** every `add_argument` and **before** `parse_args`, which
+  is the only window where the selected owner is known and the values still
+  count as defaults. `train.selected_owners()` recovers `--pipeline`/`--method`
+  from the raw argv with a throwaway parser whose selector defaults are seeded
+  from the real parser, so the two cannot drift.
+- Precedence: an explicit flag always beats an owner default (argparse
+  semantics, no provenance scan needed). Dict-valued flags (`KVPairAction`, e.g.
+  `--dist_arg`) merge **per key** with the owner value as the base, so
+  `--dist_arg static_graph` keeps a method-declared `find_unused_parameters`.
+  This needs no `KVPairAction` change: `__call__` copies the namespace value,
+  which is seeded from the action default rewritten here.
+- A declared dest that names no real flag is a hard `fatal()`. Validation runs
+  against the parser's action dests *before* any mutation — validating the
+  parsed namespace afterwards cannot work, because `set_defaults` materializes
+  the very key that must be reported unknown.
+
+**Payload status.** No method declares a DDP default yet: `arg_defaults()`
+returns `{}` everywhere, so behaviour is unchanged. Choosing *which* methods need
+`find_unused_parameters=True` is an evidence question (a wrong `False` looks
+like a training crash, a wrong `True` silently costs throughput), so it is a
+separate follow-up: run 2 ranks x 2 steps under `torchrun` per method and
+declare from the results.
 
 **Also relevant:** `_ddp_params_and_buffers_to_ignore` is a **module attribute
 set before wrapping** (exact parameter names), *not* a `DistributedDataParallel`
-constructor keyword. If any method turns out to need it, the mechanism is a
-pre-wrap attribute set, and `wrap_model` would need a seam for it.
+constructor keyword. It is not an argparse default, so `arg_defaults()` cannot
+express it; if any method needs it, the mechanism is a pre-wrap attribute set
+and `wrap_model` would need a seam.
 
 ### 3.2 P4b -- RL under DDP (largest remaining piece)
 

@@ -13,6 +13,7 @@ helper (:func:`genml_kit.training.train.load_and_split_dataset`) stays in
 
 import argparse
 import logging
+import sys
 
 from genml_kit.io.checkpointing import open_resume_context, parse_state_flags
 from genml_kit.methods import METHODS, build_method
@@ -27,7 +28,7 @@ from genml_kit.utils.args import (
     add_training_state_args,
 )
 from genml_kit.utils.attr import maybe_call
-from genml_kit.utils.cli import KVPairAction
+from genml_kit.utils.cli import KVPairAction, apply_arg_defaults
 from genml_kit.utils.distributed import (
     destroy_distributed,
     init_distributed,
@@ -178,6 +179,29 @@ def register_all_owners(parser):
     METHODS.get(name).add_args(parser)
 
 
+def selected_owners(parser, argv):
+  """Resolve the selected pipeline and method before the real parse.
+
+  ``arg_defaults`` must be applied while argparse still treats the values
+  as defaults (so an explicit flag wins), but at that point the namespace
+  does not exist yet.  A throwaway parser that knows only the two selector
+  flags recovers the choice from the raw argv; the defaults are seeded
+  from *parser* so they can never drift from the real flag defaults.
+
+  Args:
+      parser: The fully built parser (used only for its selector defaults).
+      argv: The raw argument list being parsed.
+
+  Returns:
+      list: The owning classes, pipeline first then method.
+  """
+  pre = argparse.ArgumentParser(add_help=False)
+  pre.add_argument("--pipeline", default=parser.get_default("pipeline"))
+  pre.add_argument("--method", default=parser.get_default("method"))
+  known, _ = pre.parse_known_args(argv)
+  return [PIPELINES.get(known.pipeline), METHODS.get(known.method)]
+
+
 def parse_args(argv=None):
   """Single-pass parse: every owner, then the shared groups."""
   parser = build_parser()
@@ -263,6 +287,12 @@ def parse_args(argv=None):
 
   dist_group = parser.add_argument_group("distributed")
   add_shared_arg(dist_group, ARG_DIST_ARG)
+
+  # Owner-declared defaults go in last, once every flag exists: the method
+  # and pipeline selected on this command line may override the plain
+  # argparse defaults, but never an explicit flag.
+  argv = sys.argv[1:] if argv is None else list(argv)
+  apply_arg_defaults(parser, selected_owners(parser, argv))
   return parser.parse_args(argv)
 
 

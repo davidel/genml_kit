@@ -156,6 +156,20 @@ class Method(abc.ABC):
   def add_args(cls, parser):
     """Add this method's CLI flags.  Class method (no-op by default)."""
 
+  @classmethod
+  def arg_defaults(cls):
+    """Return ``{dest: value}`` CLI defaults this method wants.
+
+        Applied between argument registration and parsing, so an explicit
+        ``--flag`` on the command line still wins.  A dict value is merged
+        per key over the flag's current default, so declaring
+        ``{"dist_arg": {"find_unused_parameters": True}}`` survives a user
+        ``--dist_arg static_graph``.  Dest names must be real CLI flags
+        (enforced before parsing, when the defaults are applied).  No-op by
+        default.
+        """
+    return {}
+
   def build_transform(self, args, image_size):
     """Return the objective-level augmentation for this method.
 

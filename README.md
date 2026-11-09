@@ -2988,6 +2988,12 @@ Defaults are chosen so that a multi-GPU run only has to be correct, not
 tuned: sharding is on whenever it can matter, and validation stays on rank 0
 because the validation set is never sharded -- rank 0 already sees all of it.
 
+These defaults are *method-aware*: the selected pipeline or method may declare
+its own default for any flag via `arg_defaults()`, and `--dist_arg` merges on
+top of it key by key.  An explicit command-line flag always wins, so
+`--dist_arg static_graph` still runs a method's declared
+`find_unused_parameters` alongside it.
+
 Three caveats worth knowing before reaching for more GPUs:
 
 - **Effective batch size scales with `--nproc_per_node`.** Four ranks at
