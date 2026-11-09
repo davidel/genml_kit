@@ -13,6 +13,7 @@ from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.methods.rl_sac import SACMethod
 from genml_kit.models.rl.qnetwork import QNetwork
 from genml_kit.models.rl.spaces import space_spec
+from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.training.rl_trainer import RLTrainer
 from genml_kit.training.optim_factory import Optimization
@@ -227,6 +228,71 @@ class TestRLTrainer:
       )
       trainer.train_epoch(0, None, step=0, monitor=None)
       assert len(pipeline.replay_buffer) >= 8
+
+
+class TestOffPolicyNaNSkipIsReduced:
+  """The off-policy NaN/Inf skip must be reduced across ranks.
+
+  Regression: DQN/SAC used to ``continue`` on a rank-local NaN test. Skipping
+  ``_apply_grad`` also skips ``_reduce_rl_gradients`` -> ``all_reduce_gradients``,
+  so one rank's NaN entered the collective on a subset of ranks -- a hang, or
+  the "inconsistent gradient sets across ranks" guard firing. PPO already did
+  this correctly; the off-policy flow now matches it.
+  """
+
+  def _trainer(self, tmp_path, loss_value):
+    model, optimization, method, pipeline, args = _build_trainer()
+    args.checkpoint = str(tmp_path)
+    # Force the loss the loop sees, so the NaN test is deterministic.
+    method.train_step = lambda m, batch, step: LossOutput(loss=torch.tensor(loss_value),
+                                                          metrics={})
+    return RLTrainer(
+        args=args,
+        model=model,
+        method=method,
+        pipeline=pipeline,
+        optimization=optimization,
+        device=torch.device("cpu"),
+        logger=None,
+        start_epoch=0,
+        best_metric=float("-inf"),
+        global_step=0,
+    ), method
+
+  def _run(self, monkeypatch, tmp_path, *, loss_value, peer_nan):
+    """Run one epoch on "this" rank, returning how often it stepped.
+
+    ``peer_nan`` stands in for the other rank's local NaN verdict. The stub
+    reproduces ``any_rank_true``'s OR semantics over the two ranks, so a
+    finite rank faced with a NaN peer must still see ``True``.
+    """
+    import genml_kit.training.rl_trainer as rlmod
+
+    steps = []
+
+    def fake_any_rank_true(flag):
+      return bool(flag) or peer_nan
+
+    monkeypatch.setattr(rlmod, "any_rank_true", fake_any_rank_true)
+    trainer, _ = self._trainer(tmp_path, loss_value)
+    monkeypatch.setattr(trainer, "_apply_grad", lambda *a, **k: steps.append(1))
+    trainer.train_epoch(0, None, step=0, monitor=None)
+    return len(steps)
+
+  def test_nan_peer_skips_the_finite_rank_too(self, monkeypatch, tmp_path):
+    """The whole point: a finite rank must not step while a peer is NaN."""
+    assert self._run(monkeypatch, tmp_path, loss_value=0.5, peer_nan=True) == 0
+
+  def test_finite_ranks_step_together(self, monkeypatch, tmp_path):
+    assert self._run(monkeypatch, tmp_path, loss_value=0.5, peer_nan=False) > 0
+
+  def test_local_nan_skips_locally(self, monkeypatch, tmp_path):
+    assert self._run(monkeypatch, tmp_path, loss_value=float("nan"),
+                     peer_nan=False) == 0
+
+  def test_inf_loss_is_treated_as_bad(self, monkeypatch, tmp_path):
+    assert self._run(monkeypatch, tmp_path, loss_value=float("inf"),
+                     peer_nan=False) == 0
 
 
 class TestRLTrainerEndToEnd:

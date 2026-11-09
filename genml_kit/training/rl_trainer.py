@@ -186,8 +186,17 @@ class RLTrainer(BaseTrainer):
       ):
         loss_out = self.method.train_step(self.model, batch, step)
 
-      if torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any():
-        logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
+      # Reduce the skip decision across ranks: ``continue`` below also skips
+      # ``_apply_grad`` -> ``_reduce_rl_gradients``, so a rank-local skip would
+      # enter the all-reduce on a subset of ranks (hang, or the
+      # ``all_reduce_gradients`` count guard firing).  One rank's NaN discards
+      # the step on *all* ranks, which is the only choice that keeps replicas
+      # in lockstep.  Matches the PPO path's ``any_rank_true`` below.
+      is_bad = bool(
+          torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any())
+      if any_rank_true(is_bad):
+        if is_bad:
+          logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
         continue
 
       update_priorities = get_attribute(self.pipeline.replay_buffer,
