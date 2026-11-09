@@ -222,16 +222,29 @@ class RolloutBuffer(Dataset):
         the Gaussian at the *squashed* action instead, mixing two different
         coordinate systems and corrupting the ratio.
         """
+    return self.batch_at(self.sample_indices(batch_size, generator=generator))
+
+  def sample_indices(self, batch_size, generator=None):
+    """Draw *batch_size* timestep indices (with replacement).
+
+        Args:
+            batch_size: Number of indices to draw.
+            generator: Optional ``torch.Generator``.  Defaults to the buffer's
+                own generator (seeded at construction), so draws are
+                reproducible run to run.
+
+        Returns:
+            A ``(batch_size,)`` long tensor of indices into the rollout.
+        """
     n = len(self)
     if n == 0:
       raise ValueError("RolloutBuffer is empty")
-    if generator is not None:
-      idx = torch.randint(n, (batch_size,), generator=generator)
-    else:
-      # D5: Use independent RNG for reproducible sampling
-      idx = torch.randint(n, (batch_size,), generator=self._rng)
-      batch = self._build_item_dict(idx)
-      return batch
+    gen = generator if generator is not None else self._rng
+    return torch.randint(n, (batch_size,), generator=gen)
+
+  def batch_at(self, indices):
+    """Return the mini-batch dict for an explicit *indices* tensor."""
+    return self._build_item_dict(indices)
 
   # Alias for backward compatibility
   get_batch = sample
@@ -327,11 +340,52 @@ class RolloutBuffer(Dataset):
       ("device", "_device"),
   ]
 
+  # Tensor arrays carried in the state dict, in a fixed order.  Used to
+  # gather/split a rollout across ranks without touching structural keys
+  # (ptr, filled, dims, device).
+  _ARRAY_FIELDS = (
+      "obs",
+      "actions",
+      "raw_actions",
+      "log_probs",
+      "rewards",
+      "values",
+      "dones",
+      "terminated",
+      "advantages",
+      "returns",
+      "next_values",
+  )
+
   def state_dict(self):
     """Return a serializable checkpoint dict."""
     d = {k: getattr(self, attr) for k, attr in self._STATE_FIELDS}
     d["rng_state"] = self._rng.get_state()
     return d
+
+  def array_state(self):
+    """Return the tensor arrays as ``{state_key: tensor-or-None}``.
+
+    Keys follow :attr:`_STATE_FIELDS` (``obs``, ``actions``, ...).  Used by
+    the RL trainer to gather per-rank rollouts into one global rollout.
+    """
+    mapping = dict(self._STATE_FIELDS)
+    return {k: getattr(self, mapping[k]) for k in self._ARRAY_FIELDS}
+
+  def load_arrays(self, arrays):
+    """Overwrite the tensor storage from ``{state_key: tensor}``.
+
+    Counterpart to :meth:`array_state`.  ``None`` values are skipped (e.g.
+    ``raw_actions`` for discrete action spaces).  The buffer is marked full,
+    since a gathered global rollout is complete by construction.
+    """
+    mapping = dict(self._STATE_FIELDS)
+    for k in self._ARRAY_FIELDS:
+      value = arrays.get(k)
+      if value is not None:
+        setattr(self, mapping[k], value)
+    self._ptr = self._rollout_len
+    self._filled = True
 
   def load_state_dict(self, state):
     """Load state from checkpoint."""

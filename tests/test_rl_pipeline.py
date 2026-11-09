@@ -241,7 +241,7 @@ class TestGymnasiumEnvWrapper:
 def _fake_env_factory(obs_shape, action_space):
   """Return a callable matching GymnasiumEnvWrapper(env_id, render_mode=...)."""
 
-  def _factory(_env_id, render_mode=None):
+  def _factory(_env_id, render_mode=None, seed=None):
     return _FakeEnv(obs_shape, action_space)
 
   return _factory

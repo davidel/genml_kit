@@ -11,11 +11,22 @@ import os
 import numpy as np
 import torch
 
+from genml_kit.datasets.rollout_buffer import RolloutBuffer
 from genml_kit.training.train_reporting import (MetricKind, metric, TrainReporting)
 from genml_kit.training.trainer import BaseTrainer
 from genml_kit.training.video_utils import write_video
 from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.utils.attr import get_attribute, maybe_call, MISSING
+from genml_kit.utils.distributed import (
+    all_gather_tensor,
+    all_reduce_gradients,
+    any_rank_true,
+    is_distributed,
+    rank,
+    world_size,
+)
+from genml_kit.utils.logging import fatal
+from genml_kit.utils.seed import resolve_seed
 
 
 def _terminated_from(info, done):
@@ -31,6 +42,22 @@ def _terminated_from(info, done):
     if term is not None:
       return float(term)
   return float(done)
+
+
+def _reduce_rl_gradients(model):
+  """All-reduce *model*'s gradients across ranks, when distributed.
+
+  RL models are **not** DDP-wrapped (see ``RLMethod.wrap_model``): their
+  autograd path runs through methods like ``model.get_action_and_value``,
+  which never enter DDP's reducer, so gradients would otherwise stay
+  rank-local and each rank would train a different model.
+
+  The ``is_distributed()`` guard lives here, at the call site, so the
+  single-device path -- the common one -- never materialises a parameter or
+  gradient list.  No-op outside ``torchrun``.
+  """
+  if is_distributed():
+    all_reduce_gradients(model.parameters())
 
 
 class RLTrainer(BaseTrainer):
@@ -244,7 +271,27 @@ class RLTrainer(BaseTrainer):
     rollout_len = rollout.rollout_len
     obs = getattr(self, "_ppo_obs", None)
 
-    rollout.reset()
+    # Sharded rollouts (default under DDP): each rank collects
+    # ``rollout_len / world`` steps from its *own* env, then the per-rank
+    # segments are all-gathered into one global rollout that is identical on
+    # every rank.  ``--dist_arg rollout_shard=false`` reverts to one full
+    # rollout per rank (today's behaviour).
+    world = world_size()
+    sharded = bool(self.args.dist_arg.get("rollout_shard", True)) and world > 1
+    if sharded and rollout_len % world != 0:
+      fatal(f"--ppo_rollout_len ({rollout_len}) must be divisible by the world "
+            f"size ({world}) when rollout sharding is enabled; pass "
+            f"--dist_arg rollout_shard=false to collect a full rollout per rank.")
+    local_len = rollout_len // world if sharded else rollout_len
+
+    # Collect into a rank-local buffer in sharded mode; reuse the pipeline's
+    # buffer (already sized rollout_len) otherwise.
+    collect = (RolloutBuffer(obs_dim=rollout.obs_dim,
+                             rollout_len=local_len,
+                             action_dim=rollout.action_dim,
+                             device="cpu") if sharded else rollout)
+
+    collect.reset()
     obs = self.pipeline.reset_env() if obs is None else obs
     episode_count = 0
     total_reward = 0.0
@@ -256,9 +303,9 @@ class RLTrainer(BaseTrainer):
       ret_norm.reset_per_episode()
 
     # Collect per-step bootstrap values V(s_{t+1}) during rollout.
-    next_values = torch.zeros(rollout_len, dtype=torch.float32)
+    next_values = torch.zeros(local_len, dtype=torch.float32)
 
-    for i in range(rollout_len):
+    for i in range(local_len):
       action, log_prob, value, raw_action = self.method.act(self.model,
                                                             obs,
                                                             deterministic=False)
@@ -269,7 +316,7 @@ class RLTrainer(BaseTrainer):
       if ret_norm is not None:
         ret_norm.update(reward)
         reward = ret_norm.normalize_reward(reward)
-      rollout.add(obs, action, log_prob, reward, value, float(done), raw_action,
+      collect.add(obs, action, log_prob, reward, value, float(done), raw_action,
                   terminated)
 
       with torch.no_grad():
@@ -287,9 +334,18 @@ class RLTrainer(BaseTrainer):
         episode_count += 1
         obs = self.pipeline.reset_env()
 
-    # Bootstrap values for GAE (per-step, not a single scalar).
-    rollout.set_next_values(next_values)
-    rollout.compute(gamma=self.method._gamma, lam=self.method._lam)
+    # Bootstrap values for GAE (per-step, not a single scalar).  GAE is
+    # computed *per rank* over that rank's own contiguous segment (each
+    # segment is a self-contained trajectory with its own done/terminated
+    # markers and bootstrap value), so no cross-rank boundary is bridged.
+    collect.set_next_values(next_values)
+    collect.compute(gamma=self.method._gamma, lam=self.method._lam)
+
+    if sharded:
+      # Gather the rank segments into one global rollout on every rank, then
+      # standardise advantages ONCE over the *global* rollout (matching the
+      # single-process statistics).
+      self._gather_rollout(collect, rollout)
     # Standardise advantages ONCE over the full rollout (not per
     # mini-batch) -- see ``RolloutBuffer.normalize_advantages``.
     rollout.normalize_advantages()
@@ -297,14 +353,31 @@ class RLTrainer(BaseTrainer):
 
     self._ppo_obs = obs
 
-    # B5: track env steps collected in this rollout
-    self.method._env_steps += rollout_len
+    # B5: track env steps collected in this rollout.  Count the steps this
+    # rank actually collected: in sharded mode each rank takes
+    # ``rollout_len / world`` from its own env, so adding the global
+    # ``rollout_len`` here would over-count the fleet's real env interaction
+    # by a factor of ``world``.
+    self.method._env_steps += local_len
 
     total_loss = 0.0
     batches = 0
     mini_batch_size = self.method._mini_batch_size
     # Total number of mini-batches across all PPO epochs.
     total_pico_batches = self.method._ppo_epochs * (rollout_len // mini_batch_size)
+
+    # Sharded mode: every rank draws the *same* global minibatch indices
+    # (shared generator, no rank offset) and then trains on a disjoint
+    # 1/world slice.  DDP averages the per-rank gradients, so this is
+    # numerically identical to single-process training on the global rollout.
+    if sharded and mini_batch_size % world != 0:
+      fatal(f"--ppo_mini_batch_size ({mini_batch_size}) must be divisible by "
+            f"the world size ({world}) when rollout sharding is enabled; pass "
+            f"--dist_arg rollout_shard=false to train a full minibatch per rank.")
+    sample_rng = None
+    if sharded:
+      sample_rng = torch.Generator()
+      sample_rng.manual_seed(resolve_seed(getattr(self.args, "seed", None)) + epoch)
 
     reporter = TrainReporting(
         total_batches=total_pico_batches,
@@ -321,7 +394,13 @@ class RLTrainer(BaseTrainer):
       # Use rollout's sample method to get properly formatted mini-batches
       stop_epoch = False
       for _ in range(0, rollout_len, mini_batch_size):
-        batch = rollout.sample(mini_batch_size)
+        if sharded:
+          # Identical global indices on every rank -> the rank slices tile
+          # exactly one global minibatch.
+          idx = rollout.sample_indices(mini_batch_size, generator=sample_rng)
+          batch = rollout.batch_at(idx[rank()::world])
+        else:
+          batch = rollout.sample(mini_batch_size)
         batch = self.pipeline.to_device(batch, self.device)
 
         with torch.amp.autocast(
@@ -334,14 +413,20 @@ class RLTrainer(BaseTrainer):
         # SB3-style target_kl early-stop: if the k1 approx-KL from this
         # minibatch update exceeds the threshold, stop the whole epoch
         # (remaining minibatches are skipped) -- prevents destructive
-        # updates when the policy drifts too far in one epoch.
+        # updates when the policy drifts too far in one epoch.  The decision
+        # is reduced across ranks: a rank-local early stop would desync the
+        # DDP gradient all-reduce and hang the job.
         if target_kl is not None:
           kl = loss_out.metrics.get("approx_kl")
-          if kl is not None and kl > target_kl:
-            stop_epoch = True
+          stop_epoch = any_rank_true(kl is not None and kl > target_kl)
 
-        if torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any():
-          logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
+        # Likewise, the NaN/Inf skip must be agreed on by every rank (else
+        # some ranks call backward and others do not -> collective hang).
+        is_bad = bool(
+            torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any())
+        if any_rank_true(is_bad):
+          if is_bad:
+            logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
           continue
 
         self._apply_grad(loss_out, scaler, amp_dtype)
@@ -396,6 +481,21 @@ class RLTrainer(BaseTrainer):
     reporter.summary()
     return reporter.epoch_avg_loss(), step
 
+  def _gather_rollout(self, local, global_rollout):
+    """Gather per-rank rollout *local* into *global_rollout* on every rank.
+
+    Each rank contributed ``global_rollout.rollout_len / world`` contiguous
+    steps; they are concatenated in rank order so every rank holds the same
+    global rollout.  GAE was already computed per rank (each segment is a
+    self-contained trajectory), so only the resulting arrays are exchanged;
+    ``normalize_advantages`` then runs on the assembled global rollout.
+    """
+    arrays = local.array_state()
+    gathered = {}
+    for key, value in arrays.items():
+      gathered[key] = None if value is None else all_gather_tensor(value)
+    global_rollout.load_arrays(gathered)
+
   def _apply_grad(self, loss, scaler, amp_dtype):
     """Backward + optimizer step (shared by all RL flows).
 
@@ -421,12 +521,18 @@ class RLTrainer(BaseTrainer):
         # Unscale before clipping so the clip sees true (unscaled) norms.
         if getattr(self.args, "grad_clip", 0) > 0:
           scaler.unscale_(self.optimization.optimizer)
+        # Reduce before clipping: the clip threshold must act on the global
+        # gradient norm, not each rank's local one.
+        _reduce_rl_gradients(self.model)
+        if getattr(self.args, "grad_clip", 0) > 0:
           torch.nn.utils.clip_grad_norm_(self.model.parameters(),
                                          max_norm=self.args.grad_clip)
         scaler.step(self.optimization.optimizer)
         scaler.update()
       else:
         loss_tensor.backward()
+        # Reduce before clipping (see above).
+        _reduce_rl_gradients(self.model)
         if getattr(self.args, "grad_clip", 0) > 0:
           torch.nn.utils.clip_grad_norm_(self.model.parameters(),
                                          max_norm=self.args.grad_clip)

@@ -1,10 +1,41 @@
-"""Shared RL evaluation loop.
+"""Shared RL base class and evaluation loop.
 
-Extracted from ``rl_ppo.py``, ``rl_sac.py``, ``rl_dqn.py`` which each
-contained a near-identical ``evaluate`` implementation.  The only
-per-method hook is ``_eval_action(model, obs)`` which returns a scalar
-(int) or 1-D numpy array suitable for ``pipeline.step_env``.
+``RLMethod`` holds behaviour common to ``rl_ppo.py``, ``rl_sac.py`` and
+``rl_dqn.py``.  ``rl_evaluate`` was extracted from those three, which each
+contained a near-identical ``evaluate`` implementation; its only per-method
+hook is ``_eval_action(model, obs)``, which returns a scalar (int) or 1-D
+numpy array suitable for ``pipeline.step_env``.
 """
+
+from genml_kit.methods.base import Method
+
+
+class RLMethod(Method):
+  """Shared base for RL methods (DQN, PPO, SAC).
+
+  The only difference from :class:`Method` today is that RL models are
+  deliberately **not** DDP-wrapped.
+
+  ``DistributedDataParallel`` reduces gradients only in ``forward``.  Every RL
+  method enters autograd through a *method* on the model instead --
+  ``model.get_action_and_value(...)`` (PPO), ``model.online(...)`` (DQN),
+  ``model.q1.get_value(...)`` (SAC).  The ``DistributedModel`` facade forwards
+  those attribute accesses to the unwrapped semantic model, so no reducer hook
+  is ever installed: under DDP each rank would silently train its own
+  divergent model rather than erroring.
+
+  Skipping the wrap therefore costs nothing here and avoids hiding the
+  problem.  The RL trainer reduces gradients explicitly instead
+  (:func:`genml_kit.utils.distributed.all_reduce_gradients`), which is
+  independent of how a method reaches its parameters.
+  """
+
+  def wrap_model(self, model, device, args):
+    """Return *model* unwrapped; RL reduces gradients explicitly.
+
+        See the class docstring for why a DDP wrap is wrong for these methods.
+        """
+    return model
 
 
 def rl_evaluate(method,

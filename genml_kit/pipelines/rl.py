@@ -18,7 +18,24 @@ from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.pipelines.rl_normalize import ReturnNormalizer, RunningMeanStd
+from genml_kit.utils.distributed import rank
+from genml_kit.utils.seed import resolve_seed
 from genml_kit.utils.signal import InterruptedException
+
+
+def per_rank_seed(args):
+  """Return this rank's env/buffer seed, distinct per rank.
+
+  Offsets the user's ``--env_seed`` (or, when unset, the resolved global
+  ``--seed``) by the global rank so every rank drives a *different* env and
+  replay-sampling stream.  Identical seeds on every rank would produce N
+  correlated rollouts -- the exact failure multi-GPU RL must avoid -- while
+  the rank offset keeps each rank reproducible run to run.
+  """
+  base = getattr(args, "env_seed", None)
+  if base is None:
+    base = resolve_seed(getattr(args, "seed", None))
+  return int(base) + rank()
 
 
 class GymnasiumEnvWrapper:
@@ -32,9 +49,13 @@ class GymnasiumEnvWrapper:
       render_mode:  Optional render mode to request from ``gym.make``
         (e.g. ``"rgb_array"`` for video capture).  ``None`` disables
         rendering entirely.
+      seed:  Optional RNG seed applied on the *first* reset, so an episode
+        sequence is reproducible.  Per-rank callers pass a rank-offset seed
+        (see :func:`per_rank_seed`) so ranks do not replay identical
+        episodes.  ``None`` leaves the env's default RNG untouched.
   """
 
-  def __init__(self, env_id, render_mode=None):
+  def __init__(self, env_id, render_mode=None, seed=None):
     try:
       import gymnasium as gym
     except ImportError as exc:
@@ -42,12 +63,22 @@ class GymnasiumEnvWrapper:
                         "Install it with:  pip install 'genml_kit[rl]'") from exc
     self.env = gym.make(env_id, render_mode=render_mode)
     self._render_mode = render_mode
+    self._seed = seed
+    self._seeded = False
     self.observation_space = self.env.observation_space
     self.action_space = self.env.action_space
 
   def reset(self):
-    """Reset the environment and return the initial observation (numpy)."""
-    obs, _info = self.env.reset()
+    """Reset the environment and return the initial observation (numpy).
+
+    The configured seed is applied only on the first reset; later resets
+    continue the env's own RNG so successive episodes differ (reproducibly).
+    """
+    if self._seed is not None and not self._seeded:
+      obs, _info = self.env.reset(seed=self._seed)
+      self._seeded = True
+    else:
+      obs, _info = self.env.reset()
     return obs
 
   def step(self, action):
@@ -346,12 +377,18 @@ class RLPipeline(DataPipeline):
     render_mode = ("rgb_array" if getattr(args, "record_eval_video", False) else None)
     self._video_enabled = render_mode is not None
 
+    # Per-rank seeds: every rank must drive a *different* env and sampling
+    # stream, or the N ranks replay correlated rollouts (no data diversity).
+    env_seed = per_rank_seed(args)
+
     if getattr(args, "env_script", None):
       self.env = extern_call(args.env_script, "make_env")
       # External envs are probed at validation time; we cannot force a
       # render_mode on them here, so keep _video_enabled as a hint only.
     else:
-      self.env = GymnasiumEnvWrapper(args.env_id, render_mode=render_mode)
+      self.env = GymnasiumEnvWrapper(args.env_id,
+                                     render_mode=render_mode,
+                                     seed=env_seed)
 
     # Single source of truth for observation/action dims.  ``space_spec``
     # is a pure function mirroring the old inline interrogation; the
@@ -379,8 +416,8 @@ class RLPipeline(DataPipeline):
       action_dim = 1
       action_dtype = np.int64
 
-    # D5: Use env_seed for reproducible buffer sampling
-    buffer_seed = getattr(args, "env_seed", None)
+    # D5: per-rank buffer seed for reproducible *and* rank-distinct sampling.
+    buffer_seed = env_seed
 
     self.replay_buffer = ReplayBufferDataset(
         obs_dim=obs_dim,

@@ -44,6 +44,8 @@ import random
 
 import torch.distributed as dist
 
+from genml_kit.utils.logging import fatal
+
 
 def barrier():
   """Synchronise all ranks; no-op when not distributed."""
@@ -103,6 +105,151 @@ def all_reduce_dict(mapping, *, average=False):
   for key, value in mapping.items():
     out[key] = all_reduce_mean(value) if average else all_reduce_sum(value)
   return out
+
+
+def any_rank_true(flag):
+  """Return ``True`` when *flag* is truthy on **any** rank.
+
+  A collective: every rank must call it in lockstep.  Used to keep
+  per-rank control flow (early-stop, NaN skip) identical across ranks so a
+  divergent branch cannot desynchronise the DDP gradient all-reduce.
+
+  Args:
+      flag: Any value interpretable as a boolean.
+
+  Returns:
+      ``True`` if any rank passed a truthy *flag*, else ``False``.
+  """
+  if not is_distributed():
+    return bool(flag)
+  return all_reduce_sum(1 if flag else 0) > 0
+
+
+def all_gather_tensor(tensor):
+  """Gather *tensor* from every rank, concatenated in rank order.
+
+  Every rank must pass a tensor of identical shape, so the gather is a plain
+  concatenation along dim 0.  Returns *tensor* unchanged when not distributed.
+
+  Args:
+      tensor: A ``torch.Tensor`` with the same shape on every rank.
+
+  Returns:
+      A tensor of shape ``(world_size * tensor.shape[0], ...)`` on the same
+      device as *tensor*.
+  """
+  import torch
+
+  if not is_distributed():
+    return tensor
+  t = tensor.to(_reduce_device())
+  if not t.is_contiguous():
+    t = t.contiguous()
+  gathered = [torch.empty_like(t) for _ in range(world_size())]
+  dist.all_gather(gathered, t)
+  return torch.cat(gathered, dim=0).to(tensor.device)
+
+
+def broadcast_model_state(model):
+  """Broadcast *model*'s parameters and buffers from rank 0 to every rank.
+
+  Needed because the driver seeds each rank differently (``seed + rank()``) so
+  that per-rank data streams diverge -- but that also makes ``build_model``
+  draw different initial weights on each rank.  Training must start from one
+  shared model or the ranks are not replicas of anything.
+
+  The supervised path happens to be masked today because
+  ``DistributedDataParallel.__init__`` broadcasts rank 0's parameters when it
+  wraps the model.  RL is not wrapped (see ``RLMethod.wrap_model``), so it had
+  no such rescue and every rank trained a different network.  Doing the
+  broadcast explicitly makes the invariant the driver's, rather than an
+  incidental side effect of wrapping.
+
+  Buffers are included so replicated state (normalisation statistics, running
+  averages) starts identical too.  No-op when not distributed.
+
+  Args:
+      model: The model to synchronise, in place.
+  """
+  import torch
+
+  if not is_distributed():
+    return
+  device = _reduce_device()
+  with torch.no_grad():
+    for tensor in list(model.parameters()) + list(model.buffers()):
+      # A broadcast requires a contiguous staging copy on the collective
+      # device; the result is copied back into the original storage.
+      staged = tensor.data.to(device)
+      if not staged.is_contiguous():
+        staged = staged.contiguous()
+      dist.broadcast(staged, src=0)
+      tensor.data.copy_(staged.to(tensor.device))
+
+
+def all_reduce_gradients(tensors):
+  """All-reduce (mean) the ``.grad`` of every tensor in *tensors*.
+
+  Averages rather than sums, matching DDP's default gradient semantics, so an
+  explicit reduction is numerically interchangeable with a DDP-wrapped
+  ``forward``.
+
+  Needed by flows whose autograd path does not go through a model ``forward``.
+  RL is the case that matters: every RL method enters autograd through a
+  *method* on the model (``model.get_action_and_value``, ``model.online``,
+  ``model.q1.get_value``), never via ``model(x)``, so a DDP reducer would
+  never fire and ranks would diverge silently.
+
+  Gradients are bucketed by ``(device, dtype)`` before the collective.  This is
+  not optional: ``torch.cat`` type-promotes across dtypes, so a single flat
+  buffer would silently upcast ``bf16``/``fp16`` gradients to ``fp32``.  One
+  collective per bucket (typically one or two for an RL model) instead of one
+  per parameter.
+
+  Tensors with ``.grad is None`` are skipped, but the *number* of non-``None``
+  gradients must agree across ranks -- a rank that ran a different set of
+  backwards passes would otherwise deadlock the collective, so that is checked
+  (cheaply, via a scalar all-reduce) before any gather starts.
+
+  No-op (and free) when not distributed, so callers may invoke it
+  unconditionally; hot paths still guard at the call site to avoid building
+  the tensor list at all.
+
+  Args:
+      tensors: Iterable of ``torch.Tensor`` -- parameters, or any leaf tensor
+          such as SAC's standalone ``log_alpha``.
+  """
+  import torch
+
+  if not is_distributed():
+    return
+  grads = [t.grad for t in tensors if t.grad is not None]
+  if not grads:
+    return
+
+  # Deadlock guard: the collective below requires the same tensor count on
+  # every rank.  Runs first, so a mismatch raises instead of hanging.
+  expected = all_reduce_sum(len(grads)) // world_size()
+  if len(grads) != expected:
+    fatal(f"inconsistent gradient sets across ranks ({len(grads)} vs "
+          f"{expected}): a rank skipped a backward pass")
+
+  buckets = {}
+  for grad in grads:
+    if not grad.is_contiguous():
+      grad.data = grad.data.contiguous()
+    buckets.setdefault((grad.device, grad.dtype), []).append(grad)
+
+  for group in buckets.values():
+    flat = torch.cat([g.reshape(-1) for g in group])
+    dist.all_reduce(flat, op=dist.ReduceOp.SUM)
+    flat.div_(world_size())
+    offset = 0
+    for grad in group:
+      numel = grad.numel()
+      # copy_ casts back to the gradient's original dtype.
+      grad.copy_(flat[offset:offset + numel].view_as(grad))
+      offset += numel
 
 
 def is_distributed():

@@ -16,17 +16,18 @@ import math
 import torch
 
 from genml_kit.losses import load_loss
-from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
+from genml_kit.methods.rl_utils import RLMethod
 from genml_kit.models.registry import load_model
 from genml_kit.models.rl.sac_model import SACModel
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.utils.attr import get_attribute, MISSING
+from genml_kit.utils.distributed import all_reduce_gradients, is_distributed
 from genml_kit.utils.logging import fatal
 
 
 @METHODS.register
-class SACMethod(Method):
+class SACMethod(RLMethod):
   """Soft Actor-Critic (off-policy, continuous actions).
 
   Implementation invariants
@@ -326,7 +327,20 @@ class SACMethod(Method):
     if self._auto_alpha:
       alpha_loss.backward()
 
-    # Phase 2: clipping, before stepping.  The base trainer only clips in
+    # Phase 2: explicit gradient reduction, before clipping.  RL models are
+    # not DDP-wrapped (see ``RLMethod.wrap_model``), so gradients are reduced
+    # here instead.  It must happen after every backward and before clipping,
+    # so the clip threshold sees the global gradient norm.  ``log_alpha`` is a
+    # bare leaf tensor rather than a model parameter, so it is reduced
+    # explicitly alongside the networks.
+    if is_distributed():
+      params = self._optimizer_params(optimization.critic_opt)
+      params += self._optimizer_params(optimization.actor_opt)
+      if self._auto_alpha:
+        params.append(self._log_alpha)
+      all_reduce_gradients(params)
+
+    # Phase 3: clipping, before stepping.  The base trainer only clips in
     # the supervised/image path; SAC steps its own optimisers, so without
     # this the ``--grad_clip`` flag would silently have no effect and
     # critic-loss spikes would hit the weights unchecked.
@@ -336,16 +350,19 @@ class SACMethod(Method):
       if self._auto_alpha:
         self._clip_optimizer(optimization.alpha_opt)
 
-    # Phase 3: now that all grads are computed and clipped, step.
+    # Phase 4: now that all grads are computed and clipped, step.
     optimization.critic_opt.step()
     optimization.actor_opt.step()
     if self._auto_alpha:
       optimization.alpha_opt.step()
 
+  def _optimizer_params(self, optimizer):
+    """Return every parameter owned by *optimizer*, across all groups."""
+    return [p for group in optimizer.param_groups for p in group["params"]]
+
   def _clip_optimizer(self, optimizer):
     """Clip the grad norm of every param group owned by *optimizer*."""
-    params = [p for group in optimizer.param_groups for p in group["params"]]
-    torch.nn.utils.clip_grad_norm_(params, self._grad_clip)
+    torch.nn.utils.clip_grad_norm_(self._optimizer_params(optimizer), self._grad_clip)
 
   def act(self, model, obs, *, deterministic=False):
     """SAC acts by sampling from the squashed Gaussian policy."""

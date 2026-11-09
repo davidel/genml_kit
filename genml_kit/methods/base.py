@@ -54,6 +54,35 @@ class Method(abc.ABC):
 
     return BaseTrainer
 
+  def wrap_model(self, model, device, args):
+    """Return *model* as the trainer should hold it.
+
+        The default wraps for data-parallel execution, so ``forward``
+        all-reduces gradients across ranks (identity when ``world_size == 1``).
+
+        Methods whose autograd path does not go through ``model(...)`` must
+        override this and reduce gradients explicitly instead; see
+        :class:`genml_kit.methods.rl_utils.RLMethod`.  Keeping the decision on
+        the method mirrors :meth:`get_trainer_class` -- the driver should not
+        need to know which methods can be wrapped.
+
+        Args:
+            model: The semantic model returned by :meth:`build_model`.
+            device: The training device.
+            args: Parsed CLI args (``args.dist_arg`` tunes the wrapper).
+
+        Returns:
+            The model handle to train with.
+        """
+    from genml_kit.utils.distributed import wrap_model
+
+    return wrap_model(
+        model,
+        device,
+        find_unused_parameters=args.dist_arg.get("find_unused_parameters", False),
+        static_graph=args.dist_arg.get("static_graph", False),
+    )
+
   @abc.abstractmethod
   def build_model(self, args, device):
     """Return the model.  Model's forward(data) takes the blob.data shape."""

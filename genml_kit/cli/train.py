@@ -30,11 +30,11 @@ from genml_kit.utils.args import (
 from genml_kit.utils.attr import maybe_call
 from genml_kit.utils.cli import KVPairAction, apply_arg_defaults
 from genml_kit.utils.distributed import (
+    broadcast_model_state,
     destroy_distributed,
     init_distributed,
     is_main_process,
     rank,
-    wrap_model,
 )
 from genml_kit.utils.gpu import resolve_device
 from genml_kit.training.metrics_sinks import build_metrics_logger
@@ -404,14 +404,17 @@ def _run(args):
 
   # Wrap LAST: the checkpoint restore and the optimizer were built against the
   # semantic model, so both see unwrapped parameter names and keys.  From here
-  # on the trainer holds a transparent facade whose forward runs through DDP
-  # (gradient all-reduce).  Identity when world_size == 1.
-  model = wrap_model(
-      model,
-      device,
-      find_unused_parameters=args.dist_arg.get("find_unused_parameters", False),
-      static_graph=args.dist_arg.get("static_graph", False),
-  )
+  # on the trainer holds whatever the method wants to train with.  The default
+  # is a transparent facade whose forward runs through DDP (gradient
+  # all-reduce); RL methods override it to stay unwrapped and reduce gradients
+  # explicitly -- see ``RLMethod.wrap_model``.  Identity when world_size == 1.
+  model = method.wrap_model(model, device, args)
+  # Every rank seeded differently (``seed + rank()``) to diversify its data
+  # stream, which also makes ``build_model`` draw different initial weights.
+  # Replicas must start from one model: broadcast rank 0's.  The supervised
+  # path gets this implicitly from ``DistributedDataParallel.__init__``; doing
+  # it explicitly covers the unwrapped (RL) path too.
+  broadcast_model_state(model)
 
   logger = build_metrics_logger(args)
   # Select trainer class via Method.get_trainer_class() (C13 fix).

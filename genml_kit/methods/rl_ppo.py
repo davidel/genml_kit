@@ -12,14 +12,14 @@ import math
 import torch
 
 from genml_kit.losses import load_loss
-from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
+from genml_kit.methods.rl_utils import RLMethod
 from genml_kit.models.registry import load_model
 from genml_kit.pipelines.contracts import LossOutput
 
 
 @METHODS.register
-class PPOMethod(Method):
+class PPOMethod(RLMethod):
   """Proximal Policy Optimization (on-policy)."""
 
   NAME = "ppo"
