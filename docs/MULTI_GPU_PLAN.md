@@ -2,8 +2,8 @@
 
 Status: **distributed plumbing landed (supervised and RL); §2.12 (epoch
 advance), §2.13 (sampler preservation incl. the single-GPU `BalancedBatchSampler`
-wiring) and §2.14 (off-policy NaN reduction) fixed. Remaining: §2.15 and
-§2.1--§2.11.**
+wiring), §2.14 (off-policy NaN reduction) and §2.15 (RL `--grad_accum_steps`
+rejected) fixed. Remaining: §2.1--§2.11.**
 Baseline: commit `629de39` (`test(rl): cover SAC reduction and the RL driver end
 to end`), on top of `fbf3435` (`fix(rl): honour the rank gate in
 RLTrainer.validate and gate eval videos`) and `a774d76` (`fix(rl): reduce
@@ -437,9 +437,14 @@ finite rank skips when the peer is NaN, finite ranks step together, a local NaN
 skips locally, and `inf` is treated as bad). Verified to fail against the
 pre-fix code.
 
-### 2.15 RL flows ignore `--grad_accum_steps`
+### 2.15 RL flows ignore `--grad_accum_steps` -- **RESOLVED**
 
-**Gap.** Accumulation exists only in `BaseTrainer.train_epoch`
+**Resolution (rejected).** `RLTrainer.__init__` now calls `fatal()` when
+`args.grad_accum_steps > 1`, pointing users at `--ppo_mini_batch_size` (PPO) or
+`--batch_size` (off-policy). Covered by
+`tests/test_rl_trainer.py::TestRLTrainer::test_rejects_grad_accum_steps`.
+
+**Gap (historical).** Accumulation exists only in `BaseTrainer.train_epoch`
 (`trainer.py:137-170`). `rl_trainer.py` has no reference to `grad_accum_steps`
 at all; both the off-policy and PPO flows call `_apply_grad` once per mini-batch
 unconditionally.

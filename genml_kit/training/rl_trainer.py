@@ -78,6 +78,16 @@ class RLTrainer(BaseTrainer):
 
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
+    # §2.15: ``--grad_accum_steps`` is a supervised-only knob; RL bypasses
+    # BaseTrainer.train_epoch, so it would be silently ignored here and
+    # quietly break the documented "effective batch = local x accum x
+    # world_size" relationship.  Reject it and point at the per-algorithm
+    # knobs that actually change the effective batch: PPO ->
+    # --ppo_mini_batch_size; off-policy (DQN/SAC) -> --batch_size.
+    if self.args.grad_accum_steps > 1:
+      fatal(f"--grad_accum_steps={self.args.grad_accum_steps} is not supported "
+            f"for RL methods. Use --ppo_mini_batch_size (PPO) or --batch_size "
+            f"(off-policy) to enlarge the effective batch.")
     self._warmup_obs = None
     # One-shot guard: sync target nets to the online nets exactly once,
     # after the very first warmup fill (not on every epoch).

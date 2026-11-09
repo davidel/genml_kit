@@ -168,6 +168,24 @@ def _build_trainer(**args_overrides):
 
 class TestRLTrainer:
 
+  def test_rejects_grad_accum_steps(self):
+    # §2.15: ``--grad_accum_steps`` is supervised-only; RLTrainer must reject
+    # it at construction rather than silently ignoring it.
+    model, optimization, method, pipeline, args = _build_trainer(grad_accum_steps=4)
+    with pytest.raises(RuntimeError, match="grad_accum_steps"):
+      RLTrainer(
+          args=args,
+          model=model,
+          method=method,
+          pipeline=pipeline,
+          optimization=optimization,
+          device=torch.device("cpu"),
+          logger=None,
+          start_epoch=0,
+          best_metric=float("-inf"),
+          global_step=0,
+      )
+
   def test_train_epoch_runs(self):
     with tempfile.TemporaryDirectory() as checkpoint_dir:
       model, optimization, method, pipeline, args = _build_trainer()
