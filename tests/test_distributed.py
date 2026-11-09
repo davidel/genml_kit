@@ -460,6 +460,185 @@ class TestShardLoaderDistributed:
     assert len(r0) == len(r1), "ranks must run equal step counts for DDP"
 
 
+class TestShardIndexSamplerPreservesSemantics:
+  """``shard_loader`` must shard the sampler, not replace it.
+
+  Regression: the dispatch keyed on ``loader.batch_size is None``, so a pipeline
+  that set *both* a sampler and ``batch_size`` (the images pipeline did) fell
+  into the ``else`` branch and its sampler was swapped for a plain
+  ``DistributedSampler`` -- ``--sampler weighted`` and ``--sampler balanced``
+  silently degraded to uniform sampling under DDP.
+  """
+
+  def _ds(self, n=40):
+    from torch.utils.data import TensorDataset
+    return TensorDataset(torch.arange(n).float().reshape(n, 1))
+
+  def test_weighted_sampler_is_sharded_not_replaced(self, fake_distributed):
+    from torch.utils.data import DataLoader, WeightedRandomSampler
+    weights = torch.linspace(0.1, 2.0, 40)
+    loader = DataLoader(self._ds(),
+                        batch_size=8,
+                        sampler=WeightedRandomSampler(weights, 40, replacement=True))
+    sharded = distributed.shard_loader(loader, seed=0)
+    # The whole point: still weighted.
+    assert type(sharded.sampler).__name__ == "_ShardedWeightedSampler"
+    assert torch.allclose(sharded.sampler.weights, weights.double())
+
+  def test_weighted_global_draw_is_identical_across_ranks(self, monkeypatch,
+                                                          fake_distributed):
+    from torch.utils.data import DataLoader, WeightedRandomSampler
+    loader = DataLoader(self._ds(),
+                        batch_size=8,
+                        sampler=WeightedRandomSampler(torch.ones(40),
+                                                      40,
+                                                      replacement=True))
+    sharded = distributed.shard_loader(loader, seed=3)
+    distributed.sampler_epoch(sharded, 2)
+
+    # Option (a) of the plan: one shared global draw, sliced per rank. The seed
+    # must therefore be rank-independent (seed + epoch, never seed + rank).
+    monkeypatch.setattr(distributed, "rank", lambda: 0)
+    got0 = sharded.sampler._global_order()
+    monkeypatch.setattr(distributed, "rank", lambda: 1)
+    got1 = sharded.sampler._global_order()
+    assert torch.equal(got0, got1)
+
+  def test_weighted_shard_slices_tile_the_draw_with_equal_steps(
+      self, monkeypatch, fake_distributed):
+    from torch.utils.data import DataLoader, WeightedRandomSampler
+    loader = DataLoader(self._ds(),
+                        batch_size=8,
+                        sampler=WeightedRandomSampler(torch.ones(40),
+                                                      40,
+                                                      replacement=True))
+    sharded = distributed.shard_loader(loader, seed=3)
+    distributed.sampler_epoch(sharded, 0)
+
+    monkeypatch.setattr(distributed, "rank", lambda: 0)
+    r0 = list(sharded.sampler)
+    monkeypatch.setattr(distributed, "rank", lambda: 1)
+    r1 = list(sharded.sampler)
+    assert len(r0) == len(r1), "ranks must run equal step counts for DDP"
+    # Both ranks slice the *same* global draw at alternating positions, so the
+    # two slices tile it exactly (indices may repeat within a slice: sampling is
+    # with replacement, so identity/disjointness is about positions, not values).
+    order = sharded.sampler._global_order().tolist()
+    assert r0 == order[0::2]
+    assert r1 == order[1::2]
+
+  def test_epoch_reshuffles_the_weighted_draw(self, fake_distributed):
+    from torch.utils.data import DataLoader, WeightedRandomSampler
+    loader = DataLoader(self._ds(),
+                        batch_size=8,
+                        sampler=WeightedRandomSampler(torch.ones(40),
+                                                      40,
+                                                      replacement=True))
+    sharded = distributed.shard_loader(loader, seed=3)
+    distributed.sampler_epoch(sharded, 0)
+    first = sharded.sampler._global_order()
+    distributed.sampler_epoch(sharded, 1)
+    second = sharded.sampler._global_order()
+    assert not torch.equal(first, second)
+
+  def test_plain_shuffle_still_gets_a_distributed_sampler(self, fake_distributed):
+    from torch.utils.data import DataLoader
+    loader = DataLoader(self._ds(), batch_size=8, shuffle=True)
+    sharded = distributed.shard_loader(loader, seed=0)
+    assert type(sharded.sampler).__name__ == "DistributedSampler"
+
+  def test_unknown_sampler_fails_loudly_instead_of_degrading(self, fake_distributed):
+    from torch.utils.data import DataLoader, Sampler
+
+    class _Exotic(Sampler):
+
+      def __iter__(self):
+        return iter([])
+
+      def __len__(self):
+        return 0
+
+    loader = DataLoader(self._ds(), batch_size=8, sampler=_Exotic())
+    with pytest.raises(Exception, match="cannot shard loader sampler _Exotic"):
+      distributed.shard_loader(loader, seed=0)
+
+
+class _RecordingSampler:
+  """Sampler stand-in that records every ``set_epoch`` call it receives."""
+
+  def __init__(self):
+    self.epochs = []
+
+  def set_epoch(self, epoch):
+    self.epochs.append(epoch)
+
+  def __iter__(self):
+    return iter([])
+
+  def __len__(self):
+    return 0
+
+
+class TestSamplerEpoch:
+  """``sampler_epoch`` must reach the sampler that owns the shuffle state.
+
+  Regression: both call sites used to pick the first *truthy* attribute
+  (``loader.batch_sampler or loader.sampler``).  For a sharded index loader
+  ``loader.batch_sampler`` is a plain ``BatchSampler`` -- truthy, but with no
+  ``set_epoch`` -- so it masked the ``DistributedSampler`` in ``loader.sampler``
+  and the epoch stayed pinned at 0 for the whole run.
+  """
+
+  def _loader(self, n=16, batch_size=4):
+    from torch.utils.data import DataLoader, TensorDataset
+    ds = TensorDataset(torch.arange(n).float().reshape(n, 1))
+    return DataLoader(ds, batch_size=batch_size, shuffle=True)
+
+  def test_reaches_the_distributed_sampler_under_a_batch_sampler(
+      self, fake_distributed):
+    loader = distributed.shard_loader(self._loader(), seed=0)
+    # The premise: DataLoader wrapped the DistributedSampler in a plain
+    # BatchSampler, which is what used to mask it.
+    assert type(loader.batch_sampler).__name__ == "BatchSampler"
+    assert not hasattr(loader.batch_sampler, "set_epoch")
+
+    distributed.sampler_epoch(loader, 3)
+    assert loader.sampler.epoch == 3
+
+  def test_distributed_sampler_reshuffles_each_epoch(self, fake_distributed):
+    loader = distributed.shard_loader(self._loader(), seed=0)
+    orders = []
+    for epoch in range(3):
+      distributed.sampler_epoch(loader, epoch)
+      assert loader.sampler.epoch == epoch
+      orders.append(tuple(int(b[0][0]) for b in loader))
+    # Different permutation (and shard boundaries) every epoch; identical
+    # tuples would mean the epoch never took effect.
+    assert len(set(orders)) == 3
+
+  def test_reaches_a_batch_stream_sampler(self):
+    from torch.utils.data import DataLoader, TensorDataset
+    rec = _RecordingSampler()
+    ds = TensorDataset(torch.arange(8).float().reshape(8, 1))
+    # ``batch_sampler`` fully determines the batches; no ``batch_size``.
+    distributed.sampler_epoch(DataLoader(ds, batch_sampler=rec), 5)
+    assert rec.epochs == [5]
+
+  def test_bare_sampler_is_still_accepted(self):
+    """Backwards compatibility: a caller holding only the sampler works."""
+    rec = _RecordingSampler()
+    distributed.sampler_epoch(rec, 2)
+    assert rec.epochs == [2]
+
+  def test_sampler_without_set_epoch_is_a_noop(self):
+    from torch.utils.data import BatchSampler, SequentialSampler
+    inner = BatchSampler(SequentialSampler(range(8)), batch_size=4, drop_last=False)
+    # Must not raise: plain BatchSampler has no set_epoch.
+    assert distributed.sampler_epoch(inner, 1) is None
+
+  def test_none_is_a_noop(self):
+    assert distributed.sampler_epoch(None, 1) is None
+
 
 class _TinyDDPModel(nn.Module):
 

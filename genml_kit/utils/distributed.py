@@ -598,6 +598,110 @@ def shard_batch_sampler(batch_sampler):
   return _ShardedBatchSampler(batch_sampler)
 
 
+class _ShardedWeightedSampler:
+  """Rank-sharded ``WeightedRandomSampler``: one global draw, disjoint slices.
+
+  The single-process sampler draws ``num_samples`` indices *with replacement*
+  from per-sample weights.  Each rank must therefore agree on that **global**
+  draw and then keep only its ``rank::world`` slice, so the slices tile the draw
+  exactly like a ``DistributedSampler`` shard and every rank runs the same
+  number of steps.
+
+  Note that tiling is by *position*, not by value: because sampling is with
+  replacement, the same index can legitimately land on both ranks.  That is the
+  same guarantee the single-process sampler gives (each draw is an independent
+  sample), merely split across ranks instead of repeated within one.
+
+  Agreement requires a rank-independent RNG: the generator is seeded with
+  ``seed + epoch`` and never ``seed + rank()``.  This is the one place where the
+  per-rank streams must *not* diverge: the sampling decision has to be global,
+  only the data streams need to differ.
+
+  The epoch is republished by :func:`sampler_epoch` each epoch (this class
+  exposes ``set_epoch`` for exactly that reason), so the draw changes per epoch
+  while staying identical across ranks.
+
+  Args:
+      weights: Per-sample weights, as accepted by ``WeightedRandomSampler``.
+      seed: Base seed (already the rank-independent one).
+      epoch: Initial epoch.
+  """
+
+  def __init__(self, weights, *, seed=0, epoch=0):
+    import torch
+
+    self.weights = torch.as_tensor(weights, dtype=torch.double)
+    self.num_samples = len(self.weights)
+    self.seed = seed
+    self.epoch = epoch
+
+  def set_epoch(self, epoch):
+    """Record the epoch (reshuffles the global draw on the next iteration)."""
+    self.epoch = epoch
+
+  def _global_order(self):
+    """The full, rank-independent index draw for the current epoch."""
+    import torch
+
+    generator = torch.Generator().manual_seed(self.seed + self.epoch)
+    return torch.multinomial(self.weights,
+                             self.num_samples,
+                             replacement=True,
+                             generator=generator)
+
+  def __iter__(self):
+    world = world_size() or 1
+    order = self._global_order()
+    # Truncate to a whole multiple of the world size so every rank runs the
+    # same number of steps -- a DDP requirement, as in _ShardedBatchSampler.
+    usable = (len(order) // world) * world
+    yield from order[:usable][rank()::world].tolist()
+
+  def __len__(self):
+    world = world_size() or 1
+    return self.num_samples // world
+
+
+def shard_index_sampler(loader, *, seed=0):
+  """Return a rank-sharded equivalent of *loader*'s index sampler.
+
+  ``shard_loader`` must not blanket-replace ``loader.sampler``: the pipeline
+  chose it for a reason (class weights, class balance), and substituting a plain
+  ``DistributedSampler`` silently changes the training objective.  This
+  dispatches on the sampler's *type* instead:
+
+  * ``WeightedRandomSampler`` -> :class:`_ShardedWeightedSampler`, which keeps
+    the weights and shards one global draw;
+  * ``RandomSampler`` / ``SequentialSampler`` / absent -> a
+    ``DistributedSampler``, i.e. the plain dataset shard;
+  * anything else -> ``fatal``, because silently degrading it is exactly the
+    bug this function exists to prevent.
+
+  Args:
+      loader: An already-built ``DataLoader``.
+      seed: Base seed for the shard.
+
+  Returns:
+      A sampler to pass as ``sampler=`` when rebuilding the loader.
+  """
+  from torch.utils.data import (
+      RandomSampler,
+      SequentialSampler,
+      WeightedRandomSampler,
+  )
+
+  sampler = getattr(loader, "sampler", None)
+  if isinstance(sampler, WeightedRandomSampler):
+    return _ShardedWeightedSampler(sampler.weights, seed=seed)
+  if sampler is None or isinstance(sampler, (RandomSampler, SequentialSampler)):
+    return make_sampler(loader.dataset, shuffle=_is_shuffling(loader), seed=seed)
+  fatal(
+      f"cannot shard loader sampler {type(sampler).__name__} across ranks: "
+      f"it would be silently replaced by an unweighted DistributedSampler. "
+      f"Pass --dist_arg shard=false to keep it per-rank, or teach "
+      f"shard_index_sampler about it.", NotImplementedError)
+
+
 def shard_loader(loader, *, seed=0):
   """Rebuild *loader* so each rank sees a disjoint shard of the epoch.
 
@@ -606,17 +710,21 @@ def shard_loader(loader, *, seed=0):
   loader with the sharded sampler.  This rebuilds an equivalent loader from the
   existing one's attributes, replacing only the sampling strategy:
 
-  * a loader with a ``batch_sampler`` (balanced / length-bucketed) gets a
-    rank-strided slice of that batch stream;
-  * a loader with a plain ``sampler`` or ``shuffle`` gets a
-    ``DistributedSampler`` over its dataset.
+  * a loader driven by an explicit ``batch_sampler`` (balanced /
+    length-bucketed) gets a rank-strided slice of that batch stream;
+  * a loader driven by an index ``sampler`` or ``shuffle`` gets a shard of
+    whatever that sampler was (:func:`shard_index_sampler`).
+
+  The dispatch keys on *how the loader samples*, not on ``batch_size``: a
+  pipeline may set both a sampler and ``batch_size`` (the images pipeline does),
+  and keying on ``batch_size`` alone discarded the sampler.
 
   Returns the loader unchanged when not distributed, so the single-device path
   is unaffected.
 
   Args:
       loader: An already-built ``DataLoader``.
-      seed: Base seed for the ``DistributedSampler`` shuffle.
+      seed: Base seed for the sharded sampler.
 
   Returns:
       A new ``DataLoader`` (distributed) or *loader* itself (single-process).
@@ -635,15 +743,13 @@ def shard_loader(loader, *, seed=0):
       "prefetch_factor": loader.prefetch_factor if loader.num_workers else None,
       "generator": getattr(loader, "generator", None),
   }
-  # A loader constructed with ``batch_size`` owns an auto-generated
-  # ``batch_sampler``; one constructed with an explicit ``batch_sampler`` has
-  # ``batch_size is None``.  Only the latter needs batch-stream sharding.
+  # A loader constructed with an explicit ``batch_sampler`` has
+  # ``batch_size is None``; only that one needs batch-stream sharding.  Anything
+  # else samples by index, whatever its ``batch_size`` says.
   if loader.batch_size is None and loader.batch_sampler is not None:
     kwargs["batch_sampler"] = shard_batch_sampler(loader.batch_sampler)
   else:
-    kwargs["sampler"] = make_sampler(loader.dataset,
-                                     shuffle=_is_shuffling(loader),
-                                     seed=seed)
+    kwargs["sampler"] = shard_index_sampler(loader, seed=seed)
     kwargs["batch_size"] = loader.batch_size
     kwargs["drop_last"] = loader.drop_last
   return DataLoader(loader.dataset, **kwargs)
