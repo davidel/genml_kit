@@ -1,15 +1,15 @@
 # Multi-GPU Training Support
 
-Status: **distributed plumbing landed (supervised and RL); §2.12 (epoch
-advance), §2.13 (sampler preservation incl. the single-GPU `BalancedBatchSampler`
-wiring), §2.14 (off-policy NaN reduction), §2.15 (RL `--grad_accum_steps`
-rejected) and §2.2 (validation sharded + merged) fixed. Remaining: §2.1,
-§2.3--§2.11.**
-Baseline: commit `629de39` (`test(rl): cover SAC reduction and the RL driver end
-to end`), on top of `fbf3435` (`fix(rl): honour the rank gate in
-RLTrainer.validate and gate eval videos`) and `a774d76` (`fix(rl): reduce
-gradients explicitly and shard PPO rollouts under DDP`), on top of `67bfb87`
-(`feat(dist): multi-GPU (DDP) training support`).
+Status: **distributed plumbing landed (supervised and RL).** This document lists
+only the work that is still open, ordered by urgency (highest first). See §2 for
+the ranked list and §5 for the risk/effort summary.
+
+Baseline: commit `f464b1c` (`feat(dist): shard validation and merge per-rank
+metrics`), on top of `629de39` (`test(rl): cover SAC reduction and the RL driver
+end to end`), `fbf3435` (`fix(rl): honour the rank gate in RLTrainer.validate and
+gate eval videos`), `a774d76` (`fix(rl): reduce gradients explicitly and shard
+PPO rollouts under DDP`) and `67bfb87` (`feat(dist): multi-GPU (DDP) training
+support`).
 
 This document is the working record for multi-GPU (DDP) support in `genml_kit`.
 It lists only what is **still open**, each entry stating the gap, why it matters,
@@ -17,15 +17,9 @@ where it lives, and the shape of the fix. Where a claim is backed by a test or a
 real multi-process run it says so; where it is only reasoning from reading the
 code it says that too.
 
-> **Re-derivation note.** Auditing the code against this document on top of
-> `629de39` surfaced four unrecorded items, added below as §2.12--§2.15. Three
-> of them (§2.12--§2.14) are correctness bugs on the **default** DDP path, so
-> "landed" applies to the *plumbing* (wrapping, reduction, sharding, checkpoint
-> gating) and not yet to the sampler / NaN semantics built on top of it.
-
 ---
 
-## 1. Goal (unchanged)
+## 1. Goal
 
 Train across multiple GPUs so that:
 
@@ -39,81 +33,13 @@ Train across multiple GPUs so that:
 
 ## 2. What is missing or needs a better implementation
 
-Ordered roughly by value. Each entry states the gap, why it matters, where it
-lives, and the shape of the fix.
+Ordered by urgency: silent-correctness risk on the **default** DDP path first,
+then coverage gaps, then performance, then design-only items. Each entry states
+the gap, why it matters, where it lives, and the shape of the fix.
 
-### 2.1 Per-method DDP graph knobs (mechanism shipped, payload undecided)
+### 2.1 Resume across a different rank count
 
-**Gap.** `find_unused_parameters` and `static_graph` are settable per method via
-`Method.arg_defaults()` / `DataPipeline.arg_defaults()` (the general "declare
-defaults for existing CLI flags, explicit CLI wins" seam). But **no method
-declares a DDP default yet**: `arg_defaults()` returns `{}` everywhere, so
-behaviour is unchanged from a plain `--dist_arg`.
-
-**Why it matters.** The correct value is a property of the *method*: it depends
-on whether that method's forward touches every grad-requiring parameter. A wrong
-`False` looks like a training crash; a wrong `True` silently costs throughput.
-
-**Fix.** Run 2 ranks x 2 steps under `torchrun` per method and declare
-`find_unused_parameters=True` from the evidence, not from guesswork.
-
-**Also relevant:** `_ddp_params_and_buffers_to_ignore` is a **module attribute
-set before wrapping** (exact parameter names), *not* a `DistributedDataParallel`
-constructor keyword. It is not an argparse default, so `arg_defaults()` cannot
-express it; if any method needs it, the mechanism is a pre-wrap attribute set
-and `wrap_model` would need a seam.
-
-### 2.2 `validate_all` is redundant -- **RESOLVED (option a)**
-
-**Resolution.** `val_loader` is now sharded (``shard_val_loader``, wired in the
-driver right after ``shard_train_loader``), so every rank evaluates a disjoint
-slice. ``Method.evaluate`` returns a ``ValidationResult`` (metrics + sample
-``weight`` + opaque ``accumulators``); ``BaseTrainer.validate`` gathers the
-per-rank results (``all_gather_object``) and merges them via
-``Method.merge_validation`` -- sample-weighted for additive metrics, and
-recomputed from the raw accumulator (confusion matrix / PR records / prediction
-lists / mce sums) for non-additive ones. The ``validate_all`` flag is **removed**
-(sharding + merge is now unconditional). Covered by
-``tests/test_distributed.py::test_two_rank_merge_is_sample_weighted`` and the
-per-method ``evaluate`` tests.
-
-**Gap (historical).** `--dist_arg validate_all` ran validation on every rank and
-averaged the result. But `val_loader` was **never sharded**
-(`shard_train_loader` touched only `train_loader`), so every rank evaluated the
-*same* full validation set. The averaged metric was therefore mathematically
-identical to rank 0's -- at N times the cost.
-
-**Why it matters.** A configuration knob that cannot change the result is a trap:
-it invites someone to "enable correctness" and get nothing but a bill.
-
-**Fix.** Two options:
-- **(a) Shard `val_loader`** too and aggregate with the correct denominator
-  (samples, not means-of-means, unless shards are equal).
-- **(b) Remove `validate_all`** and hardcode rank-0-only, since it is exactly
-  correct today. Simpler, and honest about the current behaviour.
-
-Option (a) is the real fix if validation sets ever grow large enough that a
-single-rank pass is the bottleneck. Option (b) is correct today. Doing neither
-leaves a knob that lies.
-
-### 2.3 Gradient-accumulation all-reduce cadence (not implemented)
-
-**Gap.** With `grad_accum_steps > 1`, DDP all-reduces gradients on **every**
-micro-step. `torch.nn.parallel.DistributedDataParallel`'s `no_sync()` context
-manager exists precisely to skip those reductions on all but the final
-micro-step.
-
-**Why it matters.** Correct but wasteful: N-1 redundant all-reduces per
-optimizer step, i.e. measurable bandwidth and latency cost scaling with
-`grad_accum_steps`. Silent -- no error, just slower.
-
-**Fix.** Wrap the non-final micro-steps in `with model.no_sync():`. The facade
-must expose `no_sync` (or the trainer must reach `unwrap(model).no_sync()`), and
-the accumulation boundary in `train_epoch` must be identified. Note the guard:
-`no_sync()` must be active on *exactly* the micro-steps whose gradients are not
-yet reduced, or gradients are silently dropped/double-counted.
-
-### 2.4 Resume across a different rank count (not persisted)
+**Urgency: high -- silent wrong data order, only on the mid-run resume path.**
 
 **Gap.** Shard boundaries are a function of `world_size`. Resuming a
 multi-GPU checkpoint with a different `--nproc_per_node` changes them, so the
@@ -127,7 +53,10 @@ middle of an expensive resume.
 on a mismatch, warn and either re-shard from an epoch boundary or refuse to
 resume mid-epoch.
 
-### 2.5 SSL methods under DDP (blocked on an unrelated bug)
+### 2.2 SSL methods under DDP
+
+**Urgency: high -- contains a real crash (I-JEPA) and zero 2-rank coverage of the
+methods most likely to trip DDP's unused-parameter check.**
 
 **Gap.** SimMIM / SupCon / DINO / BYOL / I-JEPA have never been run under DDP.
 
@@ -150,46 +79,34 @@ It is **unrelated to DDP** and must be fixed first (build the mask non-in-place,
 e.g. via `mask.view(...)` assignment or `scatter`, rather than writing through
 `expand`).
 
-### 2.6 Decision F -- `ModelProtocol` (still unresolved)
+### 2.3 Per-method DDP graph knobs
 
-**Gap.** The original doc listed "whether to add the untyped `ModelProtocol`" as
-deferred by the reviewer. Decision C then shipped a concrete `DistributedModel`
-facade, which changes the question: the facade now *is* the documented answer to
-"what is 'the model'", so a separate protocol may be redundant.
+**Urgency: high -- a wrong value is either a training crash or a silent
+throughput loss, on the default path.**
 
-**Fix.** Decide explicitly: either declare F moot (Decision C subsumes it) or add
-the docstring-only protocol and make `DistributedModel` the reference
-implementation. Either way, remove it from the open-decisions list so the
-document does not carry a stale question.
+**Gap.** `find_unused_parameters` and `static_graph` are settable per method via
+`Method.arg_defaults()` / `DataPipeline.arg_defaults()` (the general "declare
+defaults for existing CLI flags, explicit CLI wins" seam). But **no method
+declares a DDP default yet**: `arg_defaults()` returns `{}` everywhere, so
+behaviour is unchanged from a plain `--dist_arg`.
 
-### 2.7 FSDP-ready seams (design only)
+**Why it matters.** The correct value is a property of the *method*: it depends
+on whether that method's forward touches every grad-requiring parameter. A wrong
+`False` looks like a training crash; a wrong `True` silently costs throughput.
 
-**Gap.** Not designed beyond intent. The claim is that a future DDP -> FSDP swap
-should be a single wrap-site change plus a checkpoint (un)shard layer.
+**Fix.** Run 2 ranks x 2 steps under `torchrun` per method and declare
+`find_unused_parameters=True` from the evidence, not from guesswork.
 
-**Why it matters.** Everything must route through the `wrap_model` / `unwrap`
-seam for that claim to hold. It is cheap to keep true and expensive to retrofit.
+**Also relevant:** `_ddp_params_and_buffers_to_ignore` is a **module attribute
+set before wrapping** (exact parameter names), *not* a `DistributedDataParallel`
+constructor keyword. It is not an argparse default, so `arg_defaults()` cannot
+express it; if any method needs it, the mechanism is a pre-wrap attribute set
+and `wrap_model` would need a seam.
 
-**Fix.** Audit for direct `DistributedDataParallel` / model-type assumptions
-outside `genml_kit/utils/distributed.py`, and confirm that FSDP would need only
-a new branch at the wrap site plus sharded checkpoint I/O.
+### 2.4 `KVPairAction` treats a bare token as `key=True` (cross-cutting)
 
-### 2.8 `--dist_arg` has no key validation (accepted risk)
-
-**Gap.** A typo'd key (`--dist_arg find_unused_paramters`) is silently ignored,
-matching how every other `*_arg` flag behaves (they are splatted into
-constructors). This was a deliberate choice to stay consistent.
-
-**Why it matters.** For DDP the miss is not benign: the run proceeds with the
-wrong setting and fails later with an opaque DDP error rather than at parse time.
-It is the one context where the permissive convention costs real debugging time.
-
-**Fix.** Either accept and document (current state), or add a whitelist check at
-the single consumption site. Note this is a conscious trade-off, not an
-oversight; do not "fix" it without deciding, because it would make `--dist_arg`
-behave differently from `--model_arg`.
-
-### 2.9 `KVPairAction` treats a bare token as `key=True` (cross-cutting)
+**Urgency: medium-high -- a typo silently changes behaviour on *every* `*_arg`
+flag, including optimiser hyper-parameters.**
 
 **Gap.** To make `--dist_arg shard` work, `KVPairAction.__call__` was changed from
 erroring on a token without `=` to storing `{token: True}`. This affects **every**
@@ -206,7 +123,10 @@ accepted, explicit decision, but it belongs in the record.
 `--dist_arg` help text mentions bare keys). If the `--opt_arg` case proves
 painful, revisit scoping the permissive behaviour.
 
-### 2.10 Multi-node and `nccl` are untested
+### 2.5 Multi-node and `nccl` are untested
+
+**Urgency: medium -- a coverage gap that could mask anything on the real
+multi-node, GPU-backend path.**
 
 **Gap.** Every test runs `gloo` on CPU in a single host. Multi-node runs
 (`MASTER_ADDR` / `MASTER_PORT` spanning hosts) are unexercised -- no CUDA device
@@ -220,7 +140,47 @@ placement for collectives (`_reduce_device` in `distributed.py`), and the
 procedure), at minimum covering: `cuda:{LOCAL_RANK}` pinning, `all_reduce_dict`
 dtype handling, and the L2 norm path under `nccl`.
 
-### 2.11 Smaller robustness items
+### 2.6 Gradient-accumulation all-reduce cadence
+
+**Urgency: medium -- performance only, not correctness, but easy to get the
+boundary wrong.**
+
+**Gap.** With `grad_accum_steps > 1`, DDP all-reduces gradients on **every**
+micro-step. `torch.nn.parallel.DistributedDataParallel`'s `no_sync()` context
+manager exists precisely to skip those reductions on all but the final
+micro-step.
+
+**Why it matters.** Correct but wasteful: N-1 redundant all-reduces per
+optimizer step, i.e. measurable bandwidth and latency cost scaling with
+`grad_accum_steps`. Silent -- no error, just slower.
+
+**Fix.** Wrap the non-final micro-steps in `with model.no_sync():`. The facade
+must expose `no_sync` (or the trainer must reach `unwrap(model).no_sync()`), and
+the accumulation boundary in `train_epoch` must be identified. Note the guard:
+`no_sync()` must be active on *exactly* the micro-steps whose gradients are not
+yet reduced, or gradients are silently dropped/double-counted.
+
+### 2.7 `--dist_arg` has no key validation (accepted risk)
+
+**Urgency: medium-low -- accepted, documented risk; fixing it would make
+`--dist_arg` behave differently from every other `*_arg`.**
+
+**Gap.** A typo'd key (`--dist_arg find_unused_paramters`) is silently ignored,
+matching how every other `*_arg` flag behaves (they are splatted into
+constructors). This was a deliberate choice to stay consistent.
+
+**Why it matters.** For DDP the miss is not benign: the run proceeds with the
+wrong setting and fails later with an opaque DDP error rather than at parse time.
+It is the one context where the permissive convention costs real debugging time.
+
+**Fix.** Either accept and document (current state), or add a whitelist check at
+the single consumption site. Note this is a conscious trade-off, not an
+oversight; do not "fix" it without deciding, because it would make `--dist_arg`
+behave differently from `--model_arg`.
+
+### 2.8 Smaller robustness items
+
+**Urgency: low -- mostly bookkeeping; one bullet is already resolved.**
 
 - **`resolve_device` and a stray `LOCAL_RANK`.** `resolve_device` prefers
   `cuda:{LOCAL_RANK}` whenever `LOCAL_RANK` is set (`gpu.py::_local_rank_env`),
@@ -242,239 +202,33 @@ dtype handling, and the L2 norm path under `nccl`.
   left to do here; the "main-process-only writes" tests already pin the
   checkpoint and metrics sinks.
 
----
+### 2.9 FSDP-ready seams (design only)
 
-### 2.12 `set_epoch` never reaches `DistributedSampler` (every epoch is epoch 0)
+**Urgency: low -- design only; cheap to keep true, expensive to retrofit.**
 
-**Gap.** Nothing advances the epoch on the sampler that actually drives the
-default DDP path. Both call sites prefer `loader.batch_sampler`:
+**Gap.** Not designed beyond intent. The claim is that a future DDP -> FSDP swap
+should be a single wrap-site change plus a checkpoint (un)shard layer.
 
-```python
-# pipelines/base.py:106-112
-sampler_epoch(
-    getattr(loader, "batch_sampler", None) or getattr(loader, "sampler", None),
-    epoch)
+**Why it matters.** Everything must route through the `wrap_model` / `unwrap`
+seam for that claim to hold. It is cheap to keep true and expensive to retrofit.
 
-# training/trainer.py:333
-maybe_call(self.pipeline.train_loader, "batch_sampler.set_epoch", epoch)
-```
+**Fix.** Audit for direct `DistributedDataParallel` / model-type assumptions
+outside `genml_kit/utils/distributed.py`, and confirm that FSDP would need only
+a new branch at the wrap site plus sharded checkpoint I/O.
 
-For an index-sharded loader, `shard_loader` rebuilds the `DataLoader` with
-`sampler=DistributedSampler(...)`. `DataLoader.__init__` then wraps that sampler
-in a `torch.utils.data.BatchSampler` whenever `batch_size` is set, so
-`loader.batch_sampler` is a **plain `BatchSampler`**, which has no `set_epoch`.
-Being truthy, it short-circuits the `or`, so the fallback to `loader.sampler`
-never happens and both calls become silent no-ops.
+### 2.10 Decision F -- `ModelProtocol`
 
-Verified on CPU with
-`DataLoader(ds, sampler=DistributedSampler(...), batch_size=8)`:
+**Urgency: low -- a decision, and likely moot now that Decision C shipped.**
 
-```
-loader.sampler:              DistributedSampler
-loader.batch_sampler:        BatchSampler (has set_epoch: False)
-DistributedSampler.epoch after set_train_epoch(5):  0
-```
+**Gap.** The original doc listed "whether to add the untyped `ModelProtocol`" as
+deferred by the reviewer. Decision C then shipped a concrete `DistributedModel`
+facade, which changes the question: the facade now *is* the documented answer to
+"what is 'the model'", so a separate protocol may be redundant.
 
-**Why it matters.** This is the *default* configuration -- the images and text
-pipelines request `shuffle=True`, `shard_loader` swaps the `RandomSampler` for a
-`DistributedSampler`, and then every epoch draws the **identical** permutation
-*and* the identical shard boundaries. The docstrings in both places ("Advance a
-`DistributedSampler` ... so every epoch reshuffles") are therefore false. It is
-silent: no error, no warning, just correlated data order for the whole run.
-
-It also blocks §2.4: persisting "the sampler's epoch/offset" cannot make resume
-correct while the epoch is pinned at 0.
-
-**Status: FIXED.** Chosen shape: walk the wrapper chain and filter on capability.
-
-- `sampler_epoch(root, epoch)` now accepts the *loader* (or a bare sampler, so
-  the old call form keeps working) and delegates to a new `_epoch_targets`
-  helper that yields `root`, `loader.batch_sampler`, `loader.sampler` and
-  `loader.batch_sampler.sampler`; `sampler_epoch` then calls `set_epoch` on each
-  one that actually defines it, de-duplicating by identity. `None` and
-  `set_epoch`-less objects stay no-ops, so a plain `BatchSampler` and the
-  balanced sampler are handled by construction rather than by special case.
-- `pipelines/base.py::set_train_epoch` now passes the loader.
-- `trainer.py` dropped its separate `maybe_call(loader, "batch_sampler.set_epoch")`
-  call -- the duplicate walk that let the two call sites drift -- and keeps a
-  fallback to `sampler_epoch(pipeline.train_loader, epoch)` when the pipeline
-  does not define `set_train_epoch` (the trainer only requires a `train_loader`
-  attribute, so without the fallback a minimal pipeline would silently stop
-  receiving the epoch).
-
-Tests: `tests/test_distributed.py::TestSamplerEpoch` (6 cases: epoch reaches the
-`DistributedSampler` *under* a `BatchSampler`, three consecutive epochs produce
-three distinct orders, a batch-stream sampler receives it, a bare sampler still
-works, and `None` / `set_epoch`-less inputs are no-ops). Verified to fail
-against the pre-fix code.
-
-### 2.13 `shard_loader` silently discards the pipeline's chosen sampler
-
-**Gap.** `shard_loader` picks its branch on `loader.batch_size is None`:
-
-```python
-# utils/distributed.py:641-646
-if loader.batch_size is None and loader.batch_sampler is not None:
-    kwargs["batch_sampler"] = shard_batch_sampler(loader.batch_sampler)
-else:
-    kwargs["sampler"] = make_sampler(
-        loader.dataset, shuffle=_is_shuffling(loader), seed=seed)
-```
-
-The `else` branch **replaces** `loader.sampler` outright. But
-`images.py:212-228` builds the training loader with
-`sampler=<WeightedRandomSampler | BalancedBatchSampler>` *and*
-`batch_size=args.batch_size`, so `batch_size is not None` and the `else` branch
-runs.
-
-Verified on CPU with `world_size` stubbed to 2:
-
-```
---sampler weighted : WeightedRandomSampler      -> DistributedSampler
---sampler balanced : BalancedBatchSampler       -> DistributedSampler
-text length-bucket : LengthBucketBatchSampler   -> _ShardedBatchSampler  (correct)
-```
-
-**Why it matters.** `--sampler weighted` (inverse-frequency / per-class
-multipliers) and `--sampler balanced` (fixed samples-per-class batches) are
-silently downgraded to uniform sampling under DDP -- the same run, on more GPUs,
-optimises a *different objective*. No error, no warning. That breaks §1 goal #2
-in the way that matters most: the same effective batch must mean the same thing.
-
-**Prerequisite (unrelated single-GPU bug, found while verifying the above).**
-`BalancedBatchSampler` is a **batch** sampler -- `__len__` returns a batch count
-and each item is a `list[int]` of indices -- but `images.py:226-234` passes it as
-`sampler=`, not `batch_sampler=`. `DataLoader` then treats each yielded *list* as
-one **sample**, so a length-5 balanced sampler over 40 items produces
-`len(loader) == 1` and yields a single batch whose samples are lists of index
-lists. Measured on CPU with a 40-item, 4-class toy dataset:
-
-```
-len(BalancedBatchSampler)                     = 5   (batches)
-as sampler=:       len(loader)=1  samples_seen=5   <-- wrong
-as batch_sampler=: len(loader)=5  samples_seen=40  <-- correct
-```
-
-So `--sampler balanced` is broken on **one** GPU too, not just under DDP. (The
-text pipeline gets this right -- `text.py:108-110` passes its
-`LengthBucketBatchSampler` as `batch_sampler=`, which is why the length-bucket row
-above takes the `_ShardedBatchSampler` path.) The existing regression tests
-(`test_pipeline_method_registry.py:247`, `:270`) only assert
-`isinstance(loader.sampler, BalancedBatchSampler)` and never iterate the loader,
-so they pass while the loader is wrong. This must be fixed (pass the sampler as
-`batch_sampler=`, and add an iteration/shape assertion to those tests) *before*
-any distributed sharding of it is meaningful -- otherwise §2.13 would be
-"correctly sharding a stream that is already malformed".
-
-**Status: FIXED**, in three parts.
-
-*C0 (prerequisite, single-GPU).* `images.py` now keeps the two sampler kinds in
-separate slots: `build_weighted_sampler` (per-item indices) goes to `sampler=`,
-`BalancedBatchSampler` (whole batches) goes to `batch_sampler=`, and
-`batch_size`/`shuffle` are only set on the index-sampler path -- `DataLoader`
-rejects them alongside `batch_sampler`. The two tests that had pinned the buggy
-wiring now assert on `loader.batch_sampler` *and* inspect the index batches, so
-they can no longer pass with a collapsed epoch; a new
-`test_weighted_sampler_stays_an_index_sampler` pins the other side of the split.
-
-*C1 (dispatch).* `shard_loader` now delegates the index-sampler case to a new
-`shard_index_sampler`, which dispatches on the sampler's **type** rather than on
-`batch_size`:
-
-| sampler | result |
-|---|---|
-| `WeightedRandomSampler` | `_ShardedWeightedSampler` (weights preserved) |
-| `RandomSampler` / `SequentialSampler` / `None` | `DistributedSampler` (as before) |
-| anything else | `fatal(...)` naming the class and pointing at `--dist_arg shard=false` |
-
-The `batch_sampler`-driven case is unchanged (`shard_batch_sampler`).
-
-*C2a (sharded weighted sampler).* `_ShardedWeightedSampler` reproduces
-`WeightedRandomSampler.__iter__` from a **rank-independent** generator seeded
-`seed + epoch`, then yields `order[rank::world]` truncated to a multiple of the
-world size. Both ranks therefore agree on one global draw and keep alternating
-positions of it -- equal step counts, and a per-epoch reshuffle via the
-`set_epoch` that §2.12 now actually delivers. This deliberately breaks the
-`seed + rank()` convention: the *sampling* decision must be global, only the data
-streams may differ. A side effect worth knowing: because sampling is with
-replacement, an index can appear on both ranks -- the *positions* tile, the
-values need not.
-
-Tests: `tests/test_distributed.py::TestShardIndexSamplerPreservesSemantics`
-(6 cases: weights preserved, global draw identical across ranks, slices equal
-in length and tiling the draw, epoch reshuffles, plain shuffle still gets a
-`DistributedSampler`, unknown sampler fails loudly). Verified to fail against
-the pre-fix `shard_loader` (5 of 6) and pre-fix `images.py` (2 of 2).
-
-### 2.14 Off-policy RL NaN/Inf skip is rank-local and can desync the reduction
-
-**Gap.** The off-policy (DQN/SAC) flow skips a bad update without reducing the
-decision across ranks:
-
-```python
-# training/rl_trainer.py:189-191
-if torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any():
-    logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
-    continue
-```
-
-The on-policy (PPO) flow already does it correctly a few dozen lines later
-(`rl_trainer.py:427-430`: `is_bad = ...; if any_rank_true(is_bad): ... continue`).
-
-**Why it matters.** Skipping `_apply_grad` on one rank but not another means that
-rank also skips `_reduce_rl_gradients` -> `all_reduce_gradients`, so the
-collective runs on a subset of ranks. That is exactly what **invariant #7** below
-forbids. Outcomes: a gloo/NCCL hang until the watchdog fires, or the
-`all_reduce_gradients` count guard raising `fatal("inconsistent gradient sets
-across ranks ...")` -- neither is a correct or diagnosable outcome for "one rank
-had a NaN". RL runs are long, so this is an expensive way to learn a rank
-diverged.
-
-**Status: FIXED.** The off-policy flow now mirrors the PPO path:
-
-```python
-is_bad = bool(
-    torch.isnan(loss_out.loss).any() or torch.isinf(loss_out.loss).any())
-if any_rank_true(is_bad):
-    if is_bad:
-        logging.warning("NaN/Inf loss detected at step %d, skipping update", step)
-    continue
-```
-
-`any_rank_true` was already imported in the module. Resulting semantics: one
-rank's NaN discards the step on *all* ranks, which is the only choice that keeps
-replicas in lockstep.
-
-Tests: `tests/test_rl_trainer.py::TestOffPolicyNaNSkipIsReduced` (4 cases: a
-finite rank skips when the peer is NaN, finite ranks step together, a local NaN
-skips locally, and `inf` is treated as bad). Verified to fail against the
-pre-fix code.
-
-### 2.15 RL flows ignore `--grad_accum_steps` -- **RESOLVED**
-
-**Resolution (rejected).** `RLTrainer.__init__` now calls `fatal()` when
-`args.grad_accum_steps > 1`, pointing users at `--ppo_mini_batch_size` (PPO) or
-`--batch_size` (off-policy). Covered by
-`tests/test_rl_trainer.py::TestRLTrainer::test_rejects_grad_accum_steps`.
-
-**Gap (historical).** Accumulation exists only in `BaseTrainer.train_epoch`
-(`trainer.py:137-170`). `rl_trainer.py` has no reference to `grad_accum_steps`
-at all; both the off-policy and PPO flows call `_apply_grad` once per mini-batch
-unconditionally.
-
-**Why it matters.** `--grad_accum_steps 4` is accepted globally and silently has
-no effect on RL runs, so the "effective batch = local x accum x world_size"
-relationship documented in the README (see §2.11) is false for RL. Low severity
-when combined with DDP (world size already multiplies the batch), but it is a
-silent no-op flag -- the same trap §2.2 complains about.
-
-**Fix.** Either implement accumulation in `_apply_grad` (scale the loss, step the
-optimizer only on the boundary, and for PPO align the boundary with the rollout's
-mini-batch split), or reject the combination explicitly -- `fatal()` when
-`grad_accum_steps > 1` and the method is RL -- and document that RL accumulation
-is unsupported. The latter is one line and honest.
-
-**Test.** Assert the flag is either honoured or rejected for an RL method.
+**Fix.** Decide explicitly: either declare F moot (Decision C subsumes it) or add
+the docstring-only protocol and make `DistributedModel` the reference
+implementation. Either way, remove it from the open-decisions list so the
+document does not carry a stale question.
 
 ---
 
@@ -507,7 +261,7 @@ RL-specific, because RL models are deliberately **not** DDP-wrapped
 ## 4. Non-goals
 
 - FSDP / tensor / pipeline / sequence parallelism implementations.
-- Multi-node orchestration beyond what `torchrun` provides. (Tested: 2.11.)
+- Multi-node orchestration beyond what `torchrun` provides. (Tested: 2.5.)
 - `accelerate` / `deepspeed` integration.
 - Changes to the single-GPU default path's behavior.
 
@@ -515,27 +269,17 @@ RL-specific, because RL models are deliberately **not** DDP-wrapped
 
 ## 5. Rough risk/effort
 
+Ordered by urgency, matching §2.
+
 | Item | Risk | Effort |
 |---|---|---|
-| 2.1 Per-method DDP knobs | Low (mechanism exists) | Small |
-| 2.2 `validate_all` (shard val or remove) | Low, correctness-sensitive | ~~Small-medium~~ **DONE** |
-| 2.3 `no_sync()` accumulation | Medium (easy to get the boundary wrong) | Small |
-| 2.4 Resume across rank counts | Medium (silent wrong-position risk) | Medium |
-| 2.5 SSL methods under DDP | Medium; blocked on I-JEPA bug | Medium |
-| 2.6 Decision F | Low | Trivial (a decision) |
-| 2.7 FSDP seams | Low (design only) | Small |
-| 2.8 / 2.9 / 2.10 | Low to medium | Small to medium |
-| 2.12 `set_epoch` never reaches `DistributedSampler` | **High** (silent, default path) | ~~Small~~ **DONE** |
-| 2.13 `shard_loader` drops weighted/balanced sampler | **High** (silent objective change) | ~~Small / Medium~~ **DONE** |
-| 2.13 prerequisite: `BalancedBatchSampler` passed as `sampler=` | **High** (broken on 1 GPU too) | ~~Trivial~~ **DONE** |
-| 2.14 Off-policy NaN skip not `any_rank_true` | **High** (hang or `fatal`) | ~~Trivial~~ **DONE** |
-| 2.15 RL ignores `--grad_accum_steps` | Low (silent no-op flag) | ~~Trivial (reject)~~ **DONE** |
-
-### Suggested order
-
-2.12, 2.13 (including its single-GPU prerequisite and the sharded weighted
-sampler, option (a) -- one global draw, sliced per rank), 2.14, 2.15 and 2.2
-(validation sharded + merged, option (a)) are **done**.
-
-§2.3 is the highest-value remaining *design* item; §2.4 is the one that benefits
-most from 2.12 landing, since the sampler epoch is now actually persisted-worthy.
+| 2.1 Resume across rank counts | Medium (silent wrong-position risk) | Medium |
+| 2.2 SSL methods under DDP | Medium; blocked on I-JEPA bug | Medium |
+| 2.3 Per-method DDP knobs | Low (mechanism exists) | Small |
+| 2.4 `KVPairAction` bare token | Low-medium (silent `opt_arg`) | Small |
+| 2.5 Multi-node / `nccl` untested | Medium (unverified backend) | Medium |
+| 2.6 `no_sync()` accumulation | Medium (easy to get the boundary wrong) | Small |
+| 2.7 `--dist_arg` key validation | Low | Small |
+| 2.8 Smaller robustness items | Low | Small |
+| 2.9 FSDP seams | Low (design only) | Small |
+| 2.10 Decision F | Low | Trivial (a decision) |
