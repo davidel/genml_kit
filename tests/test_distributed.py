@@ -10,6 +10,7 @@ prove collective behaviour (gradient all-reduce); it is skipped when
 ``torch.distributed`` is unavailable.
 """
 
+import contextlib
 import os
 
 import pytest
@@ -721,3 +722,113 @@ def test_two_rank_merge_is_sample_weighted(tmp_path):
 
   merged = torch.load(tmp_path / "merged.pt", weights_only=False)
   assert merged["loss"] == pytest.approx(2.5)
+
+
+def _nosync_boundary_worker(rank, world_size, tmp_path):
+  """Accumulate K micro-batches under ``no_sync`` and dump the gradient.
+
+  The first K-1 backwards run inside ``model.no_sync()`` (deferred reduce);
+  the final one runs synchronised.  The accumulated gradient must equal the
+  gradient of the single concatenated batch, proving the boundary is right.
+  """
+  os.environ["MASTER_ADDR"] = "127.0.0.1"
+  os.environ["MASTER_PORT"] = "29559"
+  os.environ["RANK"] = str(rank)
+  os.environ["WORLD_SIZE"] = str(world_size)
+  os.environ["LOCAL_RANK"] = str(rank)
+
+  torch.distributed.init_process_group("gloo", rank=rank, world_size=world_size)
+  try:
+    torch.manual_seed(0)
+    model = distributed.wrap_model(_TinyDDPModel())
+    micro = [torch.ones(2, 4) * float(k + 1) for k in range(4)]
+    for k, x in enumerate(micro):
+      is_flush = (k == len(micro) - 1)
+      ctx = contextlib.nullcontext() if is_flush else model.no_sync()
+      with ctx:
+        model(x).backward()
+    acc = [p.grad.detach().clone() for p in model.parameters()]
+
+    if rank == 0:
+      # Reference: one backward over the concatenated batch, same init.
+      torch.manual_seed(0)
+      ref = _TinyDDPModel()
+      ref(torch.cat(micro, dim=0)).backward()
+      ref_grads = [p.grad.detach().clone() for p in ref.parameters()]
+      torch.save({"acc": acc, "ref": ref_grads}, tmp_path / "boundary.pt")
+  finally:
+    distributed.destroy_distributed()
+
+
+def test_nosync_accumulation_matches_single_batch(tmp_path):
+  """``no_sync`` accumulation reproduces the single-batch gradient."""
+  if not distributed.dist.is_available():
+    pytest.skip("torch.distributed unavailable")
+
+  torch.multiprocessing.spawn(_nosync_boundary_worker,
+                              args=(2, tmp_path),
+                              nprocs=2,
+                              join=True)
+
+  blob = torch.load(tmp_path / "boundary.pt", weights_only=False)
+  assert len(blob["acc"]) == len(blob["ref"])
+  for acc, ref in zip(blob["acc"], blob["ref"]):
+    assert torch.allclose(acc, ref, atol=1e-6)
+
+
+def _nosync_cadence_worker(rank, world_size, tmp_path):
+  """Count real DDP collectives over N micro-batches with accum window A.
+
+  A comm hook wraps the default all-reduce, so the counter reflects actual
+  bucket reductions, not just the ``no_sync`` gate.  Expect N/A reductions.
+  """
+  os.environ["MASTER_ADDR"] = "127.0.0.1"
+  os.environ["MASTER_PORT"] = "29560"
+  os.environ["RANK"] = str(rank)
+  os.environ["WORLD_SIZE"] = str(world_size)
+  os.environ["LOCAL_RANK"] = str(rank)
+
+  torch.distributed.init_process_group("gloo", rank=rank, world_size=world_size)
+  try:
+    from torch.distributed.algorithms.ddp_comm_hooks import default_hooks
+
+    torch.manual_seed(0)
+    model = distributed.wrap_model(_TinyDDPModel())
+    ddp = object.__getattribute__(model, "_forward_module")
+    count = [0]
+
+    def _counting_hook(state, bucket):
+      count[0] += 1
+      return default_hooks.allreduce_hook(state, bucket)
+
+    ddp.register_comm_hook(None, _counting_hook)
+
+    n_micro, accum = 8, 4
+    for k in range(n_micro):
+      is_flush = ((k + 1) % accum == 0 or (k + 1) == n_micro)
+      ctx = contextlib.nullcontext() if is_flush else model.no_sync()
+      with ctx:
+        model(torch.ones(2, 4)).backward()
+      if is_flush:
+        for p in model.parameters():
+          p.grad = None
+
+    if rank == 0:
+      torch.save(count[0], tmp_path / "cadence.pt")
+  finally:
+    distributed.destroy_distributed()
+
+
+def test_nosync_reduces_once_per_accumulation_window(tmp_path):
+  """All-reduce fires once per window, not once per micro-batch."""
+  if not distributed.dist.is_available():
+    pytest.skip("torch.distributed unavailable")
+
+  torch.multiprocessing.spawn(_nosync_cadence_worker,
+                              args=(2, tmp_path),
+                              nprocs=2,
+                              join=True)
+
+  count = torch.load(tmp_path / "cadence.pt", weights_only=False)
+  # 8 micro-batches, window of 4 -> 2 synchronised reductions (1 bucket each).
+  assert count == 2

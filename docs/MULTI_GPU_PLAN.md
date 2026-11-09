@@ -103,26 +103,6 @@ constructor keyword. It is not an argparse default, so `arg_defaults()` cannot
 express it; if any method needs it, the mechanism is a pre-wrap attribute set
 and `wrap_model` would need a seam.
 
-### 2.4 `KVPairAction` treats a bare token as `key=True` (cross-cutting)
-
-**Urgency: medium-high -- a typo silently changes behaviour on *every* `*_arg`
-flag, including optimiser hyper-parameters.**
-
-**Gap.** To make `--dist_arg shard` work, `KVPairAction.__call__` was changed from
-erroring on a token without `=` to storing `{token: True}`. This affects **every**
-`*_arg` flag: `--model_arg`, `--opt_arg`, `--sched_arg`, `--dataset_arg`,
-`--tokenizer_arg`, `--proc_arg`, `--dist_arg`.
-
-**Why it matters.** `--opt_arg weight_decay` (a forgotten `=0.05`) now silently
-sets `weight_decay=1.0` -- and `opt_arg` is splatted into
-`torch.optim.AdamW(**opt_arg)`, which accepts it without complaint. Typos shaped
-like keys are also no longer caught for any of these flags. This was an
-accepted, explicit decision, but it belongs in the record.
-
-**Fix.** Document it in the README's argument sections (currently only the
-`--dist_arg` help text mentions bare keys). If the `--opt_arg` case proves
-painful, revisit scoping the permissive behaviour.
-
 ### 2.5 Multi-node and `nccl` are untested
 
 **Urgency: medium -- a coverage gap that could mask anything on the real
@@ -142,41 +122,17 @@ dtype handling, and the L2 norm path under `nccl`.
 
 ### 2.6 Gradient-accumulation all-reduce cadence
 
-**Urgency: medium -- performance only, not correctness, but easy to get the
-boundary wrong.**
+**Status: [Resolved]** -- `DistributedModel.no_sync()` now delegates to the DDP
+forward module, and `Trainer.train_epoch` wraps the non-final micro-steps in it
+so the all-reduce fires once per accumulation window instead of once per
+micro-step. Covered by two gloo/CPU two-rank tests in `tests/test_distributed.py`
+(`test_nosync_accumulation_matches_single_batch`,
+`test_nosync_reduces_once_per_accumulation_window`).
 
-**Gap.** With `grad_accum_steps > 1`, DDP all-reduces gradients on **every**
-micro-step. `torch.nn.parallel.DistributedDataParallel`'s `no_sync()` context
-manager exists precisely to skip those reductions on all but the final
-micro-step.
-
-**Why it matters.** Correct but wasteful: N-1 redundant all-reduces per
-optimizer step, i.e. measurable bandwidth and latency cost scaling with
-`grad_accum_steps`. Silent -- no error, just slower.
-
-**Fix.** Wrap the non-final micro-steps in `with model.no_sync():`. The facade
-must expose `no_sync` (or the trainer must reach `unwrap(model).no_sync()`), and
-the accumulation boundary in `train_epoch` must be identified. Note the guard:
-`no_sync()` must be active on *exactly* the micro-steps whose gradients are not
-yet reduced, or gradients are silently dropped/double-counted.
-
-### 2.7 `--dist_arg` has no key validation (accepted risk)
-
-**Urgency: medium-low -- accepted, documented risk; fixing it would make
-`--dist_arg` behave differently from every other `*_arg`.**
-
-**Gap.** A typo'd key (`--dist_arg find_unused_paramters`) is silently ignored,
-matching how every other `*_arg` flag behaves (they are splatted into
-constructors). This was a deliberate choice to stay consistent.
-
-**Why it matters.** For DDP the miss is not benign: the run proceeds with the
-wrong setting and fails later with an opaque DDP error rather than at parse time.
-It is the one context where the permissive convention costs real debugging time.
-
-**Fix.** Either accept and document (current state), or add a whitelist check at
-the single consumption site. Note this is a conscious trade-off, not an
-oversight; do not "fix" it without deciding, because it would make `--dist_arg`
-behave differently from `--model_arg`.
+**Note on the seam.** The facade's `module` / `unwrap()` return the *semantic*
+model, which has no `no_sync`; the DDP wrapper lives in `_forward_module`. The
+facade method is therefore the only correct entry point -- reaching
+`unwrap(model).no_sync()` would raise `AttributeError`.
 
 ### 2.8 Smaller robustness items
 
@@ -276,10 +232,8 @@ Ordered by urgency, matching §2.
 | 2.1 Resume across rank counts | Medium (silent wrong-position risk) | Medium |
 | 2.2 SSL methods under DDP | Medium; blocked on I-JEPA bug | Medium |
 | 2.3 Per-method DDP knobs | Low (mechanism exists) | Small |
-| 2.4 `KVPairAction` bare token | Low-medium (silent `opt_arg`) | Small |
 | 2.5 Multi-node / `nccl` untested | Medium (unverified backend) | Medium |
-| 2.6 `no_sync()` accumulation | Medium (easy to get the boundary wrong) | Small |
-| 2.7 `--dist_arg` key validation | Low | Small |
+| 2.6 `no_sync()` accumulation | ~~Medium~~ Resolved | Done |
 | 2.8 Smaller robustness items | Low | Small |
 | 2.9 FSDP seams | Low (design only) | Small |
 | 2.10 Decision F | Low | Trivial (a decision) |

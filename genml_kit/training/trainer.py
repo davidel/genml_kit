@@ -17,6 +17,7 @@ monitor placed AFTER ``unscale_`` and BEFORE clip, and per-epoch scheduler
 step + ``method.on_epoch_end`` in ``run()``.
 """
 
+import contextlib
 import logging
 from collections import namedtuple
 
@@ -135,16 +136,25 @@ class BaseTrainer:
         loss_out = self.method.train_step(self.model, blob, step)
         # Raw, UNSCALED mean batch objective.
         loss = loss_out.loss
+      # Accumulation boundary: shared by the no_sync gate below and the flush.
+      is_flush = ((step_in_epoch + 1) % accum_steps == 0 or
+                  (step_in_epoch + 1) == total_batches)
       # Scale ONLY for grad.
       grad = loss / accum_steps
-      if scaler is not None:
-        scaler.scale(grad).backward()
-      else:
-        grad.backward()
+      # Defer the DDP all-reduce on non-final micro-steps: gradients still
+      # accumulate locally, and the flush step's backward performs the single
+      # synchronized reduction over the whole window.  ``no_sync`` is absent on
+      # an unwrapped model (world_size == 1), so fall back to a no-op context.
+      no_sync = getattr(self.model, "no_sync", None)
+      ctx = (contextlib.nullcontext() if (is_flush or no_sync is None) else no_sync())
+      with ctx:
+        if scaler is not None:
+          scaler.scale(grad).backward()
+        else:
+          grad.backward()
 
       # Flush partial tail.
-      if ((step_in_epoch + 1) % accum_steps == 0 or
-          (step_in_epoch + 1) == total_batches):
+      if is_flush:
         if scaler is not None:
           scaler.unscale_(self.optimization.optimizer)
         # True grads: post-unscale, pre-clip.

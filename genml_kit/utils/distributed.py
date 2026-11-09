@@ -540,6 +540,16 @@ class DistributedModel:
     self.module.eval()
     return self
 
+  def no_sync(self):
+    """Expose DDP's ``no_sync`` context manager through the facade.
+
+    Only the forward module is DDP-wrapped; the semantic model returned by
+    :attr:`module` / :func:`unwrap` has no ``no_sync``.  The trainer uses this
+    to defer the gradient all-reduce on non-final accumulation micro-steps
+    (see ``docs/MULTI_GPU_PLAN.md`` s 2.6).
+    """
+    return object.__getattribute__(self, "_forward_module").no_sync()
+
   def to(self, *args, **kwargs):
     """Move the semantic model; returns the facade."""
     self.module.to(*args, **kwargs)
