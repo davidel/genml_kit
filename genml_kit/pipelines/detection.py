@@ -221,4 +221,4 @@ def _det_collate(batch):
   images = torch.stack([item["image"] for item in batch])
   boxes = [item["boxes"] for item in batch]
   labels = [item["labels"] for item in batch]
-  return DataBlob(data=images, meta={"boxes": boxes, "labels": labels})
+  return DataBlob(data=images, meta={"boxes": boxes, "labels": labels}, size=len(batch))

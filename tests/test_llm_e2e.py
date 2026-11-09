@@ -106,7 +106,8 @@ def test_full_lifecycle_train_and_eval(tmp_path):
   assert torch.isfinite(loss_out.loss)
   loss_out.loss.backward()  # gradients flow
 
-  report = method.evaluate(model, val_loader, args.device, pipeline.to_device)
+  report = method.evaluate(model, val_loader, args.device,
+                           pipeline.to_device).metrics
   assert report["ppl"] == pytest.approx(float(torch.exp(torch.tensor(report["loss"]))),
                                         rel=1e-4)
 

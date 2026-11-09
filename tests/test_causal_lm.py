@@ -136,7 +136,7 @@ class TestEvaluate:
                     meta={"labels": torch.tensor([[1, 0, 0]])})
     report = method.evaluate(model, [blob],
                              torch.device("cpu"),
-                             to_device=lambda b, d: b)
+                             to_device=lambda b, d: b).metrics
     assert "loss" in report and "ppl" in report
     assert report["ppl"] == pytest.approx(float(torch.exp(torch.tensor(
         report["loss"]))),

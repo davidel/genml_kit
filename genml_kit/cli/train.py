@@ -363,6 +363,10 @@ def _run(args):
   # --dist_arg shard=false).  Must run before the epoch-budget math below, which
   # reads len(train_loader).
   maybe_call(pipeline, "shard_train_loader", args)
+  # Shard the validation set too (no-op single-process, or when
+  # --dist_arg shard=false).  Its per-rank results are merged across ranks in
+  # BaseTrainer.validate, so a single rank's slice is never reported alone.
+  maybe_call(pipeline, "shard_val_loader", args)
   # RL pipelines need environment initialized before wire_data reads n_actions/obs_dim
   # Default no-op in DataPipeline; RL pipelines override.
   pipeline.init_env(args)

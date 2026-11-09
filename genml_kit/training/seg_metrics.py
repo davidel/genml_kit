@@ -77,13 +77,26 @@ class IoUMeter:
     counts = np.bincount(flat, minlength=self.num_classes * self.num_classes)
     self._confusion += counts.reshape(self.num_classes, self.num_classes)
 
+  @property
+  def confusion(self):
+    """The accumulated ``(C, C)`` confusion matrix (for cross-rank merging)."""
+    return self._confusion
+
   def compute(self):
     """Return ``{"miou", "mdice", "pixel_acc", "per_class_iou"}``.
 
     Classes absent from both prediction and ground truth are excluded from
     the means (they carry no signal and would otherwise bias the score).
     """
-    cm = self._confusion
+    return self.compute_from_confusion(self._confusion)
+
+  @staticmethod
+  def compute_from_confusion(cm):
+    """Reduce a ``(C, C)`` confusion matrix to the metric dict.
+
+    Split out so a distributed run can sum the per-rank matrices and reduce
+    once over the whole validation set (see ``merge_validation``).
+    """
     tp = np.diag(cm).astype(np.float64)
     fp = cm.sum(axis=0).astype(np.float64) - tp
     fn = cm.sum(axis=1).astype(np.float64) - tp

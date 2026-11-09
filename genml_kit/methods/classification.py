@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
-from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.pipelines.contracts import LossOutput, ValidationResult
 from genml_kit.losses import load_loss
 from genml_kit.training.labels import mixup_data
 from genml_kit.training.model_utils import model_mode
@@ -206,9 +206,13 @@ class ClassificationMethod(Method):
     return self._criterion
 
   def evaluate(self, model, loader, device, to_device):
-    """Return dict with macro_f1 (and top1) over *loader* (DataBlob items)."""
+    """Return this rank's ``macro_f1`` / ``top1`` as a ``ValidationResult``.
+
+        macro-F1 is not additive: it cannot be recovered from per-rank means, so
+        the raw prediction / target lists ride along in ``accumulators`` and
+        ``merge_validation`` recomputes the metric over the concatenation.
+        """
     import torch
-    from sklearn.metrics import f1_score
 
     all_preds, all_targets = [], []
     with model_mode(model, "eval"), torch.no_grad():
@@ -220,12 +224,27 @@ class ClassificationMethod(Method):
         all_preds.extend(logits.argmax(dim=1).cpu().tolist())
         all_targets.extend(targets.cpu().tolist())
 
+    metrics = self._classification_metrics(all_preds, all_targets)
+    return ValidationResult(metrics, float(len(all_targets)), (all_preds, all_targets))
+
+  def _classification_metrics(self, all_preds, all_targets):
+    """Compute macro-F1 and top1 from flat prediction / target lists."""
+    from sklearn.metrics import f1_score
+
     labels = list(range(self._num_labels or 0))
     macro_f1 = f1_score(
         all_targets, all_preds, labels=labels, average="macro", zero_division=0) * 100.0
     top1 = (sum(p == t for p, t in zip(all_preds, all_targets)) /
             max(len(all_targets), 1)) * 100.0
     return {"macro_f1": macro_f1, "top1": top1}
+
+  def merge_validation(self, results):
+    """Recompute macro-F1 / top1 over every rank's predictions."""
+    preds, targets = [], []
+    for r in results:
+      preds.extend(r.accumulators[0])
+      targets.extend(r.accumulators[1])
+    return self._classification_metrics(preds, targets)
 
   def has_metric_improved(self, new_metric, best_metric):
     return new_metric > best_metric

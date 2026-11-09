@@ -316,4 +316,6 @@ class TextCollator:
       data["segment_ids"] = torch.tensor(segment_ids, dtype=torch.long)
       data["position_ids"] = torch.tensor(position_ids, dtype=torch.long)
 
-    return DataBlob(data=data, meta={"labels": torch.tensor(labels, dtype=torch.long)})
+    return DataBlob(data=data,
+                    meta={"labels": torch.tensor(labels, dtype=torch.long)},
+                    size=len(input_ids))

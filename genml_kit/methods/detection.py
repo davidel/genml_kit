@@ -20,7 +20,7 @@ from genml_kit.losses import load_loss
 from genml_kit.losses.detection import _location_grid
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
-from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.pipelines.contracts import LossOutput, ValidationResult
 from genml_kit.training.det_metrics import MAPMeter
 from genml_kit.utils.logging import fatal
 
@@ -228,12 +228,17 @@ class DetectionMethod(Method):
     return LossOutput(loss=loss, metrics=metrics)
 
   def evaluate(self, model, loader, device, to_device):
-    """Return ``{"map", "map_50", "map_75", "loss"}`` over *loader*."""
+    """This rank's detection metrics as a ``ValidationResult``.
+
+        mAP is non-additive (area under a global PR curve), so the meter's raw
+        per-image records ride along in ``accumulators`` and
+        ``merge_validation`` concatenates and reduces once.
+        """
     meter = MAPMeter(self._num_classes)
     was_training = getattr(model, "training", False)
     model.eval()
     total_loss = 0.0
-    n_batches = 0
+    weight = 0.0
     max_det = self._max_detections
     with torch.no_grad():
       for blob in loader:
@@ -244,8 +249,8 @@ class DetectionMethod(Method):
             "labels": lab
         } for b, lab in zip(blob.meta["boxes"], blob.meta["labels"])]
         loss, _ = self._criterion(out.logits, targets)
-        total_loss += float(loss)
-        n_batches += 1
+        total_loss += float(loss) * blob.size
+        weight += blob.size
         decoded = decode_predictions(out.logits,
                                      score_thresh=self._score_thresh,
                                      nms_thresh=self._nms_thresh)
@@ -257,7 +262,17 @@ class DetectionMethod(Method):
                        targets[img]["boxes"], targets[img]["labels"])
     model.train(was_training)
     metrics = meter.compute()
-    metrics["loss"] = total_loss / max(n_batches, 1)
+    metrics["loss"] = total_loss / max(weight, 1.0)
+    return ValidationResult(metrics, weight, meter.state)
+
+  def merge_validation(self, results):
+    """Concatenate per-rank records and reduce mAP once over the shards."""
+    merged = MAPMeter(self._num_classes)
+    for r in results:
+      merged.extend(r.accumulators)
+    metrics = merged.compute()
+    weight = sum(r.weight for r in results) or 1.0
+    metrics["loss"] = sum(r.metrics["loss"] * r.weight for r in results) / weight
     return metrics
 
   def has_metric_improved(self, new_metric, best_metric):

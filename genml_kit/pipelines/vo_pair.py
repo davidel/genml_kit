@@ -62,7 +62,7 @@ class VOPairPipeline(DataPipeline):
     }
     for key in ("log_s", "theta", "t"):
       meta["gt"][key] = torch.stack([b["meta"].gt[key] for b in batch])
-    return DataBlob(data=(data_a, data_b), meta=meta)
+    return DataBlob(data=(data_a, data_b), meta=meta, size=len(batch))
 
   @classmethod
   def add_args(cls, parser):

@@ -15,7 +15,7 @@ import torch.nn.functional as F
 
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
-from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.pipelines.contracts import LossOutput, ValidationResult
 from genml_kit.training.packed_attention import (build_block_diagonal_mask,
                                                  flash_varlen_available,
                                                  flash_varlen_layout)
@@ -283,7 +283,13 @@ class CausalLMMethod(Method):
     }, None)
 
   def evaluate(self, model, loader, device, to_device):
-    """Mean token cross-entropy and perplexity over *loader*."""
+    """This rank's token CE / perplexity as a ``ValidationResult``.
+
+        Returns the raw summed loss as the ``loss`` metric and the token count
+        as ``weight``; ``merge_validation`` divides once over the merged totals.
+        Perplexity is nonlinear in the mean, so it is computed after the merge
+        rather than per-rank.
+        """
     from genml_kit.training.model_utils import model_mode
 
     total_loss, total_tokens = 0.0, 0
@@ -299,7 +305,7 @@ class CausalLMMethod(Method):
         n_tokens = (shift_labels != IGNORE_INDEX).sum().item()
         if n_tokens == 0:
           continue
-        # Sum (not mean) so the caller can weight by the true token count.
+        # Sum (not mean) so the merge can weight by the true token count.
         loss_sum = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)),
                                    shift_labels.view(-1),
                                    ignore_index=IGNORE_INDEX,
@@ -307,6 +313,20 @@ class CausalLMMethod(Method):
         total_loss += loss_sum.item()
         total_tokens += n_tokens
     mean_loss = total_loss / max(total_tokens, 1)
+    # ``metrics`` is this rank's own (correct) value; the raw sum + token count
+    # ride along in ``accumulators`` so ranks merge by re-deriving the mean
+    # rather than averaging means.
+    return ValidationResult(
+        {
+            "loss": mean_loss,
+            "ppl": float(torch.exp(torch.tensor(mean_loss))),
+        }, float(total_tokens), (total_loss, total_tokens))
+
+  def merge_validation(self, results):
+    """Merge summed loss over ranks, then derive the mean CE and perplexity."""
+    total_loss = sum(r.accumulators[0] for r in results)
+    total_tokens = sum(r.accumulators[1] for r in results) or 1.0
+    mean_loss = total_loss / total_tokens
     return {
         "loss": mean_loss,
         "ppl": float(torch.exp(torch.tensor(mean_loss))),

@@ -150,6 +150,27 @@ def all_gather_tensor(tensor):
   return torch.cat(gathered, dim=0).to(tensor.device)
 
 
+def all_gather_object(obj):
+  """Gather a picklable *obj* from every rank, in rank order.
+
+  Unlike :func:`all_gather_tensor` the per-rank objects may differ in shape or
+  type, so this pickles them (``all_gather_object``).  Used to collect per-rank
+  validation results for a cross-rank merge.  Returns ``[obj]`` when not
+  distributed.
+
+  Args:
+      obj: Any picklable object, e.g. a ``ValidationResult``.
+
+  Returns:
+      A list of length ``world_size()`` in rank order.
+  """
+  if not is_distributed():
+    return [obj]
+  out = [None] * world_size()
+  dist.all_gather_object(out, obj)
+  return out
+
+
 def broadcast_model_state(model):
   """Broadcast *model*'s parameters and buffers from rank 0 to every rank.
 

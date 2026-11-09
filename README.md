@@ -2982,11 +2982,12 @@ flag, matching `--model_arg` / `--opt_arg`.  A bare key means `true`:
 | `shard` | `true` when more than one rank | Shard the training set across ranks. Set `shard=false` to run every rank over the full dataset (rarely what you want: it multiplies the compute with no error). |
 | `find_unused_parameters` | `false` | Pass through to `DistributedDataParallel`. Needed only for methods whose forward skips some parameters. |
 | `static_graph` | `false` | Pass through to `DistributedDataParallel`. Only valid when the autograd graph is identical every step. |
-| `validate_all` | `false` | Validate on every rank and average the metrics, instead of rank 0 evaluating everything. |
 
 Defaults are chosen so that a multi-GPU run only has to be correct, not
-tuned: sharding is on whenever it can matter, and validation stays on rank 0
-because the validation set is never sharded -- rank 0 already sees all of it.
+tuned: sharding is on whenever it can matter. The validation set is sharded the
+same way as training, each rank evaluates its disjoint slice, and the per-rank
+results are merged (`Method.merge_validation`) so the reported metric always
+describes the whole set; only rank 0 logs it.
 
 These defaults are *method-aware*: the selected pipeline or method may declare
 its own default for any flag via `arg_defaults()`, and `--dist_arg` merges on

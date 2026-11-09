@@ -2,8 +2,9 @@
 
 Status: **distributed plumbing landed (supervised and RL); §2.12 (epoch
 advance), §2.13 (sampler preservation incl. the single-GPU `BalancedBatchSampler`
-wiring), §2.14 (off-policy NaN reduction) and §2.15 (RL `--grad_accum_steps`
-rejected) fixed. Remaining: §2.1--§2.11.**
+wiring), §2.14 (off-policy NaN reduction), §2.15 (RL `--grad_accum_steps`
+rejected) and §2.2 (validation sharded + merged) fixed. Remaining: §2.1,
+§2.3--§2.11.**
 Baseline: commit `629de39` (`test(rl): cover SAC reduction and the RL driver end
 to end`), on top of `fbf3435` (`fix(rl): honour the rank gate in
 RLTrainer.validate and gate eval videos`) and `a774d76` (`fix(rl): reduce
@@ -62,13 +63,25 @@ constructor keyword. It is not an argparse default, so `arg_defaults()` cannot
 express it; if any method needs it, the mechanism is a pre-wrap attribute set
 and `wrap_model` would need a seam.
 
-### 2.2 `validate_all` is redundant (either shard val, or drop it)
+### 2.2 `validate_all` is redundant -- **RESOLVED (option a)**
 
-**Gap.** `--dist_arg validate_all` runs validation on every rank and averages the
-result. But `val_loader` is **never sharded** (`shard_train_loader` touches only
-`train_loader`), so every rank evaluates the *same* full validation set. The
-averaged metric is therefore mathematically identical to rank 0's -- at N times
-the cost.
+**Resolution.** `val_loader` is now sharded (``shard_val_loader``, wired in the
+driver right after ``shard_train_loader``), so every rank evaluates a disjoint
+slice. ``Method.evaluate`` returns a ``ValidationResult`` (metrics + sample
+``weight`` + opaque ``accumulators``); ``BaseTrainer.validate`` gathers the
+per-rank results (``all_gather_object``) and merges them via
+``Method.merge_validation`` -- sample-weighted for additive metrics, and
+recomputed from the raw accumulator (confusion matrix / PR records / prediction
+lists / mce sums) for non-additive ones. The ``validate_all`` flag is **removed**
+(sharding + merge is now unconditional). Covered by
+``tests/test_distributed.py::test_two_rank_merge_is_sample_weighted`` and the
+per-method ``evaluate`` tests.
+
+**Gap (historical).** `--dist_arg validate_all` ran validation on every rank and
+averaged the result. But `val_loader` was **never sharded**
+(`shard_train_loader` touched only `train_loader`), so every rank evaluated the
+*same* full validation set. The averaged metric was therefore mathematically
+identical to rank 0's -- at N times the cost.
 
 **Why it matters.** A configuration knob that cannot change the result is a trap:
 it invites someone to "enable correctness" and get nothing but a bill.
@@ -505,7 +518,7 @@ RL-specific, because RL models are deliberately **not** DDP-wrapped
 | Item | Risk | Effort |
 |---|---|---|
 | 2.1 Per-method DDP knobs | Low (mechanism exists) | Small |
-| 2.2 `validate_all` (shard val or remove) | Low, correctness-sensitive | Small-medium |
+| 2.2 `validate_all` (shard val or remove) | Low, correctness-sensitive | ~~Small-medium~~ **DONE** |
 | 2.3 `no_sync()` accumulation | Medium (easy to get the boundary wrong) | Small |
 | 2.4 Resume across rank counts | Medium (silent wrong-position risk) | Medium |
 | 2.5 SSL methods under DDP | Medium; blocked on I-JEPA bug | Medium |
@@ -516,13 +529,13 @@ RL-specific, because RL models are deliberately **not** DDP-wrapped
 | 2.13 `shard_loader` drops weighted/balanced sampler | **High** (silent objective change) | ~~Small / Medium~~ **DONE** |
 | 2.13 prerequisite: `BalancedBatchSampler` passed as `sampler=` | **High** (broken on 1 GPU too) | ~~Trivial~~ **DONE** |
 | 2.14 Off-policy NaN skip not `any_rank_true` | **High** (hang or `fatal`) | ~~Trivial~~ **DONE** |
-| 2.15 RL ignores `--grad_accum_steps` | Low (silent no-op flag) | Trivial (reject) / Medium (implement) |
+| 2.15 RL ignores `--grad_accum_steps` | Low (silent no-op flag) | ~~Trivial (reject)~~ **DONE** |
 
 ### Suggested order
 
 2.12, 2.13 (including its single-GPU prerequisite and the sharded weighted
-sampler, option (a) -- one global draw, sliced per rank) and 2.14 are **done**.
+sampler, option (a) -- one global draw, sliced per rank), 2.14, 2.15 and 2.2
+(validation sharded + merged, option (a)) are **done**.
 
-Remaining correctness-adjacent item: 2.15 is a decision plus a one-liner. §2.2
-and §2.3 remain the highest-value *design* items; §2.4 is the one that benefits
+§2.3 is the highest-value remaining *design* item; §2.4 is the one that benefits
 most from 2.12 landing, since the sampler epoch is now actually persisted-worthy.

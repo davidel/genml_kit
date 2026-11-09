@@ -88,7 +88,8 @@ def test_pipeline_and_method_contract(tmp_path):
   out = method.train_step(model, blob, 0)
   assert torch.isfinite(out.loss)
 
-  metrics = method.evaluate(model, pipeline.val_loader, args.device, pipeline.to_device)
+  metrics = method.evaluate(model, pipeline.val_loader, args.device,
+                            pipeline.to_device).metrics
   for key in ("miou", "mdice", "pixel_acc", "loss"):
     assert key in metrics
     assert 0.0 <= metrics[key] <= 1.0 or key == "loss"
@@ -185,7 +186,7 @@ def test_segmentation_learns_a_simple_pattern(tmp_path):
   # the absolute miou after a fixed number of steps is seed-dependent;
   # assert on the improvement from this baseline instead of an absolute.
   baseline = method.evaluate(model, pipeline.val_loader, args.device,
-                             pipeline.to_device)["miou"]
+                             pipeline.to_device).metrics["miou"]
 
   blob = pipeline.to_device(next(iter(pipeline.train_loader)), args.device)
   opt = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -194,5 +195,6 @@ def test_segmentation_learns_a_simple_pattern(tmp_path):
     opt.zero_grad()
     out.loss.backward()
     opt.step()
-  metrics = method.evaluate(model, pipeline.val_loader, args.device, pipeline.to_device)
+  metrics = method.evaluate(model, pipeline.val_loader, args.device,
+                            pipeline.to_device).metrics
   assert metrics["miou"] - baseline > 0.2

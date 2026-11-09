@@ -120,7 +120,8 @@ def test_pipeline_and_method_contract(tmp_path):
   out = method.train_step(model, blob, 0)
   assert torch.isfinite(out.loss)
 
-  metrics = method.evaluate(model, pipeline.val_loader, args.device, pipeline.to_device)
+  metrics = method.evaluate(model, pipeline.val_loader, args.device,
+                            pipeline.to_device).metrics
   for key in ("map", "map_50", "map_75", "loss"):
     assert key in metrics
 
@@ -214,7 +215,7 @@ def test_detection_learns_a_simple_pattern(tmp_path):
 
   args, pipeline, method, model = _build(tmp_path, image_size=size)
   baseline = method.evaluate(model, pipeline.val_loader, args.device,
-                             pipeline.to_device)["map"]
+                             pipeline.to_device).metrics["map"]
 
   blob = pipeline.to_device(next(iter(pipeline.train_loader)), args.device)
   opt = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -223,5 +224,6 @@ def test_detection_learns_a_simple_pattern(tmp_path):
     opt.zero_grad()
     out.loss.backward()
     opt.step()
-  metrics = method.evaluate(model, pipeline.val_loader, args.device, pipeline.to_device)
+  metrics = method.evaluate(model, pipeline.val_loader, args.device,
+                            pipeline.to_device).metrics
   assert metrics["map"] >= baseline

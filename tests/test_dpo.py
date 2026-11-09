@@ -156,7 +156,7 @@ class TestDpoE2E:
     assert out.loss.item() == pytest.approx(0.0, abs=5.0)  # finite
     assert "accuracy" in out.metrics
     report = method.evaluate(model, pipeline.val_loader, torch.device("cpu"),
-                             pipeline.to_device)
+                             pipeline.to_device).metrics
     assert "loss" in report and "accuracy" in report
 
   def test_reference_reconstructed_from_args(self, tmp_path):
@@ -187,7 +187,7 @@ class TestRewardModelE2E:
     out = method.train_step(model, blob, 0)
     assert torch.isfinite(out.loss)
     report = method.evaluate(model, pipeline.val_loader, torch.device("cpu"),
-                             pipeline.to_device)
+                             pipeline.to_device).metrics
     assert "loss" in report and "accuracy" in report
 
   def test_training_reduces_loss_on_tiny_overfit(self, tmp_path):

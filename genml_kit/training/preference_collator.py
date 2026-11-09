@@ -105,4 +105,5 @@ class PreferenceCollator:
             "chosen_labels": chosen_labels,
             "rejected_labels": rejected_labels,
         },
+        size=len(chosen),
     )

@@ -21,7 +21,7 @@ from genml_kit.datasets.vo_pairs import VOPairMeta
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.models.registry import load_model
-from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.pipelines.contracts import LossOutput, ValidationResult
 from genml_kit.training.vo.train_vo import STAGES, vo_losses
 
 # What train_step/evaluate pass to vo_losses: the model's similarity
@@ -157,12 +157,18 @@ class VOPairMethod(Method):
             [metrics.mce, metrics.dlog_s, metrics.dtheta, metrics.conf_mae],
             dtype=torch.float64)
         count += 1
-    if count == 0:
-      metrics = VOMetrics()
-    else:
-      sums /= count
-      metrics = VOMetrics(*sums.tolist())
-    return {"mce": float(metrics.mce)}
+    metrics = VOMetrics() if count == 0 else VOMetrics(*(sums / count).tolist())
+    # ``mce`` is a mean of a 4-vector; carry the raw sum + count so ranks merge
+    # by summing numerators and denominators, not by averaging the means.
+    return ValidationResult({"mce": float(metrics.mce)}, float(count), sums)
+
+  def merge_validation(self, results):
+    """Merge the per-rank mce component sums, then divide once."""
+    from genml_kit.training.vo.train_vo import VOMetrics
+
+    sums = sum(r.accumulators for r in results)
+    count = sum(r.weight for r in results) or 1.0
+    return {"mce": float(VOMetrics(*(sums / count).tolist()).mce)}
 
   def has_metric_improved(self, new_metric, best_metric):
     """Return True when the corner error improved (lower is better)."""

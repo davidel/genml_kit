@@ -685,3 +685,39 @@ def test_two_rank_step_yields_identical_parameters(tmp_path):
   assert len(rank0) == len(rank1)
   for a, b in zip(rank0, rank1):
     assert torch.equal(a, b)
+
+
+def _merge_worker(rank, world_size, tmp_path):
+  """Gather per-rank ValidationResults and dump the merged metrics."""
+  os.environ["MASTER_ADDR"] = "127.0.0.1"
+  os.environ["MASTER_PORT"] = "29558"
+  os.environ["RANK"] = str(rank)
+  os.environ["WORLD_SIZE"] = str(world_size)
+  os.environ["LOCAL_RANK"] = str(rank)
+
+  torch.distributed.init_process_group("gloo", rank=rank, world_size=world_size)
+  try:
+    from genml_kit.methods.base import Method
+    from genml_kit.pipelines.contracts import ValidationResult
+
+    # Two disjoint, unequal shards.  Additive metric: mean of [1.0, 3.0] over
+    # weights (1, 3) is 2.5; a naive mean-of-means would give 2.0.
+    result = ValidationResult({"loss": 1.0 if rank == 0 else 3.0},
+                              1.0 if rank == 0 else 3.0)
+    # ``merge_validation`` does not touch ``self``: call it unbound.
+    merged = Method.merge_validation(None, distributed.all_gather_object(result))
+    if rank == 0:
+      torch.save(merged, tmp_path / "merged.pt")
+  finally:
+    torch.distributed.destroy_process_group()
+
+
+def test_two_rank_merge_is_sample_weighted(tmp_path):
+  """Sharded validation merges to the whole-set value, not a mean-of-means."""
+  if not distributed.dist.is_available():
+    pytest.skip("torch.distributed unavailable")
+
+  torch.multiprocessing.spawn(_merge_worker, args=(2, tmp_path), nprocs=2, join=True)
+
+  merged = torch.load(tmp_path / "merged.pt", weights_only=False)
+  assert merged["loss"] == pytest.approx(2.5)

@@ -6,6 +6,8 @@ import logging
 
 import torch
 
+from genml_kit.pipelines.contracts import ValidationResult
+
 
 class Method(abc.ABC):
   """Objective side of training: model + loss + metric.
@@ -133,24 +135,48 @@ class Method(abc.ABC):
     """Optional: restore method-owned state from a checkpoint dict."""
 
   def evaluate(self, model, loader, device, to_device):
-    """Return dict[str, float] of validation metrics (default: loss mean).
+    """Return this rank's validation metrics as a ``ValidationResult``.
 
         Default implementation iterates *loader*, moves each blob with the
         pipeline's ``to_device`` callback, calls ``eval_step`` under
-        ``torch.no_grad()`` and returns the mean of each metric key.  Override
-        for objective-specific metrics: VO (mce), classification (macro-F1 /
-        confusion matrix).
+        ``torch.no_grad()`` and sample-weights the per-batch metrics (multiplies
+        each by the batch's sample count, divides by the total).  ``weight`` is
+        the sample count, so ``merge_validation`` can aggregate unequal shards
+        correctly.  Override for objective-specific metrics: VO (mce),
+        classification (macro-F1), segmentation (IoU) -- the non-additive ones
+        also override ``merge_validation``.
         """
     metrics_acc = collections.defaultdict(float)
-    n = 0
+    weight = 0.0
     with torch.no_grad():
       for blob in loader:
         blob = to_device(blob, device)
         out = self.eval_step(model, blob, 0)
+        batch_size = blob.size
         for k, v in out.metrics.items():
-          metrics_acc[k] += float(v)
-        n += 1
-    return {k: v / max(n, 1) for k, v in metrics_acc.items()}
+          metrics_acc[k] += float(v) * batch_size
+        weight += batch_size
+    metrics = {k: v / max(weight, 1.0) for k, v in metrics_acc.items()}
+    return ValidationResult(metrics, weight, None)
+
+  def merge_validation(self, results):
+    """Merge per-rank ``ValidationResult``s into one metrics dict.
+
+        Default: sample-weighted mean of the additive ``metrics``, so unequal
+        shards (e.g. the last shard under ``DistributedSampler`` padding)
+        aggregate to the whole-set value rather than a mean-of-means.  Override
+        for non-additive metrics (macro-F1, mAP, mIoU) and use ``accumulators``
+        to recompute the metric over the merged raw state.
+
+        Args:
+            results: One ``ValidationResult`` per rank, in rank order.
+
+        Returns:
+            ``dict[str, float]`` of whole-set metrics.
+        """
+    total = sum(r.weight for r in results) or 1.0
+    keys = results[0].metrics
+    return {k: sum(r.metrics[k] * r.weight for r in results) / total for k in keys}
 
   def has_metric_improved(self, new_metric, best_metric):
     """Return True when *new_metric* beats *best_metric*.

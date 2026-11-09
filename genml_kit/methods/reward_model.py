@@ -24,7 +24,7 @@ import torch.nn as nn
 from genml_kit.losses import load_loss
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
-from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.pipelines.contracts import LossOutput, ValidationResult
 from genml_kit.utils.logging import fatal
 
 
@@ -156,21 +156,26 @@ class RewardModelMethod(Method):
     )
 
   def evaluate(self, model, loader, device, to_device):
-    """Mean Bradley-Terry loss and pairwise ranking accuracy over *loader*."""
+    """This rank's BT loss / ranking accuracy as a ``ValidationResult``.
+
+        Sample-weighted so unequal val shards merge to the whole-set value.
+        """
     from genml_kit.training.model_utils import model_mode
 
-    total_loss, total_acc, n = 0.0, 0.0, 0
+    loss_acc, acc_acc, weight = 0.0, 0.0, 0.0
     with model_mode(model, "eval"), torch.no_grad():
       for blob in loader:
         blob = to_device(blob, device)
         out = self.train_step(model, blob, 0)
-        total_loss += float(out.loss)
-        total_acc += float(out.metrics["accuracy"])
-        n += 1
-    return {
-        "loss": total_loss / max(n, 1),
-        "accuracy": total_acc / max(n, 1),
-    }
+        bs = blob.size
+        loss_acc += float(out.loss) * bs
+        acc_acc += float(out.metrics["accuracy"]) * bs
+        weight += bs
+    return ValidationResult(
+        {
+            "loss": loss_acc / max(weight, 1.0),
+            "accuracy": acc_acc / max(weight, 1.0),
+        }, weight)
 
   def get_checkpoint_state(self, model, args):
     return {

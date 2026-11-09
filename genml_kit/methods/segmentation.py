@@ -24,7 +24,7 @@ from genml_kit.datasets.transforms import (
 from genml_kit.losses import load_loss
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
-from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.pipelines.contracts import LossOutput, ValidationResult
 from genml_kit.training.model_utils import model_mode
 from genml_kit.training.seg_metrics import IoUMeter
 from genml_kit.utils.logging import fatal
@@ -157,24 +157,39 @@ class SegmentationMethod(Method):
     return LossOutput(loss=loss, metrics={"loss": loss.detach(), "pixel_acc": acc})
 
   def evaluate(self, model, loader, device, to_device):
-    """Return ``{"miou", "mdice", "pixel_acc"}`` accumulated over *loader*."""
+    """This rank's seg metrics as a ``ValidationResult``.
+
+        IoU/Dice/pixel-acc are non-additive: they are reduced from a confusion
+        matrix, so the matrix rides along in ``accumulators`` and
+        ``merge_validation`` sums the per-rank matrices and reduces once.  Loss
+        is sample-weighted.
+        """
     meter = IoUMeter(self._num_classes, ignore_index=self._ignore_index())
     was_training = getattr(model, "training", False)
     model.eval()
     total_loss = 0.0
-    n_batches = 0
+    weight = 0.0
     with torch.no_grad():
       for blob in loader:
         blob = to_device(blob, device)
         out = model(pixel_values=blob.data)
         logits = _match_mask_size(out.logits, blob.meta["mask"])
         mask = blob.meta["mask"]
-        total_loss += float(self._criterion(logits, mask))
-        n_batches += 1
+        bs = blob.size
+        total_loss += float(self._criterion(logits, mask)) * bs
+        weight += bs
         meter.update(logits, mask)
     model.train(was_training)
     metrics = meter.compute()
-    metrics["loss"] = total_loss / max(n_batches, 1)
+    metrics["loss"] = total_loss / max(weight, 1.0)
+    return ValidationResult(metrics, weight, meter.confusion)
+
+  def merge_validation(self, results):
+    """Sum the per-rank confusion matrices and reduce once over the shards."""
+    cm = sum((r.accumulators for r in results), np.zeros_like(results[0].accumulators))
+    metrics = IoUMeter.compute_from_confusion(cm)
+    weight = sum(r.weight for r in results) or 1.0
+    metrics["loss"] = sum(r.metrics["loss"] * r.weight for r in results) / weight
     return metrics
 
   def log_validation(self,

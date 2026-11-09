@@ -370,7 +370,7 @@ class ImagesPipeline(DataPipeline):
     labels = None
     if batch and batch[0].get("label") is not None:
       labels = torch.tensor([b["label"] for b in batch], dtype=torch.long)
-    return DataBlob(data=images, meta={"labels": labels})
+    return DataBlob(data=images, meta={"labels": labels}, size=len(batch))
 
 
 _images_collate = ImagesPipeline._collate

@@ -415,4 +415,4 @@ def _seg_collate(batch):
   """
   images = torch.stack([b["image"] for b in batch])
   masks = torch.stack([b["mask"].to(torch.long) for b in batch])
-  return DataBlob(data=images, meta={"mask": masks})
+  return DataBlob(data=images, meta={"mask": masks}, size=len(batch))

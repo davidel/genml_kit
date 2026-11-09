@@ -80,6 +80,22 @@ class MAPMeter:
         "labels": gt_labels.detach().cpu(),
     })
 
+  @property
+  def state(self):
+    """The accumulated ``(detections, ground_truth)`` lists (for merging)."""
+    return (self._detections, self._ground_truth)
+
+  def extend(self, state):
+    """Append another meter's ``state`` (per-image records) to this one.
+
+    Used to merge the per-rank accumulators of a distributed validation run:
+    mAP is the area under a global precision/recall curve, so the raw records
+    must be concatenated before reducing, never averaged as scalars.
+    """
+    detections, ground_truth = state
+    self._detections.extend(detections)
+    self._ground_truth.extend(ground_truth)
+
   def compute(self):
     """Return ``{"map", "map_50", "map_75"}`` over the accumulated data."""
     per_threshold = [self._ap_at(threshold) for threshold in self.iou_thresholds]

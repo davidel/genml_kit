@@ -94,7 +94,7 @@ def test_preference_pipeline_lifecycle(tmp_path, method_name):
   out = method.train_step(model, blob, 0)
   assert torch.isfinite(out.loss)
   report = method.evaluate(model, pipeline.val_loader, torch.device("cpu"),
-                           pipeline.to_device)
+                           pipeline.to_device).metrics
   assert "accuracy" in report
 
 

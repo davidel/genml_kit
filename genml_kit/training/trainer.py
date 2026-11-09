@@ -34,7 +34,7 @@ from genml_kit.training.train_reporting import ImageTrainReporting, Metric, metr
 from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.utils.attr import MISSING, maybe_call
 from genml_kit.utils.distributed import (
-    all_reduce_dict,
+    all_gather_object,
     barrier,
     is_distributed,
     is_main_process,
@@ -56,11 +56,6 @@ class _NoMonitor:
 
   def step(self, *_args, **_kwargs):
     return None
-
-
-def _validate_all_ranks(args):
-  """True when every rank validates (metrics averaged), not just rank 0."""
-  return bool(args.dist_arg.get("validate_all", False))
 
 
 class BaseTrainer:
@@ -166,20 +161,14 @@ class BaseTrainer:
         self.optimization.optimizer.zero_grad(set_to_none=True)
         step += 1
 
-      # Determine batch size from the blob (dict or DataBlob namedtuple).
+      # Sample count and targets.  Collators publish ``size`` on the blob, so
+      # the batch dimension is never re-derived by sniffing the shape of
+      # ``data`` (which may be a tensor, a tuple of views, or a dict).
       if isinstance(blob, dict):
         batch_size = blob["pixel_values"].shape[0]
         targets = blob.get("labels", None)
       else:
-        data = blob.data
-        if isinstance(data, dict):
-          # Dict-valued data (e.g. the text pipeline's input_ids /
-          # attention_mask) -- batch dim comes from any tensor entry.
-          batch_size = next(iter(data.values())).shape[0]
-        elif isinstance(data, (tuple, list)):
-          batch_size = data[0].shape[0]
-        else:
-          batch_size = data.shape[0]
+        batch_size = blob.size
         targets = blob.meta.get("labels", None) if isinstance(blob.meta, dict) else None
 
       # Surface the method's per-component loss metrics (mce, dlog_s,
@@ -223,37 +212,42 @@ class BaseTrainer:
     ``torch.no_grad()``; overrides that need eval-mode (SimMIM
     reconstructions, VO mce) use ``model_mode(model, "eval")`` internally.
 
-    Distributed policy: by default only rank 0 validates (the other ranks skip
-    and wait at the next barrier), which avoids N redundant evaluations.  With
-    ``--dist_arg validate_all`` every rank validates its shard and the
-    per-key scalars are averaged across ranks, so the metric reflects the whole
-    validation set rather than rank 0's slice.
+    Distributed policy: the validation set is sharded across ranks (see
+    ``shard_val_loader``), so every rank evaluates its disjoint slice, the
+    per-rank ``ValidationResult``s are gathered and merged by
+    ``Method.merge_validation``, and only rank 0 logs the whole-set metrics.
+    A single rank alone would see just its 1/N slice, hence the mandatory merge.
     """
     if self.pipeline.val_loader is None:
       return None
-    if not self._should_validate():
-      return None
-    metrics = self.method.evaluate(self.model, self.pipeline.val_loader, self.device,
-                                   self.pipeline.to_device)
-    if _validate_all_ranks(self.args):
-      metrics = all_reduce_dict(metrics, average=True)
+    result = self.method.evaluate(self.model, self.pipeline.val_loader, self.device,
+                                  self.pipeline.to_device)
+    if is_distributed():
+      metrics = self.method.merge_validation(all_gather_object(result))
+    else:
+      metrics = result.metrics
     key = self.method.METRIC_KEY
     val = metrics[key]
     # Log every scalar metric the method reports (loss, mdice, pixel_acc,
     # per-class aggregates, ...) so nothing computed by ``evaluate`` is
-    # dropped on the floor.  Non-scalar values (e.g. ``per_class_iou``
+    # dropped on the floor.  Non-scalar entries (e.g. ``per_class_iou``
     # lists) are skipped -- they carry no scalar meaning.  Validation is
-    # epoch-scope, so these are emitted as epoch records.
-    for name, value in metrics.items():
-      if isinstance(value, (int, float)) and not isinstance(value, bool):
-        self.logger.log_epoch(f"val/{name}", value, epoch=self.epoch)
+    # epoch-scope, so these are emitted as epoch records.  Only rank 0 logs;
+    # the merged metrics describe the whole set, so the others stay silent.
+    if is_main_process():
+      for name, value in metrics.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+          self.logger.log_epoch(f"val/{name}", value, epoch=self.epoch)
     return val
 
   def _should_validate(self):
-    """True when this rank owns validation (rank 0, or all-ranks mode)."""
-    if not is_distributed():
-      return True
-    return is_main_process() or _validate_all_ranks(self.args)
+    """True when this rank owns validation.
+
+    Rank 0 only.  Used by env-based overrides (``RLTrainer.validate``) whose
+    "validation" is a policy rollout that is not sharded -- unlike the
+    DataLoader path, which shards the val set and merges across ranks.
+    """
+    return is_main_process()
 
   def has_metric_improved(self, old, new):
     """Route direction to the method (default: maximize)."""

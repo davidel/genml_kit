@@ -101,6 +101,27 @@ class DataPipeline(abc.ABC):  # noqa: B024
       self.train_loader = shard_loader(self.train_loader,
                                        seed=getattr(args, "seed", 0) or 0)
 
+  def shard_val_loader(self, args):
+    """Shard the validation set across ranks (no-op when single-process).
+
+        Mirror of :meth:`shard_train_loader`.  The val loader is built with
+        ``shuffle=False`` (a ``SequentialSampler``), so ``shard_loader`` installs
+        a non-shuffling ``DistributedSampler`` and every rank sees a disjoint,
+        order-stable slice.  This is only sound together with a cross-rank merge
+        (``BaseTrainer.validate`` gathers the per-rank results and calls
+        ``Method.merge_validation``): a single rank now sees just its 1/N slice,
+        so its metrics alone would no longer describe the whole val set.
+
+        Args:
+            args: Parsed CLI args (uses ``dist_arg["shard"]``).
+        """
+    from genml_kit.utils.distributed import shard_loader, world_size
+    if not args.dist_arg.get("shard", world_size() > 1) or world_size() < 2:
+      return
+    if getattr(self, "val_loader", None) is not None:
+      self.val_loader = shard_loader(self.val_loader,
+                                     seed=getattr(args, "seed", 0) or 0)
+
   def set_train_epoch(self, epoch):
     """Advance every per-epoch sampler on the train loader.
 

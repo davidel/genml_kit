@@ -13,7 +13,7 @@ import logging
 
 import torch
 
-from genml_kit.pipelines.contracts import DataBlob, LossOutput
+from genml_kit.pipelines.contracts import DataBlob, LossOutput, ValidationResult
 from genml_kit.training.trainer import BaseTrainer
 
 
@@ -74,7 +74,7 @@ class FakeMethod:
   def evaluate(self, model, loader, device, to_device):
     # Return a *lower* metric each epoch so a fresh best always fires.
     v = self._loss + 0.01
-    return {"macro_f1": v, "loss": v}
+    return ValidationResult({"macro_f1": v, "loss": v}, 4.0)
 
   def has_metric_improved(self, new, best):
     return new > best
@@ -103,7 +103,7 @@ class MinimizingFakeMethod(FakeMethod):
     return new < best
 
   def evaluate(self, model, loader, device, to_device):
-    return {"mce": self._loss + 0.02, "loss": self._loss}
+    return ValidationResult({"mce": self._loss + 0.02, "loss": self._loss}, 4.0)
 
 
 class _WrappedLoader:
@@ -124,13 +124,15 @@ class FakePipeline:
 
   def __init__(self, data, meta=None):
     self.train_loader = _WrappedLoader(
-        [DataBlob(data=data, meta=meta or {"labels": torch.zeros(4)})])
+        [DataBlob(data=data, meta=meta or {"labels": torch.zeros(4)}, size=4)])
     self.val_loader = None
 
   def to_device(self, blob, device):
     if isinstance(blob.data, (tuple, list)):
-      return DataBlob(tuple(b.to(device) for b in blob.data), blob.meta)
-    return DataBlob(blob.data.to(device), blob.meta)
+      data = tuple(b.to(device) for b in blob.data)
+    else:
+      data = blob.data.to(device)
+    return blob._replace(data=data)
 
 
 class _Logger:
@@ -230,12 +232,12 @@ def test_new_best_line_keeps_subpixel_precision(tmp_path, caplog):
     def evaluate(self, model, loader, device, to_device):
       v = self._vals[min(self._i, len(self._vals) - 1)]
       self._i += 1
-      return {"mce": v, "loss": 0.01}
+      return ValidationResult({"mce": v, "loss": 0.01}, 4.0)
 
   pipeline = FakePipeline(torch.zeros(4, 3, 8, 8))
   # Validation must run, otherwise the best-metric cycle never fires.
   pipeline.val_loader = _WrappedLoader(
-      [DataBlob(data=torch.zeros(4, 3, 8, 8), meta={"labels": torch.zeros(4)})])
+      [DataBlob(data=torch.zeros(4, 3, 8, 8), meta={"labels": torch.zeros(4)}, size=4)])
   trainer = _make_trainer(tmp_path, method=_SubpixelMce(), pipeline=pipeline)
   # Seed the sentinel the fresh-run branch would use, so the first
   # epoch's mce counts as an improvement and the line actually fires.
