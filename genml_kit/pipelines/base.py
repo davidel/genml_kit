@@ -85,9 +85,7 @@ class DataPipeline(abc.ABC):  # noqa: B024
     # iterating the full dataset is never what a multi-GPU run wants, and it
     # fails silently (no error, just N times the compute), so the default is
     # derived from the rank count rather than left to an opt-in flag.
-    if not getattr(args, "dist_arg", {}).get("shard",
-                                                 world_size() > 1) or \
-            world_size() < 2:
+    if not args.dist_arg.get("shard", world_size() > 1) or world_size() < 2:
       return
     if getattr(self, "train_loader", None) is not None:
       self.train_loader = shard_loader(self.train_loader,

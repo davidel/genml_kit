@@ -121,6 +121,7 @@ def _make_args(**overrides):
       # these, so the hand-built Namespace must too.
       model=None,
       model_arg={},
+      dist_arg={},
       cache_dir=None,
       loss=None,
       loss_args=None,

@@ -37,6 +37,7 @@ def _make_args(**overrides):
       param_init=None,
       model=None,
       model_arg={},
+      dist_arg={},
       cache_dir=None,
       loss=None,
       loss_args=None,

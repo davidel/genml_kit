@@ -218,6 +218,7 @@ class TestClassificationLifecycle:
         image_size=16,
         cache_dir=None,
         model_arg={},
+        dist_arg={},
         mixup_alpha=0.0,
         focal_gamma=0.0,
         label_smoothing=0.0,

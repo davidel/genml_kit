@@ -59,7 +59,7 @@ class _NoMonitor:
 
 def _validate_all_ranks(args):
   """True when every rank validates (metrics averaged), not just rank 0."""
-  return bool(getattr(args, "dist_arg", {}).get("validate_all", False))
+  return bool(args.dist_arg.get("validate_all", False))
 
 
 class BaseTrainer:

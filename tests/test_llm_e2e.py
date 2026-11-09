@@ -55,6 +55,7 @@ def _args(corpus_dir, model_dir, **overrides):
       tokenizer="byte",
       tokenizer_arg=None,
       model_arg={},
+      dist_arg={},
       trust_remote_code=False,
       attn_implementation=None,
       batch_size=2,

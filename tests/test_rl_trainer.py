@@ -135,6 +135,7 @@ def _make_args(**overrides):
       env_seed=42,
       model=None,
       model_arg={},
+      dist_arg={},
       cache_dir=None,
       loss=None,
       loss_args=None,
@@ -306,6 +307,7 @@ class TestRLTrainerEndToEnd:
         # Shared args consumed by the methods/pipeline.
         model=None,
         model_arg={},
+        dist_arg={},
         cache_dir=None,
         loss=None,
         loss_args=None,
@@ -598,6 +600,7 @@ class TestRLCheckpointRoundTrip:
         lora_dropout=0.0,
         model=None,
         model_arg={},
+        dist_arg={},
         cache_dir=None,
         loss=None,
         loss_args=None,

@@ -31,6 +31,7 @@ class _Args:
   amp_dtype = None
   norm_history = 0
   grad_monitor = -1
+  dist_arg = {}
 
 
 class _Optimization:

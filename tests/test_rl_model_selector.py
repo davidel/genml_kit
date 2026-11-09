@@ -29,6 +29,7 @@ def _make_args(**overrides):
   defaults = dict(
       model=None,
       model_arg={},
+      dist_arg={},
       dqn_gamma=0.99,
       dqn_ddqn=True,
       dqn_dueling=False,

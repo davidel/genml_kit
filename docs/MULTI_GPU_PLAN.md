@@ -351,10 +351,11 @@ device placement, and the watchdog safety of the post-validation `barrier()`.
   regardless of whether a process group exists. A user exporting `LOCAL_RANK`
   manually gets an unexpected device index with no error. Consider gating on
   `is_distributed()`.
-- **`shard_train_loader` reads `dist_arg` defensively.** It uses
-  `getattr(args, "dist_arg", {}).get(...)` because tests construct duck-typed
-  arg namespaces. That is tolerated, not ideal; a shape contract for parsed args
-  would remove the defensive read. (Related to Decision F.)
+- **`dist_arg` is read directly, like `model_arg`.** `KVPairAction` always
+  installs a `dict` default, so a parsed namespace always carries the attribute
+  (`{}` when the flag is absent). Consumers therefore use `args.dist_arg.get(...)`
+  with no `getattr` fallback, matching the `args.model_arg` convention. Hand-built
+  test namespaces must supply `dist_arg={}`.
 - **Effective-batch documentation.** `loss/accum_steps` stays local and DDP
   averages gradients, so effective batch = `local_batch x accum x world_size`,
   and `--lr` may need linear scaling. This is documented in the README but is a
