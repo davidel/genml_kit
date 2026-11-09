@@ -22,6 +22,7 @@ from genml_kit.utils.distributed import (
     all_reduce_gradients,
     any_rank_true,
     is_distributed,
+    is_main_process,
     rank,
     world_size,
 )
@@ -541,9 +542,19 @@ class RLTrainer(BaseTrainer):
   def validate(self):
     """Policy evaluation on the environment (not a DataLoader).
 
+    Distributed policy mirrors ``BaseTrainer.validate``: only the owning rank
+    evaluates, the others return ``None`` and wait at the caller's
+    ``barrier()``.  This override previously ran on *every* rank, and because
+    each rank's env is seeded differently (``per_rank_seed``) the ranks
+    evaluated different policies -- N-way redundant work plus an inconsistent
+    "New best" metric logged by every rank.
+
     Returns:
-      Scalar eval_return (float) for checkpoint selection.
+      Scalar eval_return (float) for checkpoint selection, or ``None`` on a
+      rank that does not own validation (see ``_should_validate``).
     """
+    if not self._should_validate():
+      return None
     env_seed = getattr(self.args, "env_seed", None)
     # Isolate RNG state to avoid corrupting training sampling (B2).
     if env_seed is not None:
@@ -584,7 +595,9 @@ class RLTrainer(BaseTrainer):
         ``episode_frames`` metric).  Episodes with no captured frames are
         skipped; ``None``/missing is a no-op.
     """
-    if not episode_frames:
+    # Rank 0 owns every file sink (checkpoints, logs): without this guard each
+    # rank wrote the same eval_episode_*.mp4 paths and clobbered the others.
+    if not episode_frames or not is_main_process():
       return
     out_dir = os.path.join(getattr(self.args, "checkpoint", "."), "videos")
     for i, frames in enumerate(episode_frames):

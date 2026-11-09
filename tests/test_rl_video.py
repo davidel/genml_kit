@@ -270,6 +270,63 @@ class TestValidatorWritesVideos:
     assert written
     assert any(f.startswith("eval_episode_") for f in written)
 
+  def test_validate_skips_video_write_on_non_owning_rank(self, tmp_path, monkeypatch):
+    """Only rank 0 may write ``eval_episode_*.mp4``.
+
+    Regression: ``_write_eval_videos`` had no rank guard, so under DDP every
+    rank wrote the same paths and they clobbered each other.
+    """
+    from genml_kit.training.rl_trainer import RLTrainer
+
+    frames = _make_frames(3, size=16)
+
+    class _FakeMethod:
+
+      def evaluate(self, model, pipeline, num_episodes, record_video=False):
+        return {"eval_return": 2.0, "episode_frames": [frames]}
+
+    class _FakePipeline:
+
+      def reset_env(self):
+        return np.zeros(4)
+
+      def step_env(self, action):
+        return np.zeros(4), 1.0, False, {}
+
+      def can_record_video(self):
+        return False
+
+      def render_frame(self):
+        return np.zeros((16, 16, 3), dtype=np.uint8)
+
+    trainer = object.__new__(RLTrainer)
+    trainer.args = _make_args(checkpoint=str(tmp_path))
+    trainer.pipeline = _FakePipeline()
+    trainer.method = _FakeMethod()
+    trainer.model = object()
+
+    # Pretend this process is a non-owning rank.  ``_should_validate`` is the
+    # base-class seam the fix now consults, so patch it directly rather than
+    # faking a whole process group.
+    monkeypatch.setattr(RLTrainer, "_should_validate", lambda self: False)
+
+    result = trainer.validate()
+    assert result is None, "non-owning rank must not evaluate"
+    assert not os.path.exists(os.path.join(str(tmp_path), "videos"))
+
+  def test_write_eval_videos_is_rank0_only(self, tmp_path, monkeypatch):
+    """``_write_eval_videos`` must no-op off rank 0 even if called directly."""
+    from genml_kit.training import rl_trainer as _rl_trainer
+    from genml_kit.training.rl_trainer import RLTrainer
+
+    trainer = object.__new__(RLTrainer)
+    trainer.args = _make_args(checkpoint=str(tmp_path))
+
+    monkeypatch.setattr(_rl_trainer, "is_main_process", lambda: False)
+    trainer._write_eval_videos([_make_frames(3, size=16)])
+
+    assert not os.path.exists(os.path.join(str(tmp_path), "videos"))
+
   def test_validate_no_frames_is_noop(self, tmp_path):
     from genml_kit.training.rl_trainer import RLTrainer
 
