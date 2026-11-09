@@ -460,6 +460,7 @@ class TestShardLoaderDistributed:
     assert len(r0) == len(r1), "ranks must run equal step counts for DDP"
 
 
+
 class _TinyDDPModel(nn.Module):
 
   def __init__(self):

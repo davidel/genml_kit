@@ -32,12 +32,13 @@ from genml_kit.training.metrics_sinks import ensure_logger
 from genml_kit.training.model_utils import set_train_mode
 from genml_kit.training.train_reporting import ImageTrainReporting, Metric, metric
 from genml_kit.utils.args import amp_dtype_from_args
-from genml_kit.utils.attr import maybe_call
+from genml_kit.utils.attr import MISSING, maybe_call
 from genml_kit.utils.distributed import (
     all_reduce_dict,
     barrier,
     is_distributed,
     is_main_process,
+    sampler_epoch,
     unwrap,
 )
 from genml_kit.utils.signal import InterruptedException, sigexcept
@@ -328,12 +329,19 @@ class BaseTrainer:
           # as "latched" without ever stopping.  Re-raise at this safe
           # epoch boundary so the interrupt is honoured regardless.
           interrupts.check_interrupt()
-          # Tell the batch sampler the epoch so it can vary its per-epoch
-          # shuffle (no-op for loaders whose batch_sampler has no set_epoch).
-          maybe_call(self.pipeline.train_loader, "batch_sampler.set_epoch", epoch)
-          # Advance a DistributedSampler (and the rank-strided shard offset) so
-          # every epoch reshuffles; no-op single-process.
-          maybe_call(self.pipeline, "set_train_epoch", epoch)
+          # Advance every per-epoch sampler on the loader so each epoch
+          # reshuffles: the pipeline's own batch sampler, the
+          # ``DistributedSampler`` one level down, and the rank-strided shard
+          # offset.  ``sampler_epoch`` walks the wrapper chain by capability, so
+          # a plain ``BatchSampler`` cannot mask the ``DistributedSampler`` the
+          # way a first-truthy lookup did.  No-op single-process.
+          #
+          # Preferred path is the pipeline, which owns the loader.  The direct
+          # call covers a pipeline that does not define ``set_train_epoch`` (the
+          # trainer only requires a ``train_loader`` attribute), so the epoch is
+          # still delivered instead of being silently skipped.
+          if maybe_call(self.pipeline, "set_train_epoch", epoch) is MISSING:
+            sampler_epoch(self.pipeline.train_loader, epoch)
           logging.info(f"=== Epoch {epoch + 1}/{args.epochs} ===")
           _, self.global_step = self.train_epoch(epoch, saver, self.global_step,
                                                  grad_monitor)

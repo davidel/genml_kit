@@ -660,15 +660,71 @@ def _is_shuffling(loader):
   return isinstance(loader.sampler, RandomSampler)
 
 
-def sampler_epoch(sampler, epoch):
-  """Advance a sampler's epoch so each epoch reshuffles differently.
+def _epoch_targets(root):
+  """Collect the distinct objects under *root* that may own per-epoch state.
 
-  Safe on ``None`` and on samplers without ``set_epoch`` (e.g. the balanced
-  sampler), so callers can call it unconditionally each epoch.
+  Three places can hold the epoch, and which one does depends on how the
+  ``DataLoader`` was built:
+
+  * ``loader.sampler`` -- a plain index sampler, e.g. the ``DistributedSampler``
+    that :func:`shard_loader` installs;
+  * ``loader.batch_sampler`` -- a pipeline's own batch-stream sampler
+    (length-bucketed), or a :class:`_ShardedBatchSampler`;
+  * ``loader.batch_sampler.sampler`` -- when ``batch_size`` was passed,
+    ``DataLoader`` wraps the index sampler in a *plain* ``BatchSampler``, so the
+    real sampler is one level down.
+
+  ``root`` itself comes first, so a bare sampler needs no special case.
+  Callers then filter on capability (:func:`sampler_epoch`); collecting the
+  whole chain and filtering is what makes the epoch reach the
+  ``DistributedSampler``.  Picking the first *truthy* attribute instead is a
+  silent no-op: ``loader.batch_sampler`` is a ``BatchSampler``, which has no
+  ``set_epoch``, and being truthy it masks ``loader.sampler``.
+
+  The loader, a plain ``BatchSampler`` and the sampler it wraps can alias each
+  other, so identity duplicates are dropped here rather than by the caller.
+
+  Args:
+      root: A ``DataLoader``, a sampler, or any stand-in exposing these
+        attributes.
+
+  Returns:
+      A list of non-``None`` candidate objects, outermost first, without
+      identity duplicates.
   """
-  set_epoch = getattr(sampler, "set_epoch", None)
-  if set_epoch is not None:
-    set_epoch(epoch)
+  batch_sampler = getattr(root, "batch_sampler", None)
+  targets = []
+  for candidate in (
+      root,
+      batch_sampler,
+      getattr(root, "sampler", None),
+      getattr(batch_sampler, "sampler", None),
+  ):
+    if candidate is None:
+      continue
+    # Deduplicate by identity, not equality: a sampler may define __eq__, and
+    # two distinct samplers that compare equal must each receive the epoch.
+    if not any(candidate is target for target in targets):
+      targets.append(candidate)
+  return targets
+
+
+def sampler_epoch(root, epoch):
+  """Advance every per-epoch sampler reachable from *root*.
+
+  Callers invoke this unconditionally each epoch; it is safe on ``None``, on a
+  loader with no samplers, and on samplers without ``set_epoch`` (the balanced
+  sampler has none).
+
+  Args:
+      root: A loader (preferred) or a bare sampler; both are accepted, so a
+        caller holding only the sampler object keeps working.
+      epoch: The epoch index to publish.
+  """
+  for target in _epoch_targets(root):
+    set_epoch = getattr(target, "set_epoch", None)
+    if set_epoch is not None:
+      set_epoch(epoch)
 
 
 class _ShardedBatchSampler:

@@ -102,11 +102,17 @@ class DataPipeline(abc.ABC):  # noqa: B024
                                        seed=getattr(args, "seed", 0) or 0)
 
   def set_train_epoch(self, epoch):
-    """Advance the train loader's sampler so each epoch reshuffles."""
+    """Advance every per-epoch sampler on the train loader.
+
+        Delegates to :func:`genml_kit.utils.distributed.sampler_epoch`, which
+        walks the loader's sampler wrapper chain rather than picking the first
+        truthy one.  That matters under DDP: ``shard_loader`` installs a
+        ``DistributedSampler`` as ``loader.sampler``, but ``DataLoader`` wraps it
+        in a plain ``BatchSampler``, which has no ``set_epoch`` -- so a
+        first-truthy lookup silently leaves the epoch pinned at 0.
+        """
     loader = self.train_loader
     if loader is None:
       return
     from genml_kit.utils.distributed import sampler_epoch
-    sampler_epoch(
-        getattr(loader, "batch_sampler", None) or getattr(loader, "sampler", None),
-        epoch)
+    sampler_epoch(loader, epoch)
