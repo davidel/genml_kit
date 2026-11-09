@@ -120,23 +120,9 @@ placement for collectives (`_reduce_device` in `distributed.py`), and the
 procedure), at minimum covering: `cuda:{LOCAL_RANK}` pinning, `all_reduce_dict`
 dtype handling, and the L2 norm path under `nccl`.
 
-### 2.6 Gradient-accumulation all-reduce cadence
-
-**Status: [Resolved]** -- `DistributedModel.no_sync()` now delegates to the DDP
-forward module, and `Trainer.train_epoch` wraps the non-final micro-steps in it
-so the all-reduce fires once per accumulation window instead of once per
-micro-step. Covered by two gloo/CPU two-rank tests in `tests/test_distributed.py`
-(`test_nosync_accumulation_matches_single_batch`,
-`test_nosync_reduces_once_per_accumulation_window`).
-
-**Note on the seam.** The facade's `module` / `unwrap()` return the *semantic*
-model, which has no `no_sync`; the DDP wrapper lives in `_forward_module`. The
-facade method is therefore the only correct entry point -- reaching
-`unwrap(model).no_sync()` would raise `AttributeError`.
-
 ### 2.8 Smaller robustness items
 
-**Urgency: low -- mostly bookkeeping; one bullet is already resolved.**
+**Urgency: low -- mostly bookkeeping.**
 
 - **`resolve_device` and a stray `LOCAL_RANK`.** `resolve_device` prefers
   `cuda:{LOCAL_RANK}` whenever `LOCAL_RANK` is set (`gpu.py::_local_rank_env`),
@@ -151,13 +137,6 @@ facade method is therefore the only correct entry point -- reaching
   averages gradients, so effective batch = `local_batch x accum x world_size`,
   and `--lr` may need linear scaling. This is documented in the README but is a
   silent-correctness trap worth stating in the doc too.
-- **`grad_monitor` / `model_report`.** **[Resolved]** These are rank-0-owned by
-  the same argument as the other sinks. `grad_monitor.py` contains no `open()`,
-  `json.dump` or other write call -- it only emits `logging.*` records, which is
-  safe under `torchrun` (one stderr stream per process, no shared file). Nothing
-  left to do here; the "main-process-only writes" tests already pin the
-  checkpoint and metrics sinks.
-
 ### 2.9 FSDP-ready seams (design only)
 
 **Urgency: low -- design only; cheap to keep true, expensive to retrofit.**
@@ -233,7 +212,6 @@ Ordered by urgency, matching §2.
 | 2.2 SSL methods under DDP | Medium; blocked on I-JEPA bug | Medium |
 | 2.3 Per-method DDP knobs | Low (mechanism exists) | Small |
 | 2.5 Multi-node / `nccl` untested | Medium (unverified backend) | Medium |
-| 2.6 `no_sync()` accumulation | ~~Medium~~ Resolved | Done |
 | 2.8 Smaller robustness items | Low | Small |
 | 2.9 FSDP seams | Low (design only) | Small |
 | 2.10 Decision F | Low | Trivial (a decision) |
