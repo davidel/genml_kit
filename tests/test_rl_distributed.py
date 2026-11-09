@@ -440,3 +440,105 @@ def test_sharded_ppo_epoch_keeps_ranks_identical(tmp_path):
   assert r1["rollout_len"] == 8
   assert torch.equal(r0["params"],
                      r1["params"]), ("post-step parameters diverged across ranks")
+
+
+def _sac_step_worker(rank, world, port, tmpdir, steps):
+  """Run SAC updates; dump critic/actor/alpha params post-step.
+
+  SAC is the one RL method with a *custom* ``apply_grad``: it owns its own
+  gradient reduction (three optimizers plus the bare ``log_alpha`` leaf
+  tensor), so the trainer's ``_reduce_rl_gradients`` path never runs for it.
+  This worker proves that per-method reduction directly.
+
+  Each rank seeds the replay buffer with rank-distinct transitions, so the
+  local gradients genuinely differ.  Without the reduction the post-step
+  parameters would diverge; with it they are bit-identical.
+  """
+  import numpy as np
+
+  from genml_kit.methods.rl_sac import SACMethod
+
+  from tests.test_rl_trainer import _make_args, _TestRLPipeline
+
+  _init(rank, world, port)
+  try:
+    from genml_kit.utils.seed import resolve_seed, seed_everything
+
+    # Exactly what cli/train.py does: a different seed per rank.
+    seed_everything(resolve_seed(42) + distributed.rank())
+
+    args = _make_args(
+        sac_gamma=0.99,
+        sac_tau=0.005,
+        sac_alpha=0.2,
+        sac_auto_alpha=True,
+        sac_critic_lr=1e-3,
+        sac_actor_lr=1e-3,
+        sac_alpha_lr=1e-3,
+        grad_clip=0.0,  # isolate the reduction from any clipping effect
+        checkpoint=None,
+        seed=42,
+    )
+    # ``action_dim=2`` (not 1): the test pipeline picks its replay-buffer
+    # dtype with an ``action_dim > 1`` heuristic, so a 1-D continuous action
+    # would be stored as int64 scalars.
+    pipeline = _TestRLPipeline(obs_dim=4, continuous=True, action_dim=2, buffer_size=64)
+    method = SACMethod()
+    method.wire_data(args, pipeline)
+    raw = method.build_model(args, device=torch.device("cpu"))
+    model = method.wrap_model(raw, torch.device("cpu"), args)
+    distributed.broadcast_model_state(model)
+    # ``log_alpha`` is derived deterministically from ``--sac_alpha``
+    # (``log(0.2)``), not from the RNG, so it already starts identical on
+    # every rank and needs no synchronisation.
+
+    # Rank-distinct transitions so local gradients differ before reduction.
+    rng = np.random.default_rng(1000 + rank)
+    buffer = pipeline.replay_buffer
+    for _ in range(32):
+      obs = rng.normal(size=4).astype(np.float32)
+      nxt = rng.normal(size=4).astype(np.float32)
+      buffer.push(obs,
+                  rng.uniform(-1, 1, size=2).astype(np.float32), float(rng.normal()),
+                  nxt, 0.0, False)
+
+    optimization = method.build_optimization(args,
+                                             model,
+                                             torch.device("cpu"),
+                                             ckpt_extra={},
+                                             states_to_load={})
+
+    for _step in range(steps):
+      batch = pipeline.to_device(buffer.sample(16), torch.device("cpu"))
+      loss_out = method.train_step(model, batch, 0)
+      method.apply_grad(loss_out, None, None, optimization)
+
+    critic_params = method._optimizer_params(optimization.critic_opt)
+    actor_params = method._optimizer_params(optimization.actor_opt)
+    torch.save(
+        {
+            "critic": torch.cat([p.detach().flatten() for p in critic_params]),
+            "actor": torch.cat([p.detach().flatten() for p in actor_params]),
+            "log_alpha": method._log_alpha.detach().clone(),
+        }, os.path.join(tmpdir, f"sac{rank}.pt"))
+  finally:
+    distributed.destroy_distributed()
+
+
+@requires_gloo
+def test_sac_two_rank_step_keeps_optimizers_and_alpha_identical(tmp_path):
+  """SAC's per-method reduction must unify all three optimizers + log_alpha.
+
+  ``SACMethod.apply_grad`` reduces gradients itself (it steps three separate
+  optimizers), so this exercises that custom path -- the trainer's shared
+  ``_reduce_rl_gradients`` never runs for SAC.  Post-step, every rank must
+  hold bit-identical critic/actor weights *and* the temperature.
+  """
+  _spawn(_sac_step_worker, tmp_path, port=29809, extra=(3,))
+  r0 = torch.load(tmp_path / "sac0.pt", weights_only=False)
+  r1 = torch.load(tmp_path / "sac1.pt", weights_only=False)
+
+  assert torch.equal(r0["critic"], r1["critic"]), "critic weights diverged across ranks"
+  assert torch.equal(r0["actor"], r1["actor"]), "actor weights diverged across ranks"
+  assert torch.equal(r0["log_alpha"],
+                     r1["log_alpha"]), "log_alpha diverged across ranks"
