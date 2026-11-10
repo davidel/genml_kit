@@ -26,7 +26,7 @@ broadcasting, silently-wrong loss.
 
 import torch
 
-from genml_kit.utils.attr import MISSING, get_attribute
+from genml_kit.utils.attr import MISSING, get_attribute, maybe_call
 
 # Attribute paths probed (in order) to infer the backbone output dimension.
 _BACKBONE_DIM_PATHS = (
@@ -67,10 +67,14 @@ def detect_backbone_dim(encoder):
 def encode_with_backbone(encoder, images):
   """Extract raw backbone features ``(B, D)`` from an encoder.
 
-  Tries ``genml_kit.training.model_utils.extract_backbone_features`` first (which
-  hooks into the model's classifier / pooling layer).  On failure falls
-  back to a direct forward pass, handling HuggingFace model outputs
-  that expose ``logits`` / ``pooler_output`` / ``last_hidden_state``.
+  Prefers the encoder's ``backbone_embedding`` protocol method when
+  present: it returns the *full* backbone representation (transformer
+  stack included), which is what pre-training objectives must optimise.
+  Otherwise falls back to
+  ``genml_kit.training.model_utils.extract_backbone_features`` (which
+  hooks into the model's classifier / pooling layer), and finally to a
+  direct forward pass, handling HuggingFace model outputs that expose
+  ``logits`` / ``pooler_output`` / ``last_hidden_state``.
 
   Args:
       encoder: Backbone encoder module.
@@ -82,6 +86,14 @@ def encode_with_backbone(encoder, images):
       un-pooled tensor yields a non-``(B, D)`` result — see the module
       docstring's output-shape contract and ``require_matching_features``.
   """
+  # 1. Preferred: the representation protocol method, which runs the full
+  #    backbone (e.g. ConvViT's transformer stack) rather than just its
+  #    conv stem.  Only ConvViT implements it today; HF/timm encoders
+  #    return MISSING and fall through to the hook-based path below.
+  embedding = maybe_call(encoder, "backbone_embedding", images)
+  if embedding is not MISSING:
+    return embedding
+  # 2. Hook-based extraction via the classifier / pooling layer.
   from genml_kit.training.model_utils import extract_backbone_features
   try:
     return extract_backbone_features(encoder, images)

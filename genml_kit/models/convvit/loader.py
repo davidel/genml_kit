@@ -22,6 +22,8 @@ class ConvViTAdapter(nn.Module):
     * ``forward(pixel_values=)`` → ``ModelOutput`` with ``.logits``
     * ``config.id2label`` / ``config.label2id`` accessible
     * ``extract_backbone_features(pixel_values)`` for XGBoost
+    * ``backbone_embedding(pixel_values)`` -- the pooled ``(B, D)``
+      representation consumed by self-supervised pre-training objectives
     """
 
   def __init__(self, model, config):
@@ -59,6 +61,23 @@ class ConvViTAdapter(nn.Module):
       x = block(x)
       features.append(x)
     return features
+
+  def backbone_embedding(self, pixel_values):
+    """Return the pooled backbone representation ``(B, D)``.
+
+        Pre-training entry point, distinct from
+        :meth:`extract_backbone_features`: this runs the *full* backbone
+        (conv stem + transformer core) and pools it, so self-supervised
+        objectives train the transformer rather than only the conv stem.
+        ``extract_backbone_features`` keeps its conv-stem feature-map
+        semantics for the XGBoost consumer.
+
+        Returns
+        -------
+        torch.Tensor
+            ``(B, D)`` pooled embedding.
+        """
+    return self.model.backbone_embedding(pixel_values)
 
 
 @MODELS.register("convvit")

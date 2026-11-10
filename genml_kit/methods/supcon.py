@@ -26,13 +26,18 @@ class SupConMethod(Method):
   def arg_defaults(cls):
     """Declare ``find_unused_parameters`` for DDP.
 
-        The contrastive encoder's backbone is fed through
-        ``encode_with_backbone``, which extracts the convolutional stem's
-        feature maps and pools them; the backbone's own transformer stack
-        (``pos_embedding``, ``cls_token`` and the transformer layers) is
-        therefore never reached.  DDP's default ``find_unused_parameters=False``
-        then aborts on the second iteration ("parameters that were not used in
-        producing loss").
+        Declared *defensively*, not because the default path needs it: the
+        contrastive encoder routes every trainable parameter through
+        ``encode_with_backbone`` (which now reaches the full backbone),
+        so a stock run leaves nothing unused and completes with the DDP
+        default ``find_unused_parameters=False``.
+
+        The flag is kept so that a non-default configuration which leaves
+        some trainable parameter out of the loss -- without aborting on
+        DDP's unused-parameter check on the second iteration -- keeps
+        working.  Users who want the lower-overhead strict check on a
+        config they know is fully used can pass ``--dist_arg
+        find_unused_parameters=false``.
         """
     return {"dist_arg": {"find_unused_parameters": True}}
 

@@ -2989,7 +2989,7 @@ flag, matching `--model_arg` / `--opt_arg`.  A bare key means `true`:
 |---|---|---|
 | `backend` | auto (`nccl` on CUDA, else `gloo`) | Process-group backend. |
 | `shard` | `true` when more than one rank | Shard the training set across ranks. Set `shard=false` to run every rank over the full dataset (rarely what you want: it multiplies the compute with no error). |
-| `find_unused_parameters` | `false` | Pass through to `DistributedDataParallel`. Needed only for methods whose forward skips some parameters. |
+| `find_unused_parameters` | `false` (declared `true` by BYOL / DINO / SupCon) | Pass through to `DistributedDataParallel`. Lets a forward that skips some trainable parameters survive DDP's unused-parameter check. The SSL methods declare it defensively; a stock run leaves nothing unused and would pass without it. |
 | `static_graph` | `false` | Pass through to `DistributedDataParallel`. Only valid when the autograd graph is identical every step. |
 
 Defaults are chosen so that a multi-GPU run only has to be correct, not

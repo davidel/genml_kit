@@ -140,15 +140,6 @@ def _unused_parameter_names(model):
   ]
 
 
-# Methods whose backbone transformer stack is bypassed by
-# ``encode_with_backbone``: the ConvViT adapter's ``extract_backbone_features``
-# returns only the convolutional stem's feature maps, so the transformer
-# layers never enter the autograd graph.  Tracked as a known gap; the DDP test
-# below asserts the *distributed* contract (no hang, all-reduced gradients),
-# not that every backbone parameter trains.
-_BACKBONE_BYPASSED_METHODS = frozenset({"supcon", "dino", "byol"})
-
-
 @pytest.mark.parametrize("method_name", ["simmim", "supcon", "dino", "byol", "ijepa"])
 def test_ssl_method_trains_under_real_ddp(method_name, tmp_path):
   """Each SSL method must complete two DDP steps without hanging or raising."""
@@ -171,16 +162,42 @@ def test_ssl_method_trains_under_real_ddp(method_name, tmp_path):
   assert signature0 is not None
   assert torch.equal(signature0, signature1)
 
-  # A method's own ``arg_defaults`` must clear DDP's unused-parameter check.
-  # The frozen/EMA towers of the BYOL/DINO families are expected to leave the
-  # teacher parameters unused; the run completing two steps without raising is
-  # the assertion that matters.
-  if method_name in _BACKBONE_BYPASSED_METHODS:
-    # The bypassed transformer stack is a known, separate gap (see comment
-    # above); assert the projection head -- the part that actually trains --
-    # is fully covered so this test still fails if the live path breaks.
-    live = [n for n in rank0["missing"] if "projection" in n]
-    assert live == [], f"{method_name} projection head has unused params: {live}"
-  else:
-    assert rank0["missing"] == [], (
-        f"{method_name} has unused params: {rank0['missing']}")
+  # Every trainable parameter must receive a gradient.  Frozen EMA
+  # teachers (BYOL target, DINO teacher) are excluded by
+  # ``_unused_parameter_names`` because they have ``requires_grad=False``,
+  # so a clean run leaves this empty for *all* methods -- including the
+  # ConvViT transformer stack that ``encode_with_backbone`` used to skip.
+  assert rank0["missing"] == [], (
+      f"{method_name} has unused params: {rank0['missing']}")
+
+
+@pytest.mark.parametrize("method_name", ["simmim", "supcon", "dino", "byol", "ijepa"])
+def test_ssl_backbone_gets_gradient(method_name):
+  """The ConvViT transformer stack must train in a plain forward/backward.
+
+  The DDP test above proves the distributed contract; this single-process
+  guard pins the *representation* contract directly: a regression that
+  routed the objective back through the conv stem only (the
+  ``encode_with_backbone`` bug) would leave ``pos_embedding``,
+  ``cls_token`` and the transformer layers without gradients here, with no
+  ``gloo`` process group needed.
+  """
+  args = _args(method_name)
+  method = METHODS.get(method_name)()
+  model = method.build_model(args, torch.device("cpu"))
+
+  optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+  optimizer.zero_grad()
+  out = method.train_step(model, _blob(method_name, rank=0), 0)
+  out.loss.backward()
+
+  # Target the backbone transformer stack by parameter identity, not by a
+  # module-path prefix: each method nests the ConvViT adapter differently
+  # (``encoder`` vs ``encoder.model``).
+  backbone = ("pos_embedding", "cls_token", "transformer_layers", "ln_norm")
+  no_grad = [
+      name for name, param in model.named_parameters()
+      if param.requires_grad and any(token in name for token in backbone) and
+      (param.grad is None or param.grad.abs().sum() == 0)
+  ]
+  assert no_grad == [], f"{method_name} backbone params without grad: {no_grad}"

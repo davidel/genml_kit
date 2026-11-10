@@ -88,8 +88,9 @@ def _run_ssl(tmp_path):
     Uses the *real* registered ``convvit`` backbone and the *real* images
     pre-training pipeline -- no model/processor mocking -- so the run proves
     the path a user actually invokes.  Method-declared ``arg_defaults``
-    (``find_unused_parameters``) must therefore be applied by the real CLI
-    parse, which is exactly what this exercises.
+    (``find_unused_parameters``) are applied by the real CLI parse, which is
+    what this exercises: the knob is a defensive default now, so this checks
+    the declared-default plumbing end to end rather than a hard requirement.
     """
   ds = _make_dataset(size=32)
   ckpt_base = str(tmp_path / "ckpts" / "model")

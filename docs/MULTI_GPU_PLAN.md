@@ -103,33 +103,11 @@ avoiding per-step reducer overhead and supporting per-name exclusion.**
 `_ddp_params_and_buffers_to_ignore` is a **module attribute set before
 wrapping** (exact parameter names), *not* a `DistributedDataParallel`
 constructor keyword. It is not an argparse default, so `arg_defaults()` cannot
-express it; if a method needs it (the frozen-tower cases of BYOL / DINO would
-benefit, since `find_unused_parameters=True` makes the reducer re-traverse
-every bucket each iteration), the mechanism is a pre-wrap attribute set and
-`wrap_model` would need a seam.
-
-### 2.4 Dead backbone transformer in contrastive methods
-
-**Urgency: high -- three pre-training methods currently train a projection head
-over conv-stem features and never touch the backbone transformer.**
-
-**Gap.** `ConvViTAdapter.extract_backbone_features` returns the convolutional
-stem's feature maps; `encode_with_backbone` then mean-pools the last map. The
-backbone's `pos_embedding`, `cls_token` and every transformer layer are never
-executed, so `SupCon`, `DINO` and `BYOL` train *only* the projection head on top
-of conv-stem features. SimMIM and I-JEPA are unaffected (they drive the full
-backbone forward).
-
-**Why it matters.** These runs look healthy (loss decreases, DDP completes) while
-the backbone — the part meant to learn the representation — stays at its random
-initialisation. It is a silent correctness bug, not a crash.
-
-**Fix.** Give the contrastive path a pooled backbone forward (`forward` through
-the transformer, take the pooled CLS vector) instead of the conv-stem feature
-hook; keep `extract_backbone_features` for its original feature-extraction
-(XGBoost) consumer. Needs a decision on whether to change the adapter or the
-contrastive encoders, plus a regression test asserting backbone parameters
-receive gradients.
+express it; if a method needs it (BYOL / DINO keep `find_unused_parameters=True`
+as a defensive default even though the frozen EMA towers never trigger the
+check, and that flag makes the reducer re-traverse every bucket each
+iteration), the mechanism is a pre-wrap attribute set and `wrap_model` would
+need a seam.
 
 ### 2.5 Multi-node and `nccl` are untested
 
@@ -257,7 +235,6 @@ Ordered by urgency, matching §2.
 | Item | Risk | Effort |
 |---|---|---|
 | 2.1 Resume across rank counts | Low (detected + bounded; warn-only) | Small |
-| 2.4 Dead backbone transformer in contrastive methods | High (silent: backbone stays random) | Medium |
 | 2.5 Multi-node / `nccl` untested | Medium (unverified backend) | Medium |
 | 2.8 Smaller robustness items | Low | Small |
 | 2.9 FSDP seams | Low (design only) | Small |

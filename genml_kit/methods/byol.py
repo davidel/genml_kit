@@ -28,12 +28,20 @@ class BYOLMethod(Method):
   def arg_defaults(cls):
     """Declare ``find_unused_parameters`` for DDP.
 
-        Two causes leave parameters without a gradient on a given iteration:
-        the frozen target encoder (EMA teacher) never backpropagates, and the
-        online encoder's backbone transformer stack is bypassed by
-        ``encode_with_backbone`` (which pools the convolutional stem's feature
-        maps).  DDP's default ``find_unused_parameters=False`` aborts on the
-        second iteration unless this is declared.
+        Declared *defensively*, not because the default path needs it.  The
+        frozen EMA target encoder has ``requires_grad=False``, and DDP's
+        unused-parameter check only inspects parameters that require grad,
+        so the target tower is invisible to it.  The online encoder now
+        reaches its full backbone through ``encode_with_backbone``, so a
+        stock run leaves nothing unused and completes with the DDP default
+        ``find_unused_parameters=False``.
+
+        The flag is kept so that a non-default configuration which leaves
+        some trainable parameter out of the loss -- without aborting on
+        DDP's unused-parameter check on the second iteration -- keeps
+        working.  Users who want the lower-overhead strict check on a
+        config they know is fully used can pass ``--dist_arg
+        find_unused_parameters=false``.
         """
     return {"dist_arg": {"find_unused_parameters": True}}
 

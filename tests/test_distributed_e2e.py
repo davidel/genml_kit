@@ -108,12 +108,16 @@ def test_two_rank_ssl_pretraining(method_name, tmp_path):
     the *real* registered ``convvit`` backbone and the *real* images
     pre-training pipeline through ``genml_kit.cli.train.main()``.  That makes
     it the proof that method-declared ``arg_defaults`` (e.g. BYOL's
-    ``find_unused_parameters``) are applied by production argument parsing --
-    without them the second iteration aborts with "parameters that were not
-    used in producing loss".
+    ``find_unused_parameters``) are applied by production argument parsing,
+    and that the resulting two-rank run completes two iterations without
+    DDP's unused-parameter abort.
+
+    The flag is now a defensive default (the frozen EMA tower never triggers
+    the check), so this validates the declared-knob plumbing rather than a
+    hard requirement.
 
     Two methods are covered: ``simmim`` (label-free, no EMA tower) and ``byol``
-    (EMA teacher, the case that *requires* the DDP knob).
+    (EMA teacher, exercising the knob end to end).
     """
   if not torch.distributed.is_available():
     pytest.skip("torch.distributed unavailable")

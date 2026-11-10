@@ -216,6 +216,40 @@ class CustomPatchTransformer(nn.Module):
     # (B, K * D) -> (B, num_classes) logits.
     return self.head(pooled.reshape(embeddings.shape[0], -1))
 
+  def backbone_embedding(self, x):
+    """Return the pooled backbone representation ``(B, D)``.
+
+        This is the representation the model exposes before the
+        classification head: the conv stem plus the transformer core,
+        pooled over the ``num_cls_tokens`` CLS slots.
+
+        Pooling mirrors :meth:`forward` so that pre-training objectives
+        (which consume this embedding) optimise *the same* representation
+        fine-tuning later uses:
+
+        * labeled mode -- ``cls_guided_pool`` over the spatial tokens,
+          then mean over the CLS slots;
+        * headless mode -- mean over the CLS slots.
+
+        Unlike :meth:`forward`, the ``(B, K * D)`` flatten performed for
+        the classifier head is deliberately excluded: this returns the
+        ``(B, D)`` feature vector, never the flattened logits input.
+
+        Args:
+            x: Input images ``(B, C, H, W)``.
+
+        Returns:
+            ``(B, D)`` pooled backbone embedding.
+        """
+    embeddings = self.patch_embed(x)
+    cls_out, spatial_out = self._run_transformer(embeddings)
+    if self.head is not None:
+      # (B, K, D) with (B, N, D) keys/values -> (B, K, D).
+      cls_out = self.cls_guided_pool(cls_out, spatial_out)
+    # Mean over the K CLS slots -> (B, D).  A single CLS token makes this
+    # an identity, so the shape is stable regardless of num_cls_tokens.
+    return cls_out.mean(dim=1)
+
   def encoder_forward(self, patch_embeddings):
     """Run the transformer encoder on pre-computed patch embeddings.
 
