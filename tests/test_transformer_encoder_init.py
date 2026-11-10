@@ -46,7 +46,6 @@ def test_pre_norm_construction_emits_no_warnings():
     warnings.simplefilter("error")
     predictor = _Predictor(
         embed_dim=32,
-        num_patches=16,
         depth=2,
         num_heads=4,
         predictor_dim=32,

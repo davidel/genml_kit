@@ -25,6 +25,19 @@ class BYOLMethod(Method):
   METRIC_MINIMIZE = True
 
   @classmethod
+  def arg_defaults(cls):
+    """Declare ``find_unused_parameters`` for DDP.
+
+        Two causes leave parameters without a gradient on a given iteration:
+        the frozen target encoder (EMA teacher) never backpropagates, and the
+        online encoder's backbone transformer stack is bypassed by
+        ``encode_with_backbone`` (which pools the convolutional stem's feature
+        maps).  DDP's default ``find_unused_parameters=False`` aborts on the
+        second iteration unless this is declared.
+        """
+    return {"dist_arg": {"find_unused_parameters": True}}
+
+  @classmethod
   def add_args(cls, parser):
     group = parser.add_argument_group("BYOL")
     group.add_argument("--byol_proj_dim",

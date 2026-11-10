@@ -46,19 +46,67 @@ class _PatchEmbedder(nn.Module):
     return self.model.encoder_forward(embeds)
 
 
-class _Predictor(nn.Module):
-  """Small transformer that predicts target embeddings from context."""
+def _sincos_2d(positions, dim):
+  """Fixed 2-D sinusoidal positional embeddings for patch coordinates.
 
-  def __init__(self, embed_dim, num_patches, depth=6, num_heads=12, predictor_dim=512):
+    Each coordinate ``v`` is encoded with the classic sin/cos geometric
+    frequency ladder; the row and column axes each contribute half of *dim*.
+    Fixed (parameter-free) so any crop size or offset is representable without
+    learning a fixed-grid table.
+
+    Args:
+      positions: ``(N, 2)`` long tensor of absolute ``(row, col)`` patch
+        coordinates.
+      dim: Output embedding width.
+
+    Returns:
+      ``(N, dim)`` float32 tensor.
+    """
+  device = positions.device
+  d_row = dim // 2
+  d_col = dim - d_row
+
+  def _encode(coord, width):
+    if width == 0:
+      return torch.zeros(coord.shape[0], 0, device=device)
+    half = width // 2
+    freq = torch.arange(half, dtype=torch.float32, device=device)
+    freq = 1.0 / (10000.0**(freq / max(half, 1)))
+    ang = coord[:, None].float() * freq[None, :]
+    emb = torch.cat([ang.sin(), ang.cos()], dim=-1)
+    # The ladder produces 2 * half <= width channels; pad the (rare) odd tail.
+    if emb.shape[-1] < width:
+      pad = torch.zeros(emb.shape[0], width - emb.shape[-1], device=device)
+      emb = torch.cat([emb, pad], dim=-1)
+    return emb
+
+  return torch.cat([_encode(positions[:, 0], d_row),
+                    _encode(positions[:, 1], d_col)],
+                   dim=-1)
+
+
+class _Predictor(nn.Module):
+  """Transformer predictor: masked target embeddings from context.
+
+    Follows the I-JEPA predictor.  The visible context tokens and a set of
+    learnable mask-token queries are concatenated and processed by a single
+    self-attention transformer; the outputs at the mask-token positions are the
+    predictions.  Every token carries a fixed 2-D sinusoidal positional
+    embedding of its *absolute* patch coordinate, so the context and the
+    target queries share one coordinate frame even when they come from
+    different crops.
+    """
+
+  def __init__(self, embed_dim, depth=6, num_heads=12, predictor_dim=512):
     super().__init__()
     self.embed_dim = embed_dim
     self.predictor_dim = predictor_dim
 
-    # Project down to predictor dimension.
+    # Project context tokens down to the predictor dimension.
     self.input_proj = nn.Linear(embed_dim, predictor_dim)
-    # Positional bias (learnable).
-    self.pos_bias = nn.Parameter(torch.zeros(1, num_patches, predictor_dim))
-    nn.init.trunc_normal_(self.pos_bias, std=0.02)
+    # Shared learnable query placed at each masked target position.
+    self.mask_token = nn.Parameter(torch.zeros(1, 1, predictor_dim))
+    nn.init.trunc_normal_(self.mask_token, std=0.02)
 
     encoder_layer = nn.TransformerEncoderLayer(
         d_model=predictor_dim,
@@ -78,27 +126,34 @@ class _Predictor(nn.Module):
     )
     self.output_proj = nn.Linear(predictor_dim, embed_dim)
 
-  def forward(self, context, mask_indices):
-    """Predict embeddings at *mask_indices* from *context*.
+  def forward(self, context, context_pos, target_pos):
+    """Predict embeddings at *target_pos* from *context*.
 
         Args:
-          context: ``(B, N, D)`` student encoder output.
-          mask_indices: ``(B, M)`` long tensor of masked patch indices.
+          context: ``(B, N_s, D)`` student encoder output (source tokens).
+          context_pos: ``(N_s, 2)`` absolute ``(row, col)`` of each source
+            token.
+          target_pos: ``(N_t, 2)`` absolute ``(row, col)`` of the masked
+            target tokens.
 
         Returns:
-          ``(B, M, D)`` predicted embeddings.
+          ``(B, N_t, D)`` predicted embeddings at the target positions.
         """
-    _B, N, _ = context.shape
-    # Project to the predictor dim and add the per-position bias:
-    # (B, N, D) -> (B, N, D_P).
-    x = self.input_proj(context) + self.pos_bias[:, :N, :]
-    # Transformer over the context sequence: (B, N, D_P) unchanged.
-    x = self.transformer(x)
+    b, n_s, _ = context.shape
+    n_t = target_pos.shape[0]
 
-    # Gather the (B, M) masked indices, then project to the target dim:
-    # (B, M, D_P) -> (B, M, D).
-    idx = mask_indices.unsqueeze(-1).expand(-1, -1, x.shape[-1])
-    return self.output_proj(torch.gather(x, 1, idx))
+    # Context tokens + their absolute positions: (B, N_s, D_P).
+    x_ctx = self.input_proj(context)
+    x_ctx = x_ctx + _sincos_2d(context_pos, self.predictor_dim).to(x_ctx.dtype)
+
+    # Shared mask query broadcast to the target positions: (B, N_t, D_P).
+    x_mask = self.mask_token.expand(b, n_t, -1)
+    x_mask = x_mask + _sincos_2d(target_pos, self.predictor_dim).to(x_mask.dtype)
+
+    # Self-attention over [context ; mask queries]; read out the query slots.
+    x = torch.cat([x_ctx, x_mask], dim=1)
+    x = self.transformer(x)
+    return self.output_proj(x[:, n_s:])
 
 
 def _random_crop(image_size, crop_size):
@@ -109,12 +164,34 @@ def _random_crop(image_size, crop_size):
   return th, tw, crop_size, crop_size
 
 
+def _patch_positions(num_h, num_w, row0, col0, device):
+  """Absolute ``(row, col)`` grid coordinates of a crop's patches.
+
+    Args:
+      num_h: Number of patch rows in the crop.
+      num_w: Number of patch columns in the crop.
+      row0: Absolute patch-row of the crop's top edge.
+      col0: Absolute patch-column of the crop's left edge.
+      device: Device for the returned tensor.
+
+    Returns:
+      ``(num_h * num_w, 2)`` long tensor in row-major order.
+    """
+  rows = torch.arange(num_h, device=device) + row0
+  cols = torch.arange(num_w, device=device) + col0
+  grid = torch.stack(torch.meshgrid(rows, cols, indexing="ij"), dim=-1)
+  return grid.reshape(-1, 2)
+
+
 def _make_block_mask(num_h, num_w, block_size_h, block_size_w, n_blocks, device):
   """Create block masks for I-JEPA target view.
 
     Returns a boolean mask of shape ``(num_h * num_w,)`` where True = masked.
     """
-  mask = torch.zeros(num_h * num_w, dtype=torch.bool, device=device)
+  # Write whole rectangular blocks into a 2-D grid (writing through an
+  # ``expand``ed view aliases memory and raises), then flatten to the
+  # ``(num_h * num_w,)`` row-major contract the caller relies on.
+  mask = torch.zeros(num_h, num_w, dtype=torch.bool, device=device)
   # Generate candidate block top-left corners.
   rows = torch.arange(0, num_h - block_size_h + 1, block_size_h, device=device)
   cols = torch.arange(0, num_w - block_size_w + 1, block_size_w, device=device)
@@ -124,9 +201,8 @@ def _make_block_mask(num_h, num_w, block_size_h, block_size_w, n_blocks, device)
   n_blocks = min(n_blocks, grid.shape[0])
   idx = torch.randperm(grid.shape[0], device=device)[:n_blocks]
   for r, c in grid[idx]:
-    mask[r:r + block_size_h].unsqueeze(1).expand(-1, num_w)[:,
-                                                            c:c + block_size_w] = True
-  return mask
+    mask[r:r + block_size_h, c:c + block_size_w] = True
+  return mask.flatten()
 
 
 @METHODS.register
@@ -201,10 +277,8 @@ class IJEPAMethod(Method):
     # Teacher starts identical to student; IJEPA freezes it via EMAModel.
     teacher = copy.deepcopy(student)
 
-    num_patches = student.num_patches
     predictor = _Predictor(
         embed_dim=student.embed_dim,
-        num_patches=num_patches,
         depth=args.predictor_depth,
         num_heads=args.predictor_heads,
         predictor_dim=args.predictor_dim,
@@ -330,13 +404,26 @@ class IJEPA(nn.Module):
     # Flatten the masked positions: (N_t,) -> (M,).
     mask_indices = mask.nonzero(as_tuple=False).squeeze(1)
 
-    # Predict masked target embeddings from source context.
-    # (B, N_s, D)
-    context = z_s
-    # Broadcast mask indices over the batch: (M,) -> (B, M).
-    idx_expanded = mask_indices.unsqueeze(0).expand(z_s.shape[0], -1)
-    # Predictor: (B, N_s, D) context + (B, M) indices -> (B, M, D).
-    z_pred = self.predictor(context, idx_expanded)
+    # Absolute (row, col) patch coordinates in the *full image* frame, so the
+    # context and the target queries are expressed in one shared coordinate
+    # system even though the two views are independent crops.
+    source_pos = _patch_positions(
+        source_view.shape[2] // patch_size,
+        source_view.shape[3] // patch_size,
+        source_crop[0] // patch_size,
+        source_crop[1] // patch_size,
+        images.device,
+    )
+    target_pos = _patch_positions(
+        t_h,
+        t_w,
+        target_crop[0] // patch_size,
+        target_crop[1] // patch_size,
+        images.device,
+    )[mask_indices]
+
+    # Predictor: context (B, N_s, D) + target query positions -> (B, M, D).
+    z_pred = self.predictor(z_s, source_pos, target_pos)
 
     # Loss: L2 between prediction and teacher target.
     # Gather teacher targets at the masked positions: (B, N_t, D) -> (B, M, D).

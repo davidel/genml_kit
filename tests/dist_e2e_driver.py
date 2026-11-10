@@ -33,6 +33,13 @@ _INTERRUPT_AT = int(os.environ.get("DIST_E2E_INTERRUPT_AT", "0") or "0")
 _SAVE_EVERY = os.environ.get("DIST_E2E_SAVE_EVERY", "0")
 _FORWARD_CALLS = [0]
 
+# Set to a pre-training method name (``simmim`` / ``byol`` / ...) to drive the
+# real ``images`` pipeline + real registered ``convvit`` backbone instead of
+# the mocked classification model.  Empty = the original classification path.
+_SSL_METHOD = os.environ.get("DIST_E2E_SSL_METHOD", "")
+# Tiny ConvViT configuration so 2-rank runs stay fast on CPU.
+_SSL_ENCODER = dict(embed_dim=64, num_heads=4, depth=2, num_conv_layers=2)
+
 
 class TinyModel(torch.nn.Module):
 
@@ -75,7 +82,69 @@ def _make_dataset(n_total=12, num_classes=3, size=64):
   return Dataset.from_dict({"image": imgs, "label": labels})
 
 
+def _run_ssl(tmp_path):
+  """Run a real SSL pre-training method end to end under torchrun.
+
+    Uses the *real* registered ``convvit`` backbone and the *real* images
+    pre-training pipeline -- no model/processor mocking -- so the run proves
+    the path a user actually invokes.  Method-declared ``arg_defaults``
+    (``find_unused_parameters``) must therefore be applied by the real CLI
+    parse, which is exactly what this exercises.
+    """
+  ds = _make_dataset(size=32)
+  ckpt_base = str(tmp_path / "ckpts" / "model")
+  # ``--model_arg`` takes ``nargs='+'``, so each ``key=value`` is its own token.
+  model_args = [f"{k}={v}" for k, v in _SSL_ENCODER.items()]
+  test_args = [
+      "train.py",
+      "--pipeline",
+      "images",
+      "--method",
+      _SSL_METHOD,
+      "--model",
+      "convvit",
+      "--model_arg",
+      *model_args,
+      "--datasets",
+      "dummy/dataset",
+      "--label_column",
+      "label",
+      "--epochs",
+      "1",
+      "--batch_size",
+      "2",
+      "--image_size",
+      "32",
+      "--checkpoint",
+      ckpt_base,
+      "--log_every",
+      "1",
+      "--num_workers",
+      "0",
+      "--log_level",
+      "INFO",
+      "--dist_arg",
+      "shard=true",
+  ]
+  if _SSL_METHOD in ("ijepa", "dino"):
+    # 512-dim predictor with 12 heads does not divide evenly at this width.
+    test_args += ["--predictor_dim", "64", "--predictor_heads", "4"]
+  with (
+      patch("sys.argv", test_args),
+      patch("datasets.load_dataset", return_value=ds),
+  ):
+    from genml_kit.cli.train import main
+    main()
+
+  rank = int(os.environ.get("RANK", "0"))
+  world = int(os.environ.get("WORLD_SIZE", "1"))
+  (tmp_path / f"rank{rank}.marker").write_text(f"rank={rank} world={world}")
+  return ckpt_base
+
+
 def _run(tmp_path):
+  if _SSL_METHOD:
+    return _run_ssl(tmp_path)
   ds = _make_dataset()
   ckpt_base = str(tmp_path / "ckpts" / "model")
   test_args = [

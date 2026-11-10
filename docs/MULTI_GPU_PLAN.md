@@ -95,55 +95,41 @@ eliminated. Eliminating it would mean persisting the sampler's epoch/offset and
 re-slicing to the original `world` -- not worth it while resume is
 epoch-aligned and the residual is a handful of boundary samples.
 
-### 2.2 SSL methods under DDP
+### 2.3 DDP ignore-list seam (`_ddp_params_and_buffers_to_ignore`)
 
-**Urgency: high -- contains a real crash (I-JEPA) and zero 2-rank coverage of the
-methods most likely to trip DDP's unused-parameter check.**
+**Urgency: low -- the existing knob covers today's methods; this is about
+avoiding per-step reducer overhead and supporting per-name exclusion.**
 
-**Gap.** SimMIM / SupCon / DINO / BYOL / I-JEPA have never been run under DDP.
-
-**Why it matters.** These are the methods most likely to have a parameter that
-does not receive a gradient on a given forward, which is exactly the DDP failure
-mode that surfaces on the second iteration.
-
-**Fix.** Extend `tests/test_distributed_e2e.py` with a small per-method 2-rank
-run (tiny model, `find_unused_parameters` at its default) for each SSL method.
-I-JEPA is **blocked** by a pre-existing bug:
-
-```
-genml_kit/methods/ijepa.py:127-128
-mask[r:r + block_size_h].unsqueeze(...)
-RuntimeError: ...more than one element of the written-to tensor refers to a
-single memory location`.
-```
-
-It is **unrelated to DDP** and must be fixed first (build the mask non-in-place,
-e.g. via `mask.view(...)` assignment or `scatter`, rather than writing through
-`expand`).
-
-### 2.3 Per-method DDP graph knobs
-
-**Urgency: high -- a wrong value is either a training crash or a silent
-throughput loss, on the default path.**
-
-**Gap.** `find_unused_parameters` and `static_graph` are settable per method via
-`Method.arg_defaults()` / `DataPipeline.arg_defaults()` (the general "declare
-defaults for existing CLI flags, explicit CLI wins" seam). But **no method
-declares a DDP default yet**: `arg_defaults()` returns `{}` everywhere, so
-behaviour is unchanged from a plain `--dist_arg`.
-
-**Why it matters.** The correct value is a property of the *method*: it depends
-on whether that method's forward touches every grad-requiring parameter. A wrong
-`False` looks like a training crash; a wrong `True` silently costs throughput.
-
-**Fix.** Run 2 ranks x 2 steps under `torchrun` per method and declare
-`find_unused_parameters=True` from the evidence, not from guesswork.
-
-**Also relevant:** `_ddp_params_and_buffers_to_ignore` is a **module attribute
-set before wrapping** (exact parameter names), *not* a `DistributedDataParallel`
+`_ddp_params_and_buffers_to_ignore` is a **module attribute set before
+wrapping** (exact parameter names), *not* a `DistributedDataParallel`
 constructor keyword. It is not an argparse default, so `arg_defaults()` cannot
-express it; if any method needs it, the mechanism is a pre-wrap attribute set
-and `wrap_model` would need a seam.
+express it; if a method needs it (the frozen-tower cases of BYOL / DINO would
+benefit, since `find_unused_parameters=True` makes the reducer re-traverse
+every bucket each iteration), the mechanism is a pre-wrap attribute set and
+`wrap_model` would need a seam.
+
+### 2.4 Dead backbone transformer in contrastive methods
+
+**Urgency: high -- three pre-training methods currently train a projection head
+over conv-stem features and never touch the backbone transformer.**
+
+**Gap.** `ConvViTAdapter.extract_backbone_features` returns the convolutional
+stem's feature maps; `encode_with_backbone` then mean-pools the last map. The
+backbone's `pos_embedding`, `cls_token` and every transformer layer are never
+executed, so `SupCon`, `DINO` and `BYOL` train *only* the projection head on top
+of conv-stem features. SimMIM and I-JEPA are unaffected (they drive the full
+backbone forward).
+
+**Why it matters.** These runs look healthy (loss decreases, DDP completes) while
+the backbone — the part meant to learn the representation — stays at its random
+initialisation. It is a silent correctness bug, not a crash.
+
+**Fix.** Give the contrastive path a pooled backbone forward (`forward` through
+the transformer, take the pooled CLS vector) instead of the conv-stem feature
+hook; keep `extract_backbone_features` for its original feature-extraction
+(XGBoost) consumer. Needs a decision on whether to change the adapter or the
+contrastive encoders, plus a regression test asserting backbone parameters
+receive gradients.
 
 ### 2.5 Multi-node and `nccl` are untested
 
@@ -271,10 +257,10 @@ Ordered by urgency, matching §2.
 | Item | Risk | Effort |
 |---|---|---|
 | 2.1 Resume across rank counts | Low (detected + bounded; warn-only) | Small |
-| 2.2 SSL methods under DDP | Medium; blocked on I-JEPA bug | Medium |
-| 2.3 Per-method DDP knobs | Low (mechanism exists) | Small |
+| 2.4 Dead backbone transformer in contrastive methods | High (silent: backbone stays random) | Medium |
 | 2.5 Multi-node / `nccl` untested | Medium (unverified backend) | Medium |
 | 2.8 Smaller robustness items | Low | Small |
 | 2.9 FSDP seams | Low (design only) | Small |
 | 2.10 Decision F | Low | Trivial (a decision) |
 | 2.11 Off-policy RL resume | Low (lost progress, not corruption) | Medium |
+| 2.3 DDP ignore-list seam | Low | Small |

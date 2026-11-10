@@ -100,6 +100,48 @@ def test_single_rank_torchrun_matches_plain_run(tmp_path):
 
 
 @pytest.mark.skipif(not _torchrun_available(), reason="torchrun not on PATH")
+@pytest.mark.parametrize("method_name", ["simmim", "byol"])
+def test_two_rank_ssl_pretraining(method_name, tmp_path):
+  """A real SSL method must pre-train end to end under ``torchrun``.
+
+    Unlike the classification e2e above (mocked model/processor), this drives
+    the *real* registered ``convvit`` backbone and the *real* images
+    pre-training pipeline through ``genml_kit.cli.train.main()``.  That makes
+    it the proof that method-declared ``arg_defaults`` (e.g. BYOL's
+    ``find_unused_parameters``) are applied by production argument parsing --
+    without them the second iteration aborts with "parameters that were not
+    used in producing loss".
+
+    Two methods are covered: ``simmim`` (label-free, no EMA tower) and ``byol``
+    (EMA teacher, the case that *requires* the DDP knob).
+    """
+  if not torch.distributed.is_available():
+    pytest.skip("torch.distributed unavailable")
+
+  proc = _run_torchrun(tmp_path, env_extra={"DIST_E2E_SSL_METHOD": method_name})
+  if proc.returncode != 0:
+    logs = sorted(tmp_path.glob("error*.log"))
+    detail = "\n".join(f"--- {p.name} ---\n{p.read_text()}" for p in logs)
+    pytest.fail(f"torchrun ssl ({method_name}) failed (rc={proc.returncode})\n"
+                f"{proc.stdout}\n{proc.stderr}\n{detail}")
+
+  # Both ranks must have joined the group.
+  markers = sorted(tmp_path.glob("rank*.marker"))
+  assert len(markers) == 2, f"expected 2 rank markers, got {markers}"
+  contents = {p.name: p.read_text() for p in markers}
+  assert contents["rank0.marker"] == "rank=0 world=2"
+  assert contents["rank1.marker"] == "rank=1 world=2"
+
+  # Exactly one writer: rank 0's checkpoint exists, with portable keys.
+  ckpt = tmp_path / "ckpts" / "model_latest.pt"
+  assert ckpt.exists(), "rank 0 did not write a checkpoint"
+  state = torch.load(ckpt, map_location="cpu", weights_only=False)
+  keys = list(state["model_state_dict"])
+  assert keys, "empty model_state_dict"
+  assert not any(k.startswith("module.") for k in keys), keys
+
+
+@pytest.mark.skipif(not _torchrun_available(), reason="torchrun not on PATH")
 def test_two_rank_mid_epoch_resume(tmp_path):
   """A 2-rank run interrupted mid-epoch resumes without deadlocking.
 

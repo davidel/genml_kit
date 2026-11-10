@@ -23,6 +23,20 @@ class SupConMethod(Method):
   NEEDS_LABELS = True
 
   @classmethod
+  def arg_defaults(cls):
+    """Declare ``find_unused_parameters`` for DDP.
+
+        The contrastive encoder's backbone is fed through
+        ``encode_with_backbone``, which extracts the convolutional stem's
+        feature maps and pools them; the backbone's own transformer stack
+        (``pos_embedding``, ``cls_token`` and the transformer layers) is
+        therefore never reached.  DDP's default ``find_unused_parameters=False``
+        then aborts on the second iteration ("parameters that were not used in
+        producing loss").
+        """
+    return {"dist_arg": {"find_unused_parameters": True}}
+
+  @classmethod
   def add_args(cls, parser):
     parser.add_argument(
         "--proj_dim",

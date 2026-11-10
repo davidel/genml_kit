@@ -5,6 +5,7 @@ import pytest
 import torch
 
 from genml_kit.methods import METHODS
+from genml_kit.methods.ijepa import _make_block_mask
 from genml_kit.methods.simmim import SimMIMMethod, make_mask
 
 
@@ -48,6 +49,58 @@ class TestMakeMask:
     images = torch.randn(2, 3, 224, 224)
     mask = make_mask(images, patch_size=16, mask_ratio=0.0)
     assert mask.sum() == 0 or mask.float().mean() < 0.05
+
+
+class TestMakeBlockMask:
+  """Tests for the I-JEPA block mask (2-D geometry + no in-place aliasing)."""
+
+  def test_shape_and_dtype(self):
+    mask = _make_block_mask(14, 14, 4, 4, 4, torch.device("cpu"))
+    assert mask.shape == (14 * 14,)
+    assert mask.dtype == torch.bool
+
+  def test_block_area(self):
+    num_h = num_w = 14
+    block_size_h = block_size_w = 4
+    n_blocks = 4
+    mask = _make_block_mask(num_h, num_w, block_size_h, block_size_w, n_blocks,
+                            torch.device("cpu"))
+    # Distinct non-overlapping blocks -> exact masked area.
+    assert int(mask.sum()) == n_blocks * block_size_h * block_size_w
+
+  def test_blocks_are_rectangular(self):
+    num_h = num_w = 14
+    block_size = 4
+    mask = _make_block_mask(num_h, num_w, block_size, block_size, 4,
+                            torch.device("cpu"))
+    grid = mask.reshape(num_h, num_w)
+    # Every masked row run within a 4-wide block must be a contiguous chunk
+    # of exactly block_size columns (guards against flat-slice indexing).
+    for row in grid:
+      run = 0
+      for v in row.tolist():
+        if v:
+          run += 1
+        else:
+          if run:
+            assert run % block_size == 0
+          run = 0
+      if run:
+        assert run % block_size == 0
+
+  def test_no_crash_small_grid(self):
+    # Previously raised "more than one element refers to a single memory
+    # location" due to writing through an expanded broadcast view.
+    mask = _make_block_mask(2, 2, 1, 1, 1, torch.device("cpu"))
+    assert mask.dtype == torch.bool
+    assert mask.shape == (4,)
+    assert int(mask.sum()) == 1
+
+  def test_n_blocks_clamped(self):
+    # Requesting more blocks than candidates must clamp, not crash.
+    mask = _make_block_mask(4, 4, 2, 2, 99, torch.device("cpu"))
+    assert mask.shape == (16,)
+    assert mask.dtype == torch.bool
 
 
 class TestSimMIMMethod:
