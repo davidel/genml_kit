@@ -428,7 +428,7 @@ def _run(args):
     resume_progress = None
   # A changed rank count re-slices every rank's shard (shard boundaries are a
   # function of ``world_size``); warn (never abort) -- see the helper for why
-  # the residual is only padding/truncation (docs/MULTI_GPU_PLAN.md s 2.1).
+  # the residual is only padding/truncation.
   warn_world_size_mismatch(ckpt_extra.get("world_size"), world_size() or 1)
   # Drop the reference to the full checkpoint extras dict so the potentially
   # large optimizer/scheduler/scaler state can be GC'd before the trainer is

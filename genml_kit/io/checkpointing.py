@@ -332,7 +332,7 @@ def checkpoint_dict(model,
     d["scaler_state_dict"] = scaler.state_dict() if scaler is not None else None
   # Record the rank count so a resume can detect a mismatch: shard boundaries
   # are a function of ``world_size``, and the per-rank shard therefore differs
-  # under a different ``--nproc_per_node`` (see docs/MULTI_GPU_PLAN.md s 2.1).
+  # under a different ``--nproc_per_node``.
   d["world_size"] = world_size() or 1
   d.update(extra)
   return d
@@ -597,7 +597,6 @@ def warn_world_size_mismatch(ckpt_world_size, current_world_size):
     epoch-aligned and the global per-epoch order is world-size independent, so
     the only residual is the ``DistributedSampler`` padding and the tail
     truncation (a handful of boundary samples) -- warn, never abort.
-    (see docs/MULTI_GPU_PLAN.md s 2.1).
 
     Args:
         ckpt_world_size: ``world_size`` recorded in the checkpoint, or None.

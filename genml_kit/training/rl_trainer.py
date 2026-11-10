@@ -79,7 +79,7 @@ class RLTrainer(BaseTrainer):
 
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
-    # §2.15: ``--grad_accum_steps`` is a supervised-only knob; RL bypasses
+    # ``--grad_accum_steps`` is a supervised-only knob; RL bypasses
     # BaseTrainer.train_epoch, so it would be silently ignored here and
     # quietly break the documented "effective batch = local x accum x
     # world_size" relationship.  Reject it and point at the per-algorithm

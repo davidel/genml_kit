@@ -3,8 +3,8 @@
 This module owns the *infrastructure* side of multi-GPU training: the process
 group, plus the one place where a model is wrapped for data-parallel execution.
 
-Why a facade (see ``docs/MULTI_GPU_PLAN.md`` s 7, Decision C)
--------------------------------------------------------------
+Why a facade
+------------
 ``torch.nn.parallel.DistributedDataParallel`` wraps a model as
 ``DDP(inner)`` and keeps ``inner`` under ``DDP.module``.  It adds no
 attribute forwarding (``DDP`` defines no ``__getattr__``), so ``ddp.config``
@@ -545,8 +545,7 @@ class DistributedModel:
 
     Only the forward module is DDP-wrapped; the semantic model returned by
     :attr:`module` / :func:`unwrap` has no ``no_sync``.  The trainer uses this
-    to defer the gradient all-reduce on non-final accumulation micro-steps
-    (see ``docs/MULTI_GPU_PLAN.md`` s 2.6).
+    to defer the gradient all-reduce on non-final accumulation micro-steps.
     """
     return object.__getattribute__(self, "_forward_module").no_sync()
 

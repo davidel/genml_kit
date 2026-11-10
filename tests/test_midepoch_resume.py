@@ -182,7 +182,7 @@ def test_periodic_save_records_in_progress_marker(tmp_path):
     trainer.run()
 
   ckpt = torch.load(str(tmp_path / "ckpt_latest.pt"), weights_only=False)
-  # ``world_size`` is always recorded (guard for the §2.1 mismatch warning).
+  # ``world_size`` is always recorded (guard for the mismatch warning).
   assert ckpt["world_size"] == 1
   # The interrupt save carries the mid-epoch marker at the last flush boundary,
   # i.e. exactly the batches that completed.
