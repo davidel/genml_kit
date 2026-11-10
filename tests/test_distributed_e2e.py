@@ -28,10 +28,12 @@ def _torchrun_available():
   return shutil.which("torchrun") is not None
 
 
-def _run_torchrun(tmp_path, nproc=2):
+def _run_torchrun(tmp_path, nproc=2, env_extra=None):
   env = dict(os.environ)
   env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
   env["DIST_E2E_TMPDIR"] = str(tmp_path)
+  if env_extra:
+    env.update(env_extra)
   cmd = [
       "torchrun",
       "--nproc_per_node",
@@ -95,3 +97,44 @@ def test_single_rank_torchrun_matches_plain_run(tmp_path):
 
   assert (tmp_path / "rank0.marker").read_text() == "rank=0 world=1"
   assert (tmp_path / "ckpts" / "model_latest.pt").exists()
+
+
+@pytest.mark.skipif(not _torchrun_available(), reason="torchrun not on PATH")
+def test_two_rank_mid_epoch_resume(tmp_path):
+  """A 2-rank run interrupted mid-epoch resumes without deadlocking.
+
+  Guards the DDP lockstep invariant: on resume every rank derives the *same*
+  skip from the single rank-0-written checkpoint, so they hit the same
+  all-reduce windows.  A per-rank skip would skew the windows and hang.
+  """
+  if not torch.distributed.is_available():
+    pytest.skip("torch.distributed unavailable")
+
+  # Phase 1: run with periodic saving, interrupting during the *training*
+  # forwards (each rank sees 2 training batches of the 12-sample/bs4 dataset;
+  # forwards 3+ belong to validation, after the epoch marker is cleared).
+  interrupted = _run_torchrun(tmp_path,
+                              env_extra={
+                                  "DIST_E2E_SAVE_EVERY": "1",
+                                  "DIST_E2E_INTERRUPT_AT": "2",
+                              })
+  # An interrupt may surface as a non-zero rc; what matters is the marker.
+  ckpt = tmp_path / "ckpts" / "model_latest.pt"
+  if not ckpt.exists():
+    logs = sorted(tmp_path.glob("error*.log"))
+    detail = "\n".join(f"--- {p.name} ---\n{p.read_text()}" for p in logs)
+    pytest.fail(f"no checkpoint after interrupt (rc={interrupted.returncode})\n"
+                f"{interrupted.stdout}\n{interrupted.stderr}\n{detail}")
+
+  state = torch.load(ckpt, map_location="cpu", weights_only=False)
+  # The rank count is recorded so a later resume can detect a mismatch.
+  assert state.get("world_size") == 2
+  assert state.get("in_progress", {}).get("epoch") == 0
+
+  # Phase 2: resume under a fresh (2-rank) group; it must not hang.
+  resumed = _run_torchrun(tmp_path)
+  if resumed.returncode != 0:
+    logs = sorted(tmp_path.glob("error*.log"))
+    detail = "\n".join(f"--- {p.name} ---\n{p.read_text()}" for p in logs)
+    pytest.fail(f"resume torchrun failed (rc={resumed.returncode})\n"
+                f"{resumed.stdout}\n{resumed.stderr}\n{detail}")

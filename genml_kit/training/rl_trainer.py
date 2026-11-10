@@ -21,6 +21,7 @@ from genml_kit.utils.distributed import (
     all_gather_tensor,
     all_reduce_gradients,
     any_rank_true,
+    barrier,
     is_distributed,
     is_main_process,
     rank,
@@ -95,11 +96,14 @@ class RLTrainer(BaseTrainer):
     # NOTE: method.build_optimization() is now called by optim_factory
     # with the proper ckpt_extra, so we no longer need to override here.
 
-  def train_epoch(self, epoch, saver, step, monitor):
+  def train_epoch(self, epoch, saver, step, monitor, skip=0):
     """One training epoch.
 
     Off-policy (DQN/SAC): warmup fill + interleaved env/learn.
     On-policy (PPO): rollout collection + GAE + SGD epochs.
+
+    ``skip`` is unused here (RL bypasses the DataLoader); mid-epoch resume for
+    PPO is driven by the ``resume_progress`` marker instead.
 
     Returns:
         ``(avg_loss, new_step)``
@@ -289,7 +293,23 @@ class RLTrainer(BaseTrainer):
 
     rollout = self.pipeline.rollout_buffer
     rollout_len = rollout.rollout_len
+    mini_batch_size = self.method._mini_batch_size
+    # Inner iterations per PPO epoch (one minibatch draw each).
+    iters_per_ppo = max(1, rollout_len // mini_batch_size)
     obs = getattr(self, "_ppo_obs", None)
+
+    # Progress marker consumed by ``BaseTrainer.run``'s exit save.  A PPO epoch
+    # that is interrupted during COLLECT cannot be resumed (the live env is not
+    # persisted), so ``phase == "collect"`` means "re-run the whole epoch"; a
+    # checkpoint taken in OPTIMIZE is resumed at a PPO-epoch boundary.
+    self._epoch_progress = {"epoch": epoch, "micro_step": 0, "phase": "collect"}
+
+    # Mid-epoch resume: a checkpoint taken inside the *optimize* phase can skip
+    # the live-env collection -- the rollout buffer (with GAE advantages) is
+    # restored by the pipeline, whereas the env's internal state is not.  We
+    # round the resume to a whole PPO-epoch boundary (no bit-exact RNG cursor).
+    progress = self.resume_progress if epoch == self.start_epoch else None
+    resume_optimize = bool(progress and progress.get("phase") == "optimize")
 
     # Sharded rollouts (default under DDP): each rank collects
     # ``rollout_len / world`` steps from its *own* env, then the per-rank
@@ -304,85 +324,104 @@ class RLTrainer(BaseTrainer):
             f"--dist_arg rollout_shard=false to collect a full rollout per rank.")
     local_len = rollout_len // world if sharded else rollout_len
 
-    # Collect into a rank-local buffer in sharded mode; reuse the pipeline's
-    # buffer (already sized rollout_len) otherwise.
-    collect = (RolloutBuffer(obs_dim=rollout.obs_dim,
-                             rollout_len=local_len,
-                             action_dim=rollout.action_dim,
-                             device="cpu") if sharded else rollout)
+    if resume_optimize:
+      # Buffer already collected, GAE-computed, normalized and on-device.
+      # Skip collection and restart the optimize phase at the PPO-epoch
+      # boundary at or before the recorded position.
+      start_ppo = min((int(progress.get("micro_step") or 0) // iters_per_ppo),
+                      self.method._ppo_epochs)
+      episode_count = 0
+      total_reward = 0.0
+      # The env was not restored, so the next collection must reset it rather
+      # than continue from a stale observation.
+      self._ppo_obs = None
+      obs = None
+    else:
+      start_ppo = 0
+      # Collect into a rank-local buffer in sharded mode; reuse the pipeline's
+      # buffer (already sized rollout_len) otherwise.
+      collect = (RolloutBuffer(obs_dim=rollout.obs_dim,
+                               rollout_len=local_len,
+                               action_dim=rollout.action_dim,
+                               device="cpu") if sharded else rollout)
 
-    collect.reset()
-    obs = self.pipeline.reset_env() if obs is None else obs
-    episode_count = 0
-    total_reward = 0.0
-    # Reward/return normalization (SB3 VecNormalize) - PPO-only.
-    # getattr: fake/test pipelines may not define ret_norm.
-    ret_norm = getattr(self.pipeline, "ret_norm", None)
-    if ret_norm is not None:
-      ret_norm.train(True)
-      ret_norm.reset_per_episode()
-
-    # Collect per-step bootstrap values V(s_{t+1}) during rollout.
-    next_values = torch.zeros(local_len, dtype=torch.float32)
-
-    for i in range(local_len):
-      action, log_prob, value, raw_action = self.method.act(self.model,
-                                                            obs,
-                                                            deterministic=False)
-      next_obs, reward, done, info = self.pipeline.step_env(action)
-      terminated = _terminated_from(info, done)
-      # Update the discounted-return running stats with the RAW reward,
-      # then normalize what is stored in the buffer (SB3 sequence).
+      collect.reset()
+      obs = self.pipeline.reset_env() if obs is None else obs
+      episode_count = 0
+      total_reward = 0.0
+      # Reward/return normalization (SB3 VecNormalize) - PPO-only.
+      # getattr: fake/test pipelines may not define ret_norm.
+      ret_norm = getattr(self.pipeline, "ret_norm", None)
       if ret_norm is not None:
-        ret_norm.update(reward)
-        reward = ret_norm.normalize_reward(reward)
-      collect.add(obs, action, log_prob, reward, value, float(done), raw_action,
-                  terminated)
+        ret_norm.train(True)
+        ret_norm.reset_per_episode()
 
-      with torch.no_grad():
-        next_obs_t = torch.as_tensor(next_obs, dtype=torch.float32,
-                                     device=self.device).unsqueeze(0)
-        next_values[i] = self.model.get_value(next_obs_t).item()
+      # Collect per-step bootstrap values V(s_{t+1}) during rollout.
+      next_values = torch.zeros(local_len, dtype=torch.float32)
 
-      total_reward += reward
-      obs = next_obs
-
-      if done:
+    if not resume_optimize:
+      for i in range(local_len):
+        action, log_prob, value, raw_action = self.method.act(self.model,
+                                                              obs,
+                                                              deterministic=False)
+        next_obs, reward, done, info = self.pipeline.step_env(action)
+        terminated = _terminated_from(info, done)
+        # Update the discounted-return running stats with the RAW reward,
+        # then normalize what is stored in the buffer (SB3 sequence).
         if ret_norm is not None:
-          ret_norm.reset_per_episode()
-        total_reward = 0.0
-        episode_count += 1
-        obs = self.pipeline.reset_env()
+          ret_norm.update(reward)
+          reward = ret_norm.normalize_reward(reward)
+        collect.add(obs, action, log_prob, reward, value, float(done), raw_action,
+                    terminated)
 
-    # Bootstrap values for GAE (per-step, not a single scalar).  GAE is
-    # computed *per rank* over that rank's own contiguous segment (each
-    # segment is a self-contained trajectory with its own done/terminated
-    # markers and bootstrap value), so no cross-rank boundary is bridged.
-    collect.set_next_values(next_values)
-    collect.compute(gamma=self.method._gamma, lam=self.method._lam)
+        with torch.no_grad():
+          next_obs_t = torch.as_tensor(next_obs,
+                                       dtype=torch.float32,
+                                       device=self.device).unsqueeze(0)
+          next_values[i] = self.model.get_value(next_obs_t).item()
 
-    if sharded:
-      # Gather the rank segments into one global rollout on every rank, then
-      # standardise advantages ONCE over the *global* rollout (matching the
-      # single-process statistics).
-      self._gather_rollout(collect, rollout)
-    # Standardise advantages ONCE over the full rollout (not per
-    # mini-batch) -- see ``RolloutBuffer.normalize_advantages``.
-    rollout.normalize_advantages()
+        total_reward += reward
+        obs = next_obs
+
+        if done:
+          if ret_norm is not None:
+            ret_norm.reset_per_episode()
+          total_reward = 0.0
+          episode_count += 1
+          obs = self.pipeline.reset_env()
+
+      # Bootstrap values for GAE (per-step, not a single scalar).  GAE is
+      # computed *per rank* over that rank's own contiguous segment (each
+      # segment is a self-contained trajectory with its own done/terminated
+      # markers and bootstrap value), so no cross-rank boundary is bridged.
+      collect.set_next_values(next_values)
+      collect.compute(gamma=self.method._gamma, lam=self.method._lam)
+
+      if sharded:
+        # Gather the rank segments into one global rollout on every rank, then
+        # standardise advantages ONCE over the *global* rollout (matching the
+        # single-process statistics).
+        self._gather_rollout(collect, rollout)
+      # Standardise advantages ONCE over the full rollout (not per
+      # mini-batch) -- see ``RolloutBuffer.normalize_advantages``.
+      rollout.normalize_advantages()
+
+      self._ppo_obs = obs
+
+      # B5: track env steps collected in this rollout.  Count the steps this
+      # rank actually collected: in sharded mode each rank takes
+      # ``rollout_len / world`` from its own env, so adding the global
+      # ``rollout_len`` here would over-count the fleet's real env interaction
+      # by a factor of ``world``.
+      self.method._env_steps += local_len
+
+    # On both paths the buffer must live on the training device.  On resume the
+    # restored tensors come back on CPU (already normalised -- do NOT
+    # re-normalise, that would shift the advantages).
     rollout.to(self.device)
-
-    self._ppo_obs = obs
-
-    # B5: track env steps collected in this rollout.  Count the steps this
-    # rank actually collected: in sharded mode each rank takes
-    # ``rollout_len / world`` from its own env, so adding the global
-    # ``rollout_len`` here would over-count the fleet's real env interaction
-    # by a factor of ``world``.
-    self.method._env_steps += local_len
 
     total_loss = 0.0
     batches = 0
-    mini_batch_size = self.method._mini_batch_size
     # Total number of mini-batches across all PPO epochs.
     total_pico_batches = self.method._ppo_epochs * (rollout_len // mini_batch_size)
 
@@ -410,10 +449,18 @@ class RLTrainer(BaseTrainer):
     )
 
     target_kl = getattr(self.method, "_target_kl", None)
-    for _ppo_epoch in range(self.method._ppo_epochs):
+    # Rollout is collected and GAE-computed: from here the epoch is in its
+    # resumable OPTIMIZE phase.
+    self._epoch_progress = {"epoch": epoch, "micro_step": 0, "phase": "optimize"}
+    # Resume may re-enter part-way through the PPO-epoch sweep; the draws are
+    # deterministic from ``(seed, epoch)`` and re-seeding replays the identical
+    # stream, so starting at ``start_ppo`` is consistent across ranks.
+    for _ppo_epoch in range(start_ppo, self.method._ppo_epochs):
       # Use rollout's sample method to get properly formatted mini-batches
       stop_epoch = False
-      for _ in range(0, rollout_len, mini_batch_size):
+      for _inner in range(0, rollout_len, mini_batch_size):
+        # Flat iteration index across the whole sweep, recorded for resume.
+        pico_step = _ppo_epoch * iters_per_ppo + (_inner // mini_batch_size)
         if sharded:
           # Identical global indices on every rank -> the rank slices tile
           # exactly one global minibatch.
@@ -465,12 +512,34 @@ class RLTrainer(BaseTrainer):
                                kind=MetricKind.LAST)
 
         step += 1
+        # Record the position reached (grad-accum aligned: one applied step)
+        # so an interrupt after this point resumes the sweep near here rather
+        # than from the top of the epoch.
+        self._epoch_progress = {
+            "epoch": epoch,
+            "micro_step": pico_step + 1,
+            "phase": "optimize",
+        }
 
         total_loss += loss_out.loss.item()
         batches += 1
 
         if monitor is not None:
           monitor.step(loss_out.loss, step)
+
+        # Periodic mid-epoch checkpoint (--save_every).  ``barrier`` keeps peer
+        # ranks from running ahead into the next all-reduce while rank 0 writes.
+        # ``saver`` is None when ``train_epoch`` is driven directly (tests).
+        if saver is not None and saver.should_save(step):
+          barrier()
+          # ``saver`` calls ``saver_extra`` (method + pipeline state) itself.
+          saver.save_latest(
+              epoch - 1,
+              **{self.best_metric_key: self.best_metric},
+              global_step=step,
+              in_progress=dict(self._epoch_progress),
+          )
+          barrier()
 
         # Build extra metrics for the reporter.  ``episodes`` / ``env_steps``
         # are monotonic counters -> last value in the epoch summary.

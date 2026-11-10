@@ -499,6 +499,114 @@ class TestRLTrainerEndToEnd:
     assert calls["n"] == 1, f"expected 1 hard update, got {calls['n']}"
 
 
+class TestPPOMidepochResume:
+  """Mid-epoch resume for PPO: the OPTIMIZE phase is re-entered, COLLECT is not.
+
+  A checkpoint taken during the optimize sweep can skip the (non-persistable)
+  live-env collection because the rollout buffer -- including the GAE
+  advantages -- is restored by the pipeline.  A checkpoint taken during
+  collection cannot, and must re-run the whole epoch.
+  """
+
+  def _args(self, tmp_path):
+    args = train_args(["--pipeline", "rl"],
+                      epochs=2,
+                      warmup_steps=0,
+                      steps_per_epoch=16,
+                      eval_episodes=1,
+                      log_every=100,
+                      ppo_epochs=2,
+                      ppo_mini_batch_size=4,
+                      rollout_len=16,
+                      batch_size=4,
+                      obs_dim=4,
+                      seed=42,
+                      env_seed=42,
+                      checkpoint=str(tmp_path / "ppo_ckpt"))
+    return args
+
+  def _build(self, tmp_path, resume_progress=None, start_epoch=0):
+    args = self._args(tmp_path)
+    method = PPOMethod()
+    pipeline = _TestRLPipeline(obs_dim=4,
+                               continuous=False,
+                               buffer_size=100,
+                               rollout_len=16)
+    method.wire_data(args, pipeline)
+    model = method.build_model(args, device=torch.device("cpu"))
+    optimization = Optimization(optimizer=Adam(model.parameters(), lr=3e-4),
+                                scheduler=None,
+                                scaler=None)
+    trainer = RLTrainer(args=args,
+                        model=model,
+                        method=method,
+                        pipeline=pipeline,
+                        optimization=optimization,
+                        device=torch.device("cpu"),
+                        logger=None,
+                        start_epoch=start_epoch,
+                        best_metric=float("-inf"),
+                        global_step=0,
+                        resume_progress=resume_progress)
+    return trainer, pipeline, method
+
+  def test_collect_phase_marker_is_optimize_after_rollout(self, tmp_path):
+    """A mid-epoch save during the sweep records phase == 'optimize'."""
+    trainer, pipeline, method = self._build(tmp_path)
+    # Run one epoch; the marker is set to "optimize" once collection is done
+    # and (implicitly) cleared when the epoch completes.
+    trainer.train_epoch(0, None, step=0, monitor=None)
+    # After a full epoch the base run() clears it, but train_epoch itself left
+    # the last sweep position recorded.
+    assert trainer._epoch_progress["phase"] == "optimize"
+    assert trainer._epoch_progress["micro_step"] == trainer.method._ppo_epochs \
+        * (pipeline.rollout_buffer.rollout_len // method._mini_batch_size)
+
+  def test_resume_skips_collection(self, tmp_path):
+    """Resuming in the optimize phase must NOT advance env steps."""
+    progress = {"epoch": 1, "micro_step": 4, "phase": "optimize"}
+    trainer, pipeline, method = self._build(tmp_path,
+                                            resume_progress=progress,
+                                            start_epoch=1)
+
+    def _boom(*a, **k):
+      raise AssertionError("collection must be skipped on optimize resume")
+
+    # Any environment interaction during resume is a bug.
+    pipeline.reset_env = _boom
+    pipeline.step_env = _boom
+
+    # Seed the restored rollout so the optimize sweep has data to train on.
+    trainer.pipeline.rollout_buffer.load_arrays({
+        "obs": torch.zeros(16, 4),
+        "actions": torch.zeros(16, dtype=torch.long),
+        "log_probs": torch.zeros(16),
+        "values": torch.zeros(16),
+        "dones": torch.zeros(16),
+        "advantages": torch.zeros(16),
+        "returns": torch.zeros(16),
+        "next_values": torch.zeros(16),
+    })
+    before = method._env_steps
+    step = trainer.train_epoch(1, None, step=0, monitor=None)
+    # No env interaction: the collection phase was skipped entirely.
+    assert method._env_steps == before
+    assert step[1] > 0
+
+  def test_collect_phase_marker_reruns_epoch(self, tmp_path):
+    """A marker taken during COLLECT is not optimizable: it re-runs the epoch."""
+    progress = {"epoch": 1, "micro_step": 0, "phase": "collect"}
+    trainer, pipeline, method = self._build(tmp_path,
+                                            resume_progress=progress,
+                                            start_epoch=1)
+    # The marker points at COLLECT, so the epoch re-enters from the top: env
+    # steps advance normally.
+    before = method._env_steps
+    trainer.train_epoch(1, None, step=0, monitor=None)
+    # Each rank collected a full local rollout (single process -> 16 steps).
+    assert method._env_steps > before
+
+
 class TestRLCheckpointRoundTrip:
   """Checkpointing round-trip tests for RL methods."""
 

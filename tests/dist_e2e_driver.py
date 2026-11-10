@@ -26,6 +26,13 @@ from genml_kit.utils.logging import GlogFormatter
 LogitsOutput = namedtuple("LogitsOutput", ["logits"])
 MockConfig = namedtuple("MockConfig", ["id2label"])
 
+# Resume test knobs (see tests/test_distributed_e2e.py).  ``INTERRUPT_AT`` > 0
+# makes the (N)th forward raise ``KeyboardInterrupt`` -- modelling a Ctrl-C
+# landing mid-epoch -- so the exit save records an ``in_progress`` marker.
+_INTERRUPT_AT = int(os.environ.get("DIST_E2E_INTERRUPT_AT", "0") or "0")
+_SAVE_EVERY = os.environ.get("DIST_E2E_SAVE_EVERY", "0")
+_FORWARD_CALLS = [0]
+
 
 class TinyModel(torch.nn.Module):
 
@@ -35,6 +42,9 @@ class TinyModel(torch.nn.Module):
     self.config = MockConfig(id2label={str(i): f"class_{i}" for i in range(num_labels)})
 
   def forward(self, pixel_values, **kwargs):
+    _FORWARD_CALLS[0] += 1
+    if _INTERRUPT_AT and _FORWARD_CALLS[0] == _INTERRUPT_AT:
+      raise KeyboardInterrupt
     return LogitsOutput(logits=self.fc(pixel_values.flatten(1)))
 
 
@@ -91,6 +101,8 @@ def _run(tmp_path):
       "--dist_arg",
       "shard=true",
   ]
+  if _SAVE_EVERY != "0":
+    test_args += ["--save_every", _SAVE_EVERY]
   with (
       patch("sys.argv", test_args),
       patch("datasets.load_dataset", return_value=ds),
