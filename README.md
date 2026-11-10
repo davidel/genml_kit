@@ -1237,6 +1237,15 @@ resume point.
 Training automatically resumes from an existing `_latest.pt` or `_best.pt`
 checkpoint if one exists at the `--checkpoint` path.
 
+Alongside the epoch-end and exit saves, `--save_every` writes `_latest.pt`
+every N optimizer steps (grad-accum flush boundary) so a hard kill between
+epochs does not lose the whole epoch. When such a checkpoint carries the epoch
+in progress, resume **continues** it rather than replaying it: supervised runs
+fast-forward to the recorded step, and PPO skips re-collecting the rollout and
+re-enters the optimize sweep (a resume taken mid-collection re-runs the epoch,
+since the environment is not persisted). Off-policy RL (DQN/SAC) restarts the
+epoch: the replay buffer is not checkpointed.
+
 ### Remote Checkpoint Sync (GCS / R2 / S3)
 
 `--remote_checkpoint` uploads each saved checkpoint to cloud storage.

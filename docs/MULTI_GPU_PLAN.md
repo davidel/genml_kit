@@ -37,21 +37,63 @@ Ordered by urgency: silent-correctness risk on the **default** DDP path first,
 then coverage gaps, then performance, then design-only items. Each entry states
 the gap, why it matters, where it lives, and the shape of the fix.
 
+### 2.0 Recently landed (context for the list below)
+
+- **Periodic + mid-epoch resume restored.** `--save_every` was silently inert
+  since the v4.2 trainer rewrite (`ec19359`): the flag, the `CheckpointSaver`
+  plumbing and `should_save()` all survived, but the periodic write site was
+  dropped from the loop. It now fires at each grad-accum flush, writes
+  `_latest.pt` with an `in_progress` marker (`{epoch, micro_step, phase}`) and
+  `world_size`, and a resume **continues** the interrupted epoch (supervised:
+  fast-forward by a grad-accum-aligned `islice`; PPO: skip the live-env
+  collection, re-enter the optimize sweep). A `barrier()` brackets each
+  periodic save so peers cannot run ahead into the next collective. Covered by
+  `tests/test_midepoch_resume.py`, `tests/test_rl_trainer.py`
+  (`TestPPOMidepochResume`) and the 2-rank `tests/test_distributed_e2e.py`.
+  - Supervised resume is exact-as-to-order: the global per-epoch order is
+    reconstructed from `(seed, epoch)`, so the fast-forward lands on the same
+    sample the uninterrupted run would have drawn.
+  - PPO resume rounds to a PPO-epoch boundary (no bit-exact RNG cursor); a
+    checkpoint taken during COLLECT re-runs the epoch (the live env is not
+    persisted).
+  - Off-policy RL (DQN/SAC) mid-epoch resume is **out of scope**: the replay
+    buffer is not checkpointed. See 2.11 below.
+
 ### 2.1 Resume across a different rank count
 
-**Urgency: high -- silent wrong data order, only on the mid-run resume path.**
+**Urgency: low -- the mismatch is now detected and the residual is bounded.**
 
-**Gap.** Shard boundaries are a function of `world_size`. Resuming a
-multi-GPU checkpoint with a different `--nproc_per_node` changes them, so the
-epoch position is approximate whenever the dataset does not divide evenly.
+**Correction (audited against the code).** An earlier draft of this entry
+claimed a *silent, approximate epoch position*. That is not what the code does.
+The per-epoch sample order is a pure function of `(seed, epoch)`
+(`torch.randperm(..., generator=manual_seed(seed + epoch))` in
+`DistributedSampler`, and the seeded custom samplers), so it is **independent of
+`world_size`**. `world_size` only decides *which rank gets which slice* of that
+fixed order. Resume is **epoch-aligned**: the checkpoint's `epoch` field is the
+last fully completed epoch and the loop restarts the next one from its top (and
+since mid-epoch resume landed, an interrupted epoch now continues from a
+recorded micro-step rather than replaying -- see the landed note below).
 
-**Why it matters.** Silent: the run resumes, the loss looks plausible, and the
-data order is subtly wrong. It is also the one bug that only shows up in the
-middle of an expensive resume.
+**What actually differs.** Two bounded effects:
+- `DistributedSampler` pads each rank to `ceil(N / world)` samples, so a few
+  boundary samples are *repeated*, differently per `world` (at most `world - 1`
+  across the whole epoch; measured: `N=101` re-draws 1 sample at `world=2`, 3 at
+  `world=4`).
+- The custom batch/weighted samplers truncate to `(len // world) * world`, so a
+  different number of trailing batches is dropped.
 
-**Fix.** Persist `world_size` and the sampler's epoch/offset in the checkpoint;
-on a mismatch, warn and either re-shard from an epoch boundary or refuse to
-resume mid-epoch.
+Neither moves the epoch position; both are bounded by `world` and touch only the
+epoch boundary.
+
+**Landed.** `checkpoint_dict` now records `world_size`; `resume_checkpoint`
+surfaces it; and the CLI calls `warn_world_size_mismatch` on resume
+(`genml_kit/io/checkpointing.py`, `genml_kit/cli/train.py`). The mismatch is
+**warn-only** (never aborts), covered by `tests/test_checkpointing.py`.
+
+**Still open (low).** The padding/truncation residual is *warned*, not
+eliminated. Eliminating it would mean persisting the sampler's epoch/offset and
+re-slicing to the original `world` -- not worth it while resume is
+epoch-aligned and the residual is a handful of boundary samples.
 
 ### 2.2 SSL methods under DDP
 
@@ -165,6 +207,26 @@ the docstring-only protocol and make `DistributedModel` the reference
 implementation. Either way, remove it from the open-decisions list so the
 document does not carry a stale question.
 
+### 2.11 Off-policy RL mid-epoch resume (out of scope for now)
+
+**Urgency: low -- off-policy RL is a narrower audience than LLM training.**
+
+**Gap.** Supervised and PPO now resume mid-epoch (see 2.0). Off-policy RL
+(DQN/SAC, `RLTrainer._train_epoch_offpolicy`) does not: `RLPipeline.get_checkpoint_state`
+persists `obs_rms`, `ret_norm` and the rollout buffer, but **not the replay
+buffer** (`self.replay_buffer`), and the environment is live, so neither the
+experience nor the env state survives a restart. A mid-epoch interrupt therefore
+restarts the warmup/learn epoch with an emptier buffer.
+
+**Why it matters.** Semantically wrong for off-policy (the buffer *is* the
+state), but the failure is not silent-corruption -- it is lost progress.
+
+**Shape of the fix (not committed).** Either (a) persist the replay buffer
+gated behind a flag, accepting the size cost (raw observations can be
+gigabytes), or (b) declare "off-policy resume restarts the epoch" explicitly in
+the README and keep the current behaviour. This is a storage-design decision,
+deliberately kept out of the resume-semantics change.
+
 ---
 
 ## 3. Load-bearing invariants
@@ -208,10 +270,11 @@ Ordered by urgency, matching §2.
 
 | Item | Risk | Effort |
 |---|---|---|
-| 2.1 Resume across rank counts | Medium (silent wrong-position risk) | Medium |
+| 2.1 Resume across rank counts | Low (detected + bounded; warn-only) | Small |
 | 2.2 SSL methods under DDP | Medium; blocked on I-JEPA bug | Medium |
 | 2.3 Per-method DDP knobs | Low (mechanism exists) | Small |
 | 2.5 Multi-node / `nccl` untested | Medium (unverified backend) | Medium |
 | 2.8 Smaller robustness items | Low | Small |
 | 2.9 FSDP seams | Low (design only) | Small |
 | 2.10 Decision F | Low | Trivial (a decision) |
+| 2.11 Off-policy RL resume | Low (lost progress, not corruption) | Medium |
