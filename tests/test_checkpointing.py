@@ -16,6 +16,7 @@ from genml_kit.io.checkpointing import (
     open_resume_context,
     resume_checkpoint,
     should_save_periodic,
+    warn_world_size_mismatch,
 )
 from genml_kit.io.storage_utils import save_checkpoint
 from genml_kit.training.model_utils import trainable_state_dict
@@ -54,6 +55,70 @@ class TestShouldSavePeriodic:
   def test_never_fires_at_step_zero(self):
     assert should_save_periodic(0, 500) is False
     assert should_save_periodic(0, 0) is False
+
+
+class TestWarnWorldSizeMismatch:
+  """Resume under a different rank count warns (never aborts)."""
+
+  def test_no_warning_when_matching(self, caplog):
+    with caplog.at_level(logging.WARNING):
+      changed = warn_world_size_mismatch(2, 2)
+    assert changed is False
+    assert not caplog.records
+
+  def test_no_warning_without_recorded_size(self, caplog):
+    with caplog.at_level(logging.WARNING):
+      changed = warn_world_size_mismatch(None, 4)
+    assert changed is False
+    assert not caplog.records
+
+  def test_warns_on_mismatch(self, caplog):
+    with caplog.at_level(logging.WARNING):
+      changed = warn_world_size_mismatch(2, 1)
+    assert changed is True
+    assert any("world_size=2" in r.getMessage() for r in caplog.records)
+
+
+class TestInProgressResume:
+  """``resume_checkpoint`` honours the mid-epoch ``in_progress`` marker."""
+
+  def _write(self, tmp_path, **kv):
+    model = _TinyModel()
+    path = str(tmp_path / "ckpt_latest.pt")
+    torch.save({"model_state_dict": model.state_dict(), **kv}, path)
+    return path, model
+
+  def test_legacy_checkpoint_resumes_next_epoch(self, tmp_path):
+    path, model = self._write(tmp_path, epoch=4)
+    _, start_epoch, _, extra = resume_checkpoint(path, "unused.pt", model, "cpu")
+    assert start_epoch == 5
+    assert extra.get("in_progress") is None
+
+  def test_in_progress_resumes_into_same_epoch(self, tmp_path):
+    path, model = self._write(tmp_path,
+                              epoch=4,
+                              in_progress={
+                                  "epoch": 5,
+                                  "micro_step": 37,
+                                  "phase": "optimize"
+                              })
+    _, start_epoch, _, extra = resume_checkpoint(path, "unused.pt", model, "cpu")
+    # ``epoch`` field is the last *completed* epoch (4); the marker points into
+    # epoch 5, which is where resume continues.
+    assert start_epoch == 5
+    assert extra["in_progress"]["micro_step"] == 37
+
+  def test_in_progress_for_other_epoch_is_ignored_for_start(self, tmp_path):
+    path, model = self._write(tmp_path,
+                              epoch=4,
+                              in_progress={
+                                  "epoch": 9,
+                                  "micro_step": 1
+                              })
+    _, start_epoch, _, extra = resume_checkpoint(path, "unused.pt", model, "cpu")
+    # Marker for a future epoch does not pull start_epoch backwards.
+    assert start_epoch == 5
+    assert extra["in_progress"]["epoch"] == 9
 
 
 class _TinyModel(nn.Module):

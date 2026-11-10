@@ -18,7 +18,7 @@ import torch
 from genml_kit.io.storage_utils import save_checkpoint, storage_download
 from genml_kit.training.param_align import AlignConfig, align_state_dicts, report_to_str
 from genml_kit.utils.attr import MISSING, get_attribute
-from genml_kit.utils.distributed import is_main_process
+from genml_kit.utils.distributed import is_main_process, world_size
 from genml_kit.utils.logging import fatal
 
 
@@ -330,6 +330,10 @@ def checkpoint_dict(model,
     ) if scheduler is not None else None
   if states_to_save is None or "amp" in states_to_save:
     d["scaler_state_dict"] = scaler.state_dict() if scaler is not None else None
+  # Record the rank count so a resume can detect a mismatch: shard boundaries
+  # are a function of ``world_size``, and the per-rank shard therefore differs
+  # under a different ``--nproc_per_node`` (see docs/MULTI_GPU_PLAN.md s 2.1).
+  d["world_size"] = world_size() or 1
   d.update(extra)
   return d
 
@@ -411,8 +415,9 @@ class CheckpointSaver:
     """Return True when *global_step* hits a ``_save_every`` multiple.
 
     ``_save_every <= 0`` disables periodic saving; step 0 never triggers.
-    Callers pass ``epoch - 1`` (last fully completed epoch) when saving
-    mid-epoch so a resume restarts the interrupted epoch.
+    Callers ``save_latest`` at a flush boundary and pass the *current* epoch
+    plus an ``in_progress`` marker carrying the micro-step, so a resume
+    continues inside the interrupted epoch instead of restarting it.
     """
     return should_save_periodic(global_step, self._save_every)
 
@@ -560,6 +565,14 @@ def resume_checkpoint(ckpt_latest,
 
   start_epoch = ckpt.get("epoch", -1) + 1
   best_metric = ckpt.get(metric_key, default_metric)
+  # A checkpoint written on a mid-epoch interrupt carries an ``in_progress``
+  # marker describing the epoch that was cut short.  Resume *into* that epoch
+  # (instead of the next one) and surface the position so the loop can
+  # fast-forward to it.  Legacy checkpoints have no marker: unchanged behaviour.
+  in_progress = ckpt.get("in_progress")
+  resumed_mid_epoch = False
+  if in_progress and in_progress.get("epoch") == start_epoch:
+    resumed_mid_epoch = True
   extra = {
       k: v
       for k, v in ckpt.items()
@@ -567,8 +580,40 @@ def resume_checkpoint(ckpt_latest,
   }
   extra["_model_state_skipped"] = bool(skipped)
 
-  logging.info(f"  Resumed at epoch {start_epoch}, best_metric={best_metric:.4f}")
+  if resumed_mid_epoch:
+    logging.info(f"  Resumed mid-epoch {start_epoch} at step "
+                 f"{in_progress.get('micro_step')}, "
+                 f"best_metric={best_metric:.4f}")
+  else:
+    logging.info(f"  Resumed at epoch {start_epoch}, best_metric={best_metric:.4f}")
   return model, start_epoch, best_metric, extra
+
+
+def warn_world_size_mismatch(ckpt_world_size, current_world_size):
+  """Warn when resuming a checkpoint written under a different rank count.
+
+    Shard boundaries are a function of ``world_size``, so a resume under a
+    different ``--nproc_per_node`` re-slices every rank's shard.  Resume is
+    epoch-aligned and the global per-epoch order is world-size independent, so
+    the only residual is the ``DistributedSampler`` padding and the tail
+    truncation (a handful of boundary samples) -- warn, never abort.
+    (see docs/MULTI_GPU_PLAN.md s 2.1).
+
+    Args:
+        ckpt_world_size: ``world_size`` recorded in the checkpoint, or None.
+        current_world_size: The rank count of the current run.
+
+    Returns:
+        True when a mismatch was detected and warned about.
+    """
+  if ckpt_world_size is None or ckpt_world_size == current_world_size:
+    return False
+  logging.warning(
+      "Checkpoint was written with world_size=%s but this run uses "
+      "world_size=%s: per-rank shards differ (padding/truncation); the "
+      "resumed epoch may re-draw a few boundary samples.", ckpt_world_size,
+      current_world_size)
+  return True
 
 
 def fetch_remote_checkpoint(remote_uri, ckpt_latest, ckpt_best):
