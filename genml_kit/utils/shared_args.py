@@ -50,8 +50,6 @@ def json_dict_type(value):
   return data
 
 
-# --- Model / downloads -------------------------------------------------------
-
 ARG_CACHE_DIR = ("cache_dir", {
     "type": str,
     "help": "HuggingFace cache directory.",
@@ -113,8 +111,6 @@ ARG_IN_CH = ("in_ch", {
     "help": "Input channels (VO pipelines use single-channel imagery).",
 })
 
-# --- Data --------------------------------------------------------------------
-
 ARG_DATASET = ("dataset", {
     "type": str,
     "help": "Dataset: HF name/path, 'imagefolder/<dir>', or a save_to_disk dir.",
@@ -153,8 +149,6 @@ ARG_MAX_ITEMS = ("max_items", {
     "help": "Cap the number of items per dataset/split (smoke tests). "
             "Applied to each split after the train/val split.",
 })
-
-# --- Training loop -----------------------------------------------------------
 
 ARG_IMAGE_SIZE = ("image_size", {
     "type": int,
@@ -222,8 +216,6 @@ ARG_SOURCE_CHECKPOINT = ("source_checkpoint", {
     "help": "Checkpoint whose weights are loaded before training (transfer).",
 })
 
-# --- Loss --------------------------------------------------------------------
-
 ARG_LOSS = ("loss", {
     "type": str,
     "help": "Loss spec: registered name or a path/URL to a .py script "
@@ -237,8 +229,6 @@ ARG_LOSS_ARGS = ("loss_args", {
     "help": "JSON kwargs forwarded to the loss builder, e.g. "
             "'{\"gamma\": 1.0, \"label_smoothing\": 0.1}'.",
 })
-
-# --- Text / preference -------------------------------------------------------
 
 ARG_MAX_SEQ_LEN = ("max_seq_len", {
     "type": int,
@@ -256,8 +246,6 @@ ARG_PAD_TO_MULTIPLE_OF = ("pad_to_multiple_of", {
     "help": "Round the padded length up to this multiple "
             "(e.g. 8 for tensor-core friendliness).",
 })
-
-# --- Logging -----------------------------------------------------------------
 
 ARG_LOG_LEVEL = ("log_level", {
     "type": str,

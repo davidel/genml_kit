@@ -128,11 +128,6 @@ class CommandSpec:
   skip: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Parsing
-# ---------------------------------------------------------------------------
-
-
 def _comment_above(lines, fence_idx):
   """Return the HTML comment block immediately above ``lines[fence_idx]``.
 
@@ -389,11 +384,6 @@ def candidate_fences(md_path):
     i = close + 1
 
 
-# ---------------------------------------------------------------------------
-# Command building
-# ---------------------------------------------------------------------------
-
-
 def _flag_index(cmd, flag):
   for idx, token in enumerate(cmd):
     if token == flag:
@@ -520,9 +510,7 @@ def build_argv(spec, command, run_root, cmd_index=0):
   return [str(token).replace("{tmp}", str(run_root)) for token in cmd]
 
 
-# ---------------------------------------------------------------------------
 # Fixtures (synthesized under run_root)
-# ---------------------------------------------------------------------------
 
 
 def _rgba(value, size):
@@ -900,11 +888,6 @@ def _prepare_fixtures(run_root, spec):
     _make_literal_path(run_root, token, model)
 
 
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
-
-
 def _failure_message(spec, argv, proc=None, stderr=None):
   lines = [
       f"README CLI command failed: {spec.md}:{spec.line} ({spec.heading})",
@@ -963,11 +946,6 @@ def run_spec(spec, tmp_path):
     shutil.rmtree(run_root, ignore_errors=True)
 
 
-# ---------------------------------------------------------------------------
-# Parametrization
-# ---------------------------------------------------------------------------
-
-
 def _collect_specs():
   specs = []
   for pattern in _README_GLOBS:
@@ -1000,9 +978,7 @@ def test_readme_cli(spec, tmp_path):
   run_spec(spec, tmp_path)
 
 
-# ---------------------------------------------------------------------------
 # Fast unit tests (no subprocess, no network)
-# ---------------------------------------------------------------------------
 
 
 def _write(tmp_path, text, name="doc.md"):

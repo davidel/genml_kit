@@ -261,7 +261,6 @@ class FCOSLoss(torch.nn.Module):
     reg_target = torch.stack(all_reg_t, dim=0)
     pos_mask = torch.stack(all_pos, dim=0)
 
-    # --- Classification: focal over all locations ---------------------------
     # (B, P, C) -> (B*P*C,) so the focal helper sees one flat vector.
     cls_loss = _focal_loss(cls_logits.reshape(-1), cls_target.reshape(-1),
                            self.focal_alpha, self.focal_gamma)

@@ -44,9 +44,7 @@ def _gloo_available():
 requires_gloo = pytest.mark.skipif(not _gloo_available(),
                                    reason="torch.distributed unavailable")
 
-# ---------------------------------------------------------------------------
 # Single-process: the pieces the distributed path is assembled from.
-# ---------------------------------------------------------------------------
 
 
 class TestRLMethodDoesNotWrap:
@@ -254,9 +252,7 @@ class TestGatherRollout:
     assert not torch.allclose(whole, torch.cat([seg_a, seg_b]), atol=1e-6)
 
 
-# ---------------------------------------------------------------------------
 # Multi-process: real collectives, 2 gloo ranks on CPU.
-# ---------------------------------------------------------------------------
 
 
 def _init(rank, world, port):

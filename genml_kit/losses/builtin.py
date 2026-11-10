@@ -114,7 +114,6 @@ def dqn_loss_bundle(*, reduction="mean", **kwargs):
   return {"td": td_loss}
 
 
-# --- Knowledge distillation (§16) ------------------------------------------
 # The KD objectives are plain functions in genml_kit.losses.distillation; they
 # are registered here so an external script can override a single one through
 # the existing load_loss(spec, ...) merge logic, with no core changes.  Each
@@ -166,7 +165,6 @@ def kd_relation_builder(**kwargs):
   return kd_relation_loss
 
 
-# --- Alignment (Phase 4) ----------------------------------------------------
 # Like the KD builders, these return the plain function itself; the method
 # binds beta.  Registered so an external script can override either via the
 # existing load_loss(spec, ...) merge logic.

@@ -522,9 +522,7 @@ def format_text(findings):
       f'{f.path}:{f.line}:{f.col}: [{f.rule}] {f.message}' for f in findings)
 
 
-# ---------------------------------------------------------------------------
 # Emitter: the inverse of the checks.
-# ---------------------------------------------------------------------------
 #
 # ``--emit`` takes *clean* LaTeX -- the exact bytes KaTeX must receive -- and
 # returns GitHub-safe file bytes.
