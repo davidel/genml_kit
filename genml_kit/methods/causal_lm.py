@@ -162,18 +162,23 @@ class CausalLMMethod(Method):
     model = self._apply_model_extras(args, model, device)
     # The model is the only authority on how it keeps documents isolated in a
     # packed window.  Resolved (and memoized) here -- the one point where both
-    # the model and the packing intent are known.
+    # the model and the packing intent are known.  Packing comes from the
+    # compiled ``--sequence_mode`` (the single source of truth), not the raw
+    # ``--packing`` flag.
+    from genml_kit.training.sequence_mode import resolve_sequence_mode
+    sequence = resolve_sequence_mode(args.sequence_mode, args.packing,
+                                     args.length_bucket)
     self._packed_capability = _resolve_packed_capability(model)
-    if args.packing:
+    if sequence.windowing in ("wrapped", "bfd"):
       if self._packed_capability == "none":
         fatal(
-            f"--packing was requested but model {args.model!r} declares "
+            f"packing was requested but model {args.model!r} declares "
             f"PACKED_ATTENTION='none', so document boundaries cannot be "
             f"enforced (tokens would attend across documents).  Use a model "
             f"declaring 'block_diagonal' or 'varlen', or drop --packing.", ValueError)
       if self._packed_capability == "varlen" and not flash_varlen_available():
         fatal(
-            f"--packing with model {args.model!r} needs the optional 'flash_attn' "
+            f"packing with model {args.model!r} needs the optional 'flash_attn' "
             f"package (its attention backend is flash).  Install it "
             f"(pip install flash-attn) or select a non-flash backend "
             f"(--attn_implementation sdpa).", ValueError)

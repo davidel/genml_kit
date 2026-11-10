@@ -107,12 +107,11 @@ class TestPacking:
 
   def test_bfd_uses_no_more_windows_than_wrapped(self):
     items = [{"text": "a" * (2 + i)} for i in range(6)]
-    wrapped = TextCollator(_tok(), max_seq_len=8,
+    wrapped = TextCollator(_tok(),
+                           max_seq_len=8,
                            packing=True,
                            packing_strategy="wrapped")(items)
-    bfd = TextCollator(_tok(),
-                       max_seq_len=8,
-                       packing=True,
+    bfd = TextCollator(_tok(), max_seq_len=8, packing=True,
                        packing_strategy="bfd")(items)
     assert bfd.data["input_ids"].shape[0] <= wrapped.data["input_ids"].shape[0]
 
@@ -150,6 +149,26 @@ class TestPacking:
     # Establish the leak condition: a run boundary exists at position 5.
     assert seg[5] != seg[4]
     assert int(labels[5]) == IGNORE_INDEX
+
+  def test_keep_retains_the_boundary_label(self):
+    # ``boundary_loss='keep'`` (--sequence_mode open) leaves the label opening
+    # a new document intact, so the model is trained on what follows a document.
+    coll = TextCollator(_tok(), max_seq_len=16, packing=True, boundary_loss="keep")
+    out = coll([{"text": "ab"}, {"text": "cd"}])
+    labels = out.meta["labels"][0]
+    seg = out.data["segment_ids"][0]
+    assert seg[5] != seg[4]  # the same boundary as the masked case
+    assert int(labels[5]) != IGNORE_INDEX
+
+  def test_keep_without_packing_is_rejected(self):
+    import pytest
+    with pytest.raises(ValueError, match="requires packing"):
+      TextCollator(_tok(), boundary_loss="keep")
+
+  def test_bad_boundary_loss_is_rejected(self):
+    import pytest
+    with pytest.raises(ValueError, match="boundary_loss"):
+      TextCollator(_tok(), packing=True, boundary_loss="nope")
 
   def test_bad_strategy_is_rejected(self):
     import pytest

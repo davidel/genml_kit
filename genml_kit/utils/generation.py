@@ -367,13 +367,41 @@ def apply_chat_template(tokenizer, prompts, enabled=True):
   return templated
 
 
+#: How a prompt is framed before decoding.  ``plain`` treats it as a document
+#: *prefix* (``[BOS] ...``), so the first sampled token is the in-distribution
+#: "continue this document" state.  ``doc`` treats it as a whole *document*
+#: (``[BOS] ... [EOS]``, the tokenizer's own convention), whose trailing EOS is
+#: only a learned continuation cue when the model was trained with
+#: ``boundary_loss="keep"`` (``--sequence_mode open``).
+PROMPT_FRAMINGS = ("plain", "doc")
+
+
+def encode_prompt(tokenizer, text, framing="plain"):
+  """Encode *text* as a prompt under *framing* (see :data:`PROMPT_FRAMINGS`).
+
+    ``doc`` defers to the tokenizer's own special-token convention
+    (``add_special_tokens=True``); ``plain`` keeps only a leading ``BOS`` when
+    the tokenizer has one, never a trailing ``EOS``.  Tokenizers whose native
+    convention already omits a trailing EOS (e.g. GPT-2) make the two identical.
+    """
+  if framing not in PROMPT_FRAMINGS:
+    fatal(f"prompt framing must be one of {PROMPT_FRAMINGS}, got {framing!r}",
+          ValueError)
+  if framing == "doc":
+    return tokenizer.encode(text, add_special_tokens=True)
+  ids = tokenizer.encode(text, add_special_tokens=False)
+  bos = getattr(tokenizer, "bos_token_id", None)
+  return ids if bos is None else [bos] + ids
+
+
 def generate_from_prompts(model,
                           tokenizer,
                           prompts,
                           config=None,
                           device="cpu",
                           batch_size=8,
-                          chat_template=True):
+                          chat_template=True,
+                          prompt_framing="plain"):
   """Generate one completion per prompt (batched, left-padded).
 
     Args:
@@ -386,6 +414,9 @@ def generate_from_prompts(model,
         device: torch device string or object.
         batch_size: prompts per forward batch.
         chat_template: apply the tokenizer's chat template when available.
+        prompt_framing: ``plain`` (default) or ``doc``; see
+            :data:`PROMPT_FRAMINGS`.  ``doc`` must match a checkpoint trained
+            with ``boundary_loss="keep"``.
 
     Returns:
         A list of completion strings, aligned with *prompts*.
@@ -402,7 +433,7 @@ def generate_from_prompts(model,
   completions = []
   for start in range(0, len(texts), batch_size):
     chunk = texts[start:start + batch_size]
-    encoded = [tokenizer.encode(text, add_special_tokens=True) for text in chunk]
+    encoded = [encode_prompt(tokenizer, text, prompt_framing) for text in chunk]
     width = max(len(ids) for ids in encoded)
     input_ids = []
     attention_mask = []

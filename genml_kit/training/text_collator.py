@@ -25,6 +25,13 @@ can keep documents isolated:
 
 Neither requires any knowledge of the model; consumers that ignore them get
 plain cross-document attention, consumers that use them get exact isolation.
+
+The loss at a document boundary is separate from that isolation and is selected
+by ``boundary_loss``: ``mask`` (default) drops the label opening each packed
+document, so the causal shift never crosses a boundary and packed training
+stays equivalent to the per-document padded case.  ``keep`` retains it, which
+is the GPT-2/GPT-3 recipe that teaches the model what follows a document.  The
+two are compiled together by :mod:`genml_kit.training.sequence_mode`.
 """
 
 import logging
@@ -58,6 +65,13 @@ class TextCollator:
         decreasing).  Only meaningful when ``packing`` is True.  ``bfd``
         reorders the documents, so batch composition is not reproducible with
         respect to ``--seed``; a warning is logged once.
+    boundary_loss : str
+        ``"mask"`` (default) sets the label opening each packed document to
+        ``IGNORE_INDEX`` so the causal shift never predicts across a boundary
+        -- packed training stays equivalent to the per-document padded case.
+        ``"keep"`` retains that label, so the model learns what follows a
+        document (the GPT-2/GPT-3 recipe).  Only valid when ``packing`` is
+        True: unpacked, the token after the document's ``EOS`` is padding.
     pad_to_multiple_of : int or None
         If set, round the padded length up to a multiple of this value.
     """
@@ -68,6 +82,7 @@ class TextCollator:
                mask_prompt=False,
                packing=False,
                packing_strategy="wrapped",
+               boundary_loss="mask",
                pad_to_multiple_of=None):
     if max_seq_len < 1:
       fatal(f"max_seq_len must be positive, got {max_seq_len}", ValueError)
@@ -80,6 +95,14 @@ class TextCollator:
           f"packing_strategy must be 'wrapped' or 'bfd', "
           f"got {packing_strategy!r}", ValueError)
     self.packing_strategy = packing_strategy
+    if boundary_loss not in ("mask", "keep"):
+      fatal(f"boundary_loss must be 'mask' or 'keep', got {boundary_loss!r}",
+            ValueError)
+    if boundary_loss == "keep" and not packing:
+      fatal(
+          "boundary_loss='keep' requires packing (use --sequence_mode open); "
+          "unpacked, the tokens after a document's EOS are padding.", ValueError)
+    self.boundary_loss = boundary_loss
     if packing and packing_strategy == "bfd":
       logging.warning("packing_strategy='bfd' reorders documents by length; batch "
                       "composition is not reproducible with respect to --seed.")
@@ -134,8 +157,7 @@ class TextCollator:
     # batch expects.
     return [self._runs_for_window(w) for w in raw_windows]
 
-  @staticmethod
-  def _runs_for_window(tokens):
+  def _runs_for_window(self, tokens):
     """Turn ``[(tok, label, doc_idx), ...]`` into the window's four lists.
 
         Returns ``(ids, labels, segment_ids, position_ids)``.  Runs break
@@ -169,9 +191,15 @@ class TextCollator:
     # (a cross-document leak).  Masking it makes packed training equivalent to
     # the per-document padded case.  Position 0 has no predecessor, so it is
     # never a shifted target and is left untouched.
-    for j in range(1, len(labels)):
-      if segment_ids[j] != segment_ids[j - 1]:
-        labels[j] = IGNORE_INDEX
+    #
+    # ``boundary_loss="keep"`` retains the label instead, so the model learns
+    # what follows a document (the GPT-2/GPT-3 recipe).  Document isolation is
+    # still the model's job (``PACKED_ATTENTION``): keeping the label trains
+    # the transition, it does not let the next document attend backwards.
+    if self.boundary_loss == "mask":
+      for j in range(1, len(labels)):
+        if segment_ids[j] != segment_ids[j - 1]:
+          labels[j] = IGNORE_INDEX
     return ids, labels, segment_ids, position_ids
 
   def _pack_wrapped(self, sequences):

@@ -236,6 +236,16 @@ ARG_MAX_SEQ_LEN = ("max_seq_len", {
     "help": "Token sequence length (truncation / packing window).",
 })
 
+ARG_SEQUENCE_MODE = ("sequence_mode", {
+    "type": str,
+    "default": "document",
+    "help": "Text sequence recipe compiled by genml_kit.training.sequence_mode: "
+            "'document' (no packing, document-exact boundary loss, prompt "
+            "framed as a document prefix) or 'open' (packed concatenation, "
+            "boundary loss kept, prompt framed as a whole document -- the "
+            "GPT-2/GPT-3 pre-training recipe).",
+})
+
 ARG_MASK_PROMPT = ("mask_prompt", {
     "action": "store_true",
     "help": "Mask prompt tokens out of the loss (instruction mode).",
@@ -296,6 +306,7 @@ SHARED_ARGS = {
         ARG_LOSS,
         ARG_LOSS_ARGS,
         ARG_MAX_SEQ_LEN,
+        ARG_SEQUENCE_MODE,
         ARG_MASK_PROMPT,
         ARG_PAD_TO_MULTIPLE_OF,
         ARG_LOG_LEVEL,

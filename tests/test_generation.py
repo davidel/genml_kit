@@ -10,12 +10,11 @@ import torch
 
 from genml_kit.models.generative import GenerativeLM
 from genml_kit.models.tokenizer import ByteTokenizer
-from genml_kit.utils.generation import (SamplingConfig, apply_chat_template,
-                                        apply_repetition_penalty, apply_temperature,
-                                        autoregressive_sample, filter_top_k,
-                                        filter_top_p, generate, generate_from_prompts,
-                                        has_chat_template, has_native_generate,
-                                        native_generate_callable, sample_next_token)
+from genml_kit.utils.generation import (
+    SamplingConfig, apply_chat_template, apply_repetition_penalty, apply_temperature,
+    autoregressive_sample, encode_prompt, filter_top_k, filter_top_p, generate,
+    generate_from_prompts, has_chat_template, has_native_generate,
+    native_generate_callable, sample_next_token)
 
 
 class _FakeOutput:
@@ -252,3 +251,23 @@ class TestGenerateFromPrompts:
     generate_from_prompts(model, tokenizer, ["a"], config=config, device="cpu")
     assert config.pad_token_id == tokenizer.pad_token_id
     assert config.eos_token_id == tokenizer.eos_token_id
+
+
+class TestEncodePrompt:
+  """The prompt framing decides the state the first sampled token comes from."""
+
+  def test_plain_keeps_bos_drops_trailing_eos(self):
+    tok = ByteTokenizer()
+    ids = encode_prompt(tok, "a", framing="plain")
+    assert ids == [tok.bos_token_id, ord("a")]
+    assert tok.eos_token_id not in ids
+
+  def test_doc_uses_the_tokenizer_convention(self):
+    tok = ByteTokenizer()
+    ids = encode_prompt(tok, "a", framing="doc")
+    assert ids == [tok.bos_token_id, ord("a"), tok.eos_token_id]
+
+  def test_unknown_framing_is_fatal(self):
+    import pytest
+    with pytest.raises(ValueError, match="prompt framing"):
+      encode_prompt(ByteTokenizer(), "a", framing="nope")

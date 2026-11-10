@@ -119,11 +119,14 @@ class TextPipeline(DataPipeline):
     # triggers the pipelines package __init__ (and therefore this module's
     # registration) -- a module-scope import here would close that cycle.
     from genml_kit.training.text_collator import TextCollator
+    windowing = self._sequence.windowing
+    packing = windowing in ("wrapped", "bfd")
     return TextCollator(tokenizer,
                         max_seq_len=self._max_seq_len,
                         mask_prompt=self._mask_prompt,
-                        packing=bool(self._packing),
-                        packing_strategy=self._packing or "wrapped",
+                        packing=packing,
+                        packing_strategy=windowing if packing else "wrapped",
+                        boundary_loss=self._sequence.boundary_loss,
                         pad_to_multiple_of=self._pad_to_multiple_of)
 
   def _build(self, args, method=None):
@@ -136,15 +139,16 @@ class TextPipeline(DataPipeline):
           "prepare_transforms must set method.tokenizer before the loaders "
           "are built.", ValueError)
 
+    # Compile ``--sequence_mode`` and the windowing flags into one validated
+    # object: the resolver owns the "packing and --length_bucket are mutually
+    # exclusive" guard and the mode's boundary/framing policy, so no callee
+    # reads the raw flags again.
+    from genml_kit.training.sequence_mode import resolve_sequence_mode
+    self._sequence = resolve_sequence_mode(args.sequence_mode, args.packing,
+                                           args.length_bucket)
     self._max_seq_len = args.max_seq_len
     self._mask_prompt = args.mask_prompt
-    self._packing = args.packing
-    self._length_bucket = args.length_bucket
     self._pad_to_multiple_of = args.pad_to_multiple_of
-    # ``--length_bucket`` and ``--packing`` are two answers to the same problem
-    # (pad waste) with different semantics; only one may be active.
-    if self._packing and self._length_bucket:
-      fatal("--packing and --length_bucket are mutually exclusive.", ValueError)
 
     self.train_dataset, self.val_dataset = self._load_splits(args)
     self.train_collator = self._make_collator(tokenizer)
@@ -154,7 +158,8 @@ class TextPipeline(DataPipeline):
     if args.seed is not None:
       self.data_generator.manual_seed(args.seed)
 
-    if self._length_bucket:
+    windowing = self._sequence.windowing
+    if windowing == "bucket":
       self.train_loader = self._build_bucketed_train_loader(args)
     else:
       self.train_loader = DataLoader(
@@ -165,7 +170,7 @@ class TextPipeline(DataPipeline):
           worker_init_fn=seed_worker,
           generator=self.data_generator,
           pin_memory=False,
-          drop_last=bool(self._packing),
+          drop_last=windowing in ("wrapped", "bfd"),
           collate_fn=self.train_collator,
       )
     if self.val_dataset is not None:

@@ -2343,6 +2343,7 @@ for validation instead.
 | `--instruction_column` | — | prompt column (instruction mode, with `--response_column`) |
 | `--response_column` | — | response column (instruction mode) |
 | `--max_seq_len` | `512` | token sequence length (truncation / packing window) |
+| `--sequence_mode` | `document` | sequence recipe: `document` (no packing, document-exact boundary loss, prompt framed as a document prefix) or `open` (packed concatenation, boundary loss kept, prompt framed as a whole document) |
 | `--mask_prompt` | off | mask prompt tokens out of the loss (instruction tuning) |
 | `--packing [wrapped\|bfd]` | off | pack sequences into fixed `max_seq_len` windows (`wrapped` = concatenate-and-slice, `bfd` = best-fit-decreasing) |
 | `--length_bucket` | off | batch items of similar length so padded batches waste little compute (mutually exclusive with `--packing`) |
@@ -2368,6 +2369,29 @@ model:
 windows; `bfd` yields fewer, fuller windows but reorders documents, so batch
 order is **not** reproducible with respect to `--seed` (it warns once).
 `--length_bucket` is mutually exclusive with `--packing`.
+
+`--sequence_mode` compiles the windowing flags and the two coupled policies
+below into one validated object (`genml_kit/training/sequence_mode.py`), so an
+incoherent pairing cannot be expressed.  The two recipes are:
+
+- `document` (default) -- unpacked, **boundary loss masked**, prompts framed as
+  a document *prefix* (`[BOS] ...`, no trailing `EOS`).  The validation
+  perplexity is document-exact and the first sampled token is a trained
+  "continue this document" state.
+- `open` -- packed (`wrapped`), **boundary loss kept**, prompts framed as a whole
+  *document* (`[BOS] ... [EOS]`).  This is the GPT-2/GPT-3 pre-training recipe:
+  the token following a document's `EOS` keeps a trained next-token
+  distribution, so "what follows a document" is a learned state rather than an
+  untrained one.  `open` requires packing, and `--length_bucket` is rejected
+  with it.
+
+Explicit `--packing` / `--length_bucket` override the recipe's default
+windowing; the boundary-loss and framing policies still come from the recipe.
+A kept boundary loss is meaningful only under packing: unpacked, the tokens
+after a document's `EOS` are padding, so keeping the boundary label would train
+`EOS -> PAD` -- which is why `open` (and the collator) reject it.
+
+Document isolation (independent of the boundary loss) works as follows:
 
 - Under `--packing`, the collator emits two extra tensors per batch, requiring
   no model knowledge: `segment_ids` (the contiguous run -- i.e. source document
@@ -2403,7 +2427,8 @@ boundary -- packed training stays equivalent to the per-document padded case and
 block-diagonal (pure-torch) path, so CPU and CI never require a GPU.
 
 `--dataset`, `--split`, `--val_split`, `--cache_dir`, `--image_column`,
-`--max_seq_len`, `--mask_prompt`, `--pad_to_multiple_of` and `--max_items` are
+`--max_seq_len`, `--sequence_mode`, `--mask_prompt`, `--pad_to_multiple_of` and
+`--max_items` are
 **globally shared** CLI arguments: they are declared once by the harness
 (`genml_kit/utils/shared_args.py`), so every pipeline and method can read
 `args.<flag>` directly instead of guarding with `getattr(...)`.

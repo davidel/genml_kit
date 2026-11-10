@@ -41,8 +41,9 @@ def _args(corpus_dir, model_dir, **overrides):
       text_column="text",
       dataset_arg=None,
       max_seq_len=32,
-      packing=False,
-      length_bucket=False,
+      # ``--packing`` defaults to ``None`` (unset) on the real parser; the
+      # ``--sequence_mode`` resolver reads it, so tests keep the CLI default.
+      sequence_mode="document",
       model=str(model_dir),
       tokenizer="byte",
       tokenizer_arg=None,

@@ -50,7 +50,7 @@ from genml_kit.utils.shared_args import (
     ARG_EPOCHS, ARG_GRAD_CHECKPOINT, ARG_IMAGE_COLUMN, ARG_IMAGE_SIZE, ARG_IN_CH,
     ARG_LORA, ARG_MAX_ITEMS, ARG_MAX_SEQ_LEN, ARG_MASK_PROMPT, ARG_METHOD, ARG_MODEL,
     ARG_MODEL_ARG, ARG_NUM_WORKERS, ARG_PAD_TO_MULTIPLE_OF, ARG_PARAM_INIT, ARG_SEED,
-    ARG_SPLIT, ARG_VAL_SPLIT, add_shared_arg)
+    ARG_SEQUENCE_MODE, ARG_SPLIT, ARG_VAL_SPLIT, add_shared_arg)
 
 
 def build_parser():
@@ -151,6 +151,7 @@ def build_parser():
   add_shared_arg(data_group, ARG_CACHE_DIR)
   add_shared_arg(data_group, ARG_MAX_ITEMS)
   add_shared_arg(data_group, ARG_MAX_SEQ_LEN)
+  add_shared_arg(data_group, ARG_SEQUENCE_MODE)
   add_shared_arg(data_group,
                  ARG_MASK_PROMPT,
                  help="Mask prompt tokens out of the loss (instruction mode).")
