@@ -164,7 +164,7 @@ class CausalLMMethod(Method):
     # packed window.  Resolved (and memoized) here -- the one point where both
     # the model and the packing intent are known.
     self._packed_capability = _resolve_packed_capability(model)
-    if getattr(args, "packing", None):
+    if args.packing:
       if self._packed_capability == "none":
         fatal(
             f"--packing was requested but model {args.model!r} declares "

@@ -129,20 +129,20 @@ class DQNMethod(RLMethod):
     self._losses = load_loss(loss_spec, protocol="dqn", **loss_kwargs)
 
     # Epsilon schedule state.
-    self._eps_start = getattr(args, "dqn_epsilon_start", 1.0)
-    self._eps_end = getattr(args, "dqn_epsilon_end", 0.02)
-    self._decay_steps = getattr(args, "dqn_epsilon_decay_steps", 50_000)
+    self._eps_start = args.dqn_epsilon_start
+    self._eps_end = args.dqn_epsilon_end
+    self._decay_steps = args.dqn_epsilon_decay_steps
     self._epsilon = self._eps_start
     self._env_steps = 0
 
     # Target-update config.
-    self._target_update_freq = getattr(args, "dqn_target_update_freq", 0)
-    self._tau = getattr(args, "dqn_tau", 1.0)
+    self._target_update_freq = args.dqn_target_update_freq
+    self._tau = args.dqn_tau
 
     # Q-learning hyper-params.
     self._gamma = args.dqn_gamma
-    self._ddqn = getattr(args, "dqn_ddqn", True)
-    self._n_step = getattr(args, "dqn_n_step", 1)
+    self._ddqn = args.dqn_ddqn
+    self._n_step = args.dqn_n_step
 
     # Model: ``--model`` selects the registered factory (interface A);
     # falling back to the two DQN defaults preserves today's behaviour
@@ -150,8 +150,7 @@ class DQNMethod(RLMethod):
     # is the vision model, which must not leak into RL runs).
     model_name = args.model
     if not model_name or model_name == "google/vit-base-patch16-224":
-      model_name = ("rl/qnet_dueling"
-                    if getattr(args, "dqn_dueling", False) else "rl/qnet")
+      model_name = ("rl/qnet_dueling" if args.dqn_dueling else "rl/qnet")
     dqn_kwargs = {
         k: v for k, v in args.model_arg.items() if k not in {
             "dqn_gamma", "dqn_tau", "dqn_epsilon_start", "dqn_epsilon_end",

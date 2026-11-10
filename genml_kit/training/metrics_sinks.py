@@ -95,16 +95,16 @@ class NullSink:
              resolution=None,
              step=None,
              epoch=None):
-    return None
+    pass
 
   def artifact(self, tag, payload_kind, payload, *, step=None):
-    return None
+    pass
 
   def run_fact(self, key, value):
-    return None
+    pass
 
   def close(self):
-    return None
+    pass
 
 
 class TensorBoardSink:
@@ -140,7 +140,7 @@ class TensorBoardSink:
 
   def run_fact(self, key, value):
     # TensorBoard has no run-level scalar bucket; ignore (JSONL sink owns it).
-    return None
+    pass
 
   def close(self):
     self._writer.close()
@@ -195,7 +195,7 @@ class JsonlSink:
       f.write(json.dumps(record) + "\n")
 
   def close(self):
-    return None
+    pass
 
 
 def ensure_logger(logger):
@@ -262,9 +262,9 @@ def parse_sink_names(spec):
 
 def _default_jsonl_path(args):
   """Return the JSONL path, mirroring ``open_writer``'s log-dir defaulting."""
-  log_dir = getattr(args, "log_dir", None)
+  log_dir = args.log_dir
   if log_dir is None:
-    checkpoint = getattr(args, "checkpoint", None)
+    checkpoint = args.checkpoint
     log_dir = os.path.join(os.path.dirname(checkpoint) or ".", "logs")
   return os.path.join(log_dir, "metrics.jsonl")
 
@@ -286,12 +286,11 @@ def build_metrics_logger(args):
     return MetricsLogger([])
 
   sinks = []
-  for name in parse_sink_names(getattr(args, "metrics_sinks", "tb")):
+  for name in parse_sink_names(args.metrics_sinks):
     if name == "tb":
       sinks.append(
-          TensorBoardSink(
-              open_writer(log_dir=getattr(args, "log_dir", None),
-                          checkpoint=getattr(args, "checkpoint", None))))
+          TensorBoardSink(open_writer(log_dir=args.log_dir,
+                                      checkpoint=args.checkpoint)))
     elif name == "jsonl":
       sinks.append(JsonlSink(_default_jsonl_path(args)))
     elif name in ("none", "null"):

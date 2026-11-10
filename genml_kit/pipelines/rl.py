@@ -32,9 +32,9 @@ def per_rank_seed(args):
   correlated rollouts -- the exact failure multi-GPU RL must avoid -- while
   the rank offset keeps each rank reproducible run to run.
   """
-  base = getattr(args, "env_seed", None)
+  base = args.env_seed
   if base is None:
-    base = resolve_seed(getattr(args, "seed", None))
+    base = resolve_seed(args.seed)
   return int(base) + rank()
 
 
@@ -357,11 +357,9 @@ class RLPipeline(DataPipeline):
 
   def build_loader(self, args, **kwargs):
     """Return ``None`` — the RLTrainer samples from the buffer directly."""
-    return None
 
   def build_val_loader(self, args, **kwargs):
     """Return ``None`` — validation is done via the method's ``evaluate``."""
-    return None
 
   def init_env(self, args):
     """Build (and cache) the environment and replay buffer.
@@ -374,14 +372,14 @@ class RLPipeline(DataPipeline):
       return
 
     # D6/D7: rendering must be requested at gym.make() time.
-    render_mode = ("rgb_array" if getattr(args, "record_eval_video", False) else None)
+    render_mode = ("rgb_array" if args.record_eval_video else None)
     self._video_enabled = render_mode is not None
 
     # Per-rank seeds: every rank must drive a *different* env and sampling
     # stream, or the N ranks replay correlated rollouts (no data diversity).
     env_seed = per_rank_seed(args)
 
-    if getattr(args, "env_script", None):
+    if args.env_script:
       self.env = extern_call(args.env_script, "make_env")
       # External envs are probed at validation time; we cannot force a
       # render_mode on them here, so keep _video_enabled as a hint only.
@@ -397,7 +395,7 @@ class RLPipeline(DataPipeline):
     self.space = space_spec(
         self.env.observation_space,
         self.env.action_space,
-        obs_dim=getattr(args, "obs_dim", None),
+        obs_dim=args.obs_dim,
     )
 
     # Expose action_space for continuous support (A9)
@@ -421,7 +419,7 @@ class RLPipeline(DataPipeline):
 
     self.replay_buffer = ReplayBufferDataset(
         obs_dim=obs_dim,
-        capacity=getattr(args, "replay_capacity", 100_000),
+        capacity=args.replay_capacity,
         action_dim=action_dim,
         action_dtype=action_dtype,
         discrete=not is_continuous,
@@ -430,9 +428,9 @@ class RLPipeline(DataPipeline):
         # in ``wire_data`` (init_env runs before the method is built).
         gamma=0.99,
         prioritized=args.prioritized,
-        alpha=getattr(args, "per_alpha", 0.6),
-        beta_start=getattr(args, "per_beta_start", 0.4),
-        beta_frames=getattr(args, "per_beta_frames", 100_000),
+        alpha=args.per_alpha,
+        beta_start=args.per_beta_start,
+        beta_frames=args.per_beta_frames,
         seed=buffer_seed,
     )
 
@@ -446,8 +444,8 @@ class RLPipeline(DataPipeline):
     )
 
     # Observation normalization (E3)
-    self._obs_normalize = getattr(args, "obs_normalize", False)
-    self._obs_norm_clip = getattr(args, "obs_norm_clip", 10.0)
+    self._obs_normalize = args.obs_normalize
+    self._obs_norm_clip = args.obs_norm_clip
     if self._obs_normalize:
       self.obs_rms = RunningMeanStd(shape=(obs_dim,))
     else:
@@ -455,8 +453,8 @@ class RLPipeline(DataPipeline):
 
     # Reward/return normalization (SB3 VecNormalize).  PPO-only for now;
     # SAC auto-alpha already adapts to the reward scale (see the plan).
-    self._reward_normalize = getattr(args, "reward_normalize", False)
-    self._reward_norm_clip = getattr(args, "reward_norm_clip", 10.0)
+    self._reward_normalize = args.reward_normalize
+    self._reward_norm_clip = args.reward_norm_clip
     self._ret_norm_gamma = args.ppo_gamma
     if self._reward_normalize:
       self.ret_norm = ReturnNormalizer(gamma=self._ret_norm_gamma,

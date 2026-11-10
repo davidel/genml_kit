@@ -109,7 +109,7 @@ class TestCustomRegistration:
       NAME = "custom_method"
 
       def build_model(self, args, device):
-        return None
+        pass
 
       def train_step(self, model, blob, global_step, *, labels=None):
         return LossOutput(loss=torch.zeros(()), metrics={})
@@ -182,6 +182,7 @@ class _ImageFolderArgs(argparse.Namespace):
   label_column = None
   dataset = None
   datasets = None
+  max_items = None
 
 
 def _make_imagefolder(root, n=8, classes=("a", "b")):

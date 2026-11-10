@@ -28,6 +28,7 @@ from genml_kit.search.runner import DEFAULT_TRAIN_MODULE
 from genml_kit.search.study import load_document
 from genml_kit.utils.cli import KVPairAction
 from genml_kit.utils.logging import fatal, setup_logging
+from genml_kit.utils.shared_args import (ARG_LOG_LEVEL, ARG_LOG_TARGETS, add_shared_arg)
 
 DEFAULT_STUDY_ROOT = "runs"
 
@@ -146,14 +147,8 @@ def build_parser():
                    default=None,
                    help="Module launched for each trial "
                    "(defaults to genml_kit.cli.train).")
-  run.add_argument("--log_level",
-                   type=str,
-                   default="INFO",
-                   help="Tuner logging level (DEBUG, INFO, WARNING, ...).")
-  run.add_argument("--log_targets",
-                   type=str,
-                   default="STDERR",
-                   help="Tuner log destinations (STDERR or file paths).")
+  add_shared_arg(run, ARG_LOG_LEVEL, help="Tuner logging level.")
+  add_shared_arg(run, ARG_LOG_TARGETS, help="Tuner log destinations.")
   run.add_argument(
       "train_extra",
       nargs="*",
@@ -174,6 +169,8 @@ def build_parser():
                       type=int,
                       default=20,
                       help="Show the top N trials (0 = all).")
+  add_shared_arg(report, ARG_LOG_LEVEL, help="Tuner logging level.")
+  add_shared_arg(report, ARG_LOG_TARGETS, help="Tuner log destinations.")
   return parser
 
 
@@ -292,8 +289,7 @@ def report_command(args):
 def main(argv=None):
   """Dispatch to the selected subcommand."""
   args = parse_args(argv)
-  setup_logging(getattr(args, "log_level", "INFO"),
-                getattr(args, "log_targets", "STDERR"))
+  setup_logging(args.log_level, args.log_targets)
   if args.command == "run":
     run_command(args)
   elif args.command == "report":

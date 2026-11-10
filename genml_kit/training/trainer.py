@@ -56,7 +56,7 @@ class _NoMonitor:
   """Null-object grad monitor: step() is a no-op."""
 
   def step(self, *_args, **_kwargs):
-    return None
+    pass
 
 
 class BaseTrainer:
@@ -113,11 +113,11 @@ class BaseTrainer:
     scaler = self.optimization.scaler
     amp_dtype = amp_dtype_from_args(self.args)
     total_batches = len(self.pipeline.train_loader)
-    accum_steps = getattr(self.args, "grad_accum_steps", 1)
+    accum_steps = self.args.grad_accum_steps
 
     reporter = ImageTrainReporting(
         total_batches=total_batches,
-        log_every=getattr(self.args, "log_every", 50),
+        log_every=self.args.log_every,
         logger=self.logger,
         device=self.device,
         optimizer=self.optimization.optimizer,
@@ -359,7 +359,7 @@ class BaseTrainer:
           # so a slow validation cannot let a peer run ahead and hit the next
           # epoch's all-reduce first (which can time out the NCCL watchdog).
           barrier()
-          if (metrics is not None and getattr(self.args, "vis_every", 0) > 0 and
+          if (metrics is not None and self.args.vis_every > 0 and
               self.epoch % self.args.vis_every == 0):
             try:
               self.method.log_validation(

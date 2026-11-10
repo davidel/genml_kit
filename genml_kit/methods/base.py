@@ -191,7 +191,8 @@ class Method(abc.ABC):
       return new_metric < best_metric
     return new_metric > best_metric
 
-  def build_optimization(self, args, model, device, ckpt_extra, states_to_load):
+  def build_optimization(  # noqa: B027
+      self, args, model, device, ckpt_extra, states_to_load):
     """Optional hook to build custom optimizers.
 
         Override this for methods that need multiple optimizers (e.g., SAC).
@@ -204,8 +205,6 @@ class Method(abc.ABC):
           will call ``optimizer.zero_grad()``, ``loss.backward()``,
           ``optimizer.step()`` on the returned optimizer.
         """
-    # Use default from optim_factory.
-    return None
 
   @classmethod  # noqa: B027
   def add_args(cls, parser):

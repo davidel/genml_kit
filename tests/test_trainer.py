@@ -29,6 +29,8 @@ class _Args:
   grad_accum_steps = 1
   grad_clip = 0.0
   amp_dtype = None
+  log_every = 50
+  vis_every = 0
   norm_history = 0
   grad_monitor = -1
   dist_arg = {}

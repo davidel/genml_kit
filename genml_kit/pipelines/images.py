@@ -170,7 +170,7 @@ class ImagesPipeline(DataPipeline):
         args.dataset,
         cache_dir=args.cache_dir,
         test_size=args.val_split,
-        max_items=getattr(args, "max_items", None),
+        max_items=args.max_items,
         train_transform=getattr(method, "train_transforms", None),
         val_transform=getattr(method, "val_transforms", None),
         image_column=args.image_column,
@@ -269,7 +269,7 @@ class ImagesPipeline(DataPipeline):
         cache_dir=args.cache_dir,
         hf_token=getenv("HF_TOKEN", str, None),
         strict=getenv("STRICT_DATASETS", bool, False),
-        max_items=getattr(args, "max_items", None),
+        max_items=args.max_items,
     )
     self.ensemble = ensemble
     self.num_labels = ensemble.num_labels if ensemble.has_labels else None

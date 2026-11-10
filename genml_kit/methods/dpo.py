@@ -76,7 +76,7 @@ class DPOMethod(Method):
     self.tokenizer = load_tokenizer(
         args.tokenizer or args.model,
         cache_dir=args.cache_dir,
-        **(getattr(args, "tokenizer_arg", None) or {}),
+        **(args.tokenizer_arg or {}),
     )
 
   def _build_lm(self, args, device, model_name, checkpoint):
@@ -100,13 +100,12 @@ class DPOMethod(Method):
   def build_model(self, args, device):
     """Build the policy (with model extras) and the frozen reference."""
     self._dpo_loss = load_loss(args.loss or "dpo")
-    self._beta = getattr(args, "beta", 0.1)
+    self._beta = args.beta
     policy = self._build_lm(args, device, args.model, None)
     policy = self._apply_model_extras(args, policy, device)
 
-    reference = self._build_lm(args, device,
-                               getattr(args, "reference_model", None) or args.model,
-                               getattr(args, "reference_checkpoint", None))
+    reference = self._build_lm(args, device, args.reference_model or args.model,
+                               args.reference_checkpoint)
     reference.to(device)
     reference.eval()
     for param in reference.parameters():
@@ -175,7 +174,7 @@ class DPOMethod(Method):
     return {
         "method": "dpo",
         "tokenizer": args.tokenizer or args.model,
-        "reference_model": getattr(args, "reference_model", None) or args.model,
-        "reference_checkpoint": getattr(args, "reference_checkpoint", None),
-        "beta": getattr(args, "beta", 0.1),
+        "reference_model": args.reference_model or args.model,
+        "reference_checkpoint": args.reference_checkpoint,
+        "beta": args.beta,
     }

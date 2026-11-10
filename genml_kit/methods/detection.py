@@ -188,9 +188,9 @@ class DetectionMethod(Method):
     self._num_classes = self._resolve_num_classes(args, pipeline)
     self._id2label = self._resolve_id2label(pipeline)
     self._criterion = self._build_criterion(args)
-    self._score_thresh = getattr(args, "det_score_thresh", 0.05)
-    self._nms_thresh = getattr(args, "det_nms_thresh", 0.5)
-    self._max_detections = getattr(args, "det_max_detections", 100)
+    self._score_thresh = args.det_score_thresh
+    self._nms_thresh = args.det_nms_thresh
+    self._max_detections = args.det_max_detections
 
   def build_model(self, args, device):
     """Load the detection model (encoder + head) via the registry."""

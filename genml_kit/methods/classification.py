@@ -133,7 +133,7 @@ class ClassificationMethod(Method):
     if pipeline.num_labels is None:
       fatal("--method classification requires a labeled --dataset.", ValueError)
     self.set_label_space(pipeline.num_labels, pipeline.id2label, pipeline.label2id)
-    self.set_mixup_alpha(getattr(args, "mixup_alpha", 0.0))
+    self.set_mixup_alpha(args.mixup_alpha)
     class_weights = pipeline.class_weights
     if class_weights is None:
       class_weights = torch.ones(pipeline.num_labels, dtype=torch.float32)

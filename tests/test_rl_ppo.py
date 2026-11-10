@@ -23,6 +23,9 @@ def _make_args(**overrides):
       ppo_value_coef=0.5,
       ppo_vf_clip_eps=None,
       ppo_target_kl=None,
+      ppo_log_std_init=0.0,
+      ppo_log_std_min=-5.0,
+      ppo_log_std_max=1.0,
       ppo_rollout_len=16,
       ppo_discrete=True,
       source_checkpoint=None,
@@ -46,6 +49,18 @@ def _make_args(**overrides):
       n_step=1,
       prioritized=False,
       replay_capacity=100_000,
+      # RL pipeline env flags read by init_env().
+      env_script=None,
+      record_eval_video=False,
+      env_seed=0,
+      obs_dim=None,
+      per_alpha=0.6,
+      per_beta_start=0.4,
+      per_beta_frames=100_000,
+      obs_normalize=False,
+      obs_norm_clip=10.0,
+      reward_normalize=False,
+      reward_norm_clip=10.0,
   )
   defaults.update(overrides)
   return argparse.Namespace(**defaults)

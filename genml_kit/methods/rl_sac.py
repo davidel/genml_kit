@@ -163,8 +163,8 @@ class SACMethod(RLMethod):
 
   def build_model(self, args, device):
     self._gamma = args.sac_gamma
-    self._tau = getattr(args, "sac_tau", 0.005)
-    self._auto_alpha = getattr(args, "sac_auto_alpha", True)
+    self._tau = args.sac_tau
+    self._auto_alpha = args.sac_auto_alpha
     # Global grad-norm clip for the three SAC optimizers (0 disables).
     self._grad_clip = args.grad_clip or 0.0
 
@@ -181,11 +181,11 @@ class SACMethod(RLMethod):
     # log keeps alpha strictly positive and, crucially, makes the alpha
     # loss well-conditioned (see invariant 3 in the class docstring).
     self._log_alpha = torch.tensor(
-        math.log(getattr(args, "sac_alpha", 0.2)),
+        math.log(args.sac_alpha),
         device=device,
         requires_grad=True,
     )
-    self._target_entropy = getattr(args, "sac_target_entropy", None)
+    self._target_entropy = args.sac_target_entropy
     if self._target_entropy is None:
       self._target_entropy = -float(self._action_dim)
 
@@ -243,9 +243,9 @@ class SACMethod(RLMethod):
 
   def build_optimization(self, args, model, device, ckpt_extra, states_to_load):
     """Build three separate optimizers for critic, actor, and alpha."""
-    critic_lr = getattr(args, "sac_critic_lr", 3e-4)
-    actor_lr = getattr(args, "sac_actor_lr", 3e-4)
-    alpha_lr = getattr(args, "sac_alpha_lr", 3e-4)
+    critic_lr = args.sac_critic_lr
+    actor_lr = args.sac_actor_lr
+    alpha_lr = args.sac_alpha_lr
 
     critic_params = list(model.q1.parameters()) + list(model.q2.parameters())
     actor_params = list(model.actor.parameters())

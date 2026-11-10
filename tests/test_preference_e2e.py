@@ -51,6 +51,7 @@ def _args(corpus_dir, model_dir, method="dpo", **overrides):
       pad_to_multiple_of=None,
       model=str(model_dir),
       tokenizer="byte",
+      tokenizer_arg=None,
       reference_model=None,
       reference_checkpoint=None,
       beta=0.1,

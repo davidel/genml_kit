@@ -73,10 +73,10 @@ class VOPairMethod(Method):
 
   def build_model(self, args, device):
     """Build the :class:`VOSimilarityNet` and place it on *device*."""
-    self._stage = STAGES[getattr(args, "vo_stage", "supervised")]
-    self._cfg = self._parse_loss_cfg(getattr(args, "vo_loss_cfg", None))
+    self._stage = STAGES[args.vo_stage]
+    self._cfg = self._parse_loss_cfg(args.vo_loss_cfg)
     model = load_model(
-        f"vo/{getattr(args, 'vo_profile', 'npu-small')}",
+        f"vo/{args.vo_profile}",
         num_labels=0,
         image_size=args.image_size or 64,
         in_ch=args.in_ch,

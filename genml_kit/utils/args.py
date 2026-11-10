@@ -15,7 +15,8 @@ import argparse
 
 import torch
 
-from genml_kit.utils.shared_args import (ARG_GRAD_ACCUM_STEPS, ARG_GRAD_CLIP, ARG_LOSS,
+from genml_kit.utils.shared_args import (ARG_GRAD_ACCUM_STEPS, ARG_GRAD_CLIP,
+                                         ARG_LOG_LEVEL, ARG_LOG_TARGETS, ARG_LOSS,
                                          ARG_LOSS_ARGS, ARG_SOURCE_CHECKPOINT,
                                          add_shared_arg)
 from genml_kit.utils.shared_args import json_dict_type
@@ -42,7 +43,7 @@ def amp_dtype_from_args(args):
   raw string the user passed (or ``None``), and consumers convert on
   demand via this helper.
   """
-  name = getattr(args, "amp_dtype", None)
+  name = args.amp_dtype
   return _AMP_DTYPES[name] if name else None
 
 
@@ -192,21 +193,8 @@ def add_logging_args(parser):
   other entry is a file path appended to.  Multiple destinations receive
   the same log records simultaneously, e.g. ``STDERR,/tmp/train.log``.
   """
-  parser.add_argument(
-      "--log_level",
-      type=str,
-      default="INFO",
-      choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-      help="Minimum logging level.",
-  )
-  parser.add_argument(
-      "--log_targets",
-      type=str,
-      default="STDERR",
-      help="Comma-separated list of log destinations. 'STDERR' logs to "
-      "standard error; any other entry is a log file path "
-      "appended to. Example: 'STDERR,/tmp/train.log' logs to both.",
-  )
+  add_shared_arg(parser, ARG_LOG_LEVEL)
+  add_shared_arg(parser, ARG_LOG_TARGETS)
   parser.add_argument(
       "--metrics_sinks",
       type=str,

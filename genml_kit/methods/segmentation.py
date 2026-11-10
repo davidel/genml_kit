@@ -83,7 +83,7 @@ class SegmentationMethod(Method):
 
   def _build_transforms(self, args, processor, *, is_train):
     image_size = args.image_size
-    if getattr(args, "seg_augmentation_script", None):
+    if args.seg_augmentation_script:
       # A user script owns the whole paired transform (image + mask); the
       # processor normalization remains the caller's responsibility in the
       # script.  Loaded lazily so a plain run never imports it.
@@ -277,7 +277,7 @@ class SegmentationMethod(Method):
     return criterion
 
   def _resolve_num_classes(self, args, pipeline):
-    explicit = getattr(args, "seg_num_classes", None)
+    explicit = args.seg_num_classes
     if explicit:
       logging.info("SegmentationMethod: class count = %d (explicit)", explicit)
       return explicit

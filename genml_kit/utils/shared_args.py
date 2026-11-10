@@ -257,6 +257,23 @@ ARG_PAD_TO_MULTIPLE_OF = ("pad_to_multiple_of", {
             "(e.g. 8 for tensor-core friendliness).",
 })
 
+# --- Logging -----------------------------------------------------------------
+
+ARG_LOG_LEVEL = ("log_level", {
+    "type": str,
+    "default": "INFO",
+    "choices": ["DEBUG", "INFO", "WARNING", "ERROR"],
+    "help": "Minimum logging level.",
+})
+
+ARG_LOG_TARGETS = ("log_targets", {
+    "type": str,
+    "default": "STDERR",
+    "help": "Comma-separated log destinations. 'STDERR' logs to "
+            "standard error; any other entry is a log file path "
+            "appended to. Example: 'STDERR,/tmp/train.log' logs to both.",
+})
+
 #: Registry of every globally shared argument, keyed by its ``dest``.  Use
 #: this to audit whether a shared flag is only consumed in one place (and can
 #: therefore be downgraded back to a local ``add_argument`` call).
@@ -293,6 +310,8 @@ SHARED_ARGS = {
         ARG_MAX_SEQ_LEN,
         ARG_MASK_PROMPT,
         ARG_PAD_TO_MULTIPLE_OF,
+        ARG_LOG_LEVEL,
+        ARG_LOG_TARGETS,
     )
 }
 

@@ -88,4 +88,4 @@ class SupConMethod(Method):
 
   def validate(self, model, images, num_samples):
     # No pixel-space visualization for contrastive.
-    return None
+    pass

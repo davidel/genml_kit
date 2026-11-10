@@ -495,7 +495,7 @@ class DistillationMethod(Method):
 
   def validate(self, model, images, num_samples):
     # No pixel-space visualization for distillation.
-    return None
+    pass
 
 
 class _KdConfig:

@@ -233,7 +233,7 @@ class SegmentationPipeline(DataPipeline):
 
     # Mask column: an explicit --mask_column wins; otherwise auto-detect
     # (mask / label / annotation / ...).  No longer required.
-    mask_col = getattr(args, "mask_column", None)
+    mask_col = args.mask_column
     if mask_col is None or mask_col not in train_raw.column_names:
       mask_col = HFDatasetProxy.detect_mask_column(train_raw)
     if mask_col is None:

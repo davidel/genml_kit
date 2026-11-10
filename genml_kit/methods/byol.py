@@ -164,4 +164,4 @@ class BYOLMethod(Method):
     self._byol_final_momentum = state.get("final_momentum", args.byol_final_momentum)
 
   def validate(self, model, images, num_samples):
-    return None
+    pass

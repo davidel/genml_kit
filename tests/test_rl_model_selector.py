@@ -55,6 +55,7 @@ def _make_args(**overrides):
       ppo_rollout_len=32,
       sac_gamma=0.99,
       sac_tau=0.005,
+      sac_target_entropy=None,
       sac_alpha=0.2,
       sac_auto_alpha=True,
       # _apply_model_extras fields (defaults to no-op).

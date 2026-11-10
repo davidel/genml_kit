@@ -82,7 +82,7 @@ class _FakeUnlabeled:
 
   @property
   def labels_array(self):
-    return None
+    pass
 
   @property
   def column_map(self):

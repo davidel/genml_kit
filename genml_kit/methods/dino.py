@@ -96,9 +96,9 @@ class DINOMethod(Method):
                        help="Number of local crops.")
 
   def build_model(self, args, device):
-    self._dino_global_size = getattr(args, "dino_global_size", 224)
-    self._dino_local_size = getattr(args, "dino_local_size", 96)
-    self._dino_local_num = getattr(args, "dino_local_num", 8)
+    self._dino_global_size = args.dino_global_size
+    self._dino_local_size = args.dino_local_size
+    self._dino_local_num = args.dino_local_num
     self._dino_momentum = args.dino_momentum
     self._dino_final_momentum = args.dino_final_momentum
     encoder = load_model(
@@ -253,4 +253,4 @@ class DINOMethod(Method):
       model.loss.center.copy_(state["center"])
 
   def validate(self, model, images, num_samples):
-    return None
+    pass

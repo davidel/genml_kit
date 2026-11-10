@@ -55,7 +55,7 @@ class DataPipeline(abc.ABC):  # noqa: B024
     """Move a DataBlob (data AND meta) onto *device*."""
     raise NotImplementedError
 
-  def build_transform(self, args, method):
+  def build_transform(self, args, method):  # noqa: B027
     """Optional generic preprocessing (default: None = no pipeline phase).
 
         Default returns None so that only the method's own augmentation (or the
@@ -65,7 +65,6 @@ class DataPipeline(abc.ABC):  # noqa: B024
         "two-phase contract" in the plan (s 6.1).  Returns a callable applied to
         each raw item before it becomes a DataBlob, or None.
         """
-    return None
 
   def init_env(self, args):  # noqa: B027
     """Initialize environment-specific state (e.g., Gymnasium envs for RL).
@@ -98,8 +97,7 @@ class DataPipeline(abc.ABC):  # noqa: B024
     if not args.dist_arg.get("shard", world_size() > 1) or world_size() < 2:
       return
     if getattr(self, "train_loader", None) is not None:
-      self.train_loader = shard_loader(self.train_loader,
-                                       seed=getattr(args, "seed", 0) or 0)
+      self.train_loader = shard_loader(self.train_loader, seed=args.seed or 0)
 
   def shard_val_loader(self, args):
     """Shard the validation set across ranks (no-op when single-process).
@@ -119,8 +117,7 @@ class DataPipeline(abc.ABC):  # noqa: B024
     if not args.dist_arg.get("shard", world_size() > 1) or world_size() < 2:
       return
     if getattr(self, "val_loader", None) is not None:
-      self.val_loader = shard_loader(self.val_loader,
-                                     seed=getattr(args, "seed", 0) or 0)
+      self.val_loader = shard_loader(self.val_loader, seed=args.seed or 0)
 
   def set_train_epoch(self, epoch):
     """Advance every per-epoch sampler on the train loader.

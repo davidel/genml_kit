@@ -157,19 +157,19 @@ class PPOMethod(RLMethod):
   def wire_data(self, args, pipeline):
     self.n_actions = pipeline.n_actions
     self._pipeline = pipeline
-    self._discrete = getattr(args, "ppo_discrete", True)
+    self._discrete = args.ppo_discrete
     self._action_dim = getattr(pipeline, "action_dim", None)
 
   def build_model(self, args, device):
     self._gamma = args.ppo_gamma
-    self._lam = getattr(args, "ppo_lam", 0.95)
-    self._clip_eps = getattr(args, "ppo_clip_eps", 0.2)
-    self._ppo_epochs = getattr(args, "ppo_epochs", 4)
-    self._mini_batch_size = getattr(args, "ppo_mini_batch_size", 64)
-    self._entropy_coef = getattr(args, "ppo_entropy_coef", 0.01)
-    self._value_coef = getattr(args, "ppo_value_coef", 0.5)
-    self._vf_clip_eps = getattr(args, "ppo_vf_clip_eps", None)
-    self._target_kl = getattr(args, "ppo_target_kl", None)
+    self._lam = args.ppo_lam
+    self._clip_eps = args.ppo_clip_eps
+    self._ppo_epochs = args.ppo_epochs
+    self._mini_batch_size = args.ppo_mini_batch_size
+    self._entropy_coef = args.ppo_entropy_coef
+    self._value_coef = args.ppo_value_coef
+    self._vf_clip_eps = args.ppo_vf_clip_eps
+    self._target_kl = args.ppo_target_kl
     self._env_steps = 0
 
     # Loss bundle: the shared ``--loss`` may select a registered bundle
@@ -197,9 +197,9 @@ class PPOMethod(RLMethod):
         num_labels=0,
         space=self._pipeline.space,
         device=device,
-        log_std_init=getattr(args, "ppo_log_std_init", math.log(0.5)),
-        log_std_min=getattr(args, "ppo_log_std_min", -10.0),
-        log_std_max=getattr(args, "ppo_log_std_max", 2.0),
+        log_std_init=args.ppo_log_std_init,
+        log_std_min=args.ppo_log_std_min,
+        log_std_max=args.ppo_log_std_max,
         cache_dir=args.cache_dir,
         **model_kwargs,
     )

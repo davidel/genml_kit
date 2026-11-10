@@ -112,7 +112,7 @@ class RLTrainer(BaseTrainer):
 
   def _train_epoch_offpolicy(self, epoch, saver, step, monitor):
     """Off-policy: warmup fill + interleaved acting + learning."""
-    batch_size = getattr(self.args, "batch_size", 64)
+    batch_size = self.args.batch_size
     scaler = getattr(self.optimization, "scaler", None)
     amp_dtype = amp_dtype_from_args(self.args)
 
@@ -157,7 +157,7 @@ class RLTrainer(BaseTrainer):
 
     reporter = TrainReporting(
         total_batches=self.args.steps_per_epoch,
-        log_every=getattr(self.args, "log_every", 50),
+        log_every=self.args.log_every,
         logger=self.logger,
         device=self.device,
         optimizer=self.optimization.optimizer,
@@ -397,11 +397,11 @@ class RLTrainer(BaseTrainer):
     sample_rng = None
     if sharded:
       sample_rng = torch.Generator()
-      sample_rng.manual_seed(resolve_seed(getattr(self.args, "seed", None)) + epoch)
+      sample_rng.manual_seed(resolve_seed(self.args.seed) + epoch)
 
     reporter = TrainReporting(
         total_batches=total_pico_batches,
-        log_every=getattr(self.args, "log_every", 50),
+        log_every=self.args.log_every,
         logger=self.logger,
         device=self.device,
         optimizer=self.optimization.optimizer,
@@ -539,12 +539,12 @@ class RLTrainer(BaseTrainer):
       if scaler is not None:
         scaler.scale(loss_tensor).backward()
         # Unscale before clipping so the clip sees true (unscaled) norms.
-        if getattr(self.args, "grad_clip", 0) > 0:
+        if self.args.grad_clip > 0:
           scaler.unscale_(self.optimization.optimizer)
         # Reduce before clipping: the clip threshold must act on the global
         # gradient norm, not each rank's local one.
         _reduce_rl_gradients(self.model)
-        if getattr(self.args, "grad_clip", 0) > 0:
+        if self.args.grad_clip > 0:
           torch.nn.utils.clip_grad_norm_(self.model.parameters(),
                                          max_norm=self.args.grad_clip)
         scaler.step(self.optimization.optimizer)
@@ -553,7 +553,7 @@ class RLTrainer(BaseTrainer):
         loss_tensor.backward()
         # Reduce before clipping (see above).
         _reduce_rl_gradients(self.model)
-        if getattr(self.args, "grad_clip", 0) > 0:
+        if self.args.grad_clip > 0:
           torch.nn.utils.clip_grad_norm_(self.model.parameters(),
                                          max_norm=self.args.grad_clip)
         self.optimization.optimizer.step()
@@ -574,7 +574,7 @@ class RLTrainer(BaseTrainer):
     """
     if not self._should_validate():
       return None
-    env_seed = getattr(self.args, "env_seed", None)
+    env_seed = self.args.env_seed
     # Isolate RNG state to avoid corrupting training sampling (B2).
     if env_seed is not None:
       old_state = np.random.get_state()
@@ -582,7 +582,7 @@ class RLTrainer(BaseTrainer):
     else:
       old_state = None
     try:
-      record = bool(getattr(self.args, "record_eval_video", False))
+      record = bool(self.args.record_eval_video)
       # Eval must see RAW rewards (SB3 VecNormalize train(False)):
       # the running-return stats are not updated, and rewards are not
       # normalized, so eval_return stays comparable across runs.
@@ -593,7 +593,7 @@ class RLTrainer(BaseTrainer):
         metrics = self.method.evaluate(
             self.model,
             self.pipeline,
-            getattr(self.args, "eval_episodes", 5),
+            self.args.eval_episodes,
             record_video=record,
         )
       finally:
@@ -618,7 +618,7 @@ class RLTrainer(BaseTrainer):
     # rank wrote the same eval_episode_*.mp4 paths and clobbered the others.
     if not episode_frames or not is_main_process():
       return
-    out_dir = os.path.join(getattr(self.args, "checkpoint", "."), "videos")
+    out_dir = os.path.join(self.args.checkpoint, "videos")
     for i, frames in enumerate(episode_frames):
       frames = [f for f in (frames or []) if f is not None]
       if not frames:

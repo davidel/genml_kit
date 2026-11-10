@@ -23,6 +23,7 @@ def _make_args(**overrides):
       dqn_epsilon_decay_steps=50_000,
       dqn_tau=1.0,
       dqn_target_update_freq=0,
+      dqn_n_step=1,
       source_checkpoint=None,
       param_rename=None,
       freeze_patterns=None,

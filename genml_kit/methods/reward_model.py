@@ -114,7 +114,7 @@ class RewardModelMethod(Method):
     self.tokenizer = load_tokenizer(
         args.tokenizer or args.model,
         cache_dir=args.cache_dir,
-        **(getattr(args, "tokenizer_arg", None) or {}),
+        **(args.tokenizer_arg or {}),
     )
 
   def build_model(self, args, device):
@@ -133,7 +133,7 @@ class RewardModelMethod(Method):
     )
     # Attach the head BEFORE model extras so freeze/LoRA/source-checkpoint
     # treat score.* like any other parameter.
-    attach_reward_head(model, getattr(args, "reward_head_hidden", None))
+    attach_reward_head(model, args.reward_head_hidden)
     return self._apply_model_extras(args, model, device)
 
   def train_step(self, model, blob, global_step, *, labels=None):
@@ -181,5 +181,5 @@ class RewardModelMethod(Method):
     return {
         "method": "reward_model",
         "tokenizer": args.tokenizer or args.model,
-        "reward_head_hidden": getattr(args, "reward_head_hidden", None),
+        "reward_head_hidden": args.reward_head_hidden,
     }
