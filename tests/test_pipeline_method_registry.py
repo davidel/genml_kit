@@ -13,7 +13,6 @@ Covers the plan (plans/GENERIC_PIPELINE.md s 11.1) unit-level surface:
   + has_metric_improved direction.
 """
 
-import argparse
 import types
 
 import pytest
@@ -34,6 +33,7 @@ from genml_kit.pipelines.contracts import (
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.images import ImagesPipeline, build_pretrain_transform
 from genml_kit.pipelines.vo_pair import VOPairPipeline
+from tests.cli_args import train_args
 
 
 class TestPipelineRegistry:
@@ -168,23 +168,6 @@ class TestContracts:
         "ModelOutput")
 
 
-class _ImageFolderArgs(argparse.Namespace):
-  """Minimal args for the images pipeline with an on-disk imagefolder."""
-
-  batch_size = 4
-  num_workers = 0
-  seed = 42
-  cache_dir = None
-  strict_datasets = False
-  image_size = 32
-  val_split = 0.2
-  image_column = "image"
-  label_column = None
-  dataset = None
-  datasets = None
-  max_items = None
-
-
 def _make_imagefolder(root, n=8, classes=("a", "b")):
   """Create an imagefolder fixture (root/<class>/<file>.jpg)."""
   from PIL import Image
@@ -209,7 +192,14 @@ class TestImagesPipelineLoader:
     import os
     os.environ.setdefault("HF_HOME", str(tmp_path / "hf_home"))
     os.environ.setdefault("HF_DATASETS_CACHE", str(tmp_path / "hf_home" / "datasets"))
-    args = _ImageFolderArgs()
+    args = train_args(["--pipeline", "images"],
+                      batch_size=4,
+                      num_workers=0,
+                      seed=42,
+                      strict_datasets=False,
+                      image_size=32,
+                      val_split=0.2,
+                      label_column=None)
     args.cache_dir = str(tmp_path / "hf_cache")
     return args
 
@@ -354,16 +344,15 @@ class TestImagesPipelineLoader:
 class TestVOPairPipeline:
 
   def test_loader_yields_datablob(self):
-    args = argparse.Namespace(
-        image_size=16,
-        batch_size=4,
-        num_workers=0,
-        vo_length=8,
-        vo_val_length=4,
-        pitch_deg=45.0,
-        terrain="field",
-        seeded_pairs=0,
-    )
+    args = train_args(["--pipeline", "vo_pair"],
+                      image_size=16,
+                      batch_size=4,
+                      num_workers=0,
+                      vo_length=8,
+                      vo_val_length=4,
+                      pitch_deg=45.0,
+                      terrain="field",
+                      seeded_pairs=0)
     pipeline = VOPairPipeline()
     loader = pipeline.build_loader(args, mode="train")
     batch = next(iter(loader))
@@ -380,16 +369,15 @@ class TestVOPairPipeline:
     assert batch.meta["gt_residual"].shape[0] == 4
 
   def test_val_loader_cached(self):
-    args = argparse.Namespace(
-        image_size=16,
-        batch_size=4,
-        num_workers=0,
-        vo_length=8,
-        vo_val_length=4,
-        pitch_deg=45.0,
-        terrain="field",
-        seeded_pairs=0,
-    )
+    args = train_args(["--pipeline", "vo_pair"],
+                      image_size=16,
+                      batch_size=4,
+                      num_workers=0,
+                      vo_length=8,
+                      vo_val_length=4,
+                      pitch_deg=45.0,
+                      terrain="field",
+                      seeded_pairs=0)
     pipeline = VOPairPipeline()
     train_loader = pipeline.build_loader(args, mode="train")
     val_loader = pipeline.build_loader(args, mode="val")

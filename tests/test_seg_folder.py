@@ -119,12 +119,14 @@ class TestSegfolderClassCompaction:
 
   def _pipeline(self, tmp_path, **kwargs):
     from genml_kit.pipelines.segmentation import SegmentationPipeline
-    import argparse
+    from tests.cli_args import train_args
 
     p = SegmentationPipeline()
     kwargs.setdefault("seed", 0)
     kwargs.setdefault("seg_ignore_index", 255)
-    args = argparse.Namespace(cache_dir=str(tmp_path / "cache"), **kwargs)
+    args = train_args(["--pipeline", "segmentation"],
+                      cache_dir=str(tmp_path / "cache"),
+                      **kwargs)
     return p, args
 
   def test_sparse_1based_ids_compacted(self, tmp_path):

@@ -6,14 +6,13 @@ the real loader/method lifecycle: ``prepare_transforms`` -> ``build_loader``
 -> ``build_model`` -> ``train_step`` -> ``evaluate``.
 """
 
-import argparse
-
 import datasets
 import pytest
 import torch
 
 from genml_kit.methods import build_method
 from genml_kit.pipelines import build_pipeline
+from tests.cli_args import train_args
 
 
 def _write_corpus(root, n=8):
@@ -34,42 +33,26 @@ def _tiny_model_dir(root):
 
 
 def _args(corpus_dir, model_dir, **overrides):
-  base = dict(
-      pipeline="text",
-      method="causal_lm",
+  """Build args from the real CLI parser (see ``tests/cli_args.py``)."""
+  pinned = dict(
       dataset=str(corpus_dir),
       split="train",
       val_split=0.25,
       text_column="text",
-      instruction_column=None,
-      response_column=None,
       dataset_arg=None,
-      cache_dir=None,
-      max_items=None,
       max_seq_len=32,
-      mask_prompt=False,
       packing=False,
       length_bucket=False,
-      pad_to_multiple_of=None,
       model=str(model_dir),
       tokenizer="byte",
       tokenizer_arg=None,
-      model_arg={},
-      dist_arg={},
-      trust_remote_code=False,
-      attn_implementation=None,
       batch_size=2,
       num_workers=0,
       seed=0,
       device="cpu",
-      grad_checkpoint=False,
-      lora=False,
-      freeze=None,
-      source_checkpoint=None,
-      param_init=None,
   )
-  base.update(overrides)
-  return argparse.Namespace(**base)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "text", "--method", "causal_lm"], **pinned)
 
 
 def test_metrics_declared(tmp_path):
@@ -106,8 +89,7 @@ def test_full_lifecycle_train_and_eval(tmp_path):
   assert torch.isfinite(loss_out.loss)
   loss_out.loss.backward()  # gradients flow
 
-  report = method.evaluate(model, val_loader, args.device,
-                           pipeline.to_device).metrics
+  report = method.evaluate(model, val_loader, args.device, pipeline.to_device).metrics
   assert report["ppl"] == pytest.approx(float(torch.exp(torch.tensor(report["loss"]))),
                                         rel=1e-4)
 

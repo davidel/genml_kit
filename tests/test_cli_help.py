@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 
 import pytest
 
-from genml_kit.cli.train import build_parser, parse_args, register_all_owners
+from genml_kit.cli.train import build_parser, parse_args
 
 
 class TestRegisterAllOwners:
@@ -18,12 +18,10 @@ class TestRegisterAllOwners:
     rename one of the flags.
     """
     parser = build_parser()
-    register_all_owners(parser)
     assert len(parser._actions) > 80
 
   def test_owner_groups_are_registered(self):
     parser = build_parser()
-    register_all_owners(parser)
     titles = [g.title for g in parser._action_groups]
     for expected in ("images pipeline", "vo_pair pipeline", "DINO", "BYOL", "SimMIM",
                      "I-JEPA", "classification method"):

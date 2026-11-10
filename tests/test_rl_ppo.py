@@ -10,60 +10,14 @@ from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+from tests.cli_args import train_args
 
 
 def _make_args(**overrides):
-  defaults = dict(
-      ppo_gamma=0.99,
-      ppo_lam=0.95,
-      ppo_clip_eps=0.2,
-      ppo_epochs=2,
-      ppo_mini_batch_size=4,
-      ppo_entropy_coef=0.01,
-      ppo_value_coef=0.5,
-      ppo_vf_clip_eps=None,
-      ppo_target_kl=None,
-      ppo_log_std_init=0.0,
-      ppo_log_std_min=-5.0,
-      ppo_log_std_max=1.0,
-      ppo_rollout_len=16,
-      ppo_discrete=True,
-      source_checkpoint=None,
-      param_rename=None,
-      freeze_patterns=None,
-      lora_rank=None,
-      lora_alpha=None,
-      lora_target_modules=None,
-      freeze=None,
-      lora=False,
-      lora_r=8,
-      lora_dropout=0.0,
-      grad_checkpoint=False,
-      param_init=None,
-      model=None,
-      model_arg={},
-      dist_arg={},
-      cache_dir=None,
-      loss=None,
-      loss_args=None,
-      n_step=1,
-      prioritized=False,
-      replay_capacity=100_000,
-      # RL pipeline env flags read by init_env().
-      env_script=None,
-      record_eval_video=False,
-      env_seed=0,
-      obs_dim=None,
-      per_alpha=0.6,
-      per_beta_start=0.4,
-      per_beta_frames=100_000,
-      obs_normalize=False,
-      obs_norm_clip=10.0,
-      reward_normalize=False,
-      reward_norm_clip=10.0,
-  )
-  defaults.update(overrides)
-  return argparse.Namespace(**defaults)
+  """Build PPO args from the real CLI parser (see ``tests/cli_args.py``)."""
+  pinned = dict(ppo_epochs=2, ppo_mini_batch_size=4, ppo_rollout_len=16)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "rl", "--method", "ppo"], **pinned)
 
 
 def _make_pipeline_and_method(obs_dim=4):

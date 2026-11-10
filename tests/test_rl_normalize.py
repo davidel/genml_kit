@@ -84,8 +84,6 @@ class TestReturnNormalizer:
 class TestReturnNormalizerPipelineIntegration:
 
   def test_ret_norm_created_only_when_flag_set(self):
-    import argparse
-
     from genml_kit.pipelines.rl import RLPipeline
 
     pipe = RLPipeline()
@@ -93,11 +91,14 @@ class TestReturnNormalizerPipelineIntegration:
 
     # Simulate init_env with reward_normalize enabled (needs env).
     # Minimal: pass args and confirm internal flag is read.
-    args = argparse.Namespace(reward_normalize=True,
-                              reward_norm_clip=3.0,
-                              obs_normalize=False,
-                              obs_norm_clip=10.0,
-                              ppo_gamma=0.95)
+    from tests.cli_args import train_args
+
+    args = train_args(["--pipeline", "rl"],
+                      reward_normalize=True,
+                      reward_norm_clip=3.0,
+                      obs_normalize=False,
+                      obs_norm_clip=10.0,
+                      ppo_gamma=0.95)
     # init_env requires a real env; just verify the flag parsing path via
     # the attributes the pipeline reads.  We test the module itself above,
     # and the wiring in test_rl_trainer for the full path.

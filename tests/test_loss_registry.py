@@ -11,6 +11,7 @@ from genml_kit.losses import DEFAULT_LOSS, LOSSES, load_loss
 from genml_kit.losses.focal import CombinedFocalLoss
 from genml_kit.methods.classification import ClassificationMethod
 from genml_kit.utils.args import json_dict_type
+from tests.cli_args import train_args
 
 
 class TestBuiltinLosses:
@@ -126,13 +127,13 @@ class TestArgsHelpers:
                 "    return logits.mean()\n"
                 "def build_loss(**kwargs):\n"
                 "  return MyLoss()\n")
-      args = argparse.Namespace(loss=path, loss_args=None)
+      args = train_args(["--pipeline", "images"], loss=path, loss_args=None)
       method = ClassificationMethod()
       criterion = method.build_criterion(args)
       assert isinstance(criterion, torch.nn.Module)
 
   def test_build_criterion_default(self):
-    args = argparse.Namespace(loss=None, loss_args=None)
+    args = train_args(["--pipeline", "images"], loss=None, loss_args=None)
     method = ClassificationMethod()
     criterion = method.build_criterion(args, class_weights=torch.ones(3))
     assert isinstance(criterion, CombinedFocalLoss)

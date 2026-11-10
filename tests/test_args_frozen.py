@@ -16,37 +16,12 @@ dests the unified parser declares.
 import ast
 import pathlib
 
-from genml_kit.cli.train import build_parser, register_all_owners
-from genml_kit.utils.args import (add_checkpoint_args, add_logging_args,
-                                  add_optimization_args, add_source_checkpoint_args,
-                                  add_training_state_args)
+from genml_kit.cli.train import build_parser
 
 
 def _declared_cli_dests():
   """Collect every dest the unified training parser declares."""
   parser = build_parser()
-  register_all_owners(parser)
-  add_checkpoint_args(parser, checkpoint_default="genml_kit", resume_default=True)
-  add_optimization_args(parser)
-  add_training_state_args(parser,
-                          state_save="opt,sched,amp",
-                          state_load="opt,sched,amp")
-  add_logging_args(parser)
-  add_source_checkpoint_args(parser)
-  # mirror parse_args()'s inline optimizer group
-  parser.add_argument("--lr", type=float, default=3e-5)
-  parser.add_argument("--weight_decay", type=float, default=0.0)
-  parser.add_argument("--llrd_decay", type=float)
-  parser.add_argument("--lr_group", action="store_true")
-  parser.add_argument("--optimizer", type=str, default="AdamW")
-  parser.add_argument("--opt_arg", action="store_true")
-  parser.add_argument("--scheduler", type=str)
-  parser.add_argument("--sched_arg", action="store_true")
-  parser.add_argument("--save_every", type=int, default=500)
-  parser.add_argument("--device", type=str)
-  parser.add_argument("--log_dir", type=str)
-  parser.add_argument("--in_ch", type=int, default=1)
-  parser.add_argument("--vis_every", type=int, default=0)
   return {action.dest for action in parser._actions if action.dest is not None}
 
 

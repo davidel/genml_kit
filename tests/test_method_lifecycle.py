@@ -22,6 +22,7 @@ from genml_kit.methods.base import Method
 from genml_kit.models import MODELS
 from genml_kit.models.contrastive import ContrastiveEncoder
 from genml_kit.pipelines.contracts import LossOutput
+from tests.cli_args import train_args
 
 peft = pytest.importorskip("peft", reason="LoRA tests need the peft package")
 
@@ -49,7 +50,7 @@ class _LinearBackbone(torch.nn.Module):
 def _base_args(**overrides):
   """Args namespace carrying every flag _apply_model_extras can consume,
   all in their neutral (off) state unless overridden."""
-  defaults = dict(
+  pinned = dict(
       grad_checkpoint=False,
       lora=False,
       lora_r=4,
@@ -61,8 +62,8 @@ def _base_args(**overrides):
       param_init=None,
       freeze="",
   )
-  defaults.update(overrides)
-  return argparse.Namespace(**defaults)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "images"], **pinned)
 
 
 class _BareMethod(Method):
@@ -213,10 +214,10 @@ class TestClassificationLifecycle:
     return pipeline
 
   def _args(self):
-    return argparse.Namespace(
+    return train_args(
+        ["--pipeline", "images"],
         model="dummy/tiny-model",
         image_size=16,
-        cache_dir=None,
         model_arg={},
         dist_arg={},
         mixup_alpha=0.0,

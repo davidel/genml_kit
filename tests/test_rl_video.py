@@ -10,7 +10,6 @@ writer test uses ``importorskip`` for imageio; the GIF path (PIL) always
 runs.
 """
 
-import argparse
 import os
 
 import numpy as np
@@ -20,6 +19,7 @@ import torch
 from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.training.video_utils import write_video
+from tests.cli_args import train_args
 
 
 def _make_frames(n=5, size=32):
@@ -58,67 +58,18 @@ class _RenderableRLPipeline(RLPipeline):
 
 
 def _make_args(**overrides):
-  defaults = dict(
+  """Build RL args from the real CLI parser (see ``tests/cli_args.py``)."""
+  pinned = dict(
       obs_dim=4,
       eval_episodes=1,
       record_eval_video=True,
       checkpoint=".",
-      ppo_discrete=True,
-      dqn_gamma=0.99,
-      dqn_ddqn=True,
-      dqn_dueling=False,
-      dqn_epsilon_start=1.0,
-      dqn_epsilon_end=0.02,
-      dqn_epsilon_decay_steps=50_000,
-      dqn_tau=1.0,
-      dqn_target_update_freq=0,
-      dqn_n_step=1,
-      ppo_lam=0.95,
-      ppo_clip_eps=0.2,
       ppo_epochs=2,
       ppo_mini_batch_size=4,
-      ppo_entropy_coef=0.01,
-      ppo_value_coef=0.5,
-      ppo_vf_clip_eps=None,
-      ppo_target_kl=None,
-      ppo_log_std_init=0.0,
-      ppo_log_std_min=-5.0,
-      ppo_log_std_max=1.0,
-      sac_tau=0.005,
-      sac_alpha=0.2,
-      sac_target_entropy=None,
-      sac_critic_lr=3e-4,
-      sac_actor_lr=3e-4,
-      sac_alpha_lr=3e-4,
       env_seed=0,
-      sac_auto_alpha=True,
-      # SAC policy defaults
-      hidden_dim=64,
-      lr_actor=1e-3,
-      lr_critic=1e-3,
-      lr_alpha=1e-3,
-      # build_model extras (train_compat)
-      freeze=None,
-      lora=False,
-      lora_r=8,
-      lora_dropout=0.0,
-      grad_checkpoint=False,
-      param_init=None,
-      source_checkpoint=None,
-      param_rename=None,
-      model=None,
-      model_arg={},
-      dist_arg={},
-      cache_dir=None,
-      loss=None,
-      loss_args=None,
-      ppo_gamma=0.99,
-      sac_gamma=0.99,
-      n_step=1,
-      grad_clip=1.0,
   )
-  defaults.update(overrides)
-  return argparse.Namespace(**defaults)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "rl"], **pinned)
 
 
 class TestWriteVideo:

@@ -26,7 +26,8 @@ from genml_kit.utils.shared_args import (ARG_CACHE_DIR, ARG_IMAGE_SIZE, ARG_MODE
                                          ARG_MODEL_ARG, add_shared_arg)
 
 
-def parse_args(argv=None):
+def build_parser():
+  """Build the complete ``genml-kit-infer`` parser."""
   parser = argparse.ArgumentParser(
       description="Classify images with a fine-tuned model (HuggingFace or timm).",
       formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -88,7 +89,12 @@ def parse_args(argv=None):
       nargs="+",
       help="Image file paths and/or URLs.",
   )
-  return parser.parse_args(argv)
+  return parser
+
+
+def parse_args(argv=None):
+  """Parse ``argv`` against the complete ``genml-kit-infer`` parser."""
+  return build_parser().parse_args(argv)
 
 
 def main(argv=None):

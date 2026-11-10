@@ -1,6 +1,5 @@
 """Tests for RLTrainer (warmup + interleaved env/learn loop)."""
 
-import argparse
 import tempfile
 
 import numpy as np
@@ -19,6 +18,7 @@ from genml_kit.training.rl_trainer import RLTrainer
 from genml_kit.training.optim_factory import Optimization
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
+from tests.cli_args import train_args
 
 
 class FakeRLMethod(DQNMethod):
@@ -100,77 +100,21 @@ class _TestRLPipeline(RLPipeline):
 
 
 def _make_args(**overrides):
-  defaults = dict(
+  """Build RL args from the real CLI parser (see ``tests/cli_args.py``)."""
+  pinned = dict(
       batch_size=4,
-      grad_accum_steps=1,
       warmup_steps=8,
       steps_per_epoch=5,
       eval_episodes=1,
       log_every=100,
-      record_eval_video=False,
-      ppo_discrete=True,
-      # Set via context manager.
-      checkpoint=None,
-      save_every=0,
-      log_dir=None,
-      log_interval=100,
-      source_checkpoint=None,
-      param_rename=None,
-      freeze_patterns=None,
-      lora_rank=None,
-      lora_alpha=None,
-      lora_target_modules=None,
-      freeze=None,
-      lora=False,
-      lora_r=8,
-      lora_dropout=0.0,
-      dqn_gamma=0.99,
-      dqn_ddqn=True,
-      dqn_dueling=False,
-      dqn_epsilon_start=1.0,
-      dqn_epsilon_end=0.02,
-      dqn_epsilon_decay_steps=50_000,
-      dqn_tau=1.0,
-      dqn_target_update_freq=0,
-      dqn_n_step=1,
-      ppo_lam=0.95,
-      ppo_clip_eps=0.2,
       ppo_epochs=2,
       ppo_mini_batch_size=4,
-      ppo_entropy_coef=0.01,
-      ppo_value_coef=0.5,
-      ppo_vf_clip_eps=None,
-      ppo_target_kl=None,
-      ppo_log_std_init=0.0,
-      ppo_log_std_min=-5.0,
-      ppo_log_std_max=1.0,
-      sac_tau=0.005,
-      sac_alpha=0.2,
-      sac_auto_alpha=True,
-      sac_target_entropy=None,
-      sac_critic_lr=3e-4,
-      sac_actor_lr=3e-4,
-      sac_alpha_lr=3e-4,
       obs_dim=4,
-      amp_dtype=None,
-      max_grad_norm=0.0,
       seed=42,
       env_seed=42,
-      model=None,
-      model_arg={},
-      dist_arg={},
-      cache_dir=None,
-      loss=None,
-      loss_args=None,
-      param_init=None,
-      grad_checkpoint=False,
-      grad_clip=1.0,
-      n_step=1,
-      ppo_gamma=0.99,
-      sac_gamma=0.99,
   )
-  defaults.update(overrides)
-  return argparse.Namespace(**defaults)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "rl"], **pinned)
 
 
 def _build_trainer(**args_overrides):
@@ -339,113 +283,24 @@ class TestRLTrainerEndToEnd:
   """End-to-end tests calling trainer.run() for each RL method."""
 
   def _make_args(self, **overrides):
-    """Create a minimal argparse.Namespace with RL defaults."""
-    defaults = dict(
+    """Build RL args from the real CLI parser (see ``tests/cli_args.py``)."""
+    pinned = dict(
         epochs=2,
         warmup_steps=4,
         steps_per_epoch=4,
-        dqn_gamma=0.99,
-        dqn_lr=1e-3,
-        dqn_target_tau=0.1,
-        dqn_dueling=False,
-        dqn_ddqn=True,
-        dqn_epsilon_start=1.0,
-        dqn_epsilon_end=0.01,
-        dqn_epsilon_decay_steps=1000,
-        dqn_target_update_freq=0,
-        dqn_tau=1.0,
-        env_id="CartPole-v1",
         eval_episodes=1,
-        buffer_size=100,
-        checkpoint=None,
-        seed=None,
-        grad_clip=1.0,
-        log_level="ERROR",
-        log_targets="stderr",
-        save_every=0,
         log_every=100,
-        record_eval_video=False,
-        env_script=None,
-        # PPO args
-        ppo_lr=3e-4,
-        ppo_rollout_len=16,
+        grad_clip=1.0,
+        batch_size=4,
         ppo_epochs=2,
-        ppo_batch_size=8,
-        ppo_clip=0.2,
-        ppo_entropy_coef=0.01,
-        ppo_value_coef=0.5,
-        ppo_lam=0.95,
-        ppo_max_grad_norm=0.5,
-        ppo_discrete=True,
-        ppo_clip_eps=0.2,
-        # SAC args
-        sac_lr=3e-4,
-        sac_tau=0.005,
-        sac_alpha=0.2,
-        sac_auto_alpha=True,
-        sac_target_entropy=None,
+        ppo_mini_batch_size=4,
+        ppo_rollout_len=16,
         sac_critic_lr=3e-4,
         sac_actor_lr=3e-4,
-        sac_batch_size=8,
-        # Trainer args
-        state_save="opt,sched,amp",
-        log_dir=None,
-        log_interval=100,
-        source_checkpoint=None,
-        param_rename=None,
-        freeze_patterns=None,
-        lora_rank=None,
-        lora_alpha=None,
-        lora_target_modules=None,
-        freeze=None,
-        batch_size=4,
-        grad_accum_steps=1,
-        max_grad_norm=0.0,
-        grad_monitor=-1,
-        norm_history=0,
-        trend_top_n=10,
-        remote_checkpoint=None,
-        upload_every=0,
-        s3_region=None,
-        s3_endpoint=None,
-        gcs_bucket=None,
-        gcs_project=None,
-        wandb_project=None,
-        wandb_entity=None,
-        wandb_tags=None,
-        use_wandb=False,
-        tb_flush_secs=120,
-        amp_dtype=None,
-        early_stop_patience=0,
-        early_stop_metric=None,
-        early_stop_mode="max",
-        # Shared args consumed by the methods/pipeline.
-        model=None,
-        model_arg={},
-        dist_arg={},
-        cache_dir=None,
-        loss=None,
-        loss_args=None,
-        param_init=None,
-        grad_checkpoint=False,
-        lora=False,
-        lora_r=8,
-        lora_dropout=0.0,
-        n_step=1,
-        ppo_gamma=0.99,
-        sac_gamma=0.99,
-        dqn_n_step=1,
-        ppo_mini_batch_size=4,
         sac_alpha_lr=3e-4,
-        ppo_vf_clip_eps=None,
-        ppo_target_kl=None,
-        ppo_log_std_init=0.0,
-        ppo_log_std_min=-5.0,
-        ppo_log_std_max=1.0,
-        vis_every=0,
     )
-    defaults.update(overrides)
-    return argparse.Namespace(**defaults)
+    pinned.update(overrides)
+    return train_args(["--pipeline", "rl"], **pinned)
 
   def _run_e2e_dqn(self, tmp_path):
     """Helper to run DQN end-to-end for one epoch."""
@@ -648,112 +503,24 @@ class TestRLCheckpointRoundTrip:
   """Checkpointing round-trip tests for RL methods."""
 
   def _make_args(self, **overrides):
-    """Create a minimal argparse.Namespace with RL defaults."""
-    defaults = dict(
+    """Build RL args from the real CLI parser (see ``tests/cli_args.py``)."""
+    pinned = dict(
         epochs=2,
         warmup_steps=4,
         steps_per_epoch=4,
-        dqn_gamma=0.99,
-        dqn_lr=1e-3,
-        dqn_target_tau=0.1,
-        dqn_dueling=False,
-        dqn_ddqn=True,
-        dqn_epsilon_start=1.0,
-        dqn_epsilon_end=0.01,
-        dqn_epsilon_decay_steps=1000,
-        dqn_target_update_freq=0,
-        dqn_tau=1.0,
-        env_id="CartPole-v1",
         eval_episodes=1,
-        buffer_size=100,
-        checkpoint=None,
-        seed=None,
-        grad_clip=1.0,
-        log_level="ERROR",
-        log_targets="stderr",
-        save_every=0,
         log_every=100,
-        record_eval_video=False,
-        env_script=None,
-        # PPO args
-        ppo_lr=3e-4,
-        ppo_rollout_len=16,
+        grad_clip=1.0,
+        batch_size=4,
         ppo_epochs=2,
-        ppo_batch_size=8,
-        ppo_clip=0.2,
-        ppo_entropy_coef=0.01,
-        ppo_value_coef=0.5,
-        ppo_lam=0.95,
-        ppo_max_grad_norm=0.5,
-        ppo_discrete=True,
-        ppo_clip_eps=0.2,
-        # SAC args
-        sac_lr=3e-4,
-        sac_tau=0.005,
-        sac_alpha=0.2,
-        sac_auto_alpha=True,
-        sac_target_entropy=None,
+        ppo_mini_batch_size=4,
+        ppo_rollout_len=16,
         sac_critic_lr=3e-4,
         sac_actor_lr=3e-4,
-        sac_batch_size=8,
-        # Trainer args
-        state_save="opt,sched,amp",
-        log_dir=None,
-        log_interval=100,
-        source_checkpoint=None,
-        param_rename=None,
-        freeze_patterns=None,
-        lora_rank=None,
-        lora_alpha=None,
-        lora_target_modules=None,
-        freeze=None,
-        batch_size=4,
-        grad_accum_steps=1,
-        max_grad_norm=0.0,
-        grad_monitor=-1,
-        norm_history=0,
-        trend_top_n=10,
-        remote_checkpoint=None,
-        upload_every=0,
-        s3_region=None,
-        s3_endpoint=None,
-        gcs_bucket=None,
-        gcs_project=None,
-        wandb_project=None,
-        wandb_entity=None,
-        wandb_tags=None,
-        use_wandb=False,
-        tb_flush_secs=120,
-        early_stop_patience=0,
-        early_stop_metric=None,
-        early_stop_mode="max",
-        amp_dtype=None,
-        lora=False,
-        lora_r=8,
-        lora_dropout=0.0,
-        model=None,
-        model_arg={},
-        dist_arg={},
-        cache_dir=None,
-        loss=None,
-        loss_args=None,
-        param_init=None,
-        grad_checkpoint=False,
-        n_step=1,
-        ppo_gamma=0.99,
-        sac_gamma=0.99,
-        dqn_n_step=1,
-        ppo_mini_batch_size=4,
         sac_alpha_lr=3e-4,
-        ppo_vf_clip_eps=None,
-        ppo_target_kl=None,
-        ppo_log_std_init=0.0,
-        ppo_log_std_min=-5.0,
-        ppo_log_std_max=1.0,
-        vis_every=0,
     )
-    defaults.update(overrides)
-    return argparse.Namespace(**defaults)
+    pinned.update(overrides)
+    return train_args(["--pipeline", "rl"], **pinned)
 
   def test_dqn_checkpoint_roundtrip(self, tmp_path):
     """DQN: save checkpoint, load it, verify epsilon and env_steps preserved."""

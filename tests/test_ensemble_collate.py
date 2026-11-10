@@ -8,7 +8,6 @@ transformed dataset in :class:`FieldSectorDataset` (image-only fields)
 for methods that do not require labels.
 """
 
-import argparse
 import os
 
 import pytest
@@ -18,6 +17,7 @@ from torchvision.transforms import v2
 
 from genml_kit.datasets.ensemble import DatasetEnsemble
 from genml_kit.pipelines.images import build_pretrain_dataset
+from tests.cli_args import train_args
 
 
 def _make_labeled_dir(root, per_class=3):
@@ -57,15 +57,14 @@ def _mixed_ensemble(tmp_path):
 def _pretrain_args(tmp_path):
   labeled = _make_labeled_dir(tmp_path / "labeled")
   unlabeled = _make_unlabeled_dir(tmp_path / "unlabeled")
-  return argparse.Namespace(
+  return train_args(
+      ["--pipeline", "images"],
       datasets=[
           f"imagefolder/{labeled}",
           f"imagefolder/{unlabeled}",
       ],
       image_size=16,
-      cache_dir=None,
       strict_datasets=False,
-      image_column="image",
       label_column=None,
   )
 

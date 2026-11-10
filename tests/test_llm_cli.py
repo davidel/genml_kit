@@ -6,7 +6,6 @@ paths -- including the shared registry model loader -- so the JSONL/JSON
 outputs and the metric plumbing are exercised without a network.
 """
 
-import argparse
 import json
 
 import datasets
@@ -16,6 +15,7 @@ import torch
 from genml_kit.cli.llm import build_parser
 from genml_kit.training.generate import run_generate
 from genml_kit.training.llm_eval import run_eval
+from tests.cli_args import llm_args
 
 
 def _write_corpus(root, n=6):
@@ -37,6 +37,7 @@ def _tiny_model_dir(root):
 
 
 def _common(model_dir, **overrides):
+  """Common llm args, resolved by the test's own ``llm_args`` calls."""
   base = dict(
       model=str(model_dir),
       tokenizer="byte",
@@ -81,23 +82,25 @@ class TestRunGenerate:
     prompts = tmp_path / "prompts.txt"
     prompts.write_text("hello\nworld\n", encoding="utf-8")
     output = tmp_path / "out.jsonl"
-    args = argparse.Namespace(**_common(tmp_path / "model",
-                                        prompts=str(prompts),
-                                        dataset=None,
-                                        split="test",
-                                        prompt_column="prompt",
-                                        text_column=None,
-                                        max_items=None,
-                                        max_new_tokens=4,
-                                        do_sample=False,
-                                        temperature=1.0,
-                                        top_k=0,
-                                        top_p=1.0,
-                                        repetition_penalty=1.0,
-                                        num_beams=1,
-                                        num_return_sequences=1,
-                                        seed=None,
-                                        output=str(output)))
+    args = llm_args(
+        "generate",
+        **_common(tmp_path / "model",
+                  prompts=str(prompts),
+                  dataset=None,
+                  split="test",
+                  prompt_column="prompt",
+                  text_column=None,
+                  max_items=None,
+                  max_new_tokens=4,
+                  do_sample=False,
+                  temperature=1.0,
+                  top_k=0,
+                  top_p=1.0,
+                  repetition_penalty=1.0,
+                  num_beams=1,
+                  num_return_sequences=1,
+                  seed=None,
+                  output=str(output)))
     run_generate(args)
     records = [json.loads(line) for line in output.read_text().splitlines()]
     assert len(records) == 2
@@ -108,23 +111,25 @@ class TestRunGenerate:
     _write_corpus(tmp_path / "corpus")
     _tiny_model_dir(tmp_path / "model")
     output = tmp_path / "out.jsonl"
-    args = argparse.Namespace(**_common(tmp_path / "model",
-                                        prompts=None,
-                                        dataset=str(tmp_path / "corpus"),
-                                        split="train",
-                                        prompt_column="prompt",
-                                        text_column=None,
-                                        max_items=3,
-                                        max_new_tokens=2,
-                                        do_sample=False,
-                                        temperature=1.0,
-                                        top_k=0,
-                                        top_p=1.0,
-                                        repetition_penalty=1.0,
-                                        num_beams=1,
-                                        num_return_sequences=1,
-                                        seed=None,
-                                        output=str(output)))
+    args = llm_args(
+        "generate",
+        **_common(tmp_path / "model",
+                  prompts=None,
+                  dataset=str(tmp_path / "corpus"),
+                  split="train",
+                  prompt_column="prompt",
+                  text_column=None,
+                  max_items=3,
+                  max_new_tokens=2,
+                  do_sample=False,
+                  temperature=1.0,
+                  top_k=0,
+                  top_p=1.0,
+                  repetition_penalty=1.0,
+                  num_beams=1,
+                  num_return_sequences=1,
+                  seed=None,
+                  output=str(output)))
     run_generate(args)
     records = [json.loads(line) for line in output.read_text().splitlines()]
     assert len(records) == 3
@@ -136,24 +141,26 @@ class TestRunEval:
     _write_corpus(tmp_path / "corpus")
     _tiny_model_dir(tmp_path / "model")
     output = tmp_path / "report.json"
-    args = argparse.Namespace(**_common(tmp_path / "model",
-                                        dataset=str(tmp_path / "corpus"),
-                                        split="train",
-                                        text_column="text",
-                                        prompt_column="prompt",
-                                        reference_column="reference",
-                                        max_items=4,
-                                        max_seq_len=32,
-                                        metrics=["ppl", "exact_match", "token_f1"],
-                                        max_new_tokens=4,
-                                        do_sample=False,
-                                        temperature=1.0,
-                                        top_k=0,
-                                        top_p=1.0,
-                                        seed=None,
-                                        pass_at_k=0,
-                                        scorer=None,
-                                        output=str(output)))
+    args = llm_args(
+        "eval",
+        **_common(tmp_path / "model",
+                  dataset=str(tmp_path / "corpus"),
+                  split="train",
+                  text_column="text",
+                  prompt_column="prompt",
+                  reference_column="reference",
+                  max_items=4,
+                  max_seq_len=32,
+                  metrics=["ppl", "exact_match", "token_f1"],
+                  max_new_tokens=4,
+                  do_sample=False,
+                  temperature=1.0,
+                  top_k=0,
+                  top_p=1.0,
+                  seed=None,
+                  pass_at_k=0,
+                  scorer=None,
+                  output=str(output)))
     run_eval(args)
     report = json.loads(output.read_text())
     assert report["n_items"] == 4
@@ -164,23 +171,25 @@ class TestRunEval:
   def test_pass_at_k_requires_scorer(self, tmp_path):
     _write_corpus(tmp_path / "corpus")
     _tiny_model_dir(tmp_path / "model")
-    args = argparse.Namespace(**_common(tmp_path / "model",
-                                        dataset=str(tmp_path / "corpus"),
-                                        split="train",
-                                        text_column="text",
-                                        prompt_column="prompt",
-                                        reference_column="reference",
-                                        max_items=2,
-                                        max_seq_len=32,
-                                        metrics=["ppl"],
-                                        max_new_tokens=2,
-                                        do_sample=False,
-                                        temperature=1.0,
-                                        top_k=0,
-                                        top_p=1.0,
-                                        seed=None,
-                                        pass_at_k=2,
-                                        scorer=None,
-                                        output=None))
+    args = llm_args(
+        "eval",
+        **_common(tmp_path / "model",
+                  dataset=str(tmp_path / "corpus"),
+                  split="train",
+                  text_column="text",
+                  prompt_column="prompt",
+                  reference_column="reference",
+                  max_items=2,
+                  max_seq_len=32,
+                  metrics=["ppl"],
+                  max_new_tokens=2,
+                  do_sample=False,
+                  temperature=1.0,
+                  top_k=0,
+                  top_p=1.0,
+                  seed=None,
+                  pass_at_k=2,
+                  scorer=None,
+                  output=None))
     with pytest.raises(ValueError):
       run_eval(args)

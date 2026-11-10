@@ -49,7 +49,16 @@ from genml_kit.utils.shared_args import (
 
 
 def build_parser():
-  """Build the generic parser (--pipeline, --method, model, shared args)."""
+  """Build the complete ``genml-kit-train`` parser.
+
+  Returns a parser declaring *every* flag a run can read: the generic
+  surface (``--pipeline`` / ``--method`` / model / data), all pipeline and
+  method owner args, and the shared checkpoint / optimization / training
+  state / logging / loss / source-checkpoint / distributed groups.
+
+  Owner-declared ``arg_defaults`` are *not* applied here (they depend on
+  the selected owners); :func:`parse_args` applies them before parsing.
+  """
   parser = argparse.ArgumentParser(
       description="Train a model: classification, VO or self-supervised "
       "pre-training (v4.2 unified harness).",
@@ -162,49 +171,10 @@ def build_parser():
       default=10,
       help="Show top N params in trend table by change percent. 0 = all.",
   )
-  return parser
 
-
-def register_all_owners(parser):
-  """Register the CLI args of every pipeline and method.
-
-    Used by the single-pass ``parse_args`` so ``--help`` renders every
-    owner's flags.  If two owners ever register the same option string,
-    ``add_args`` raises ``ArgumentError`` here -- an explicit signal to
-    rename one of the flags.
-    """
-  for name in PIPELINES.list_names():
-    PIPELINES.get(name).add_args(parser)
-  for name in METHODS.list_names():
-    METHODS.get(name).add_args(parser)
-
-
-def selected_owners(parser, argv):
-  """Resolve the selected pipeline and method before the real parse.
-
-  ``arg_defaults`` must be applied while argparse still treats the values
-  as defaults (so an explicit flag wins), but at that point the namespace
-  does not exist yet.  A throwaway parser that knows only the two selector
-  flags recovers the choice from the raw argv; the defaults are seeded
-  from *parser* so they can never drift from the real flag defaults.
-
-  Args:
-      parser: The fully built parser (used only for its selector defaults).
-      argv: The raw argument list being parsed.
-
-  Returns:
-      list: The owning classes, pipeline first then method.
-  """
-  pre = argparse.ArgumentParser(add_help=False)
-  pre.add_argument("--pipeline", default=parser.get_default("pipeline"))
-  pre.add_argument("--method", default=parser.get_default("method"))
-  known, _ = pre.parse_known_args(argv)
-  return [PIPELINES.get(known.pipeline), METHODS.get(known.method)]
-
-
-def parse_args(argv=None):
-  """Single-pass parse: every owner, then the shared groups."""
-  parser = build_parser()
+  # Owner + shared groups: added here so ``build_parser`` alone returns the
+  # complete CLI surface (every flag a run can read).  Tests and tooling can
+  # therefore obtain a *real* default namespace without hand-building one.
   register_all_owners(parser)
 
   add_checkpoint_args(parser, checkpoint_default="genml_kit", resume_default=True)
@@ -287,6 +257,49 @@ def parse_args(argv=None):
 
   dist_group = parser.add_argument_group("distributed")
   add_shared_arg(dist_group, ARG_DIST_ARG)
+  return parser
+
+
+def register_all_owners(parser):
+  """Register the CLI args of every pipeline and method.
+
+    Called by :func:`build_parser` so every owner's flags exist on the one
+    parser (``--help`` renders them all).  If two owners ever register the
+    same option string, ``add_args`` raises ``ArgumentError`` here -- an
+    explicit signal to rename one of the flags.
+    """
+  for name in PIPELINES.list_names():
+    PIPELINES.get(name).add_args(parser)
+  for name in METHODS.list_names():
+    METHODS.get(name).add_args(parser)
+
+
+def selected_owners(parser, argv):
+  """Resolve the selected pipeline and method before the real parse.
+
+  ``arg_defaults`` must be applied while argparse still treats the values
+  as defaults (so an explicit flag wins), but at that point the namespace
+  does not exist yet.  A throwaway parser that knows only the two selector
+  flags recovers the choice from the raw argv; the defaults are seeded
+  from *parser* so they can never drift from the real flag defaults.
+
+  Args:
+      parser: The fully built parser (used only for its selector defaults).
+      argv: The raw argument list being parsed.
+
+  Returns:
+      list: The owning classes, pipeline first then method.
+  """
+  pre = argparse.ArgumentParser(add_help=False)
+  pre.add_argument("--pipeline", default=parser.get_default("pipeline"))
+  pre.add_argument("--method", default=parser.get_default("method"))
+  known, _ = pre.parse_known_args(argv)
+  return [PIPELINES.get(known.pipeline), METHODS.get(known.method)]
+
+
+def parse_args(argv=None):
+  """Build the full parser, apply owner defaults, then parse ``argv``."""
+  parser = build_parser()
 
   # Owner-declared defaults go in last, once every flag exists: the method
   # and pipeline selected on this command line may override the plain

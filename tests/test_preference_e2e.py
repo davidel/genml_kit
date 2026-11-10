@@ -6,14 +6,13 @@ and the offline ``byte`` tokenizer, then runs the real pipeline lifecycle:
 -> ``train_step`` -> ``evaluate``.
 """
 
-import argparse
-
 import datasets
 import pytest
 import torch
 
 from genml_kit.methods import build_method
 from genml_kit.pipelines import build_pipeline
+from tests.cli_args import train_args
 
 
 def _write_pref_corpus(root, n=8):
@@ -34,43 +33,26 @@ def _tiny_model_dir(root):
 
 
 def _args(corpus_dir, model_dir, method="dpo", **overrides):
-  base = dict(
-      pipeline="preference",
-      method=method,
+  """Build args from the real CLI parser (see ``tests/cli_args.py``)."""
+  pinned = dict(
       dataset=str(corpus_dir),
       split="train",
       val_split=0.25,
-      chosen_column="chosen",
-      rejected_column="rejected",
       prompt_column="prompt",
       dataset_arg=None,
-      cache_dir=None,
-      max_items=None,
       max_seq_len=32,
       mask_prompt=True,
-      pad_to_multiple_of=None,
       model=str(model_dir),
       tokenizer="byte",
       tokenizer_arg=None,
-      reference_model=None,
-      reference_checkpoint=None,
       beta=0.1,
-      reward_head_hidden=None,
-      trust_remote_code=False,
-      attn_implementation=None,
       batch_size=2,
       num_workers=0,
       seed=0,
       device="cpu",
-      grad_checkpoint=False,
-      lora=False,
-      freeze=None,
-      source_checkpoint=None,
-      param_init=None,
-      loss=None,
   )
-  base.update(overrides)
-  return argparse.Namespace(**base)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "preference", "--method", method], **pinned)
 
 
 @pytest.mark.parametrize("method_name", ["dpo", "reward_model"])

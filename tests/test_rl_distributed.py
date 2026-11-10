@@ -23,7 +23,6 @@ Two classes of test live here:
 They are skipped when ``torch.distributed`` is unavailable.
 """
 
-import argparse
 import os
 
 import pytest
@@ -35,6 +34,7 @@ from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.methods.rl_sac import SACMethod
 from genml_kit.methods.rl_utils import RLMethod
 from genml_kit.utils import distributed
+from tests.cli_args import train_args
 
 
 def _gloo_available():
@@ -60,7 +60,7 @@ class TestRLMethodDoesNotWrap:
   def test_wrap_model_returns_the_model_unwrapped(self, method_cls):
     method = method_cls()
     model = torch.nn.Linear(2, 2)
-    args = argparse.Namespace(dist_arg={})
+    args = train_args(["--pipeline", "rl"], dist_arg={})
     assert method.wrap_model(model, torch.device("cpu"), args) is model
 
   def test_base_method_wraps(self):
@@ -69,7 +69,7 @@ class TestRLMethodDoesNotWrap:
 
     method = ClassificationMethod()
     model = torch.nn.Linear(2, 2)
-    args = argparse.Namespace(dist_arg={})
+    args = train_args(["--pipeline", "rl"], dist_arg={})
     # Not distributed -> identity, but routed through the helper.
     assert method.wrap_model(model, torch.device("cpu"), args) is model
 
@@ -103,7 +103,7 @@ class TestPerRankSeed:
   def _args(self, **kw):
     base = dict(seed=42, env_seed=None)
     base.update(kw)
-    return argparse.Namespace(**base)
+    return train_args(["--pipeline", "rl"], **base)
 
   def test_falls_back_to_global_seed(self, monkeypatch):
     monkeypatch.setattr("genml_kit.pipelines.rl.rank", lambda: 0)

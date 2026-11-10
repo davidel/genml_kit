@@ -8,7 +8,6 @@ Covers the core configurability contract from plans/RL_CUSTOM_MODELS.md:
 - ``_apply_model_extras`` runs for RL methods.
 """
 
-import argparse
 from unittest.mock import patch
 
 import pytest
@@ -22,60 +21,14 @@ from genml_kit.models.rl.sac_model import SACModel
 from genml_kit.models.rl.sac_critic import SACCritic
 from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+from tests.cli_args import train_args
 
 
 def _make_args(**overrides):
-  """Minimal args for an RL method with model/model_arg passthrough."""
-  defaults = dict(
-      model=None,
-      model_arg={},
-      dist_arg={},
-      dqn_gamma=0.99,
-      dqn_ddqn=True,
-      dqn_dueling=False,
-      dqn_epsilon_start=1.0,
-      dqn_epsilon_end=0.02,
-      dqn_epsilon_decay_steps=50_000,
-      dqn_tau=1.0,
-      dqn_target_update_freq=0,
-      dqn_n_step=1,
-      ppo_discrete=True,
-      ppo_gamma=0.99,
-      ppo_lam=0.95,
-      ppo_clip_eps=0.2,
-      ppo_epochs=2,
-      ppo_mini_batch_size=32,
-      ppo_entropy_coef=0.01,
-      ppo_value_coef=0.5,
-      ppo_vf_clip_eps=None,
-      ppo_target_kl=None,
-      ppo_log_std_init=0.0,
-      ppo_log_std_min=-5.0,
-      ppo_log_std_max=1.0,
-      ppo_rollout_len=32,
-      sac_gamma=0.99,
-      sac_tau=0.005,
-      sac_target_entropy=None,
-      sac_alpha=0.2,
-      sac_auto_alpha=True,
-      # _apply_model_extras fields (defaults to no-op).
-      grad_checkpoint=False,
-      lora=False,
-      lora_r=8,
-      lora_alpha=16,
-      lora_dropout=0.0,
-      source_checkpoint=None,
-      param_init=None,
-      freeze_patterns=None,
-      param_rename=None,
-      freeze=False,
-      cache_dir=None,
-      loss=None,
-      loss_args=None,
-      grad_clip=1.0,
-  )
-  defaults.update(overrides)
-  return argparse.Namespace(**defaults)
+  """Build RL args from the real CLI parser (see ``tests/cli_args.py``)."""
+  pinned = dict(ppo_epochs=2, ppo_mini_batch_size=32, ppo_rollout_len=32)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "rl"], **pinned)
 
 
 def _make_pipeline(obs_dim=4, continuous=False, action_dim=2):

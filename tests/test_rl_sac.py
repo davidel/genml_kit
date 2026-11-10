@@ -10,40 +10,12 @@ from genml_kit.methods.rl_sac import SACMethod
 from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+from tests.cli_args import train_args
 
 
 def _make_args(**overrides):
-  defaults = dict(
-      sac_gamma=0.99,
-      sac_tau=0.005,
-      sac_alpha=0.2,
-      sac_auto_alpha=True,
-      sac_target_entropy=None,
-      sac_critic_lr=3e-4,
-      sac_actor_lr=3e-4,
-      sac_alpha_lr=3e-4,
-      source_checkpoint=None,
-      param_rename=None,
-      freeze_patterns=None,
-      lora_rank=None,
-      lora_alpha=None,
-      lora_target_modules=None,
-      freeze=None,
-      lora=False,
-      lora_r=8,
-      lora_dropout=0.0,
-      grad_checkpoint=False,
-      param_init=None,
-      model=None,
-      model_arg={},
-      dist_arg={},
-      cache_dir=None,
-      loss=None,
-      loss_args=None,
-      grad_clip=1.0,
-  )
-  defaults.update(overrides)
-  return argparse.Namespace(**defaults)
+  """Build SAC args from the real CLI parser (see ``tests/cli_args.py``)."""
+  return train_args(["--pipeline", "rl", "--method", "sac"], **overrides)
 
 
 def _make_pipeline_and_method(obs_dim=4):

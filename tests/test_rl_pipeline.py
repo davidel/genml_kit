@@ -1,7 +1,5 @@
 """Tests for RLPipeline (env wrapper + replay buffer + eval rollout)."""
 
-import argparse
-
 import numpy as np
 import torch
 
@@ -10,6 +8,7 @@ from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.datasets.replay_buffer import Transition
+from tests.cli_args import train_args
 
 
 class TestScriptedEnv:
@@ -259,23 +258,24 @@ class TestInitEnvActionSpace:
   def _init_pipeline(self, monkeypatch, action_space):
     monkeypatch.setattr(rl, "GymnasiumEnvWrapper", _fake_env_factory((4,),
                                                                      action_space))
-    args = argparse.Namespace(env_id="Fake-v0",
-                              obs_dim=None,
-                              record_eval_video=False,
-                              env_script=None,
-                              replay_capacity=10,
-                              env_seed=0,
-                              per_alpha=0.6,
-                              per_beta_start=0.4,
-                              per_beta_frames=100_000,
-                              obs_normalize=False,
-                              obs_norm_clip=10.0,
-                              reward_normalize=False,
-                              reward_norm_clip=10.0,
-                              n_step=1,
-                              prioritized=False,
-                              ppo_rollout_len=16,
-                              ppo_gamma=0.99)
+    args = train_args(["--pipeline", "rl"],
+                      env_id="Fake-v0",
+                      obs_dim=None,
+                      record_eval_video=False,
+                      env_script=None,
+                      replay_capacity=10,
+                      env_seed=0,
+                      per_alpha=0.6,
+                      per_beta_start=0.4,
+                      per_beta_frames=100_000,
+                      obs_normalize=False,
+                      obs_norm_clip=10.0,
+                      reward_normalize=False,
+                      reward_norm_clip=10.0,
+                      n_step=1,
+                      prioritized=False,
+                      ppo_rollout_len=16,
+                      ppo_gamma=0.99)
     pipeline = RLPipeline()
     pipeline.init_env(args)
     return pipeline

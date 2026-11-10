@@ -1,6 +1,5 @@
 """End-to-end detection test: pipeline -> method -> loss -> eval -> registry."""
 
-import argparse
 import json
 
 import numpy as np
@@ -10,6 +9,7 @@ from PIL import Image
 
 from genml_kit.methods import build_method
 from genml_kit.pipelines import build_pipeline
+from tests.cli_args import train_args
 
 
 def _write_dataset(root, n=8, size=64, num_classes=2, boxes_per_image=2, seed=0):
@@ -52,13 +52,10 @@ def _write_dataset(root, n=8, size=64, num_classes=2, boxes_per_image=2, seed=0)
 
 
 def _args(root, **overrides):
-  base = dict(
-      pipeline="detection",
-      method="detection",
+  """Build args from the real CLI parser (see ``tests/cli_args.py``)."""
+  pinned = dict(
       dataset=f"detfolder/{root}",
-      image_column="image",
       val_split=0.25,
-      cache_dir=None,
       model="det_wrapper:timm/resnet18",
       model_arg={
           "head": "fcos_head:num_convs=1",
@@ -69,22 +66,9 @@ def _args(root, **overrides):
       num_workers=0,
       seed=0,
       device="cpu",
-      det_annotation_file="annotations.json",
-      det_image_subdir="images",
-      det_num_classes=None,
-      det_score_thresh=0.05,
-      det_nms_thresh=0.5,
-      det_max_detections=100,
-      loss=None,
-      loss_args=None,
-      freeze=None,
-      lora=False,
-      grad_checkpoint=False,
-      source_checkpoint=None,
-      param_init=None,
   )
-  base.update(overrides)
-  return argparse.Namespace(**base)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "detection", "--method", "detection"], **pinned)
 
 
 def _build(root, **overrides):

@@ -9,6 +9,7 @@ from genml_kit.models.dino import DINO
 from genml_kit.pipelines.contracts import DataBlob, LossOutput
 from genml_kit.augmentations.multicrop import MultiCropTransform
 from genml_kit.losses.dino import DINOLoss
+from tests.cli_args import train_args
 
 
 class _FakeBackbone(torch.nn.Module):
@@ -249,7 +250,7 @@ class TestDINOMethod:
     method._dino_global_size = 64
     method._dino_local_size = 32
     method._dino_local_num = 4
-    args = argparse.Namespace(image_size=128)
+    args = train_args(["--pipeline", "images"], image_size=128)
     tf = method.build_transform(args, 128)
     assert isinstance(tf, MultiCropTransform)
 

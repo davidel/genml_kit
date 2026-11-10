@@ -1,7 +1,5 @@
 """End-to-end segmentation test: pipeline -> method -> loss -> eval -> registry."""
 
-import argparse
-
 import numpy as np
 import pytest
 import torch
@@ -9,6 +7,7 @@ from PIL import Image
 
 from genml_kit.methods import build_method
 from genml_kit.pipelines import build_pipeline
+from tests.cli_args import train_args
 
 
 def _write_dataset(root, n=8, size=32, num_classes=3, seed=0):
@@ -23,14 +22,11 @@ def _write_dataset(root, n=8, size=32, num_classes=3, seed=0):
 
 
 def _args(root, **overrides):
-  base = dict(
-      pipeline="segmentation",
-      method="segmentation",
+  """Build args from the real CLI parser (see ``tests/cli_args.py``)."""
+  pinned = dict(
       dataset=f"segfolder/{root}",
       mask_column=None,
-      image_column="image",
       val_split=0.25,
-      cache_dir=None,
       model="seg_wrapper:timm/resnet18",
       model_arg={
           "decoder": "unet:depth=4",
@@ -41,19 +37,11 @@ def _args(root, **overrides):
       num_workers=0,
       seed=0,
       device="cpu",
-      seg_num_classes=None,
       seg_ignore_index=-1,
-      seg_augmentation_script=None,
-      loss=None,
-      loss_args=None,
-      freeze=None,
-      lora=False,
-      grad_checkpoint=False,
-      source_checkpoint=None,
-      param_init=None,
   )
-  base.update(overrides)
-  return argparse.Namespace(**base)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "segmentation", "--method", "segmentation"],
+                    **pinned)
 
 
 def _build(root, **overrides):

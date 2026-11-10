@@ -17,30 +17,28 @@ from genml_kit.models.tokenizer import load_tokenizer
 from genml_kit.pipelines import PIPELINES
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.pipelines.text import TextPipeline
+from tests.cli_args import train_args
 
 
 def _args(**overrides):
-  base = dict(
+  """Build text-pipeline args from the real CLI parser.
+
+    See ``tests/cli_args.py``; the previous ``types.SimpleNamespace`` mirror
+    of the CLI surface could drift out of sync.
+    """
+  pinned = dict(
       dataset="local",
       split="train",
       val_split=None,
       text_column="text",
-      instruction_column=None,
-      response_column=None,
       dataset_arg=None,
-      cache_dir=None,
-      max_items=None,
       max_seq_len=16,
-      mask_prompt=False,
-      packing=False,
-      length_bucket=False,
-      pad_to_multiple_of=None,
       batch_size=2,
       num_workers=0,
       seed=42,
   )
-  base.update(overrides)
-  return types.SimpleNamespace(**base)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "text"], **pinned)
 
 
 def _proxy():

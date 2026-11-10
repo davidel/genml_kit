@@ -10,42 +10,12 @@ from genml_kit.methods.rl_dqn import DQNMethod
 from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+from tests.cli_args import train_args
 
 
 def _make_args(**overrides):
-  """Create a minimal argparse.Namespace with DQN defaults."""
-  defaults = dict(
-      dqn_gamma=0.99,
-      dqn_ddqn=True,
-      dqn_dueling=False,
-      dqn_epsilon_start=1.0,
-      dqn_epsilon_end=0.02,
-      dqn_epsilon_decay_steps=50_000,
-      dqn_tau=1.0,
-      dqn_target_update_freq=0,
-      dqn_n_step=1,
-      source_checkpoint=None,
-      param_rename=None,
-      freeze_patterns=None,
-      lora_rank=None,
-      lora_alpha=None,
-      lora_target_modules=None,
-      freeze=None,
-      lora=False,
-      lora_r=8,
-      lora_dropout=0.0,
-      grad_checkpoint=False,
-      param_init=None,
-      model=None,
-      model_arg={},
-      dist_arg={},
-      cache_dir=None,
-      loss=None,
-      loss_args=None,
-      n_step=1,
-  )
-  defaults.update(overrides)
-  return argparse.Namespace(**defaults)
+  """Build DQN args from the real CLI parser (see ``tests/cli_args.py``)."""
+  return train_args(["--pipeline", "rl", "--method", "dqn"], **overrides)
 
 
 def _make_pipeline_and_method(obs_dim=4, capacity=100):

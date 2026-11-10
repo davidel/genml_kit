@@ -17,7 +17,6 @@ default test run.  Run them explicitly with::
     pytest -m slow
 """
 
-import argparse
 import random
 import tempfile
 
@@ -35,6 +34,7 @@ from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
 from genml_kit.training.optim_factory import Optimization
 from genml_kit.training.rl_trainer import RLTrainer
+from tests.cli_args import train_args
 
 pytestmark = pytest.mark.slow
 
@@ -77,62 +77,22 @@ class _ScriptedPipeline(RLPipeline):
 
 
 def _make_args(**overrides):
-  defaults = dict(
+  """Build RL args from the real CLI parser.
+
+  Deriving the namespace from ``build_parser`` keeps it in lock-step with
+  the CLI surface; the previous hand-built fixture drifted out of sync and
+  broke these tests once the RL methods began reading ``args.*`` directly.
+  Only the few values that must differ from the parser defaults are pinned.
+  """
+  pinned = dict(
       env_id="scripted",
       obs_dim=4,
-      obs_normalize=False,
-      obs_norm_clip=10.0,
-      replay_capacity=10_000,
-      eval_interval=1,
-      record_eval_video=False,
       log_every=10**9,
-      log_interval=10**9,
-      max_grad_norm=0.0,
-      grad_monitor=-1,
-      norm_history=0,
-      trend_top_n=10,
-      remote_checkpoint=None,
-      upload_every=0,
-      state_save="opt",
-      source_checkpoint=None,
-      param_rename=None,
-      freeze_patterns=None,
-      lora_rank=None,
-      lora_alpha=None,
-      lora_target_modules=None,
-      freeze=None,
-      lora=None,
-      early_stop_patience=0,
-      early_stop_metric=None,
-      early_stop_mode="max",
-      amp_dtype=None,
-      use_wandb=False,
-      wandb_project=None,
-      wandb_entity=None,
-      wandb_tags=None,
-      tb_flush_secs=120,
-      grad_accum_steps=1,
-      n_step=1,
-      checkpoint=None,
       seed=0,
       env_seed=0,
-      # Shared CLI args read directly by the RL methods (see
-      # genml_kit/utils/shared_args.py); the real parser always provides
-      # these, so the hand-built Namespace must too.
-      model=None,
-      model_arg={},
-      dist_arg={},
-      cache_dir=None,
-      loss=None,
-      loss_args=None,
-      grad_clip=1.0,
-      grad_checkpoint=False,
-      param_init=None,
-      lora_r=8,
-      lora_dropout=0.0,
   )
-  defaults.update(overrides)
-  return argparse.Namespace(**defaults)
+  pinned.update(overrides)
+  return train_args(["--pipeline", "rl"], **pinned)
 
 
 def _seed_everything(seed):
