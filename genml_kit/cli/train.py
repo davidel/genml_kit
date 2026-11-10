@@ -15,7 +15,11 @@ import argparse
 import logging
 import sys
 
-from genml_kit.io.checkpointing import open_resume_context, parse_state_flags
+from genml_kit.io.checkpointing import (
+    open_resume_context,
+    parse_state_flags,
+    warn_world_size_mismatch,
+)
 from genml_kit.methods import METHODS, build_method
 from genml_kit.pipelines import PIPELINES, build_pipeline
 from genml_kit.training.optim_factory import build_optimization
@@ -35,6 +39,7 @@ from genml_kit.utils.distributed import (
     init_distributed,
     is_main_process,
     rank,
+    world_size,
 )
 from genml_kit.utils.gpu import resolve_device
 from genml_kit.training.metrics_sinks import build_metrics_logger
@@ -414,6 +419,17 @@ def _run(args):
       (start_epoch *
        (len(train_loader) // args.grad_accum_steps) if train_loader is not None else 0),
   )
+  # Mid-epoch resume: a checkpoint taken on an interrupt carries ``in_progress``
+  # pointing at the epoch that was cut short.  ``start_epoch`` already equals
+  # that epoch (``resume_checkpoint`` resumes *into* it), so surface the
+  # micro-step for the loop to fast-forward to.
+  resume_progress = ckpt_extra.get("in_progress")
+  if not (resume_progress and resume_progress.get("epoch") == start_epoch):
+    resume_progress = None
+  # A changed rank count re-slices every rank's shard (shard boundaries are a
+  # function of ``world_size``); warn (never abort) -- see the helper for why
+  # the residual is only padding/truncation (docs/MULTI_GPU_PLAN.md s 2.1).
+  warn_world_size_mismatch(ckpt_extra.get("world_size"), world_size() or 1)
   # Drop the reference to the full checkpoint extras dict so the potentially
   # large optimizer/scheduler/scaler state can be GC'd before the trainer is
   # constructed. This is intentional memory hygiene, not vestigial code.
@@ -447,6 +463,7 @@ def _run(args):
       start_epoch=start_epoch,
       best_metric=best_metric,
       global_step=global_step,
+      resume_progress=resume_progress,
   )
   result = trainer.run()
   _post_train(args, pipeline, method, device, result)

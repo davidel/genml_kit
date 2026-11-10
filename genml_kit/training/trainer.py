@@ -20,6 +20,7 @@ step + ``method.on_epoch_end`` in ``run()``.
 import contextlib
 import logging
 from collections import namedtuple
+from itertools import islice
 
 import torch
 
@@ -69,8 +70,18 @@ class BaseTrainer:
   #: Whether frozen-parameter state is included in checkpoints.
   SAVE_FROZEN = False
 
-  def __init__(self, args, model, method, pipeline, optimization, device, logger,
-               start_epoch, best_metric, global_step):
+  def __init__(self,
+               args,
+               model,
+               method,
+               pipeline,
+               optimization,
+               device,
+               logger,
+               start_epoch,
+               best_metric,
+               global_step,
+               resume_progress=None):
     """Bind the run's collaborators and restored training state.
 
     Args:
@@ -89,6 +100,9 @@ class BaseTrainer:
             direction (e.g. ``float("inf")`` before the first validation
             of a minimizing metric).
         global_step: Optimizer step counter restored from the checkpoint.
+        resume_progress: The checkpoint's ``in_progress`` marker (or
+            ``None``): ``{"epoch", "micro_step", ...}`` describing an
+            interrupted epoch.  Only honoured on the first epoch of the run.
     """
     self.args = args
     self.model = model
@@ -101,12 +115,44 @@ class BaseTrainer:
     self.start_epoch = start_epoch
     self.best_metric = best_metric
     self.global_step = global_step
+    # Mid-epoch resume marker restored from the checkpoint (or ``None``).
+    # ``resume_step_in_epoch`` is the micro-batch position already consumed in
+    # ``start_epoch``; it is fast-forwarded (grad-accum aligned) on the first
+    # epoch and then reset so later epochs start at the top.
+    self.resume_progress = dict(resume_progress) if resume_progress else None
+    self.resume_step_in_epoch = 0
+    if self.resume_progress and self.resume_progress.get("epoch") == start_epoch:
+      self.resume_step_in_epoch = max(0,
+                                      int(self.resume_progress.get("micro_step") or 0))
     # Last fully completed epoch (-1 = none yet); set by the loop and
     # read by ``validate`` so logging lands on the right epoch.
     self.epoch = start_epoch - 1
+    # Progress marker for the epoch currently running: ``{"epoch", "micro_step"}``
+    # at the last flush boundary (grad-accum aligned), or ``None`` between
+    # epochs.  ``run``'s exit ``finally`` reads it to record where an
+    # interrupted epoch should resume.
+    self._epoch_progress = None
 
-  def train_epoch(self, epoch, saver, step, monitor):
-    """Run one training epoch; return ``(avg_loss, new_step)``."""
+  def _resume_skip(self, epoch):
+    """Return the grad-accum-aligned fast-forward for *epoch*.
+
+    Only the first epoch of the run (``start_epoch``) is skipped: it is the
+    one a mid-epoch checkpoint pointed into.  Every later epoch starts at 0.
+    Rounding down to ``grad_accum_steps`` keeps the first accumulation window
+    after the skip whole, so the DDP all-reduce never fires on a partial one.
+    """
+    if epoch != self.start_epoch or self.resume_step_in_epoch <= 0:
+      return 0
+    accum = max(1, self.args.grad_accum_steps)
+    return (self.resume_step_in_epoch // accum) * accum
+
+  def train_epoch(self, epoch, saver, step, monitor, skip=0):
+    """Run one training epoch; return ``(avg_loss, new_step)``.
+
+    ``skip`` fast-forwards the loader by that many micro-batches (used to
+    resume inside an interrupted epoch).  It is ``grad_accum_steps``-aligned
+    by the caller, so the first flush window after the skip is whole.
+    """
     # Loop owns train/eval mode.
     set_train_mode(self.model, "train")
     # None unless fp16-on-CUDA.
@@ -125,7 +171,10 @@ class BaseTrainer:
         epoch=epoch,
     )
 
-    for step_in_epoch, blob in enumerate(self.pipeline.train_loader):
+    # ``step_in_epoch`` restarts at ``skip`` so the accumulation boundary,
+    # the tail flush and the reporter all see the true position.
+    batch_iter = islice(self.pipeline.train_loader, skip, None)
+    for step_in_epoch, blob in enumerate(batch_iter, start=skip):
       # Data AND meta.
       blob = self.pipeline.to_device(blob, self.device)
       with torch.amp.autocast(
@@ -170,6 +219,26 @@ class BaseTrainer:
           self.optimization.optimizer.step()
         self.optimization.optimizer.zero_grad(set_to_none=True)
         step += 1
+        # Flush boundary reached: record progress so an interrupt after this
+        # point resumes from here (grad-accum-aligned) instead of replaying.
+        self._epoch_progress = {"epoch": epoch, "micro_step": step_in_epoch + 1}
+        # Periodic mid-epoch checkpoint (--save_every).  Records the *current*
+        # epoch plus the micro-step reached, so a resume continues here rather
+        # than replaying the epoch.  ``barrier`` keeps peer ranks from running
+        # ahead into the next collective while rank 0 writes (a slow save would
+        # otherwise risk an NCCL watchdog timeout).
+        if saver is not None and saver.should_save(step):
+          barrier()
+          # ``epoch - 1`` is the last *fully completed* epoch (the checkpoint's
+          # ``epoch`` field keeps that meaning); the ``in_progress`` overlay
+          # carries the true position inside ``epoch``.
+          saver.save_latest(
+              epoch - 1,
+              **{self.best_metric_key: self.best_metric},
+              global_step=step,
+              in_progress=dict(self._epoch_progress),
+          )
+          barrier()
 
       # Sample count and targets.  Collators publish ``size`` on the blob, so
       # the batch dimension is never re-derived by sniffing the shape of
@@ -347,9 +416,19 @@ class BaseTrainer:
           if maybe_call(self.pipeline, "set_train_epoch", epoch) is MISSING:
             sampler_epoch(self.pipeline.train_loader, epoch)
           logging.info(f"=== Epoch {epoch + 1}/{args.epochs} ===")
-          _, self.global_step = self.train_epoch(epoch, saver, self.global_step,
-                                                 grad_monitor)
+          # Fast-forward past what an interrupted checkpoint already consumed,
+          # but only for the first epoch of the run: later epochs start clean.
+          skip = self._resume_skip(epoch)
+          self.resume_step_in_epoch = 0
+          self._epoch_progress = {"epoch": epoch, "micro_step": skip}
+          _, self.global_step = self.train_epoch(epoch,
+                                                 saver,
+                                                 self.global_step,
+                                                 grad_monitor,
+                                                 skip=skip)
           self.epoch = epoch
+          # Epoch fully ran: it is no longer "in progress".
+          self._epoch_progress = None
 
           if self.optimization.scheduler is not None:
             self.optimization.scheduler.step()
@@ -392,11 +471,23 @@ class BaseTrainer:
         logging.warning(f"Interrupted by {interrupts.received}; saving "
                         "checkpoint.")
       finally:
+        # The ``epoch`` field always means the last *fully completed* epoch;
+        # when the interrupt landed inside one, the ``in_progress`` overlay
+        # records that epoch plus the micro-step reached so resume continues
+        # there instead of replaying it.
+        progress = self._epoch_progress
+        if progress is not None and progress["epoch"] > completed_epoch:
+          in_progress = dict(progress)
+        else:
+          in_progress = None
         saver.save_latest(
             completed_epoch,
             **{self.best_metric_key: self.best_metric},
             global_step=self.global_step,
             **self.ckpt_extra(self.best_metric, self.global_step),
+            **({
+                "in_progress": in_progress
+            } if in_progress else {}),
         )
         logging.info("Checkpoint saved on exit.")
         self.logger.close()
