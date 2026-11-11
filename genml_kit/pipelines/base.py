@@ -1,6 +1,10 @@
 """Base class for all data pipelines."""
 
 import abc
+import logging
+from itertools import islice
+
+from genml_kit.datasets.base import is_random_access
 
 
 class DataPipeline(abc.ABC):  # noqa: B024
@@ -155,3 +159,115 @@ class DataPipeline(abc.ABC):  # noqa: B024
     # 3. Sampler chain (random access).
     from genml_kit.utils.distributed import sampler_epoch
     sampler_epoch(loader, epoch)
+
+  def seek_batch(self, batch_idx):
+    """Position the train loader at batch *batch_idx* of the current epoch.
+
+        One resume code path for both access models.  Rather than re-deriving a
+        skip from a length, the trainer asks the pipeline to advance the loader
+        itself, which lets each model seek in the cheapest sound way:
+
+        * **Random access** -- an ``O(1)`` offset.  The loader's index sampler is
+          wrapped so it starts after ``batch_idx * batch_size`` indices; no
+          sample is ever decoded just to be discarded.  ``seek_batch(0)``
+          restores the unwrapped sampler.
+        * **Iterable** -- batches are consumed and dropped, which is only sound
+          if the source can be replayed from a deterministic start.  On a source
+          that cannot, a warning is logged and the epoch restarts from batch 0.
+
+        Seeking is per rank: each rank seeks within its own shard, and the
+        shuffle seed is a function of ``(seed, epoch)``, so all ranks land on the
+        same position.
+
+        Args:
+          batch_idx: Batch index to start from (``grad_accum_steps``-aligned by
+            the caller, so the first accumulation window after the seek is whole).
+
+        Returns:
+          int: The number of batches actually skipped.  Exact for random access;
+            ``0`` for a stream that could not be replayed.
+        """
+    loader = self.train_loader
+    if loader is None or batch_idx <= 0:
+      self._restore_seek()
+      self._stream_seek_offset = 0
+      return 0
+    # Only one mechanism may be armed at a time, or a previous seek would be
+    # applied twice (offset on top of a sampler offset).
+    self._stream_seek_offset = 0
+    if (is_random_access(getattr(loader, "dataset", None)) and
+        self._seek_index_sampler(loader, batch_idx)):
+      return batch_idx
+    # Iterable source: record the offset the loader iteration will honour.
+    return self._seek_by_draining(loader, batch_idx)
+
+  def _seek_index_sampler(self, loader, batch_idx):
+    """Wrap the loader's index sampler to start after *batch_idx* batches.
+
+        Returns False (having changed nothing) when the loader has no reachable
+        index sampler -- e.g. an explicit ``batch_sampler`` whose ordering is not
+        a simple stride -- so the caller can fall back to draining.
+        """
+    from genml_kit.utils.distributed import _SkippedSampler
+    inner = getattr(getattr(loader, "batch_sampler", None), "sampler", None)
+    if inner is None:
+      return False
+    base = getattr(self, "_seek_base_sampler", None)
+    if base is None:
+      # Remember the pristine sampler once, so repeated/zero seeks are clean.
+      self._seek_base_sampler = inner
+      base = inner
+    skip = batch_idx * (loader.batch_size or 1)
+    batch_sampler = loader.batch_sampler
+    batch_sampler.sampler = _SkippedSampler(base, skip)
+    return True
+
+  def _restore_seek(self):
+    """Undo a previous :meth:`_seek_index_sampler` (no-op when never sought)."""
+    base = getattr(self, "_seek_base_sampler", None)
+    if base is None:
+      return
+    loader = getattr(self, "train_loader", None)
+    batch_sampler = getattr(loader, "batch_sampler", None)
+    if batch_sampler is not None:
+      batch_sampler.sampler = base
+    self._seek_base_sampler = None
+
+  def _seek_by_draining(self, loader, batch_idx):
+    """Record a batch offset for an iterable loader, or refuse to seek.
+
+        Draining cannot work here: ``iter(loader)`` builds a *fresh* iterator, so
+        batches consumed to skip would be discarded while the loop afterwards
+        still starts at batch 0.  Instead the offset is recorded and applied by
+        :meth:`_iter_train_loader`, which is what the trainer iterates.
+
+        Seeking still requires a source that replays from a deterministic start,
+        because the skipped prefix is re-generated.  A source that cannot replay
+        is not silently mis-resumed -- the position would be wrong while the logs
+        claimed otherwise -- so the epoch restarts from the top and says so.
+        """
+    dataset = getattr(loader, "dataset", None)
+    if not getattr(dataset, "is_replayable", True):
+      logging.warning("Resume within a streamed epoch restarts the epoch from the top: "
+                      "this source cannot be replayed from a deterministic start.")
+      self._stream_seek_offset = 0
+      return 0
+    self._stream_seek_offset = batch_idx
+    return batch_idx
+
+  def iter_train_loader(self):
+    """Iterate the train loader honouring any pending streaming seek.
+
+        The single place the trainer pulls batches from, so a recorded seek offset
+        is applied to the *same* iterator the loop consumes.  Random access needs
+        no help here (see :meth:`_seek_index_sampler`), so the offset stays 0.
+
+        Yields:
+          Data blobs, in epoch order, positioned after any pending seek.
+        """
+    loader = self.train_loader
+    offset = getattr(self, "_stream_seek_offset", 0)
+    if not offset:
+      yield from loader
+      return
+    yield from islice(iter(loader), offset, None)

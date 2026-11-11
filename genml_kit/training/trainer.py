@@ -185,13 +185,36 @@ class BaseTrainer:
         epoch=epoch,
     )
 
-    # ``step_in_epoch`` restarts at ``skip`` so the accumulation boundary,
+    # Resume is a single code path: the pipeline positions the loader, rather
+    # than the trainer fast-forwarding it with ``islice``.  For random access
+    # that is an O(1) sampler offset (no batch is decoded just to be dropped);
+    # for a stream it drains, or warns and restarts when it cannot be replayed.
+    # ``seek_batch`` reports what it actually did, which may be less than
+    # ``skip`` (a non-replayable stream), so the position accounting follows it.
+    # ``iter_train_loader`` is the pipeline's own iteration seam (it applies a
+    # pending streaming seek).  Falling back to the bare loader keeps minimal
+    # pipeline doubles working without it.
+    seam = getattr(self.pipeline, "iter_train_loader", None)
+    seek = getattr(self.pipeline, "seek_batch", None)
+    if skip and seek is not None:
+      skipped = seek(skip)
+      source = seam() if seam is not None else self.pipeline.train_loader
+    elif skip:
+      # No seek seam (a custom loader / minimal pipeline double): keep the
+      # historical fast-forward so resume still works, at the cost of decoding
+      # the skipped batches.
+      skipped = skip
+      base = seam() if seam is not None else self.pipeline.train_loader
+      source = islice(base, skip, None)
+    else:
+      skipped = 0
+      source = seam() if seam is not None else self.pipeline.train_loader
+    # ``step_in_epoch`` restarts at ``skipped`` so the accumulation boundary,
     # the tail flush and the reporter all see the true position.  Seeded with
-    # ``skip - 1`` so an empty loader leaves the post-loop tail check with a
+    # ``skipped - 1`` so an empty loader leaves the post-loop tail check with a
     # defined value (and no window to flush).
-    step_in_epoch = skip - 1
-    batch_iter = islice(self.pipeline.train_loader, skip, None)
-    for step_in_epoch, blob in enumerate(batch_iter, start=skip):
+    step_in_epoch = skipped - 1
+    for step_in_epoch, blob in enumerate(source, start=skipped):
       # Data AND meta.
       blob = self.pipeline.to_device(blob, self.device)
       with torch.amp.autocast(

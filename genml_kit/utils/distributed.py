@@ -41,6 +41,7 @@ never PEFT or semantic ones.
 import logging
 import os
 import random
+from itertools import islice
 
 import torch
 import torch.distributed as dist
@@ -544,6 +545,37 @@ class DistributedModel:
 
   def __str__(self):
     return str(self.module)
+
+
+class _SkippedSampler:
+  """Yield an index sampler's indices after skipping a fixed prefix.
+
+    Used by ``DataPipeline.seek_batch`` to resume a random-access epoch in
+    ``O(1)``: the loader keeps building and collating batches exactly as before,
+    but the index stream starts where the checkpoint left off, so no sample is
+    decoded only to be thrown away.
+
+    The skip is expressed in *samples* (``batch_idx * batch_size``) because the
+    wrapping ``BatchSampler`` groups whatever the inner sampler yields.
+
+    ``__len__`` reports the remaining count so ``len(loader)`` stays truthful
+    after a seek.
+    """
+
+  def __init__(self, inner, skip):
+    self._inner = inner
+    self._skip = max(0, int(skip))
+
+  def __iter__(self):
+    return islice(iter(self._inner), self._skip, None)
+
+  def __len__(self):
+    return max(0, len(self._inner) - self._skip)
+
+  def __getattr__(self, name):
+    # Anything else (``set_epoch``, ``total_size``, ...) belongs to the wrapped
+    # sampler; epoch control must keep reaching it through us.
+    return getattr(self._inner, name)
 
 
 def make_sampler(dataset,
