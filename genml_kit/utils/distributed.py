@@ -47,7 +47,8 @@ import torch
 import torch.distributed as dist
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 from torch.utils.data import (BatchSampler, DataLoader, DistributedSampler,
-                              RandomSampler, SequentialSampler, WeightedRandomSampler)
+                              IterableDataset, RandomSampler, SequentialSampler,
+                              WeightedRandomSampler)
 
 from genml_kit.utils.logging import fatal
 
@@ -704,6 +705,105 @@ class _ShardedWeightedSampler:
     return self.num_samples // world
 
 
+class _ShardedBatchLoader:
+  """Give each rank a disjoint share of a streaming loader's batches.
+
+  A streaming (``IterableDataset``) loader has no index space, so there is no
+  sampler whose type could describe how to split it -- ``DataLoader`` rejects
+  both ``sampler`` and ``batch_sampler`` for such datasets and installs an
+  internal ``_InfiniteConstantSampler`` placeholder that yields ``None``
+  forever.  The split therefore cannot be expressed as a sampler, and this
+  wrapper is the only available seam: it consumes the loader and hands each
+  rank its own share of the batch stream.
+
+  The same mechanism does the shuffling.  A stream cannot be shuffled by index,
+  so batches are permuted inside a buffer of ``world_size * k`` batches (a
+  "round"):
+
+  * every rank builds the **same** round from the **same** stream and permutes
+    it with the **same** rank-independent seed, so the permutation agrees;
+  * rank *r* then keeps positions ``j % world == r``, which is disjoint and
+    exhaustive across ranks by construction;
+  * each rank yields exactly ``k`` batches per full round, so all ranks run the
+    same number of steps and none leaves a collective early.
+
+  ``k=0`` degenerates to the minimal round-robin (a round of ``world_size``
+  batches, kept in stream order); larger ``k`` widens the window and improves
+  mixing at a cost of ``batch_size * world_size * k`` items resident per rank.
+
+  The wrapped loader is used *as built*: nothing is reconstructed, so
+  ``num_workers``, ``prefetch_factor``, ``worker_init_fn`` and the rest keep
+  their configured values.  Every other attribute (``dataset``, ``batch_size``,
+  ``sampler``, ...) is forwarded to it, so introspection and
+  ``DataPipeline.seek_batch`` see through the wrapper.
+
+  Args:
+      loader: An already-built streaming ``DataLoader``.
+      rank: This process' rank.
+      world: Total number of ranks.
+      k: Batches per rank per round (``--shuffle_buffer_k``).
+      seed: Base seed for the shared permutation.
+  """
+
+  def __init__(self, loader, rank, world, *, k=10, seed=0):
+    self._loader = loader
+    self._rank = rank
+    self._world = max(1, world)
+    # A round needs at least one batch per rank, so k is clamped to >= 1; k=0
+    # is the documented "round-robin without permuting" case and is handled in
+    # __iter__ rather than by disabling the stride.
+    self._k = max(0, int(k))
+    self._seed = seed
+    self.epoch = 0
+
+  def set_epoch(self, epoch):
+    """Record the epoch: the next iteration permutes rounds differently."""
+    self.epoch = epoch
+
+  def _round_size(self):
+    """Batches pulled per round by every rank together."""
+    return self._world * max(1, self._k)
+
+  def __iter__(self):
+    it = iter(self._loader)
+    round_no = 0
+    while True:
+      window = list(islice(it, self._round_size()))
+      if not window:
+        return
+      # Drop the ragged tail of the epoch so the round splits evenly: a
+      # partial round would give some ranks an extra step and desynchronise
+      # the DDP all-reduce.
+      usable = (len(window) // self._world) * self._world
+      if not usable:
+        return
+      window = window[:usable]
+      if self._k:
+        # Rank-independent: every rank must land on the same permutation for
+        # the stride to be disjoint.  The round number is part of the seed so
+        # successive rounds do not permute identically.
+        random.Random(f"{self._seed}-{self.epoch}-{round_no}").shuffle(window)
+      for position, batch in enumerate(window):
+        if position % self._world == self._rank:
+          yield batch
+      round_no += 1
+
+  def __len__(self):
+    """Estimated batches this rank will yield (informational only)."""
+    try:
+      return len(self._loader) // self._world
+    except TypeError:
+      return 0
+
+  def __getattr__(self, name):
+    # Everything else belongs to the wrapped loader.  DataPipeline.seek_batch
+    # and the trainer's length accounting reach dataset/num_workers/sampler
+    # through here, so the wrapper stays transparent.
+    if name.startswith("_"):
+      raise AttributeError(name)
+    return getattr(self._loader, name)
+
+
 def shard_index_sampler(loader, *, seed=0):
   """Return a rank-sharded equivalent of *loader*'s index sampler.
 
@@ -738,18 +838,23 @@ def shard_index_sampler(loader, *, seed=0):
       f"shard_index_sampler about it.", NotImplementedError)
 
 
-def shard_loader(loader, *, seed=0):
-  """Rebuild *loader* so each rank sees a disjoint shard of the epoch.
+def shard_loader(loader, *, seed=0, shuffle_buffer_k=10):
+  """Shard *loader* so each rank sees a disjoint share of the epoch.
 
-  ``DataLoader`` forbids swapping its sampler after construction (the index
-  sampler is built in ``__init__``), so a distributed run must construct the
-  loader with the sharded sampler.  This rebuilds an equivalent loader from the
-  existing one's attributes, replacing only the sampling strategy:
+  Two strategies, dispatched on the dataset:
 
-  * a loader driven by an explicit ``batch_sampler`` (balanced /
-    length-bucketed) gets a rank-strided slice of that batch stream;
-  * a loader driven by an index ``sampler`` or ``shuffle`` gets a shard of
-    whatever that sampler was (:func:`shard_index_sampler`).
+  * **Streaming** (``IterableDataset``) -- the loader is *wrapped* in
+    :class:`_ShardedBatchLoader`, which splits the batch stream by rank and
+    permutes it in a shared round-robin buffer.  There is no index space, so
+    neither of the sampler strategies below applies and the loader is kept
+    exactly as built.
+  * **Random access** -- ``DataLoader`` forbids swapping its sampler after
+    construction (the index sampler is built in ``__init__``), so the loader is
+    *rebuilt* with the sharded sampler:
+    a loader driven by an explicit ``batch_sampler`` (balanced /
+    length-bucketed) gets a rank-strided slice of that batch stream; a loader
+    driven by an index ``sampler`` or ``shuffle`` gets a shard of whatever that
+    sampler was (:func:`shard_index_sampler`).
 
   The dispatch keys on *how the loader samples*, not on ``batch_size``: a
   pipeline may set both a sampler and ``batch_size`` (the images pipeline does),
@@ -761,12 +866,30 @@ def shard_loader(loader, *, seed=0):
   Args:
       loader: An already-built ``DataLoader``.
       seed: Base seed for the sharded sampler.
+      shuffle_buffer_k: Batches per rank per shuffle round for a streaming
+        loader (``--shuffle_buffer_k``); ignored for random access, which
+        shuffles by sampler.
 
   Returns:
-      A new ``DataLoader`` (distributed) or *loader* itself (single-process).
+      A new ``DataLoader`` or :class:`_ShardedBatchLoader` (distributed), or
+      *loader* itself (single-process).
   """
   if world_size() < 2:
     return loader
+
+  dataset = getattr(loader, "dataset", None)
+  if isinstance(dataset, IterableDataset):
+    # A stream has no index space, so its "sampler" is DataLoader's internal
+    # _InfiniteConstantSampler placeholder and says nothing about how to split
+    # it.  Dispatch on the dataset instead and wrap the loader as built: both
+    # sampler branches below are meaningless here.
+    if isinstance(loader, _ShardedBatchLoader):
+      return loader
+    return _ShardedBatchLoader(loader,
+                               rank(),
+                               world_size(),
+                               k=shuffle_buffer_k,
+                               seed=seed)
 
   kwargs = {
       "num_workers": loader.num_workers,

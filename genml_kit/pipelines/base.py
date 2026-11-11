@@ -101,7 +101,9 @@ class DataPipeline(abc.ABC):  # noqa: B024
     if not args.dist_arg.get("shard", world_size() > 1) or world_size() < 2:
       return
     if getattr(self, "train_loader", None) is not None:
-      self.train_loader = shard_loader(self.train_loader, seed=args.seed or 0)
+      self.train_loader = shard_loader(self.train_loader,
+                                       seed=args.seed or 0,
+                                       shuffle_buffer_k=args.shuffle_buffer_k)
 
   def shard_val_loader(self, args):
     """Shard the validation set across ranks (no-op when single-process).
@@ -121,7 +123,9 @@ class DataPipeline(abc.ABC):  # noqa: B024
     if not args.dist_arg.get("shard", world_size() > 1) or world_size() < 2:
       return
     if getattr(self, "val_loader", None) is not None:
-      self.val_loader = shard_loader(self.val_loader, seed=args.seed or 0)
+      self.val_loader = shard_loader(self.val_loader,
+                                     seed=args.seed or 0,
+                                     shuffle_buffer_k=args.shuffle_buffer_k)
 
   def set_train_epoch(self, epoch):
     """Tell every epoch-aware layer of the train data path about *epoch*.
