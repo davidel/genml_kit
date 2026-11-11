@@ -125,6 +125,38 @@ class TestPacking:
     # position_ids must stay inside the model's window (no overflow index).
     assert int(out.data["position_ids"].max()) < 8
 
+  def test_max_windows_caps_rows(self):
+    # Without a cap, a batch of long documents fans out into many rows; the
+    # cap bounds the emitted row count so the packed batch respects the same
+    # memory envelope as --batch_size documents.
+    items = [{"input_ids": list(range(100, 200))} for _ in range(4)]
+    uncapped = TextCollator(_tok(), max_seq_len=8, packing=True)(items)
+    capped = TextCollator(_tok(), max_seq_len=8, packing=True,
+                          max_windows=2)(items)
+    assert uncapped.data["input_ids"].shape[0] > 2
+    assert capped.data["input_ids"].shape[0] == 2
+    assert capped.data["input_ids"].shape[1] == 8
+
+  def test_max_windows_warns_on_truncation(self, caplog):
+    import logging
+    items = [{"input_ids": list(range(100, 200))}]
+    coll = TextCollator(_tok(), max_seq_len=8, packing=True, max_windows=2)
+    with caplog.at_level(logging.WARNING):
+      coll(items)
+    assert any("truncated" in r.message for r in caplog.records)
+
+  def test_max_windows_keeps_short_documents_intact(self):
+    # A batch that already fits the cap is untouched (no silent token loss).
+    coll = TextCollator(_tok(), max_seq_len=8, packing=True, max_windows=4)
+    out = coll([{"text": "ab"}, {"text": "cd"}])
+    assert out.data["input_ids"].shape[0] <= 4
+    assert int(out.data["attention_mask"].sum()) == 10  # 2 x (BOS+2+EOS)
+
+  def test_max_windows_rejects_non_positive(self):
+    import pytest
+    with pytest.raises(ValueError, match="max_windows"):
+      TextCollator(_tok(), max_seq_len=8, packing=True, max_windows=0)
+
   def test_mask_prompt_is_honored_under_packing(self):
     # Regression: packing used to rebuild labels from ids, silently dropping
     # the prompt masking (prompt tokens got trained on).

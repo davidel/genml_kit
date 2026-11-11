@@ -117,6 +117,46 @@ class TestBuildLoader:
       assert tensor.device.type == "cpu"
     assert batch.meta["labels"].device.type == "cpu"
 
+  def test_wrapped_packing_bounds_rows_for_long_documents(self, monkeypatch):
+    # Regression: under --packing wrapped, --batch_size counts *documents*, so a
+    # batch of long documents used to fan out into far more rows than
+    # --batch_size and exhaust VRAM.  The token-budget sampler + the collator's
+    # window cap keep every emitted batch within --batch_size rows.
+    long = datasets.Dataset.from_dict({"text": ["a" * 400] * 8})
+    self._patch_load(monkeypatch, TextDatasetProxy(long, text_column="text"))
+    method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
+    pipeline = TextPipeline()
+    loader = pipeline.build_loader(_args(packing="wrapped",
+                                          sequence_mode="open",
+                                          batch_size=3),
+                                   mode="train",
+                                   method=method)
+    batch_size = 3
+    for batch in loader:
+      rows = batch.data["input_ids"].shape[0]
+      assert rows <= batch_size
+      assert batch.data["input_ids"].shape[1] == 16
+
+  def test_wrapped_loader_uses_token_budget_sampler(self, monkeypatch):
+    from genml_kit.datasets.packing_sampler import PackingBatchSampler
+    self._patch_load(monkeypatch, _proxy())
+    method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
+    pipeline = TextPipeline()
+    loader = pipeline.build_loader(_args(packing="wrapped",
+                                          sequence_mode="open"),
+                                   mode="train",
+                                   method=method)
+    assert isinstance(loader.batch_sampler, PackingBatchSampler)
+
+  def test_unpacked_loader_keeps_document_batching(self, monkeypatch):
+    # The default (document) recipe must keep the historical document-count
+    # batching untouched.
+    self._patch_load(monkeypatch, _proxy())
+    method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
+    pipeline = TextPipeline()
+    loader = pipeline.build_loader(_args(), mode="train", method=method)
+    assert loader.batch_size == 2
+
   def test_val_split_caps_before_carving_holdout(self, monkeypatch):
     # --max_items must be honoured *before* the held-out fraction is carved, so
     # a budgeted run yields cap - n_val training rows plus a real val set

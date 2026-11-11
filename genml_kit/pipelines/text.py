@@ -21,6 +21,41 @@ from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
 
+#: Items sampled to estimate the token-per-character ratio of a corpus.  Small
+#: enough to be free next to an epoch of training, large enough to average out
+#: per-item tokenizer variance.
+_TOKENS_PER_UNIT_PROBES = 64
+
+
+def _estimate_tokens_per_unit(dataset, tokenizer):
+  """Estimate tokens per character for *dataset*, for length-proxy batching.
+
+    The packing sampler sizes batches from the cheap character-length proxy
+    (``text_length_proxy``), so it needs the corpus' tokens-per-character ratio
+    to convert that proxy to an approximate token count.  The ratio is measured
+    on a small sample; it only steers how many documents fill a batch, never the
+    hard window cap, so an imperfect estimate cannot break the memory bound.
+    """
+  n = len(dataset)
+  if n == 0:
+    return 1.0
+  step = max(1, n // _TOKENS_PER_UNIT_PROBES)
+  chars = 0
+  tokens = 0
+  for i in range(0, n, step):
+    item = dataset[i]
+    if "text" in item:
+      text = item["text"] or ""
+    else:
+      text = (item.get("prompt") or "") + (item.get("response") or "")
+    if not text:
+      continue
+    chars += len(text)
+    tokens += len(tokenizer.encode(text, add_special_tokens=False)) or 1
+  if chars == 0:
+    return 1.0
+  return tokens / chars
+
 
 @PIPELINES.register
 class TextPipeline(DataPipeline):
@@ -114,20 +149,54 @@ class TextPipeline(DataPipeline):
         collate_fn=self.train_collator,
     )
 
-  def _make_collator(self, tokenizer):
+  def _build_packed_train_loader(self, args):
+    """Train loader for ``wrapped`` packing, bounded by a token budget.
+
+        ``--batch_size`` counts documents on every other path, but ``wrapped``
+        packing emits ``ceil(total_tokens / max_seq_len)`` rows -- unbounded in
+        the document count and a VRAM trap on long-document corpora.  Batch by a
+        fixed token budget instead (:class:`PackingBatchSampler`) so a batch
+        fills at most ``--batch_size`` windows, while a document longer than one
+        window is still streamed in (its tail lands in a later window).
+        """
+    from genml_kit.datasets.length_bucket_sampler import text_length_proxy
+    from genml_kit.datasets.packing_sampler import PackingBatchSampler
+    lengths = text_length_proxy(self.train_dataset)
+    sampler = PackingBatchSampler(lengths,
+                                  batch_size=args.batch_size,
+                                  max_seq_len=self._max_seq_len,
+                                  tokens_per_unit=self._tokens_per_unit,
+                                  seed=args.seed)
+    # ``batch_sampler`` fully determines the batches, so DataLoader forbids
+    # passing ``batch_size`` / ``shuffle`` alongside it.
+    return DataLoader(
+        self.train_dataset,
+        batch_sampler=sampler,
+        num_workers=args.num_workers,
+        worker_init_fn=seed_worker,
+        pin_memory=False,
+        collate_fn=self.train_collator,
+    )
+
+  def _make_collator(self, tokenizer, batch_size):
     # Imported lazily: text_collator imports pipelines.contracts, which
     # triggers the pipelines package __init__ (and therefore this module's
     # registration) -- a module-scope import here would close that cycle.
     from genml_kit.training.text_collator import TextCollator
     windowing = self._sequence.windowing
     packing = windowing in ("wrapped", "bfd")
+    # Only ``wrapped`` can emit more rows than documents, so only it needs the
+    # hard window cap; ``bfd`` truncates per document already and the rest are
+    # one row per document.
+    max_windows = batch_size if windowing == "wrapped" else None
     return TextCollator(tokenizer,
                         max_seq_len=self._max_seq_len,
                         mask_prompt=self._mask_prompt,
                         packing=packing,
                         packing_strategy=windowing if packing else "wrapped",
                         boundary_loss=self._sequence.boundary_loss,
-                        pad_to_multiple_of=self._pad_to_multiple_of)
+                        pad_to_multiple_of=self._pad_to_multiple_of,
+                        max_windows=max_windows)
 
   def _build(self, args, method=None):
     if not args.dataset:
@@ -151,8 +220,9 @@ class TextPipeline(DataPipeline):
     self._pad_to_multiple_of = args.pad_to_multiple_of
 
     self.train_dataset, self.val_dataset = self._load_splits(args)
-    self.train_collator = self._make_collator(tokenizer)
-    self.val_collator = self._make_collator(tokenizer)
+    self._tokens_per_unit = _estimate_tokens_per_unit(self.train_dataset, tokenizer)
+    self.train_collator = self._make_collator(tokenizer, args.batch_size)
+    self.val_collator = self._make_collator(tokenizer, args.batch_size)
 
     self.data_generator = torch.Generator()
     if args.seed is not None:
@@ -161,6 +231,8 @@ class TextPipeline(DataPipeline):
     windowing = self._sequence.windowing
     if windowing == "bucket":
       self.train_loader = self._build_bucketed_train_loader(args)
+    elif windowing == "wrapped":
+      self.train_loader = self._build_packed_train_loader(args)
     else:
       self.train_loader = DataLoader(
           self.train_dataset,

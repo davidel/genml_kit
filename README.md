@@ -2370,6 +2370,26 @@ windows; `bfd` yields fewer, fuller windows but reorders documents, so batch
 order is **not** reproducible with respect to `--seed` (it warns once).
 `--length_bucket` is mutually exclusive with `--packing`.
 
+**Batching and memory.**  On every path except `wrapped`, `--batch_size` counts
+*documents* (each becomes one model row, or one packed row for `bfd`).  Under
+`wrapped` the collator concatenates the batch and slices it into `max_seq_len`
+windows, so the row count is `ceil(total_tokens / max_seq_len)` -- which the
+document count does **not** bound.  A batch of long documents can therefore fan
+out into far more rows than `--batch_size` and exhaust VRAM (one long document
+alone becomes `len(doc) / max_seq_len` rows), and lowering `--batch_size` or
+`--grad_accum_steps` barely helps because the cost tracks *tokens*, not
+documents.
+
+To make `wrapped` safe, `--batch_size` is honored as a **token budget**:
+`PackingBatchSampler` groups documents until a batch fills `--batch_size *
+max_seq_len` tokens (the constant-length packing recipe Megatron-LM and
+HuggingFace packed datasets use), and the collator hard-caps every emitted batch
+at `--batch_size` windows.  A document longer than one window is still streamed
+in -- its tail lands in a later window of the same batch rather than being
+truncated away -- and only the overflow past the whole batch budget (a single
+document longer than `--batch_size` windows) is dropped, with a one-time
+warning.  If you see that warning, raise `--batch_size` or lower `--max_items`.
+
 `--sequence_mode` compiles the windowing flags and the two coupled policies
 below into one validated object (`genml_kit/training/sequence_mode.py`), so an
 incoherent pairing cannot be expressed.  The two recipes are:

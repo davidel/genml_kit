@@ -74,6 +74,14 @@ class TextCollator:
         True: unpacked, the token after the document's ``EOS`` is padding.
     pad_to_multiple_of : int or None
         If set, round the padded length up to a multiple of this value.
+    max_windows : int or None
+        Hard cap on the number of packed windows a single call may emit.  Under
+        ``wrapped`` packing the row count is ``ceil(total_tokens / max_seq_len)``,
+        which the document-level ``batch_size`` does not bound: a batch of long
+        documents can fan out into far more rows than intended and exhaust VRAM.
+        When set, the flattened stream is truncated to ``max_windows *
+        max_seq_len`` tokens and a warning is logged once per call.  ``None``
+        (the default) preserves the unbounded historical behaviour.
     """
 
   def __init__(self,
@@ -83,11 +91,16 @@ class TextCollator:
                packing=False,
                packing_strategy="wrapped",
                boundary_loss="mask",
-               pad_to_multiple_of=None):
+               pad_to_multiple_of=None,
+               max_windows=None):
     if max_seq_len < 1:
       fatal(f"max_seq_len must be positive, got {max_seq_len}", ValueError)
+    if max_windows is not None and max_windows < 1:
+      fatal(f"max_windows must be positive, got {max_windows}", ValueError)
     self.tokenizer = tokenizer
     self.max_seq_len = max_seq_len
+    self.max_windows = max_windows
+    self._warned_truncation = False
     self.mask_prompt = mask_prompt
     self.packing = packing
     if packing_strategy not in ("wrapped", "bfd"):
@@ -220,6 +233,23 @@ class TextCollator:
         stream.append((tok, label, doc_idx))
       if sep is not None:
         stream.append((sep, sep, doc_idx))
+    # Hard memory bound: the row count is ceil(len(stream) / max_seq_len), so a
+    # batch of long documents can fan out without bound.  Cap the stream (and
+    # therefore the windows) when the caller asked for a bound, and make the
+    # dropped tail visible rather than silent.
+    if self.max_windows is not None:
+      cap = self.max_windows * self.max_seq_len
+      if len(stream) > cap:
+        # Warn once per collator: an over-long batch recurs, and the point is
+        # that the budget is too tight for this corpus, not a per-batch event.
+        if not self._warned_truncation:
+          self._warned_truncation = True
+          logging.warning(
+              "wrapped packing truncated %d token(s): a %d-token batch exceeds "
+              "the %d-window budget. Raise --batch_size or lower --max_items; "
+              "long-document tails beyond the budget are not trained.",
+              len(stream) - cap, len(stream), self.max_windows)
+        stream = stream[:cap]
     windows = []
     # Slice the flat stream into fixed max_seq_len windows: [flat] -> [n_win,
     # <= max_seq_len].  A document may straddle two windows; the run split is
