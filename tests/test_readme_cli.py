@@ -54,12 +54,15 @@ Unreferenced fixtures are never built; unknown ``{tmp}/<name>`` references
 are left alone so simple overrides keep working.
 """
 
+import contextlib
 import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -1061,6 +1064,98 @@ def _launcher_available(spec):
   return torch.distributed.is_available()
 
 
+def _process_tree(root_pid):
+  """Return *root_pid* and every live descendant, via ``/proc``.
+
+  A ``launcher:`` fence forks a supervisor (``torchrun``) that puts *each*
+  worker (rank) in its own session, so a single ``killpg`` on our direct
+  child would miss the ranks and their DataLoader workers.  Walking the
+  ``ppid`` links gathers the whole tree so it can be reaped as one unit.
+  """
+  children = {}
+  for name in os.listdir("/proc"):
+    if not name.isdigit():
+      continue
+    try:
+      with open(f"/proc/{name}/stat", "rb") as fh:
+        data = fh.read()
+    except OSError:
+      continue
+    rparen = data.rfind(b")")
+    if rparen == -1:
+      continue
+    fields = data[rparen + 2:].split()
+    if len(fields) < 2:
+      continue
+    children.setdefault(int(fields[1]), []).append(int(name))
+  tree, stack = [], [root_pid]
+  while stack:
+    pid = stack.pop()
+    tree.append(pid)
+    stack.extend(children.get(pid, ()))
+  return tree
+
+
+def _signal_pids(pids, sig):
+  for pid in pids:
+    with contextlib.suppress(OSError):
+      os.kill(pid, sig)
+
+
+def _kill_process_tree(proc, grace=5.0):
+  """SIGTERM then SIGKILL *proc* and all its descendants.
+
+  Snapshot the descendant set *before* signalling: once the supervisor is
+  dead its children are reparented and the ``ppid`` links that tie them to
+  the tree are gone.
+  """
+  tree = _process_tree(proc.pid)
+  _signal_pids(tree, signal.SIGTERM)
+  deadline = time.monotonic() + grace
+  while time.monotonic() < deadline:
+    if all(not _pid_alive(pid) for pid in tree):
+      break
+    time.sleep(0.1)
+  _signal_pids(_process_tree(proc.pid) + tree, signal.SIGKILL)
+  with contextlib.suppress(OSError, subprocess.SubprocessError):
+    proc.wait(timeout=grace)
+
+
+def _pid_alive(pid):
+  try:
+    os.kill(pid, 0)
+    return True
+  except OSError:
+    return False
+
+
+def _run_command(argv, cwd, env, timeout):
+  """Run *argv* in its own session, reaping the whole tree on exit.
+
+  Returns the completed :class:`subprocess.CompletedProcess`.  Unlike
+  ``subprocess.run``, a timeout (or an unexpected error) tears down every
+  process the command spawned -- ``torchrun`` ranks live in their own
+  sessions and would otherwise leak, pinning a CPU and holding the captured
+  stdout/stderr pipes open, which can wedge the enclosing test runner.
+  """
+  proc = subprocess.Popen(argv,
+                          cwd=cwd,
+                          env=env,
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE,
+                          text=True,
+                          start_new_session=True)
+  try:
+    stdout, stderr = proc.communicate(timeout=timeout)
+  except subprocess.TimeoutExpired:
+    _kill_process_tree(proc)
+    raise
+  except BaseException:
+    _kill_process_tree(proc)
+    raise
+  return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
+
+
 def run_spec(spec, tmp_path):
   run_root = Path(tmp_path) / "readme_cli"
   run_root.mkdir(parents=True, exist_ok=True)
@@ -1088,12 +1183,7 @@ def run_spec(spec, tmp_path):
     for index, command in enumerate(spec.commands):
       argv = build_argv(spec, command, run_root, cmd_index=index)
       try:
-        proc = subprocess.run(argv,
-                              cwd=cwd,
-                              env=env,
-                              capture_output=True,
-                              text=True,
-                              timeout=spec.timeout)
+        proc = _run_command(argv, cwd, env, spec.timeout)
       except subprocess.TimeoutExpired:
         pytest.fail(
             _failure_message(spec, argv, stderr=f"timed out after {spec.timeout}s"))

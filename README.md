@@ -3016,7 +3016,7 @@ runnable example below does (two ranks, a tiny synthetic dataset):
 name: multi-gpu-torchrun
 launcher: torchrun
 nproc: 2
-extra: --device cpu --batch_size 4
+extra: --device cpu --batch_size 4 --image_size 32 --num_workers 0
 override:
   - --dataset {tmp}/img_ddp
 -->

@@ -7,6 +7,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Bound the job against a hung test.  A wedge would otherwise ride the
+    # GitHub default (360 min) until the runner SIGTERMs the step, which
+    # surfaces as a bare "exit code 143" with no logs.  Sized for a full
+    # default + slow run, not the runner's ceiling.
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
@@ -30,10 +35,16 @@ jobs:
         run: pytest -q
 
       - name: Run slow tests
-        run: pytest -q -m 'slow and not network and not service'
+        # ``distributed`` (the multi-process torchrun example) is opted out of
+        # the default suite via addopts; an explicit -m overrides that, so it
+        # must be deselected here too.  It runs in its own README-CLI step.
+        run: pytest -q -m 'slow and not network and not service and not distributed'
 
   readme-cli:
     runs-on: ubuntu-latest
+    # Same bound as the ``test`` job: the README examples can wedge (torchrun,
+    # downloads); fail on a clear timeout instead of a bare SIGTERM/143.
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
