@@ -18,7 +18,7 @@ from torchvision.transforms.functional import InterpolationMode
 from genml_kit.datasets.base import is_shuffleable
 from genml_kit.datasets.ensemble import DatasetEnsemble
 from genml_kit.datasets.factory import parse_dataset_specs
-from genml_kit.datasets.field_dataset import FieldSectorDataset
+from genml_kit.datasets.field_selector import FieldSelectorDataset
 from genml_kit.datasets.transforms import DictFieldTransform
 from genml_kit.datasets.weighted_sampler import build_weighted_sampler
 from genml_kit.pipelines.base import DataPipeline
@@ -324,7 +324,7 @@ class ImagesPipeline(DataPipeline):
       # Methods that ignore labels get image-only items: a mixed ensemble.
       # (some sources labeled, some not) would otherwise produce batches.
       # with inconsistent keys that default_collate cannot handle.
-      dataset = FieldSectorDataset(
+      dataset = FieldSelectorDataset(
           dataset, fields={ensemble.image_column: ensemble.image_column})
 
     self.train_dataset = _DictAdapter(dataset, image_column=ensemble.image_column)
@@ -441,7 +441,7 @@ def build_pretrain_dataset(args, needs_labels=False, transform=None):
     # Methods that ignore labels get image-only items: a mixed ensemble.
     # (some sources labeled, some not) would otherwise produce batches.
     # with inconsistent keys that default_collate cannot handle.
-    dataset = FieldSectorDataset(dataset,
-                                 fields={ensemble.image_column: ensemble.image_column})
+    dataset = FieldSelectorDataset(
+        dataset, fields={ensemble.image_column: ensemble.image_column})
   logging.info(ensemble.summary())
   return dataset, ensemble

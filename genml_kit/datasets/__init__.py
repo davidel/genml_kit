@@ -14,6 +14,8 @@ from genml_kit.datasets.base import (
     num_samples,
 )
 from genml_kit.datasets.ensemble import DatasetEnsemble
+from genml_kit.datasets.field_selector import (FieldSelectorDataset,
+                                              IterableFieldSelectorDataset)
 from genml_kit.datasets.hf_proxy import HFDatasetProxy
 from genml_kit.datasets.iterable import StreamingDataset, is_streaming_source
 from genml_kit.datasets.split import IterableDatasetFilter
@@ -22,16 +24,20 @@ from genml_kit.datasets.replay_buffer import (
     Transition,
 )
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
+from genml_kit.datasets.webdataset_source import WebDatasetSource
 
 __all__ = [
     "DatasetEnsemble",
+    "FieldSelectorDataset",
     "HFDatasetProxy",
     "IterableDatasetFilter",
+    "IterableFieldSelectorDataset",
     "IterableMixin",
     "ReplayBufferDataset",
     "RolloutBuffer",
     "StreamingDataset",
     "Transition",
+    "WebDatasetSource",
     "is_iterable",
     "is_random_access",
     "is_streaming_source",

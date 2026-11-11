@@ -32,8 +32,9 @@ uvito = ["segmentation_models_pytorch>=0.3.0"]
 rl = ["gymnasium>=0.29", "pygame>=2.1", "imageio[ffmpeg]>=2.31", "box2d>=2.3.10"]
 tune = ["scipy"]
 gpu = ["nvidia-ml-py"]
+webdataset = ["webdataset"]
 flash = ["flash-attn"]
-all = ["genml_kit[gcs,s3,lora,llm,llm-spm,timm,uvito,rl,tune,gpu]"]
+all = ["genml_kit[gcs,s3,lora,llm,llm-spm,timm,uvito,rl,tune,gpu,webdataset]"]
 dev = ["pytest", "ruff", "yapf", "pyyaml"]
 
 [project.urls]
@@ -79,6 +80,15 @@ markers = [
 ]
 filterwarnings = [
   "error",
+  # Upstream webdataset bug (issue #365, still open): gopen() opens local shard
+  # files and nothing closes them explicitly, so each consumed shard raises
+  # "unclosed file" ResourceWarning when CPython refcounting finally frees the
+  # buffered reader. No handle is reachable and p.close() does not help, so
+  # this cannot be fixed from our side. The descriptors do NOT accumulate
+  # (measured: 0 fd growth over 300 shard passes); only the warning fires.
+  # Scoped to webdataset's module, so it cannot mask the same warning from this
+  # codebase. Remove if #365 is fixed.
+  "ignore:unclosed file:ResourceWarning:webdataset",
   # Known sandbox limitation: joblib falls back to serial mode when a
   # shared-memory segment cannot be created. Fires at test collection.
   "ignore:\\[Errno 13\\] Permission denied.*joblib:UserWarning",

@@ -18,7 +18,7 @@ from genml_kit.datasets.base import (
     num_samples,
 )
 from genml_kit.datasets.capped import CappedDataset
-from genml_kit.datasets.field_dataset import FieldSectorDataset
+from genml_kit.datasets.field_selector import FieldSelectorDataset
 from genml_kit.datasets.transforms import DictFieldTransform
 from tests.iterable_streams import CountingMapDataset, CountingStream, ids
 
@@ -125,7 +125,7 @@ class TestWrapperIteration:
     return [{"image": i, "label": i % 2, "extra": i * 2} for i in range(5)]
 
   def test_field_sector_dataset_parity(self):
-    ds = FieldSectorDataset(self._source(), fields={"image": "img", "label": "y"})
+    ds = FieldSelectorDataset(self._source(), fields={"image": "img", "label": "y"})
     assert list(ds) == [ds[i] for i in range(len(ds))]
 
   def test_dict_field_transform_parity(self):

@@ -9,7 +9,7 @@ from datasets import Dataset as HFDataset
 from PIL import Image
 
 from genml_kit.datasets.ensemble import DatasetEnsemble, _HFDataset
-from genml_kit.datasets.field_dataset import FieldSectorDataset
+from genml_kit.datasets.field_selector import FieldSelectorDataset
 from genml_kit.datasets.image_folder import ImageFolderDataset
 
 
@@ -160,7 +160,7 @@ class TestHFDatasetDictReturns:
     assert len(arr) == 12
 
 
-class TestFieldSectorDataset:
+class TestFieldSelectorDataset:
 
   def test_extracts_single_field(self):
 
@@ -172,7 +172,7 @@ class TestFieldSectorDataset:
       def __getitem__(self, idx):
         return {"image": f"img_{idx}", "label": idx}
 
-    ds = FieldSectorDataset(_FakeDS(), fields={"image": "image"})
+    ds = FieldSelectorDataset(_FakeDS(), fields={"image": "image"})
     assert ds[0] == {"image": "img_0"}
     assert len(ds) == 3
 
@@ -186,7 +186,7 @@ class TestFieldSectorDataset:
       def __getitem__(self, idx):
         return {"image": f"img_{idx}", "label": idx + 10}
 
-    ds = FieldSectorDataset(_FakeDS(), fields={"label": "label"})
+    ds = FieldSelectorDataset(_FakeDS(), fields={"label": "label"})
     assert ds[1] == {"label": 11}
 
   def test_renames_field(self):
@@ -199,7 +199,7 @@ class TestFieldSectorDataset:
       def __getitem__(self, idx):
         return {"img": f"img_{idx}", "label": idx}
 
-    ds = FieldSectorDataset(_FakeDS(), fields={"img": "image"})
+    ds = FieldSelectorDataset(_FakeDS(), fields={"img": "image"})
     assert ds[0] == {"image": "img_0"}
 
   def test_selects_multiple_fields(self):
@@ -212,7 +212,7 @@ class TestFieldSectorDataset:
       def __getitem__(self, idx):
         return {"image": f"img_{idx}", "label": idx, "extra": "x"}
 
-    ds = FieldSectorDataset(_FakeDS(), fields={"image": "image", "label": "y"})
+    ds = FieldSelectorDataset(_FakeDS(), fields={"image": "image", "label": "y"})
     assert ds[0] == {"image": "img_0", "y": 0}
 
   def test_empty_fields_rejected(self):
@@ -226,7 +226,7 @@ class TestFieldSectorDataset:
         return {"image": "img"}
 
     with pytest.raises(ValueError, match="fields"):
-      FieldSectorDataset(_FakeDS(), fields={})
+      FieldSelectorDataset(_FakeDS(), fields={})
 
 
 class TestDatasetEnsembleLabels:

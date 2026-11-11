@@ -47,9 +47,9 @@ import torch
 import torch.distributed as dist
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 from torch.utils.data import (BatchSampler, DataLoader, DistributedSampler,
-                              IterableDataset, RandomSampler, SequentialSampler,
-                              WeightedRandomSampler)
+                              RandomSampler, SequentialSampler, WeightedRandomSampler)
 
+from genml_kit.datasets.base import is_iterable, is_random_access
 from genml_kit.utils.logging import fatal
 
 
@@ -878,11 +878,16 @@ def shard_loader(loader, *, seed=0, shuffle_buffer_k=10):
     return loader
 
   dataset = getattr(loader, "dataset", None)
-  if isinstance(dataset, IterableDataset):
+  # Dispatch on the dataset's *capabilities*, not on its class.  A wrapper such
+  # as FieldSelectorDataset exposes whatever the dataset it wraps exposes, so over
+  # a stream it is iterable without being indexable -- and isinstance(..,
+  # IterableDataset) would be False for it, sending it down the sampler branch
+  # where DistributedSampler calls len() and fails.
+  if is_iterable(dataset) and not is_random_access(dataset):
     # A stream has no index space, so its "sampler" is DataLoader's internal
     # _InfiniteConstantSampler placeholder and says nothing about how to split
-    # it.  Dispatch on the dataset instead and wrap the loader as built: both
-    # sampler branches below are meaningless here.
+    # it.  Wrap the loader as built: both sampler branches below are
+    # meaningless here.
     if isinstance(loader, _ShardedBatchLoader):
       return loader
     return _ShardedBatchLoader(loader,
