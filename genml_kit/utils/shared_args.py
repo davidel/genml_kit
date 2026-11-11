@@ -167,6 +167,15 @@ ARG_NUM_WORKERS = ("num_workers", {
     "help": "DataLoader worker processes.",
 })
 
+ARG_SHUFFLE_BUFFER_K = ("shuffle_buffer_k", {
+    "type": float,
+    "default": 10.0,
+    "help": "Round-robin shuffle round for streaming sources, in batches per "
+            "rank: the buffer holds world_size*K batches. 1 is the minimal "
+            "round-robin; 0 round-robins without permuting. Ignored for "
+            "random-access datasets, which shuffle by sampler.",
+})
+
 ARG_SEED = ("seed", {
     "type": int,
     "help": "RNG seed (deterministic kernels when set).",
@@ -294,6 +303,7 @@ SHARED_ARGS = {
         ARG_IMAGE_SIZE,
         ARG_BATCH_SIZE,
         ARG_NUM_WORKERS,
+        ARG_SHUFFLE_BUFFER_K,
         ARG_SEED,
         ARG_EPOCHS,
         ARG_METHOD,

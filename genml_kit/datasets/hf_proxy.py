@@ -6,6 +6,7 @@ import datasets
 import numpy as np
 from PIL import Image
 
+from genml_kit.datasets.iterable import is_streaming_source
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seg import apply_mask_map
 
@@ -116,10 +117,24 @@ class HFDatasetProxy:
     self._transform = transform
 
   def __len__(self):
+    # A streaming HF source has no length; surface that as TypeError rather
+    # than AttributeError so ``num_samples`` returns its estimate/None.
+    if is_streaming_source(self.dataset):
+      raise TypeError("streaming image dataset has no length")
     return len(self.dataset)
 
+  def __iter__(self):
+    # Iterate the underlying source (which may be a streaming IterableDataset,
+    # so it has no index) and convert one row at a time through the same
+    # per-item path as ``__getitem__``.
+    for item in self.dataset:
+      yield self._convert(item)
+
   def __getitem__(self, idx):
-    item = self.dataset[idx]
+    return self._convert(self.dataset[idx])
+
+  def _convert(self, item):
+    """Convert one raw row to the ``(image, label)`` / dict contract."""
     image = item[self._image_col]
     if hasattr(image, "convert"):
       image = image.convert("RGB")

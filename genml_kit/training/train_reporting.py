@@ -120,8 +120,11 @@ class TrainReporting:
       optimizer=None,
       throughput_unit="img",
       epoch=None,
+      total_batches_estimated=False,
   ):
     self._total_batches = total_batches
+    #: True when ``total_batches`` is an estimate rather than an exact count.
+    self._total_batches_estimated = total_batches_estimated
     self._log_every = log_every
     # Always present: a NullSink-backed logger when none is supplied.
     self._logger = ensure_logger(logger)
@@ -319,8 +322,15 @@ class TrainReporting:
     # Throughput label.
     unit = f"{self._throughput_unit}/s"
 
-    # Console log.
-    msg = (f"  train [{batch_idx + 1}/{self._total_batches}]"
+    # Console log.  The denominator degrades when the epoch length is unknown
+    # (a stream with no estimate) or approximate (a declared ``nsamples``).
+    if self._total_batches is None:
+      progress = f"[{batch_idx + 1}/?]"
+    elif self._total_batches_estimated:
+      progress = f"[{batch_idx + 1}/~{self._total_batches}]"
+    else:
+      progress = f"[{batch_idx + 1}/{self._total_batches}]"
+    msg = (f"  train {progress}"
            f" loss={w_loss:.4f}"
            f" {unit}={throughput:.0f}")
     if gpu:
@@ -389,6 +399,7 @@ class ImageTrainReporting(TrainReporting):
       optimizer=None,
       throughput_unit="img",
       epoch=None,
+      total_batches_estimated=False,
   ):
     super().__init__(
         total_batches=total_batches,
@@ -398,6 +409,7 @@ class ImageTrainReporting(TrainReporting):
         optimizer=optimizer,
         throughput_unit=throughput_unit,
         epoch=epoch,
+        total_batches_estimated=total_batches_estimated,
     )
 
     # Image-specific cumulative counters.  ``_has_accuracy`` stays False

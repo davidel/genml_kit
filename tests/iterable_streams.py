@@ -10,7 +10,8 @@ of being papered over by a plausible number.
 import random
 
 import torch
-from torch.utils.data import IterableDataset
+
+from genml_kit.datasets.iterable import StreamingDataset
 
 
 class CountingMapDataset:
@@ -32,7 +33,7 @@ class CountingMapDataset:
       yield {"id": i}
 
 
-class CountingStream(IterableDataset):
+class CountingStream(StreamingDataset):
   """One-pass streaming source with no ``__len__`` and no ``__getitem__``."""
 
   def __init__(self, n, nsamples=None, epoch=None):
@@ -44,7 +45,7 @@ class CountingStream(IterableDataset):
   def set_epoch(self, epoch):
     self._epoch = epoch
 
-  def __iter__(self):
+  def source_iter(self):
     for i in range(self.n):
       yield {"id": i}
 
@@ -52,7 +53,7 @@ class CountingStream(IterableDataset):
 class ShuffledStream(CountingStream):
   """A stream that permutes per epoch but never loses or repeats an item."""
 
-  def __iter__(self):
+  def source_iter(self):
     ids = list(range(self.n))
     if self._epoch is not None:
       random.Random(self._epoch).shuffle(ids)
@@ -70,7 +71,7 @@ class NonResumableStream(CountingStream):
     super().__init__(n)
     self._iteration = 0
 
-  def __iter__(self):
+  def source_iter(self):
     self._iteration += 1
     offset = (self._iteration - 1) * self.n
     yield from ({"id": offset + i} for i in range(self.n))

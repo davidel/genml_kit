@@ -45,14 +45,26 @@ def is_random_access(obj):
     enumerated, and a ``__len__`` without ``__getitem__`` (e.g. a stream that
     declares a count) cannot be indexed.
 
+    A proxy that *defines* ``__len__`` but raises ``TypeError`` to signal
+    "streaming, no length" is **not** random-access.  Presence of the method is
+    therefore not enough: it must also answer.
+
     Args:
       obj: Any dataset-like object.
 
     Returns:
-      bool: True when ``__len__`` and ``__getitem__`` are both present.
+      bool: True when *obj* can actually be sized and indexed.
     """
-  return (hasattr(obj, "__len__") and hasattr(obj, "__getitem__") and
-          not isinstance(obj, type))
+  if isinstance(obj, type):
+    # A class exposes ``__getitem__`` through the descriptor protocol.
+    return False
+  if not (hasattr(obj, "__len__") and hasattr(obj, "__getitem__")):
+    return False
+  try:
+    len(obj)
+  except TypeError:
+    return False
+  return True
 
 
 def is_iterable(obj):

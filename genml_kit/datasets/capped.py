@@ -27,7 +27,13 @@ def maybe_cap(dataset, limit):
   """
   if not limit or limit <= 0:
     return dataset
-  total = len(dataset)
+  try:
+    total = len(dataset)
+  except TypeError:
+    # A streaming source has no length; cap it anyway -- ``CappedDataset``
+    # iterates through ``islice``, so the cap needs no count.
+    logging.info("Capping streaming dataset at %d items.", limit)
+    return CappedDataset(dataset, limit)
   if total > limit:
     logging.info("Capping dataset at %d items (from %d).", limit, total)
   return CappedDataset(dataset, limit)

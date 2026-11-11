@@ -24,6 +24,7 @@ from itertools import islice
 
 import torch
 
+from genml_kit.datasets.base import is_random_access, num_samples
 from genml_kit.io.checkpointing import (
     CheckpointSaver,
     create_model_report,
@@ -158,11 +159,24 @@ class BaseTrainer:
     # None unless fp16-on-CUDA.
     scaler = self.optimization.scaler
     amp_dtype = amp_dtype_from_args(self.args)
-    total_batches = len(self.pipeline.train_loader)
+    # Length is now a *hint*, not a loop bound: an epoch ends when the loader is
+    # exhausted.  ``num_samples`` is exact for random access, the declared
+    # estimate for a stream, and ``None`` when unknown -- the reporter degrades
+    # to ``[i/?]`` / ``[i/~N]`` accordingly.
+    total_batches = num_samples(self.pipeline.train_loader)
     accum_steps = self.args.grad_accum_steps
+
+    # A stream's length is at best a declared estimate, so render it with ``~``
+    # rather than implying an exact count.  Prefer the pipeline's dataset and
+    # fall back to the loader's, since not every pipeline exposes both.
+    dataset = getattr(self.pipeline, "train_dataset", None)
+    if dataset is None:
+      dataset = getattr(self.pipeline.train_loader, "dataset", None)
+    total_batches_estimated = dataset is not None and not is_random_access(dataset)
 
     reporter = ImageTrainReporting(
         total_batches=total_batches,
+        total_batches_estimated=total_batches_estimated,
         log_every=self.args.log_every,
         logger=self.logger,
         device=self.device,
@@ -172,7 +186,10 @@ class BaseTrainer:
     )
 
     # ``step_in_epoch`` restarts at ``skip`` so the accumulation boundary,
-    # the tail flush and the reporter all see the true position.
+    # the tail flush and the reporter all see the true position.  Seeded with
+    # ``skip - 1`` so an empty loader leaves the post-loop tail check with a
+    # defined value (and no window to flush).
+    step_in_epoch = skip - 1
     batch_iter = islice(self.pipeline.train_loader, skip, None)
     for step_in_epoch, blob in enumerate(batch_iter, start=skip):
       # Data AND meta.
@@ -185,9 +202,11 @@ class BaseTrainer:
         loss_out = self.method.train_step(self.model, blob, step)
         # Raw, UNSCALED mean batch objective.
         loss = loss_out.loss
-      # Accumulation boundary: shared by the no_sync gate below and the flush.
-      is_flush = ((step_in_epoch + 1) % accum_steps == 0 or
-                  (step_in_epoch + 1) == total_batches)
+      # Accumulation boundary.  Purely position-based: a full window closes
+      # here, and a trailing partial window is closed *after* the loop when the
+      # loader is exhausted.  Nothing needs to know the epoch length up front,
+      # so the exact same loop runs over a map-style loader and a stream.
+      is_flush = (step_in_epoch + 1) % accum_steps == 0
       # Scale ONLY for grad.
       grad = loss / accum_steps
       # Defer the DDP all-reduce on non-final micro-steps: gradients still
@@ -202,43 +221,15 @@ class BaseTrainer:
         else:
           grad.backward()
 
-      # Flush partial tail.
+      # Close the window when it is full.  A trailing partial window is closed
+      # after the loop, on exhaustion (see below).
       if is_flush:
-        if scaler is not None:
-          scaler.unscale_(self.optimization.optimizer)
-        # True grads: post-unscale, pre-clip.
-        if monitor is not None:
-          monitor.step(step)
-        if self.args.grad_clip > 0:
-          torch.nn.utils.clip_grad_norm_(self.model.parameters(),
-                                         max_norm=self.args.grad_clip)
-        if scaler is not None:
-          scaler.step(self.optimization.optimizer)
-          scaler.update()
-        else:
-          self.optimization.optimizer.step()
-        self.optimization.optimizer.zero_grad(set_to_none=True)
-        step += 1
-        # Flush boundary reached: record progress so an interrupt after this
-        # point resumes from here (grad-accum-aligned) instead of replaying.
-        self._epoch_progress = {"epoch": epoch, "micro_step": step_in_epoch + 1}
-        # Periodic mid-epoch checkpoint (--save_every).  Records the *current*
-        # epoch plus the micro-step reached, so a resume continues here rather
-        # than replaying the epoch.  ``barrier`` keeps peer ranks from running
-        # ahead into the next collective while rank 0 writes (a slow save would
-        # otherwise risk an NCCL watchdog timeout).
-        if saver is not None and saver.should_save(step):
-          barrier()
-          # ``epoch - 1`` is the last *fully completed* epoch (the checkpoint's
-          # ``epoch`` field keeps that meaning); the ``in_progress`` overlay
-          # carries the true position inside ``epoch``.
-          saver.save_latest(
-              epoch - 1,
-              **{self.best_metric_key: self.best_metric},
-              global_step=step,
-              in_progress=dict(self._epoch_progress),
-          )
-          barrier()
+        step = self._optimizer_step(step,
+                                    step_in_epoch,
+                                    epoch=epoch,
+                                    scaler=scaler,
+                                    monitor=monitor,
+                                    saver=saver)
 
       # Sample count and targets.  Collators publish ``size`` on the blob, so
       # the batch dimension is never re-derived by sniffing the shape of
@@ -277,12 +268,74 @@ class BaseTrainer:
           logits=getattr(loss_out, "logits", None),
           targets=targets,
           global_step=step,
-          report_now=(step_in_epoch + 1 == total_batches),
+          # Report on the last known batch; ``None`` means the length is
+          # unknown (a stream), in which case only ``log_every`` and the final
+          # ``summary()`` line speak.
+          report_now=(total_batches is not None and step_in_epoch + 1 == total_batches),
           extra_metrics=extra_metrics,
       )
 
+    # Exhaustion: close a trailing partial accumulation window.  Its gradients
+    # were already back-propagated (DDP synchronised them because ``no_sync`` is
+    # skipped when fewer than ``accum_steps`` micro-batches remain), so this is
+    # exactly the step an in-loop tail flush used to take.
+    if (step_in_epoch + 1) % accum_steps != 0:
+      step = self._optimizer_step(step,
+                                  step_in_epoch,
+                                  epoch=epoch,
+                                  scaler=scaler,
+                                  monitor=monitor,
+                                  saver=saver)
+
     reporter.summary()
     return reporter.epoch_avg_loss()[0], step
+
+  def _optimizer_step(self, step, step_in_epoch, *, epoch, scaler, monitor, saver):
+    """Apply one optimizer step for the accumulation window just completed.
+
+        Shared by the in-loop flush and the post-loop tail flush so both paths
+        clip, step and checkpoint identically.  Records ``_epoch_progress`` at
+        this grad-accum-aligned boundary, which is what an interrupt resumes to.
+
+        Returns:
+          int: The updated optimizer step counter.
+        """
+    if scaler is not None:
+      scaler.unscale_(self.optimization.optimizer)
+    # True grads: post-unscale, pre-clip.
+    if monitor is not None:
+      monitor.step(step)
+    if self.args.grad_clip > 0:
+      torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                     max_norm=self.args.grad_clip)
+    if scaler is not None:
+      scaler.step(self.optimization.optimizer)
+      scaler.update()
+    else:
+      self.optimization.optimizer.step()
+    self.optimization.optimizer.zero_grad(set_to_none=True)
+    step += 1
+    # Flush boundary reached: record progress so an interrupt after this
+    # point resumes from here (grad-accum-aligned) instead of replaying.
+    self._epoch_progress = {"epoch": epoch, "micro_step": step_in_epoch + 1}
+    # Periodic mid-epoch checkpoint (--save_every).  Records the *current*
+    # epoch plus the micro-step reached, so a resume continues here rather
+    # than replaying the epoch.  ``barrier`` keeps peer ranks from running
+    # ahead into the next collective while rank 0 writes (a slow save would
+    # otherwise risk an NCCL watchdog timeout).
+    if saver is not None and saver.should_save(step):
+      barrier()
+      # ``epoch - 1`` is the last *fully completed* epoch (the checkpoint's
+      # ``epoch`` field keeps that meaning); the ``in_progress`` overlay
+      # carries the true position inside ``epoch``.
+      saver.save_latest(
+          epoch - 1,
+          **{self.best_metric_key: self.best_metric},
+          global_step=step,
+          in_progress=dict(self._epoch_progress),
+      )
+      barrier()
+    return step
 
   def validate(self):
     """Evaluate and return ``metrics[method.METRIC_KEY]`` (or ``None``).

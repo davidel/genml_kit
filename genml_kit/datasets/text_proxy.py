@@ -17,6 +17,7 @@ import os
 import datasets
 
 from genml_kit.datasets.capped import maybe_cap
+from genml_kit.datasets.iterable import is_streaming_source
 from genml_kit.utils.logging import fatal
 
 
@@ -70,10 +71,23 @@ class TextDatasetProxy:
     return self.text_column is None
 
   def __len__(self):
+    # A streaming HF source has no length; surface that as TypeError rather
+    # than AttributeError so ``num_samples`` returns its estimate/None.
+    if is_streaming_source(self.dataset):
+      raise TypeError("streaming text dataset has no length")
     return len(self.dataset)
 
+  def __iter__(self):
+    # A streaming source has no index, so build each row from the iterator.
+    # Same per-item shape as ``__getitem__``.
+    for row in self.dataset:
+      yield self._convert(row)
+
   def __getitem__(self, idx):
-    row = self.dataset[idx]
+    return self._convert(self.dataset[idx])
+
+  def _convert(self, row):
+    """Build the text item for one raw row (plain-LM or instruction layout)."""
     if self.is_instruction:
       return {
           "prompt": row[self.prompt_column],
