@@ -15,6 +15,7 @@ import logging
 import torch
 from torch.utils.data import DataLoader
 
+from genml_kit.datasets.base import is_shuffleable
 from genml_kit.datasets.text_proxy import load_raw_split
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.registry import PIPELINES
@@ -237,7 +238,8 @@ class TextPipeline(DataPipeline):
       self.train_loader = DataLoader(
           self.train_dataset,
           batch_size=args.batch_size,
-          shuffle=True,
+          # Streams cannot shuffle by index (see ``is_shuffleable``).
+          shuffle=is_shuffleable(self.train_dataset),
           num_workers=args.num_workers,
           worker_init_fn=seed_worker,
           generator=self.data_generator,

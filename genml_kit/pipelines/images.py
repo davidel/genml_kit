@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import v2
 from torchvision.transforms.functional import InterpolationMode
 
+from genml_kit.datasets.base import is_shuffleable
 from genml_kit.datasets.ensemble import DatasetEnsemble
 from genml_kit.datasets.factory import parse_dataset_specs
 from genml_kit.datasets.field_dataset import FieldSectorDataset
@@ -46,6 +47,10 @@ class _ProxyAdapter(Dataset):
     image, label = self._proxy[idx]
     return {"image": image, "label": label}
 
+  def __iter__(self):
+    for image, label in self._proxy:
+      yield {"image": image, "label": label}
+
 
 class _DictAdapter(Dataset):
   """Adapt dict-returning datasets to the uniform ``{"image", "label"}`` key."""
@@ -63,6 +68,13 @@ class _DictAdapter(Dataset):
         "image": item[self._image_column],
         "label": item.get("label", None),
     }
+
+  def __iter__(self):
+    for item in self._ds:
+      yield {
+          "image": item[self._image_column],
+          "label": item.get("label", None),
+      }
 
 
 @PIPELINES.register
@@ -243,7 +255,10 @@ class ImagesPipeline(DataPipeline):
       loader_kwargs["batch_sampler"] = batch_sampler
     else:
       loader_kwargs["batch_size"] = args.batch_size
-      loader_kwargs["shuffle"] = sampler is None
+      # A one-pass stream cannot be shuffled by index; shuffling for streams
+      # happens at the batch level instead.  For random access this is
+      # unchanged (``is_shuffleable`` is True).
+      loader_kwargs["shuffle"] = sampler is None and is_shuffleable(self.train_dataset)
       loader_kwargs["sampler"] = sampler
     self.train_loader = DataLoader(self.train_dataset, **loader_kwargs)
     self.val_loader = DataLoader(
@@ -319,7 +334,8 @@ class ImagesPipeline(DataPipeline):
     self.train_loader = DataLoader(
         self.train_dataset,
         batch_size=args.batch_size,
-        shuffle=True,
+        # Streams cannot shuffle by index (see ``is_shuffleable``).
+        shuffle=is_shuffleable(self.train_dataset),
         num_workers=args.num_workers,
         worker_init_fn=seed_worker,
         generator=self.data_generator,

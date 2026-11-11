@@ -68,6 +68,15 @@ class DictFieldTransform(nn.Module):
   def __getitem__(self, idx):
     return self.forward(idx)
 
+  def __iter__(self):
+    for item in self._ds:
+      # Same copy-and-transform contract as ``forward``, without an index.
+      row = dict(item)
+      for f in self._fields:
+        if f in row:
+          row[f] = self._t(row[f])
+      yield row
+
 
 class PairedSegTransform(nn.Module):
   """Co-transform an ``{"image", "mask"}`` item for semantic segmentation.

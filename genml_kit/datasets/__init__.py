@@ -6,6 +6,13 @@ for bridging HuggingFace datasets to PyTorch, and
 :class:`ReplayBufferDataset` for off-policy RL.
 """
 
+from genml_kit.datasets.base import (
+    IterableMixin,
+    is_iterable,
+    is_random_access,
+    is_shuffleable,
+    num_samples,
+)
 from genml_kit.datasets.ensemble import DatasetEnsemble
 from genml_kit.datasets.hf_proxy import HFDatasetProxy
 from genml_kit.datasets.replay_buffer import (
@@ -17,7 +24,12 @@ from genml_kit.datasets.rollout_buffer import RolloutBuffer
 __all__ = [
     "DatasetEnsemble",
     "HFDatasetProxy",
+    "IterableMixin",
     "ReplayBufferDataset",
     "RolloutBuffer",
     "Transition",
+    "is_iterable",
+    "is_random_access",
+    "is_shuffleable",
+    "num_samples",
 ]

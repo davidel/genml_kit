@@ -13,6 +13,7 @@ operations (``map``, ``select``, ``cast_column``, ``class_encode_column``,
 ...) without enumerating them.
 """
 
+import itertools
 import logging
 
 import datasets
@@ -78,6 +79,12 @@ class CappedDataset:
       # class weights) agrees with ``len(self)``.
       return value[:self._limit]
     return value
+
+  def __iter__(self):
+    # A cap is a natural stream operation: take at most ``_limit`` items and
+    # stop pulling from the source.  ``islice`` never asks the source for a
+    # length, so this works for random-access and streaming sources alike.
+    return itertools.islice(iter(self._dataset), self._limit)
 
   def __getattr__(self, name):
     # Reached only for attributes not defined on the view itself.  The

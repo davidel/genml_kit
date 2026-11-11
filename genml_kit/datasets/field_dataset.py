@@ -38,3 +38,7 @@ class FieldSectorDataset:
   def __getitem__(self, idx):
     item = self._source[idx]
     return {dst: item[src] for src, dst in self._fields.items()}
+
+  def __iter__(self):
+    for item in self._source:
+      yield {dst: item[src] for src, dst in self._fields.items()}

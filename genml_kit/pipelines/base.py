@@ -120,17 +120,38 @@ class DataPipeline(abc.ABC):  # noqa: B024
       self.val_loader = shard_loader(self.val_loader, seed=args.seed or 0)
 
   def set_train_epoch(self, epoch):
-    """Advance every per-epoch sampler on the train loader.
+    """Tell every epoch-aware layer of the train data path about *epoch*.
 
-        Delegates to :func:`genml_kit.utils.distributed.sampler_epoch`, which
-        walks the loader's sampler wrapper chain rather than picking the first
-        truthy one.  That matters under DDP: ``shard_loader`` installs a
-        ``DistributedSampler`` as ``loader.sampler``, but ``DataLoader`` wraps it
-        in a plain ``BatchSampler``, which has no ``set_epoch`` -- so a
-        first-truthy lookup silently leaves the epoch pinned at 0.
+        Three places can hold epoch state, and each is told independently:
+
+        1. **The loader wrapper.**  A streaming batch-round-robin wrapper
+           reshuffles per epoch, and it is the loader itself rather than a
+           sampler.
+        2. **The dataset source.**  An ``IterableDataset`` has no sampler to
+           call, so epoch control must reach the source; random-access datasets
+           that support it are notified the same way.
+        3. **The sampler chain.**  Delegates to
+           :func:`genml_kit.utils.distributed.sampler_epoch`, which walks the
+           loader's sampler wrapper chain rather than picking the first truthy
+           one.  That matters under DDP: ``shard_loader`` installs a
+           ``DistributedSampler`` as ``loader.sampler``, but ``DataLoader``
+           wraps it in a plain ``BatchSampler``, which has no ``set_epoch`` --
+           so a first-truthy lookup silently leaves the epoch pinned at 0.
         """
     loader = self.train_loader
     if loader is None:
       return
+    # 1. Loader-level epoch state (streaming round-robin wrapper).
+    if hasattr(loader, "set_epoch"):
+      loader.set_epoch(epoch)
+    # 2. Source-level epoch state (streaming sources; no sampler exists).
+    seen = set()
+    for obj in (getattr(self, "train_dataset", None), getattr(loader, "dataset", None)):
+      if obj is None or id(obj) in seen:
+        continue
+      seen.add(id(obj))
+      if hasattr(obj, "set_epoch"):
+        obj.set_epoch(epoch)
+    # 3. Sampler chain (random access).
     from genml_kit.utils.distributed import sampler_epoch
     sampler_epoch(loader, epoch)
