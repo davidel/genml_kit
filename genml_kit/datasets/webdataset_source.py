@@ -110,16 +110,28 @@ class WebDatasetSource(StreamingDataset):
         yielded.
     """
 
+  #: A webdataset sample carries no dataset-level label vocabulary, so the
+  #: ensemble treats this member as unlabeled (labels, if any, are raw members a
+  #: caller selects explicitly with ``IterableFieldSelectorDataset``).
+  has_labels = False
+  #: Reported by the ensemble summary; there is no schema to count.
+  num_labels = 0
+  label_names = ()
+
   def __init__(self,
                urls,
                *,
+               name=None,
                image_format="RGB",
                nsamples=None,
                transform=None):
     if image_format not in _IMAGE_FORMATS:
-      fatal(f"Unsupported image_format {image_format!r}; "
-            f"expected one of {', '.join(_IMAGE_FORMATS)}.", ValueError)
+      fatal(
+          f"Unsupported image_format {image_format!r}; "
+          f"expected one of {', '.join(_IMAGE_FORMATS)}.", ValueError)
     self.urls = urls
+    #: Human-readable name for logs/summaries; defaults to the shard list.
+    self.name = name or str(urls)
     self.image_format = image_format
     self.transform = transform
     if nsamples is not None:

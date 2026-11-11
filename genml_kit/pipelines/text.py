@@ -11,12 +11,14 @@ The tokenizer is resolved by the *method* during ``prepare_transforms``
 """
 
 import logging
+from itertools import islice
 
 import torch
 from torch.utils.data import DataLoader
 
-from genml_kit.datasets.base import is_shuffleable
-from genml_kit.datasets.text_proxy import load_raw_split
+from genml_kit.datasets.base import is_random_access, is_shuffleable, num_samples
+from genml_kit.datasets.batch_policy import item_text
+from genml_kit.datasets.text_proxy import StreamingTextDataset, load_raw_split
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.utils.logging import fatal
@@ -36,19 +38,15 @@ def _estimate_tokens_per_unit(dataset, tokenizer):
     to convert that proxy to an approximate token count.  The ratio is measured
     on a small sample; it only steers how many documents fill a batch, never the
     hard window cap, so an imperfect estimate cannot break the memory bound.
+
+    A random-access dataset is sampled by striding its index space; a streaming
+    source has none, so a bounded prefix is probed instead.  Either way only a
+    small, bounded sample is read.
     """
-  n = len(dataset)
-  if n == 0:
-    return 1.0
-  step = max(1, n // _TOKENS_PER_UNIT_PROBES)
   chars = 0
   tokens = 0
-  for i in range(0, n, step):
-    item = dataset[i]
-    if "text" in item:
-      text = item["text"] or ""
-    else:
-      text = (item.get("prompt") or "") + (item.get("response") or "")
+  for item in _probe_items(dataset):
+    text = item_text(item)
     if not text:
       continue
     chars += len(text)
@@ -56,6 +54,24 @@ def _estimate_tokens_per_unit(dataset, tokenizer):
   if chars == 0:
     return 1.0
   return tokens / chars
+
+
+def _probe_items(dataset):
+  """Yield at most ``_TOKENS_PER_UNIT_PROBES`` items spread over *dataset*.
+
+    Random-access datasets are strided across the whole index space; streams are
+    read as a bounded prefix (``islice``), since they cannot be indexed and must
+    not be exhausted just to size a batch.
+    """
+  if is_random_access(dataset):
+    n = len(dataset)
+    if n == 0:
+      return
+    step = max(1, n // _TOKENS_PER_UNIT_PROBES)
+    for i in range(0, n, step):
+      yield dataset[i]
+    return
+  yield from islice(iter(dataset), _TOKENS_PER_UNIT_PROBES)
 
 
 @PIPELINES.register
@@ -129,7 +145,18 @@ class TextPipeline(DataPipeline):
         Groups similar-length items into the same batch so the collator pads
         little, without packing and *without* any change to the attention
         mask (it stays exactly document-exact).
+
+        A stream has no index space, so the sampler cannot be used; the
+        streaming pipe (:class:`StreamingLengthBucketBatch`) buckets a bounded
+        buffer instead, fed to the loader as whole batches (``batch_size=None``).
         """
+    if self.streaming:
+      from genml_kit.datasets.stream_batching import StreamingLengthBucketBatch
+      pipe = StreamingLengthBucketBatch(self.train_dataset,
+                                        batch_size=args.batch_size,
+                                        drop_last=False,
+                                        seed=args.seed)
+      return self._batch_pipe_loader(pipe, args.num_workers)
     from genml_kit.datasets.length_bucket_sampler import (LengthBucketBatchSampler,
                                                           text_length_proxy)
     # One length proxy per item drives the bucketing; computed once here (not
@@ -150,6 +177,22 @@ class TextPipeline(DataPipeline):
         collate_fn=self.train_collator,
     )
 
+  def _batch_pipe_loader(self, pipe, num_workers):
+    """Wrap a streaming batch pipe as a loader.
+
+        The pipe yields whole batches, so ``batch_size=None`` tells the loader to
+        pass each one through untouched while still applying the collator.  The
+        pipe does not split across workers; the source does, so worker processes
+        remain safe.
+        """
+    return DataLoader(
+        pipe,
+        batch_size=None,
+        num_workers=num_workers,
+        pin_memory=False,
+        collate_fn=self.train_collator,
+    )
+
   def _build_packed_train_loader(self, args):
     """Train loader for ``wrapped`` packing, bounded by a token budget.
 
@@ -159,7 +202,21 @@ class TextPipeline(DataPipeline):
         fixed token budget instead (:class:`PackingBatchSampler`) so a batch
         fills at most ``--batch_size`` windows, while a document longer than one
         window is still streamed in (its tail lands in a later window).
+
+        A stream has no index space, so the sampler cannot be used; the streaming
+        pipe (:class:`StreamingPackingBatch`) packs a bounded buffer instead.
         """
+    if self.streaming:
+      from genml_kit.datasets.stream_batching import StreamingPackingBatch
+      # ``drop_last`` is off, matching ``PackingBatchSampler``: a short trailing
+      # batch is kept rather than discarded, so no tokens are wasted.
+      pipe = StreamingPackingBatch(self.train_dataset,
+                                   batch_size=args.batch_size,
+                                   max_seq_len=self._max_seq_len,
+                                   tokens_per_unit=self._tokens_per_unit,
+                                   drop_last=False,
+                                   seed=args.seed)
+      return self._batch_pipe_loader(pipe, args.num_workers)
     from genml_kit.datasets.length_bucket_sampler import text_length_proxy
     from genml_kit.datasets.packing_sampler import PackingBatchSampler
     lengths = text_length_proxy(self.train_dataset)
@@ -229,24 +286,24 @@ class TextPipeline(DataPipeline):
     if args.seed is not None:
       self.data_generator.manual_seed(args.seed)
 
+    # A streaming corpus is presented to the DataLoader as an ``IterableDataset``
+    # so it is iterated rather than indexed; a random-access corpus stays a
+    # map-style dataset and keeps its samplers (see ``_build_*_train_loader``).
+    self.streaming = not is_random_access(self.train_dataset)
+    if self.streaming:
+      self.train_dataset = StreamingTextDataset(self.train_dataset)
+
     windowing = self._sequence.windowing
     if windowing == "bucket":
       self.train_loader = self._build_bucketed_train_loader(args)
     elif windowing == "wrapped":
       self.train_loader = self._build_packed_train_loader(args)
     else:
-      self.train_loader = DataLoader(
-          self.train_dataset,
-          batch_size=args.batch_size,
-          # Streams cannot shuffle by index (see ``is_shuffleable``).
-          shuffle=is_shuffleable(self.train_dataset),
-          num_workers=args.num_workers,
-          worker_init_fn=seed_worker,
-          generator=self.data_generator,
-          pin_memory=False,
-          drop_last=windowing in ("wrapped", "bfd"),
-          collate_fn=self.train_collator,
-      )
+      # Covers ``bfd`` too: bin packing happens in the collator, so batches are
+      # still formed by ``--batch_size`` (a stream just cannot shuffle them).
+      self.train_loader = self._plain_train_loader(args,
+                                                   drop_last=windowing
+                                                   in ("wrapped", "bfd"))
     if self.val_dataset is not None:
       self.val_loader = DataLoader(
           self.val_dataset,
@@ -258,9 +315,31 @@ class TextPipeline(DataPipeline):
           collate_fn=self.val_collator,
       )
     self._built = True
-    logging.info("Text pipeline ready: %d train / %s val items.",
-                 len(self.train_dataset),
-                 len(self.val_dataset) if self.val_dataset is not None else "no")
+    logging.info(
+        "Text pipeline ready: %s train / %s val items.",
+        num_samples(self.train_dataset),
+        num_samples(self.val_dataset) if self.val_dataset is not None else "no")
+
+  def _plain_train_loader(self, args, drop_last):
+    """Unsharded, unbatched-by-policy train loader.
+
+        A random-access corpus shuffles by sampler (``shuffle=is_shuffleable``); a
+        stream cannot, so it is left in source order and is expected to be
+        shuffled upstream (``--shuffle_buffer_k`` under DDP, or a shuffling
+        source).
+        """
+    return DataLoader(
+        self.train_dataset,
+        batch_size=args.batch_size,
+        # Streams cannot shuffle by index (see ``is_shuffleable``).
+        shuffle=is_shuffleable(self.train_dataset),
+        num_workers=args.num_workers,
+        worker_init_fn=seed_worker,
+        generator=self.data_generator,
+        pin_memory=False,
+        drop_last=drop_last,
+        collate_fn=self.train_collator,
+    )
 
   def _load_splits(self, args):
     """Load the train proxy and, when available, the val proxy.
@@ -283,15 +362,29 @@ class TextPipeline(DataPipeline):
 
     val_split = args.val_split
     if val_split:
+      train = _wrap(load_raw_split(args.dataset,
+                                   args.split,
+                                   cache_dir=args.cache_dir,
+                                   dataset_arg=args.dataset_arg),
+                    cap=args.max_items)
+      if not is_random_access(train):
+        # A stream cannot be sliced by index (``.select`` is unsupported), so the
+        # held-out fraction is expressed positionally instead (see
+        # ``IterableDatasetFilter``): item ``i`` routes to a bucket by a fixed
+        # pattern, so both sides stream the one source in a single pass.
+        from genml_kit.datasets.split import IterableDatasetFilter
+        splitter = IterableDatasetFilter(train.dataset, {
+            "train": 1.0 - val_split,
+            "val": val_split
+        })
+        train_ds = splitter.get_dataset("train")
+        val_ds = splitter.get_dataset("val")
+        return _wrap(train_ds, cap=args.max_items), _wrap(val_ds, cap=args.max_items)
       # Held-out fraction of the training split -- one load, split in memory.
       # ``--max_items`` caps the dataset *before* carving the val fraction, so
       # a budgeted run still yields the requested number of training rows plus a
       # real held-out set (previously the cap was silently ignored here).
-      full = _wrap(load_raw_split(args.dataset,
-                                  args.split,
-                                  cache_dir=args.cache_dir,
-                                  dataset_arg=args.dataset_arg),
-                   cap=args.max_items).dataset
+      full = train.dataset
       n = len(full)
       n_val = max(1, int(n * val_split))
       if n_val >= n:

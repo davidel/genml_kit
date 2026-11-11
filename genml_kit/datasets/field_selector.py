@@ -97,9 +97,18 @@ class IterableFieldSelectorDataset(StreamingDataset):
       Mapping ``{SRC_NAME: DST_NAME}``, as in :class:`FieldSelectorDataset`.
   """
 
+  #: A field selector only picks and renames; it never introduces labels, so it
+  #: reports what an ensemble summary needs from an unlabeled member.
+  has_labels = False
+  #: No schema to count after selection.
+  num_labels = 0
+  label_names = ()
+
   def __init__(self, source, fields):
     self._source = source
     self._fields = _validate_fields(fields)
+    #: Human-readable name, forwarded so ensemble summaries label the member.
+    self.name = getattr(source, "name", type(source).__name__)
 
   @property
   def fields(self):

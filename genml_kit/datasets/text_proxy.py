@@ -15,6 +15,7 @@ import logging
 import os
 
 import datasets
+from torch.utils.data import IterableDataset
 
 from genml_kit.datasets.capped import maybe_cap
 from genml_kit.datasets.iterable import is_streaming_source
@@ -43,10 +44,26 @@ class TextDatasetProxy:
     self.text_column = text_column
     self.prompt_column = prompt_column
     self.response_column = response_column
+    # A streaming source with unknown features (e.g. a hub stream, or anything
+    # after ``.map()``) reports ``column_names is None`` until its first row is
+    # pulled, and a pure streaming wrapper may not expose the attribute at all.
+    # The column check is deferred to that first row; the layout choice is still
+    # validated now, since it does not need the schema.
+    self._columns_pending = getattr(self.dataset, "column_names", None) is None
     self._validate()
 
   def _validate(self):
-    columns = set(self.dataset.column_names)
+    if self._columns_pending:
+      if self.text_column is None and not (self.prompt_column and self.response_column):
+        fatal(
+            "TextDatasetProxy requires --text_column, or both "
+            "--instruction_column and --response_column.  "
+            "Dataset columns: unknown (streaming source).", ValueError)
+      return
+    self._check_columns(set(self.dataset.column_names))
+
+  def _check_columns(self, columns):
+    """Validate the column selection against a known set of *columns*."""
     if self.text_column is not None:
       if self.text_column not in columns:
         fatal(
@@ -80,11 +97,25 @@ class TextDatasetProxy:
   def __iter__(self):
     # A streaming source has no index, so build each row from the iterator.
     # Same per-item shape as ``__getitem__``.
+    first = True
     for row in self.dataset:
+      if first:
+        # First row is the earliest point the schema is known for a source
+        # that reported ``column_names is None``; validate there, once.
+        self._ensure_columns(row)
+        first = False
       yield self._convert(row)
 
   def __getitem__(self, idx):
-    return self._convert(self.dataset[idx])
+    row = self.dataset[idx]
+    self._ensure_columns(row)
+    return self._convert(row)
+
+  def _ensure_columns(self, row):
+    """Run the deferred column check against the first row, once."""
+    if self._columns_pending:
+      self._check_columns(set(row))
+      self._columns_pending = False
 
   def _convert(self, row):
     """Build the text item for one raw row (plain-LM or instruction layout)."""
@@ -94,6 +125,30 @@ class TextDatasetProxy:
           "response": row[self.response_column],
       }
     return {"text": row[self.text_column]}
+
+
+class StreamingTextDataset(IterableDataset):
+  """Adapt a :class:`TextDatasetProxy` over a stream to a torch Dataset.
+
+    :class:`TextDatasetProxy` is deliberately *not* a torch ``Dataset`` -- it is a
+    plain wrapper that also serves random-access callers.  A ``DataLoader``,
+    however, picks its iteration strategy purely from ``isinstance(dataset,
+    IterableDataset)``, so a stream has to be presented as one.  This adapter is
+    that thin shell: it defers to the proxy's own iteration and imposes no worker
+    split of its own (the underlying HuggingFace stream shards itself).
+
+    ``set_epoch`` is accepted for the pipeline's epoch hook; a text stream has no
+    per-epoch state to advance, so it is a no-op.
+    """
+
+  def __init__(self, proxy):
+    self.proxy = proxy
+
+  def __iter__(self):
+    yield from self.proxy
+
+  def set_epoch(self, epoch):
+    """No-op: a text stream carries no per-epoch shuffle state."""
 
 
 def load_text_dataset(name,

@@ -23,10 +23,8 @@ estimate only steers how many documents fit in a batch; the collator still hard
 envelope.
 """
 
-import logging
-import math
-import random
-
+from genml_kit.datasets.batch_policy import (epoch_rng, estimated_tokens,
+                                             packing_batches)
 from genml_kit.utils.logging import fatal
 
 
@@ -85,36 +83,18 @@ class PackingBatchSampler:
 
   def _estimated_tokens(self, index):
     """Estimated token count of item *index* (always at least one)."""
-    return max(1, int(math.ceil(self.lengths[index] * self.tokens_per_unit)))
+    return estimated_tokens(self.lengths[index], self.tokens_per_unit)
 
   def _build_packets(self):
     """Greedily pack a shuffled epoch into token-budgeted batches."""
-    budget = self.budget
-    order = list(range(len(self.lengths)))
-    # Deterministic per epoch; unseeded (``None``) keeps the system entropy.
-    rng = random.Random(None if self.seed is None else self.seed + self.epoch)
-    rng.shuffle(order)
-    packets = []
-    current = []
-    used = 0
-    for index in order:
-      tokens = self._estimated_tokens(index)
-      # A document that alone exceeds the budget opens its own (over-full)
-      # packet; the collator caps the windows it emits.
-      if current and used + tokens > budget:
-        packets.append(current)
-        current = []
-        used = 0
-      current.append(index)
-      used += tokens
-    if current:
-      if self.drop_last and used < budget:
-        logging.debug(
-            "Packing sampler: dropping a short trailing batch "
-            "(%d / %d tokens).", used, budget)
-      else:
-        packets.append(current)
-    return packets
+    rng = epoch_rng(self.seed, self.epoch)
+    return list(
+        packing_batches(self.lengths,
+                        self.tokens_per_unit,
+                        self.budget,
+                        rng,
+                        drop_last=self.drop_last,
+                        label="Packing sampler"))
 
   def _ensure_packets(self):
     if self._packets is None:

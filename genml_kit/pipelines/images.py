@@ -11,11 +11,11 @@ transfer; never builds models or losses.
 import logging
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torchvision.transforms import v2
 from torchvision.transforms.functional import InterpolationMode
 
-from genml_kit.datasets.base import is_shuffleable
+from genml_kit.datasets.base import is_random_access, is_shuffleable
 from genml_kit.datasets.ensemble import DatasetEnsemble
 from genml_kit.datasets.factory import parse_dataset_specs
 from genml_kit.datasets.field_selector import FieldSelectorDataset
@@ -75,6 +75,58 @@ class _DictAdapter(Dataset):
           "image": item[self._image_column],
           "label": item.get("label", None),
       }
+
+
+class _IterableDictAdapter(IterableDataset):
+  """Streaming counterpart of :class:`_DictAdapter`.
+
+    ``_DictAdapter`` subclasses the map-style ``Dataset``, so a ``DataLoader``
+    treats its source as indexable and calls ``len`` on it.  A stream has no
+    length, so it needs a dataset the loader recognises as an
+    ``IterableDataset``; that is the only difference between the two adapters.
+    """
+
+  def __init__(self, dataset, image_column="image"):
+    self._ds = dataset
+    self._image_column = image_column
+
+  def __iter__(self):
+    for item in self._ds:
+      yield {
+          "image": item[self._image_column],
+          "label": item.get("label", None),
+      }
+
+  def set_epoch(self, epoch):
+    """Forward the epoch to a source that reshuffles per epoch."""
+    if hasattr(self._ds, "set_epoch"):
+      self._ds.set_epoch(epoch)
+
+
+def _adapt_dicts(dataset, image_column):
+  """Pick the dict adapter matching *dataset*'s capability.
+
+    A stream needs an ``IterableDataset`` adapter (or the loader would try to
+    index it); a random-access dataset keeps the map-style one, unchanged.
+    """
+  if is_random_access(dataset):
+    return _DictAdapter(dataset, image_column=image_column)
+  return _IterableDictAdapter(dataset, image_column=image_column)
+
+
+def _select_image_field(dataset, ensemble):
+  """Keep only the image field, with the selector that matches the mode.
+
+    Methods that ignore labels get image-only items: a mixed ensemble (some
+    sources labeled, some not) would otherwise produce batches with inconsistent
+    keys that ``default_collate`` cannot handle.  A streaming ensemble needs the
+    iterable selector, since the map-style one would be indexed by the loader.
+    """
+  fields = {ensemble.image_column: ensemble.image_column}
+  if ensemble.streaming:
+    from genml_kit.datasets.field_selector import IterableFieldSelectorDataset
+    return IterableFieldSelectorDataset(dataset, fields=fields)
+  return FieldSelectorDataset(dataset, fields=fields)
 
 
 @PIPELINES.register
@@ -321,13 +373,9 @@ class ImagesPipeline(DataPipeline):
 
     dataset = DictFieldTransform(ensemble, transform, fields=(ensemble.image_column,))
     if not needs_labels:
-      # Methods that ignore labels get image-only items: a mixed ensemble.
-      # (some sources labeled, some not) would otherwise produce batches.
-      # with inconsistent keys that default_collate cannot handle.
-      dataset = FieldSelectorDataset(
-          dataset, fields={ensemble.image_column: ensemble.image_column})
+      dataset = _select_image_field(dataset, ensemble)
 
-    self.train_dataset = _DictAdapter(dataset, image_column=ensemble.image_column)
+    self.train_dataset = _adapt_dicts(dataset, ensemble.image_column)
     self.data_generator = torch.Generator()
     if args.seed is not None:
       self.data_generator.manual_seed(args.seed)
@@ -438,10 +486,6 @@ def build_pretrain_dataset(args, needs_labels=False, transform=None):
     transform = build_pretrain_transform(args.image_size)
   dataset = DictFieldTransform(ensemble, transform, fields=(ensemble.image_column,))
   if not needs_labels:
-    # Methods that ignore labels get image-only items: a mixed ensemble.
-    # (some sources labeled, some not) would otherwise produce batches.
-    # with inconsistent keys that default_collate cannot handle.
-    dataset = FieldSelectorDataset(
-        dataset, fields={ensemble.image_column: ensemble.image_column})
+    dataset = _select_image_field(dataset, ensemble)
   logging.info(ensemble.summary())
   return dataset, ensemble

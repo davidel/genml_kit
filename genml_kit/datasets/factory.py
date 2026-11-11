@@ -16,14 +16,16 @@ def parse_dataset_specs(names, image_column="image", label_column=None, split="t
 
   Args:
       names: Sequence of dataset specs; a spec starting with
-          ``imagefolder/`` refers to a local ``ImageFolder`` tree, a spec
-          starting with ``segfolder/`` refers to a local paired
-          ``images/`` + ``masks/`` segmentation tree, a spec starting with
-          ``detfolder/`` refers to a local COCO-JSON ``images/`` +
-          ``annotations.json`` detection tree, a spec that is an
-          existing directory path is treated as an ``ImageFolder``, and
-          anything else is a HuggingFace dataset name.  Blank entries
-          are skipped.
+          imagefolder/`` refers to a local ``ImageFolder`` tree, a spec
+              starting with ``segfolder/`` refers to a local paired
+              ``images/`` + ``masks/`` segmentation tree, a spec starting with
+              ``detfolder/`` refers to a local COCO-JSON ``images/`` +
+              ``annotations.json`` detection tree, a spec starting with
+              ``webdataset:`` refers to a streaming webdataset tar-shard list
+              (the remainder is the shard URL/path or brace-expanded pattern), a
+              spec that is an existing directory path is treated as an
+              ``ImageFolder``, and anything else is a HuggingFace dataset name.
+              Blank entries are skipped.
       image_column: Image column for HuggingFace sources.
       label_column: Optional label column carried into HuggingFace
           source configs when provided.
@@ -42,7 +44,24 @@ def parse_dataset_specs(names, image_column="image", label_column=None, split="t
     name = name.strip()
     if not name:
       continue
-    if name.startswith("imagefolder/"):
+    if name.startswith("webdataset:"):
+      # ``webdataset:train-{0000..0009}.tar`` -> a streaming tar-shard source.
+      # The remainder is the shard list verbatim, so webdataset's own brace
+      # expansion still applies.
+      shards = name.split(":", 1)[1].strip()
+      if not shards:
+        fatal(f"Empty webdataset spec {name!r}; expected "
+              "'webdataset:<shard-list>'.", ValueError)
+      # A webdataset member is named by extension (``png``, ``jpg``, ...), not by
+      # the HuggingFace default column name "image".  So the default is treated
+      # as "unset" and the ensemble detects the image member from the first
+      # sample; any other value is passed through as the member to select.
+      configs.append({
+          "name": shards,
+          "source": "webdataset",
+          "image_column": None if image_column == "image" else image_column,
+      })
+    elif name.startswith("imagefolder/"):
       configs.append({"name": name.split("/", 1)[1], "source": "imagefolder"})
     elif name.startswith("segfolder/"):
       configs.append({"name": name.split("/", 1)[1], "source": "segfolder"})

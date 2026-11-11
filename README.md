@@ -706,6 +706,116 @@ Labels are automatically remapped to a shared global label space across all
 datasets, so mixing datasets with overlapping but differently-named classes
 works transparently.
 
+#### Streaming (Iterable) Datasets
+
+A dataset does not have to fit on disk or in RAM. When a source can only be
+*iterated* (no index, no length), the pipeline streams it: items are read once,
+converted on the fly, and never materialised into an index space.
+
+Streaming sources can be used in two places:
+
+- **`--dataset` with `--pipeline text`** — pass `streaming=True` through
+  `--dataset_arg` to have the HuggingFace loader return a streaming source
+  instead of a materialised split:
+
+  <!-- genml-cli-test-exclude: illustrative streaming run against a user corpus; covered by tests/test_streaming_text_pipeline.py -->
+  ```bash
+  genml-kit-train --pipeline text --model gpt2 \
+                  --dataset my-org/huge-corpus \
+                  --text_column text \
+                  --dataset_arg streaming=True \
+                  --epochs 1
+  ```
+
+- **`--datasets` (image pre-training ensemble)** — use a `webdataset:` spec
+  (see below). If every dataset in an ensemble streams, the ensemble streams
+  too, in declaration order.
+
+The image *classification* path (`--pipeline images --dataset`) still requires a
+materialised split: it needs the label vocabulary and class counts, which cannot
+be discovered without scanning the whole corpus. For streaming image data, use
+the ensemble path (`--datasets`).
+
+**What works, and what does not.** A stream has no index space, so anything
+that needs one is refused with a clear error rather than silently misbehaving:
+
+| Feature | Random-access | Streaming |
+| --- | --- | --- |
+| Plain batching | yes | yes |
+| `--length_bucket` | yes | yes (over a bounded buffer) |
+| `--packing wrapped` / `bfd` | yes | yes (over a bounded buffer) |
+| `--val_split` | index slice | positional split (`IterableDatasetFilter`) |
+| `--sampler weighted` / `balanced` | yes | not available (needs labels across the whole corpus) |
+| `--max_items` | yes | yes (caps the stream) |
+
+Because a stream cannot be shuffled by index, `shuffle` is disabled for it and
+its order is the source order. Under DDP, `--shuffle_buffer_k` supplies
+batch-level shuffling instead — see below.
+
+### `--shuffle_buffer_k` (Streaming Shuffle)
+
+A streaming source cannot be shuffled by sampler: there is no index space to
+permute. Instead the *batch* stream is shuffled, with a bounded round-robin
+buffer.
+
+`--shuffle_buffer_k K` sets the size of that buffer in **batches per rank**, so
+the buffer holds `world_size * K` batches. It only has an effect on a streaming
+loader; random-access datasets shuffle by sampler and ignore it.
+
+- **`K = 10`** (default) — a reasonable trade-off between shuffle quality and
+  the number of batches buffered in memory.
+- **`K = 1`** — the minimal round-robin: each rank takes one batch per round,
+  with no permuting.
+- **`K = 0`** — round-robin without permuting.
+
+Memory cost scales with `K`: each buffered batch is a full batch of decoded
+samples, so raise `K` only as far as your RAM allows.
+
+<!-- genml-cli-test-exclude: illustrative DDP invocation over local shards; covered by tests/test_iterable_ddp.py -->
+```bash
+torchrun --nproc_per_node=4 -m genml_kit.cli.train --model convvit \
+         --datasets "webdataset:/data/train-{0000..0999}.tar" \
+         --shuffle_buffer_k 20 \
+         --batch_size 64
+```
+
+### WebDataset Tar Shards (`webdataset:`)
+
+For corpora already stored as webdataset tar shards, pass a spec of the form
+`webdataset:<shard-list>` inside `--datasets`. The shard list is passed to
+webdataset verbatim, so its brace expansion applies:
+
+<!-- genml-cli-test-exclude: illustrative webdataset pre-training run; covered by tests/test_webdataset_pipeline.py -->
+```bash
+genml-kit-train --pipeline images --model convvit --method simmim \
+                --datasets "webdataset:/data/train-{0000..0999}.tar" \
+                --batch_size 64 \
+                --epochs 100
+```
+
+A webdataset "sample" is a group of members named `<key>.<extension>` inside the
+tar (`s0001.png`, `s0001.cls`, `s0001.txt`). Members are decoded by extension:
+`png`/`jpg` become images, `txt` a string, `cls` an integer, `json` a dict, `npy`
+an ndarray, `pth` a tensor; anything else stays raw bytes.
+
+The image member is detected from the first sample (its name is the extension,
+e.g. `png`). If a shard carries more than one image member, name it explicitly:
+
+```bash
+--datasets "webdataset:/data/train-{0000..0999}.tar" --image_column png
+```
+
+The `webdataset` package is an optional extra:
+
+```bash
+pip install "genml_kit[webdataset]"
+```
+
+A webdataset member is keyed by extension, so these sources are unlabeled by
+default (there is no dataset-level class vocabulary). Use a method that does not
+need labels (`simmim`, `dino`, `byol`, `ijepa`), or select the label member
+explicitly in code with `IterableFieldSelectorDataset`.
+
 ### HuggingFace Datasets
 
 Any HF dataset ID whose rows carry decoded image data works directly as

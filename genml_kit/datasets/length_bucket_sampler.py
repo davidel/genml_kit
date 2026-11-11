@@ -13,10 +13,10 @@ partial reordering), so it is intentionally exposed as an opt-in knob.
 """
 
 import logging
-import random
 
 from torch.utils.data import Sampler
 
+from genml_kit.datasets.batch_policy import bucket_batches, epoch_rng, item_text
 from genml_kit.utils.logging import fatal
 
 
@@ -65,28 +65,12 @@ class LengthBucketBatchSampler(Sampler):
     self._epoch = epoch
 
   def __iter__(self):
-    n = len(self.lengths)
-    rng = random.Random(None if self.seed is None else self.seed + self._epoch)
-    # Global order sorted by ascending length: [n] indices.
-    order = sorted(range(n), key=lambda i: self.lengths[i])
-    # Slice the sorted order into contiguous buckets: list of [<=bucket_size].
-    # Each bucket therefore holds a narrow length band.
-    buckets = [order[i:i + self.bucket_size] for i in range(0, n, self.bucket_size)]
-    # Shuffle *within* each bucket so batch membership is not fixed to the sort
-    # (length homogeneity is preserved; only intra-band order changes).
-    for bucket in buckets:
-      rng.shuffle(bucket)
-    # Randomize the bucket order too, so lengths still vary across the epoch
-    # (avoid training purely short-then-long, which would bias the loss curve).
-    rng.shuffle(buckets)
-    for bucket in buckets:
-      # Emit the bucket in fixed-size chunks; a batch is [<=batch_size] indices
-      # of similar length, which is what keeps the collator's pad near zero.
-      for i in range(0, len(bucket), self.batch_size):
-        batch = bucket[i:i + self.batch_size]
-        if self.drop_last and len(batch) < self.batch_size:
-          continue
-        yield batch
+    rng = epoch_rng(self.seed, self._epoch)
+    yield from bucket_batches(self.lengths,
+                              self.batch_size,
+                              self.bucket_size,
+                              rng,
+                              drop_last=self.drop_last)
 
 
 def text_length_proxy(dataset):
@@ -97,14 +81,12 @@ def text_length_proxy(dataset):
   wrapper (capped view included).  Character length needs no tokenizer pass and
   is monotonic with token count for BPE/byte tokenizers, so it is a good
   bucketing key at a fraction of the cost.
+
+  This requires a materialisable index space: for a streaming source, measure
+  lengths inline instead (see
+  :class:`~genml_kit.datasets.stream_batching.StreamingLengthBucketBatch`).
   """
   n = len(dataset)
-  lengths = []
-  for i in range(n):
-    item = dataset[i]
-    if "text" in item:
-      lengths.append(len(item["text"] or ""))
-    else:
-      lengths.append(len(item.get("prompt") or "") + len(item.get("response") or ""))
+  lengths = [len(item_text(dataset[i])) for i in range(n)]
   logging.info("Length bucketing: computed %d length proxies.", n)
   return lengths
