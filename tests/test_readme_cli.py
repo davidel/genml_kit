@@ -27,6 +27,15 @@ Marker body (YAML)::
 then runs when that service is reachable, either through its credentials
 or through an endpoint-override proxy/emulator (see ``tests/services.py``).
 
+``launcher: <name>`` marks a fence whose commands are *launcher-headed*
+(e.g. ``torchrun --standalone --nproc_per_node=2 -m genml_kit.cli.train
+...``); such a fence is rewritten to ``python -m torch.distributed.run ...``
+and executed multi-process, and is selected via ``pytest -m distributed``
+(instead of the default single-process suite).  ``nproc`` (default 2) is the
+``--nproc_per_node`` value baked into the rewrite, and must agree with any
+``--nproc_per_node`` written in the fence.  This is opt-in *per fence*: every
+other example keeps running as a plain single-process command.
+
 A fence that contains a core ``genml-kit-*`` command but must *not* be
 executed opts out with a sibling comment instead::
 
@@ -84,11 +93,21 @@ _ENTRY_MODULES = {
     "genml-kit-tune": "genml_kit.cli.tune",
 }
 
+# Launchers that run an entry *module* under ``python -m <launcher>``.  A
+# fence headed by one of these is executed multi-process (opt-in via the
+# ``launcher:`` marker key), never as a plain single-process command.
+_LAUNCHERS = {
+    "torchrun": "torch.distributed.run",
+}
+
+# Default process count for a ``launcher: torchrun`` fence.
+_DEFAULT_NPROC = 2
+
 _README_GLOBS = ["README.md", "*/README.md"]
 
 _ALLOWED_KEYS = {
     "name", "skip", "network", "service", "gated", "timeout", "extra", "override",
-    "extras", "env", "cwd"
+    "extras", "env", "cwd", "launcher", "nproc"
 }
 
 # Fixture directory a ``gated: true`` fence has its HF dataset remapped to, so a
@@ -126,6 +145,8 @@ class CommandSpec:
   env: dict = field(default_factory=dict)
   cwd: str = "{tmp}"
   skip: str | None = None
+  launcher: str | None = None  # e.g. "torchrun"; runs the command multi-process
+  nproc: int = _DEFAULT_NPROC  # process count for a launcher fence
 
 
 def _comment_above(lines, fence_idx):
@@ -212,19 +233,32 @@ def _logical_lines(text):
 
 
 def fence_has_core_command(text):
-  """True if any logical line of *text* starts with a core entry point."""
+  """True if any logical line starts with a core entry point or a launcher.
+
+  A launcher-headed line (``torchrun ...``) is a *candidate* too, so the
+  ``test_all_candidate_fences_marked_or_excluded`` guard forces every such
+  fence to be either executed (marker with ``launcher:``) or explicitly
+  excluded.
+  """
   for line in _logical_lines(text):
     stripped = line.strip()
     if stripped == "" or stripped.startswith("#"):
       continue
     tokens = shlex.split(stripped, posix=True)
-    if tokens and tokens[0] in _ENTRY_MODULES:
+    if tokens and (tokens[0] in _ENTRY_MODULES or tokens[0] in _LAUNCHERS):
       return True
   return False
 
 
-def split_commands(text):
-  """Split a fence body into one argv per core command."""
+def split_commands(text, launcher=None):
+  """Split a fence body into one argv per command.
+
+  A plain fence may only contain core ``genml-kit-*`` commands.  A fence
+  marked ``launcher: <name>`` is instead expected to be built from
+  ``<name>``-headed lines (e.g. ``torchrun --standalone ... -m
+  genml_kit.cli.train ...``); a stray core command in such a fence is an
+  error, and vice versa.
+  """
   commands = []
   for line in _logical_lines(text):
     stripped = line.strip()
@@ -233,7 +267,11 @@ def split_commands(text):
     tokens = shlex.split(stripped, posix=True)
     if not tokens:
       continue
-    if tokens[0] not in _ENTRY_MODULES:
+    if launcher is not None:
+      if tokens[0] != launcher:
+        raise ValueError(f"launcher fence ({launcher}) contains a "
+                         f"non-{launcher} command: {stripped!r}")
+    elif tokens[0] not in _ENTRY_MODULES:
       raise ValueError(f"non-core command inside a marked fence: {stripped!r}")
     commands.append(tokens)
   if not commands:
@@ -292,9 +330,20 @@ def _parse_marker(rel, line, heading, marker_body, body_lines):
   if gated and not service:
     raise ValueError(f"{rel}:{line}: gated: true requires a service: key")
 
+  launcher = data.get("launcher")
+  if launcher is not None and launcher not in _LAUNCHERS:
+    raise ValueError(f"{rel}:{line}: unknown launcher: {launcher!r} "
+                     f"(expected one of {sorted(_LAUNCHERS)})")
+  nproc = data.get("nproc", _DEFAULT_NPROC)
+  if launcher is not None:
+    if not isinstance(nproc, int) or isinstance(nproc, bool) or nproc < 2:
+      raise ValueError(f"{rel}:{line}: nproc must be an int >= 2")
+  elif "nproc" in data:
+    raise ValueError(f"{rel}:{line}: nproc requires a launcher: key")
+
   name = data.get("name") or f"{rel}:{line}"
   skip = data.get("skip")
-  commands = split_commands("\n".join(body_lines))
+  commands = split_commands("\n".join(body_lines), launcher=launcher)
 
   spec = CommandSpec(
       md=rel,
@@ -312,6 +361,8 @@ def _parse_marker(rel, line, heading, marker_body, body_lines):
       env=dict(env),
       cwd=data.get("cwd", "{tmp}"),
       skip=skip,
+      launcher=launcher,
+      nproc=nproc,
   )
   _validate_overrides(spec)
   return spec
@@ -473,8 +524,76 @@ def _validate_overrides(spec):
                        f"in fence {spec.name!r}")
 
 
+_MODULE_ENTRIES = {module: name for name, module in _ENTRY_MODULES.items()}
+
+
+def _split_launcher(command, launcher):
+  """Split a launcher line into ``(launcher_flags, entry_name, inner_args)``.
+
+  ``torchrun --standalone --nproc_per_node=2 -m genml_kit.cli.train --epochs 1``
+  becomes ``(["--standalone", "--nproc_per_node=2"], "genml-kit-train",
+  ["--epochs", "1"])``.  The entry module after ``-m`` is mapped back to its
+  canonical ``genml-kit-*`` name so the shared limiter/override logic applies.
+  """
+  flags, i = [], 1
+  while i < len(command):
+    if command[i] == "-m":
+      if i + 1 >= len(command):
+        raise ValueError(f"launcher {launcher} line has a dangling -m")
+      module = command[i + 1]
+      entry = _MODULE_ENTRIES.get(module)
+      if entry is None:
+        raise ValueError(f"launcher {launcher} runs an unknown module: "
+                         f"{module!r}")
+      return flags, entry, list(command[i + 2:])
+    flags.append(command[i])
+    i += 1
+  raise ValueError(f"launcher {launcher} line has no '-m <module>' target")
+
+
+def _launcher_nproc(flags):
+  """Return the ``--nproc_per_node`` value in *flags*, or None."""
+  for idx, token in enumerate(flags):
+    if token.startswith("--nproc_per_node="):
+      return token.split("=", 1)[1]
+    if token in ("--nproc_per_node", "--nproc-per-node") and idx + 1 < len(flags):
+      return flags[idx + 1]
+  return None
+
+
 def _train_command_count(spec):
-  return sum(1 for c in spec.commands if c and c[0] == "genml-kit-train")
+  """Number of training commands, unwrapping a launcher-headed fence."""
+  count = 0
+  for c in spec.commands:
+    if not c:
+      continue
+    head = c[0]
+    if spec.launcher is not None and head in _LAUNCHERS:
+      head = _split_launcher(c, spec.launcher)[1]
+    if head == "genml-kit-train":
+      count += 1
+  return count
+
+
+def _rewrite_inner(spec, inner, run_root, cmd_index):
+  """Apply overrides/extra/cache_dir/checkpoint logic to a core command.
+
+  ``inner`` is ``[<genml-kit-*>, *args]`` regardless of whether the fence is
+  plain or launcher-headed, so the two paths share one implementation.
+  """
+  overrides = (_gated_overrides([inner]) if spec.gated else []) + list(spec.override)
+  for entry in overrides:
+    _apply_override(inner, entry)
+  if inner[0] == "genml-kit-train":
+    inner.extend(spec.extra)
+    if _train_command_count(spec) > 1:
+      if "--checkpoint" not in inner:
+        inner += ["--checkpoint", str(run_root / f"ckpt_{cmd_index}")]
+      if not any(t in inner for t in ("--no-resume", "--resume")):
+        inner.append("--no-resume")
+  if inner[0] in _ENTRY_MODULES and "--cache_dir" not in inner:
+    inner += ["--cache_dir", str(run_root / "hf_cache")]
+  return inner
 
 
 def build_argv(spec, command, run_root, cmd_index=0):
@@ -488,23 +607,29 @@ def build_argv(spec, command, run_root, cmd_index=0):
   [30], [31]) each gets a private ``--checkpoint`` prefix and ``--no-resume``:
   without it every command writes ``<cwd>/genml_kit_latest.pt`` and the next
   one auto-resumes its sibling's (incompatible) weights.
+
+  A ``launcher:`` fence (``torchrun ...``) is rewritten to
+  ``python -m torch.distributed.run <launcher flags> -m <module> <args>`` so it
+  runs multi-process; the ``genml-kit-*`` name is recovered from the module so
+  the same limiter/override/checkpoint logic applies to the inner command.
   """
-  cmd = list(command)
-  # Gated datasets are remapped to a local fixture before user overrides so an
-  # explicit override still wins (there are none in practice for gated fences).
-  overrides = (_gated_overrides([cmd]) if spec.gated else []) + list(spec.override)
-  for entry in overrides:
-    _apply_override(cmd, entry)
-  is_train = cmd[0] == "genml-kit-train"
-  if is_train:
-    cmd.extend(spec.extra)
-    if _train_command_count(spec) > 1:
-      if "--checkpoint" not in cmd:
-        cmd += ["--checkpoint", str(run_root / f"ckpt_{cmd_index}")]
-      if not any(t in cmd for t in ("--no-resume", "--resume")):
-        cmd.append("--no-resume")
-  if cmd[0] in _ENTRY_MODULES and "--cache_dir" not in cmd:
-    cmd += ["--cache_dir", str(run_root / "hf_cache")]
+  if spec.launcher is not None:
+    flags, entry_name, inner = _split_launcher(list(command), spec.launcher)
+    written = _launcher_nproc(flags)
+    if written is not None and written != str(spec.nproc):
+      raise ValueError(f"{spec.md}:{spec.line}: --nproc_per_node={written} "
+                       f"disagrees with marker nproc={spec.nproc}")
+    if written is None:
+      flags.append(f"--nproc_per_node={spec.nproc}")
+    if "--standalone" not in flags:
+      flags.append("--standalone")
+    inner = _rewrite_inner(spec, [entry_name] + inner, run_root, cmd_index)
+    module = _ENTRY_MODULES[entry_name]
+    cmd = [sys.executable, "-m", _LAUNCHERS[spec.launcher]] + flags + \
+          ["-m", module] + inner[1:]
+    return [str(token).replace("{tmp}", str(run_root)) for token in cmd]
+
+  cmd = _rewrite_inner(spec, list(command), run_root, cmd_index)
   module = _ENTRY_MODULES[cmd[0]]
   cmd = [sys.executable, "-m", module] + cmd[1:]
   return [str(token).replace("{tmp}", str(run_root)) for token in cmd]
@@ -529,6 +654,16 @@ def _make_imagefolder(root, n_classes=2, n_per=4, size=32):
       Image.fromarray(_rgba((cls * 40 + i * 7) % 256,
                             size)).save(cls_dir / f"img{i}.png")
   return root
+
+
+def _make_imagefolder_ddp(root):
+  """A larger ImageFolder so a multi-rank run has a non-empty shard each.
+
+  The plain ``img`` fixture (2 classes x 4 images) is too small: with two
+  ranks and ``drop_last`` one rank could see an empty epoch.  8 per class (16
+  total) guarantees each rank gets at least a few batches.
+  """
+  return _make_imagefolder(root, n_classes=2, n_per=8)
 
 
 def _make_segfolder(root, n=4, size=32):
@@ -761,6 +896,8 @@ def _fixture_plan(run_root, model):
   return {
       "img":
           lambda: _make_imagefolder(run_root / "img"),
+      "img_ddp":
+          lambda: _make_imagefolder_ddp(run_root / "img_ddp"),
       "seg":
           lambda: _make_segfolder(run_root / "seg"),
       "det":
@@ -906,10 +1043,30 @@ def _failure_message(spec, argv, proc=None, stderr=None):
   return "\n".join(lines)
 
 
+def _launcher_available(spec):
+  """True when the fence's launcher can actually run here.
+
+  ``torchrun`` (``torch.distributed.run``) ships with PyTorch and needs a
+  working ``torch.distributed``; when either is missing the DDP example is
+  skipped rather than failed, mirroring ``tests/test_distributed_e2e.py``.
+  """
+  if spec.launcher is None:
+    return True
+  if spec.launcher != "torchrun":
+    return False
+  try:
+    import torch.distributed
+  except ImportError:
+    return False
+  return torch.distributed.is_available()
+
+
 def run_spec(spec, tmp_path):
   run_root = Path(tmp_path) / "readme_cli"
   run_root.mkdir(parents=True, exist_ok=True)
   try:
+    if not _launcher_available(spec):
+      pytest.skip(f"launcher {spec.launcher!r} unavailable")
     for extra in spec.extras:
       module = _EXTRA_IMPORTS.get(extra)
       if module is None:
@@ -965,6 +1122,10 @@ def _param(spec):
     # (hf, s3, ...) selects one.  service implies network (both emitted).
     marks.append(pytest.mark.service)
     marks.append(getattr(pytest.mark, spec.service))
+  if spec.launcher is not None:
+    # A launcher (torchrun) fence is multi-process; opted out of the default
+    # suite and run explicitly with ``pytest -m distributed``.
+    marks.append(pytest.mark.distributed)
   return pytest.param(spec, marks=marks, id=spec.name)
 
 
@@ -1171,6 +1332,87 @@ class TestBuildArgv:
     spec = self._spec(commands=[["genml-kit-train", "--epochs", "5"]])
     argv = build_argv(spec, spec.commands[0], tmp_path)
     assert "--checkpoint" not in argv and "--no-resume" not in argv
+
+
+_LAUNCHER_MARKER = ("<!-- genml-cli-test\nlauncher: torchrun\nnproc: 2\n"
+                    "-->\n")
+_LAUNCHER_FENCE = ("```bash\ntorchrun --standalone --nproc_per_node=2 -m "
+                   "genml_kit.cli.train --epochs 5\n```\n")
+
+
+class TestLauncherFences:
+
+  def test_launcher_fence_parsed(self, tmp_path):
+    path = _write(tmp_path, f"{_LAUNCHER_MARKER}{_LAUNCHER_FENCE}")
+    spec = read_markers(path)[0]
+    assert spec.launcher == "torchrun"
+    assert spec.nproc == 2
+
+  def test_launcher_fence_is_candidate(self, tmp_path):
+    path = _write(tmp_path, f"{_LAUNCHER_MARKER}{_LAUNCHER_FENCE}")
+    assert [(m, x) for _, _, m, x in candidate_fences(path)] == [(True, False)]
+
+  def test_unknown_launcher_raises(self, tmp_path):
+    path = _write(
+        tmp_path, "<!-- genml-cli-test\nlauncher: slurm\n-->\n"
+        "```bash\nslurm -m genml_kit.cli.train --epochs 5\n```\n")
+    with pytest.raises(ValueError, match="unknown launcher"):
+      read_markers(path)
+
+  def test_nproc_without_launcher_raises(self, tmp_path):
+    path = _write(
+        tmp_path, "<!-- genml-cli-test\nnproc: 2\n-->\n"
+        "```bash\ngenml-kit-train --epochs 5\n```\n")
+    with pytest.raises(ValueError, match="nproc requires a launcher"):
+      read_markers(path)
+
+  def test_bad_nproc_raises(self, tmp_path):
+    path = _write(
+        tmp_path, "<!-- genml-cli-test\nlauncher: torchrun\n"
+        "nproc: 1\n-->\n"
+        "```bash\ntorchrun -m genml_kit.cli.train --epochs 5\n```\n")
+    with pytest.raises(ValueError, match="nproc"):
+      read_markers(path)
+
+  def test_core_command_in_launcher_fence_raises(self, tmp_path):
+    path = _write(tmp_path, f"{_LAUNCHER_MARKER}"
+                  "```bash\ngenml-kit-train --epochs 5\n```\n")
+    with pytest.raises(ValueError, match="non-torchrun"):
+      read_markers(path)
+
+  def test_rewrite_uses_distributed_run(self, tmp_path):
+    path = _write(tmp_path, f"{_LAUNCHER_MARKER}{_LAUNCHER_FENCE}")
+    spec = read_markers(path)[0]
+    argv = build_argv(spec, spec.commands[0], tmp_path)
+    assert argv[:3] == [sys.executable, "-m", "torch.distributed.run"]
+    assert "--standalone" in argv
+    assert "--nproc_per_node=2" in argv
+    # Inner entry module is rewritten to the importable module, then the
+    # training limiter/override logic applies exactly as for a plain fence.
+    assert argv[argv.index("-m", 3) + 1] == "genml_kit.cli.train"
+    assert "--cache_dir" in argv
+
+  def test_rewrite_injects_nproc_when_absent(self, tmp_path):
+    path = _write(
+        tmp_path, "<!-- genml-cli-test\nlauncher: torchrun\nnproc: 3\n-->\n"
+        "```bash\ntorchrun --standalone -m genml_kit.cli.train --epochs 5\n```\n")
+    spec = read_markers(path)[0]
+    argv = build_argv(spec, spec.commands[0], tmp_path)
+    assert "--nproc_per_node=3" in argv
+
+  def test_rewrite_rejects_conflicting_nproc(self, tmp_path):
+    path = _write(
+        tmp_path, "<!-- genml-cli-test\nlauncher: torchrun\nnproc: 2\n-->\n"
+        "```bash\ntorchrun --standalone --nproc_per_node=4 -m "
+        "genml_kit.cli.train --epochs 5\n```\n")
+    spec = read_markers(path)[0]
+    with pytest.raises(ValueError, match="disagrees with marker nproc"):
+      build_argv(spec, spec.commands[0], tmp_path)
+
+  def test_launcher_command_count_deduces_train(self, tmp_path):
+    path = _write(tmp_path, f"{_LAUNCHER_MARKER}{_LAUNCHER_FENCE}")
+    spec = read_markers(path)[0]
+    assert _train_command_count(spec) == 1
 
 
 class TestCandidateFences:

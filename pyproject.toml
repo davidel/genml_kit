@@ -64,7 +64,7 @@ ignore = ["I001", "LOG015", "PLC0415", "RUF012", "PLR0402"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config -m 'not slow and not network and not service'"
+addopts = "-ra --strict-markers --strict-config -m 'not slow and not network and not service and not distributed'"
 markers = [
   "slow: long-running learning/convergence tests (deselected by default; run with -m slow)",
   "network: command downloads models/data over the internet (deselected by default)",
@@ -75,6 +75,7 @@ markers = [
   "gcs: service marker for Google Cloud Storage (GOOGLE_APPLICATION_CREDENTIALS or STORAGE_EMULATOR_HOST)",
   "github: service marker for GitHub (GITHUB_TOKEN / GH_TOKEN or GITHUB_API_URL)",
   "wandb: service marker for Weights & Biases (WANDB_API_KEY or WANDB_BASE_URL)",
+  "distributed: README example launched multi-process (torchrun); runs with -m distributed",
 ]
 filterwarnings = [
   "error",

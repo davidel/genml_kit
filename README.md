@@ -2978,6 +2978,7 @@ To use more than one GPU, launch the same `genml-kit-train` command under
 `torchrun` (which ships with PyTorch -- it is the `torch.distributed.run`
 module, so there is nothing extra to install):
 
+<!-- genml-cli-test-exclude: illustrative GPU/nccl launch; the runnable distributed example follows -->
 ```bash
 # 4 GPUs, one process per GPU
 torchrun --standalone --nproc_per_node=4 -m genml_kit.cli.train \
@@ -2986,6 +2987,26 @@ torchrun --standalone --nproc_per_node=4 -m genml_kit.cli.train \
                         --epochs 90 \
                         --batch_size 64 \
                         --dist_arg backend=nccl
+```
+
+The same command runs on CPU with the `gloo` backend, which is what the
+runnable example below does (two ranks, a tiny synthetic dataset):
+
+<!-- genml-cli-test
+name: multi-gpu-torchrun
+launcher: torchrun
+nproc: 2
+extra: --device cpu --batch_size 4
+override:
+  - --dataset {tmp}/img_ddp
+-->
+```bash
+# 2 processes on CPU (gloo); swap in 4 GPUs + `backend=nccl` for a real run
+torchrun --standalone --nproc_per_node=2 -m genml_kit.cli.train \
+                        --model convvit \
+                        --dataset /data/imagenet \
+                        --epochs 1 \
+                        --dist_arg backend=gloo
 ```
 
 Every rank reads `RANK` / `WORLD_SIZE` / `LOCAL_RANK` / `MASTER_ADDR` /
@@ -3005,7 +3026,7 @@ What the launcher turns on automatically:
 | Data sharding | each rank gets a disjoint slice of the training set (see below) |
 | Checkpoints | written by rank 0 only; keys carry no `module.` prefix, so a multi-GPU checkpoint loads back into a single-GPU run unchanged |
 | Metrics / log files | TensorBoard, JSONL and log files are written by rank 0 only |
-| Validation | rank 0 evaluates the full validation set; the other ranks wait |
+| Validation | sharded across ranks like training; each rank evaluates its disjoint slice, the per-rank results are merged (`Method.merge_validation`), and rank 0 reports the whole-set metric |
 
 Distributed knobs travel through a single repeatable `--dist_arg KEY=VALUE`
 flag, matching `--model_arg` / `--opt_arg`.  A bare key means `true`:
@@ -3016,6 +3037,7 @@ flag, matching `--model_arg` / `--opt_arg`.  A bare key means `true`:
 | `shard` | `true` when more than one rank | Shard the training set across ranks. Set `shard=false` to run every rank over the full dataset (rarely what you want: it multiplies the compute with no error). |
 | `find_unused_parameters` | `false` (declared `true` by BYOL / DINO / SupCon) | Pass through to `DistributedDataParallel`. Lets a forward that skips some trainable parameters survive DDP's unused-parameter check. The SSL methods declare it defensively; a stock run leaves nothing unused and would pass without it. |
 | `static_graph` | `false` | Pass through to `DistributedDataParallel`. Only valid when the autograd graph is identical every step. |
+| `rollout_shard` | `true` when more than one rank | RL pipelines only. Shard rollout collection (and the minibatch it yields) across ranks. Set `rollout_shard=false` to collect one full rollout per rank (rarely what you want: it multiplies the environment compute with no error). |
 
 Defaults are chosen so that a multi-GPU run only has to be correct, not
 tuned: sharding is on whenever it can matter. The validation set is sharded the
@@ -3034,9 +3056,10 @@ Three caveats worth knowing before reaching for more GPUs:
 - **Effective batch size scales with `--nproc_per_node`.** Four ranks at
   `--batch_size 64` see 256 samples per optimizer step; scale `--lr`
   accordingly.
-- **Sharding assumes a trainable `DataLoader`.** Pipelines that bypass it
-  (the RL pipelines drive environments and replay buffers directly) are not
-  yet covered by the sharding path.
+- **`shard` assumes a trainable `DataLoader`.** Pipelines that bypass it are
+  not covered by *that* path: the RL pipelines drive environments and replay
+  buffers directly, so they use their own `rollout_shard` knob (see the table
+  above) instead of `shard`.
 - **A checkpoint from a multi-GPU run is portable**, but resuming with a
   *different* `--nproc_per_node` changes the shard boundaries, so the epoch
   position is approximate if the dataset size is not divisible by the rank
@@ -3174,6 +3197,11 @@ executed by `tests/test_readme_cli.py`.  The comment is invisible on
 GitHub; its YAML body controls limiting args, network/token markers, and
 substitutions.  Run them with `pytest -m network` (needs internet, no
 credentials) — the offline suite excludes them by default.
+
+A fence marked with `launcher: torchrun` is rewritten to a multi-process
+`torch.distributed.run` invocation and executed that way (run it with
+`pytest -m distributed`); this is opt-in per fence, so every other example
+keeps running single-process.
 
 A fence that talks to an external service names it with `service: <name>`
 (`hf`, `s3`, `r2`, `gcs`, `github`, `wandb`).  Such a fence is run when the

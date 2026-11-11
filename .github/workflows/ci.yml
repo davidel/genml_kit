@@ -60,6 +60,19 @@ jobs:
           fi
           exit "$code"
 
+      - name: Run README CLI examples (distributed / torchrun)
+        run: |
+          set +e
+          pytest -q -m 'distributed'
+          code=$?
+          # Exit code 5 == "no tests collected": not an error while the
+          # marker suite is still being populated.
+          if [ "$code" -eq 5 ]; then
+            echo "No distributed README CLI tests collected yet."
+            exit 0
+          fi
+          exit "$code"
+
       - name: Run README CLI examples (gated / HF_TOKEN)
         env:
           # Gated datasets need a token whose owner has been granted access.
