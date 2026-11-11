@@ -48,30 +48,10 @@ jobs:
         run: python -m pip install -e ".[dev,llm,llm-spm,timm,uvito,lora,s3,rl]"
 
       - name: Run README CLI examples (tokenless network)
-        run: |
-          set +e
-          pytest -q -m 'network and not service'
-          code=$?
-          # Exit code 5 == "no tests collected": not an error while the
-          # marker suite is still being populated.
-          if [ "$code" -eq 5 ]; then
-            echo "No network README CLI tests collected yet."
-            exit 0
-          fi
-          exit "$code"
+        run: bash .github/workflows/readme_cli_suite.sh network
 
       - name: Run README CLI examples (distributed / torchrun)
-        run: |
-          set +e
-          pytest -q -m 'distributed'
-          code=$?
-          # Exit code 5 == "no tests collected": not an error while the
-          # marker suite is still being populated.
-          if [ "$code" -eq 5 ]; then
-            echo "No distributed README CLI tests collected yet."
-            exit 0
-          fi
-          exit "$code"
+        run: bash .github/workflows/readme_cli_suite.sh distributed
 
       - name: Run README CLI examples (gated / HF_TOKEN)
         env:
@@ -79,17 +59,7 @@ jobs:
           # On forks without the secret the spec skips, so this never
           # hard-fails for lack of a token.
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          set +e
-          pytest -q -m 'service'
-          code=$?
-          # Exit code 5 == "no tests collected": not an error while the
-          # marker suite is still being populated.
-          if [ "$code" -eq 5 ]; then
-            echo "No service README CLI tests collected yet."
-            exit 0
-          fi
-          exit "$code"
+        run: bash .github/workflows/readme_cli_suite.sh service
 
       - name: Run README CLI examples (proxied / emulated services)
         env:
@@ -102,13 +72,4 @@ jobs:
           STORAGE_EMULATOR_HOST: ${{ vars.STORAGE_EMULATOR_HOST }}
           GITHUB_API_URL: ${{ vars.GITHUB_API_URL }}
           WANDB_BASE_URL: ${{ vars.WANDB_BASE_URL }}
-        run: |
-          set +e
-          # ``not hf`` avoids re-running the gated step above.
-          pytest -q -m 'service and not hf'
-          code=$?
-          if [ "$code" -eq 5 ]; then
-            echo "No proxied README CLI tests collected yet."
-            exit 0
-          fi
-          exit "$code"
+        run: bash .github/workflows/readme_cli_suite.sh proxied
