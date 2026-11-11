@@ -104,7 +104,7 @@ def _make_args(**overrides):
   pinned = dict(
       batch_size=4,
       warmup_steps=8,
-      steps_per_epoch=5,
+      env_steps_per_epoch=5,
       eval_episodes=1,
       log_every=100,
       ppo_epochs=2,
@@ -196,7 +196,7 @@ class TestRLTrainer:
   def test_warmup_fills_buffer(self):
     with tempfile.TemporaryDirectory() as checkpoint_dir:
       model, optimization, method, pipeline, args = _build_trainer(warmup_steps=8,
-                                                                   steps_per_epoch=3)
+                                                                   env_steps_per_epoch=3)
       args.checkpoint = checkpoint_dir
       trainer = RLTrainer(
           args=args,
@@ -287,7 +287,7 @@ class TestRLTrainerEndToEnd:
     pinned = dict(
         epochs=2,
         warmup_steps=4,
-        steps_per_epoch=4,
+        env_steps_per_epoch=4,
         eval_episodes=1,
         log_every=100,
         grad_clip=1.0,
@@ -307,7 +307,7 @@ class TestRLTrainerEndToEnd:
     args = self._make_args(
         epochs=1,
         warmup_steps=4,
-        steps_per_epoch=4,
+        env_steps_per_epoch=4,
         checkpoint=str(tmp_path / "dqn_ckpt"),
         seed=42,
         env_seed=42,
@@ -352,7 +352,7 @@ class TestRLTrainerEndToEnd:
         # PPO doesn't use warmup.
         warmup_steps=0,
         # Rollout_len.
-        steps_per_epoch=16,
+        env_steps_per_epoch=16,
         checkpoint=str(tmp_path / "ppo_ckpt"),
         seed=42,
         env_seed=42,
@@ -406,7 +406,7 @@ class TestRLTrainerEndToEnd:
     args = self._make_args(
         epochs=1,
         warmup_steps=4,
-        steps_per_epoch=4,
+        env_steps_per_epoch=4,
         checkpoint=str(tmp_path / "sac_ckpt"),
         seed=42,
         env_seed=42,
@@ -458,7 +458,7 @@ class TestRLTrainerEndToEnd:
     args = self._make_args(
         epochs=2,
         warmup_steps=4,
-        steps_per_epoch=4,
+        env_steps_per_epoch=4,
         checkpoint=str(tmp_path / "sac_ckpt"),
         seed=42,
         env_seed=42,
@@ -512,7 +512,7 @@ class TestPPOMidepochResume:
     args = train_args(["--pipeline", "rl"],
                       epochs=2,
                       warmup_steps=0,
-                      steps_per_epoch=16,
+                      env_steps_per_epoch=16,
                       eval_episodes=1,
                       log_every=100,
                       ppo_epochs=2,
@@ -615,7 +615,7 @@ class TestRLCheckpointRoundTrip:
     pinned = dict(
         epochs=2,
         warmup_steps=4,
-        steps_per_epoch=4,
+        env_steps_per_epoch=4,
         eval_episodes=1,
         log_every=100,
         grad_clip=1.0,
@@ -636,7 +636,7 @@ class TestRLCheckpointRoundTrip:
     args1 = self._make_args(
         epochs=1,
         warmup_steps=4,
-        steps_per_epoch=4,
+        env_steps_per_epoch=4,
         checkpoint=str(tmp_path / "dqn_ckpt"),
         seed=42,
         env_seed=42,
@@ -682,7 +682,7 @@ class TestRLCheckpointRoundTrip:
         # Run one more epoch.
         epochs=2,
         warmup_steps=4,
-        steps_per_epoch=4,
+        env_steps_per_epoch=4,
         checkpoint=str(tmp_path / "dqn_ckpt"),
         seed=42,
         env_seed=42,
@@ -725,7 +725,7 @@ class TestRLCheckpointRoundTrip:
     args1 = self._make_args(
         epochs=1,
         warmup_steps=0,
-        steps_per_epoch=16,
+        env_steps_per_epoch=16,
         checkpoint=str(tmp_path / "ppo_ckpt"),
         seed=42,
         env_seed=42,
@@ -771,7 +771,7 @@ class TestRLCheckpointRoundTrip:
     args2 = self._make_args(
         epochs=2,
         warmup_steps=0,
-        steps_per_epoch=16,
+        env_steps_per_epoch=16,
         checkpoint=str(tmp_path / "ppo_ckpt"),
         seed=42,
         env_seed=42,
@@ -814,7 +814,7 @@ class TestRLCheckpointRoundTrip:
     args1 = self._make_args(
         epochs=1,
         warmup_steps=4,
-        steps_per_epoch=4,
+        env_steps_per_epoch=4,
         checkpoint=str(tmp_path / "sac_ckpt"),
         seed=42,
         env_seed=42,
@@ -857,7 +857,7 @@ class TestRLCheckpointRoundTrip:
     args2 = self._make_args(
         epochs=2,
         warmup_steps=4,
-        steps_per_epoch=4,
+        env_steps_per_epoch=4,
         checkpoint=str(tmp_path / "sac_ckpt"),
         seed=42,
         env_seed=42,

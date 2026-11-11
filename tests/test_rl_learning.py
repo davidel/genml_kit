@@ -140,7 +140,7 @@ class TestDiscreteConvergence:
     wide margin below the observed optimum (1.0 on every seed tested).
     """
     args = _make_args(warmup_steps=100,
-                      steps_per_epoch=100,
+                      env_steps_per_epoch=100,
                       eval_episodes=50,
                       dqn_lr=1e-3,
                       dqn_gamma=0.95,
@@ -165,7 +165,7 @@ class TestDiscreteConvergence:
     converged to 1.0 on every seed tested (threshold 0.9).
     """
     args = _make_args(warmup_steps=0,
-                      steps_per_epoch=256,
+                      env_steps_per_epoch=256,
                       eval_episodes=50,
                       ppo_discrete=True,
                       ppo_gamma=0.99,
@@ -196,7 +196,7 @@ class TestContinuousConvergence:
   def test_sac_learns_continuous(self):
     pytest.importorskip("gymnasium")
     args = _make_args(warmup_steps=100,
-                      steps_per_epoch=100,
+                      env_steps_per_epoch=100,
                       eval_episodes=50,
                       sac_lr=3e-4,
                       sac_gamma=0.99,

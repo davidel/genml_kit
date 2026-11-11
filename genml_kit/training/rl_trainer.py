@@ -160,7 +160,7 @@ class RLTrainer(BaseTrainer):
     batches = 0
 
     reporter = TrainReporting(
-        total_batches=self.args.steps_per_epoch,
+        total_batches=self.args.env_steps_per_epoch,
         log_every=self.args.log_every,
         logger=self.logger,
         device=self.device,
@@ -173,7 +173,7 @@ class RLTrainer(BaseTrainer):
     action_shape = get_attribute(self.pipeline, "env.action_space.shape")
     is_continuous = action_shape is not MISSING and action_shape != ()
 
-    for _step in range(self.args.steps_per_epoch):
+    for _step in range(self.args.env_steps_per_epoch):
       # Act.
       action = self.method.act(self.model, obs, deterministic=False)
       # For continuous, step_env expects the full action array; for discrete, a scalar.
@@ -277,7 +277,7 @@ class RLTrainer(BaseTrainer):
           loss_value=loss_out.loss.item() * batch_size,
           global_step=step,
           extra_metrics=extra,
-          report_now=(batches + 1 == self.args.steps_per_epoch),
+          report_now=(batches + 1 == self.args.env_steps_per_epoch),
       )
 
     reporter.summary()

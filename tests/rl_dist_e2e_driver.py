@@ -38,7 +38,7 @@ def _run(tmp_path):
       "CartPole-v1",
       "--epochs",
       "1",
-      "--steps_per_epoch",
+      "--env_steps_per_epoch",
       "4",
       "--ppo_rollout_len",
       "4",

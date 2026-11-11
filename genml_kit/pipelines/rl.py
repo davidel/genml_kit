@@ -285,7 +285,7 @@ class RLPipeline(DataPipeline):
         help="Environment RNG seed.",
     )
     group.add_argument(
-        "--steps_per_epoch",
+        "--env_steps_per_epoch",
         type=int,
         default=1000,
         help="Environment steps per training epoch.",

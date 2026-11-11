@@ -377,7 +377,7 @@ def _ppo_epoch_worker(rank, world, port, tmpdir, rollout_len, mini_batch):
         ppo_rollout_len=rollout_len,
         ppo_mini_batch_size=mini_batch,
         ppo_epochs=1,
-        steps_per_epoch=rollout_len,
+        env_steps_per_epoch=rollout_len,
         checkpoint=None,
         seed=42,
         env_seed=42,
