@@ -87,10 +87,8 @@ def fake_distributed(monkeypatch):
   Yields a callable ``set_world_size(n)`` so a test can flip the fake world
   size, and restores the real ``DistributedDataParallel`` on teardown.
   """
-  import torch.nn.parallel as tpar
-
   monkeypatch.setattr(distributed, "world_size", lambda: 2)
-  monkeypatch.setattr(tpar, "DistributedDataParallel", _FakeDDP)
+  monkeypatch.setattr(distributed, "DistributedDataParallel", _FakeDDP)
   _FakeDDP.last = None
 
   def set_world_size(n):

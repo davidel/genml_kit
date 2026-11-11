@@ -42,7 +42,11 @@ import logging
 import os
 import random
 
+import torch
 import torch.distributed as dist
+from torch.nn.parallel import DataParallel, DistributedDataParallel
+from torch.utils.data import (BatchSampler, DataLoader, DistributedSampler,
+                              RandomSampler, SequentialSampler, WeightedRandomSampler)
 
 from genml_kit.utils.logging import fatal
 
@@ -55,8 +59,6 @@ def barrier():
 
 def _reduce_device():
   """Pick the device for a collective tensor (CUDA if available, else CPU)."""
-  import torch
-
   if torch.cuda.is_available() and is_distributed():
     return torch.device("cuda", local_rank())
   return torch.device("cpu")
@@ -71,8 +73,6 @@ def all_reduce_sum(value):
   Returns:
       The reduced value: a Python scalar for a scalar input, else a tensor.
   """
-  import torch
-
   if not is_distributed():
     return value
   is_scalar = not torch.is_tensor(value)
@@ -138,8 +138,6 @@ def all_gather_tensor(tensor):
       A tensor of shape ``(world_size * tensor.shape[0], ...)`` on the same
       device as *tensor*.
   """
-  import torch
-
   if not is_distributed():
     return tensor
   t = tensor.to(_reduce_device())
@@ -192,8 +190,6 @@ def broadcast_model_state(model):
   Args:
       model: The model to synchronise, in place.
   """
-  import torch
-
   if not is_distributed():
     return
   device = _reduce_device()
@@ -240,8 +236,6 @@ def all_reduce_gradients(tensors):
       tensors: Iterable of ``torch.Tensor`` -- parameters, or any leaf tensor
           such as SAC's standalone ``log_alpha``.
   """
-  import torch
-
   if not is_distributed():
     return
   grads = [t.grad for t in tensors if t.grad is not None]
@@ -322,8 +316,6 @@ def init_distributed(backend=None):
   if backend is None:
     backend = "nccl" if _cuda_available() else "gloo"
   if backend == "nccl" and _cuda_available():
-    import torch
-
     torch.cuda.set_device(local)
   dist.init_process_group(backend=backend)
   logging.info("Distributed init: backend=%s rank=%d/%d local_rank=%d", backend, rank(),
@@ -351,8 +343,6 @@ def _env_ranks():
 
 
 def _cuda_available():
-  import torch
-
   return torch.cuda.is_available()
 
 
@@ -379,9 +369,6 @@ def wrap_model(model, device=None, *, find_unused_parameters=False, static_graph
   if isinstance(model, DistributedModel):
     return model
 
-  import torch
-  from torch.nn.parallel import DistributedDataParallel
-
   device_ids = None
   if device is not None and torch.device(device).type == "cuda":
     device_ids = [torch.device(device).index or 0]
@@ -396,8 +383,6 @@ def wrap_model(model, device=None, *, find_unused_parameters=False, static_graph
 
 def _is_infra_wrapper(model):
   """Return ``True`` for infrastructure wrappers only (DDP/DataParallel)."""
-  from torch.nn.parallel import DataParallel, DistributedDataParallel
-
   return isinstance(model, (DistributedDataParallel, DataParallel))
 
 
@@ -593,7 +578,6 @@ def make_sampler(dataset,
   """
   if world_size() < 2:
     return None
-  from torch.utils.data import BatchSampler, DistributedSampler
 
   sampler = DistributedSampler(
       dataset,
@@ -658,8 +642,6 @@ class _ShardedWeightedSampler:
   """
 
   def __init__(self, weights, *, seed=0, epoch=0):
-    import torch
-
     self.weights = torch.as_tensor(weights, dtype=torch.double)
     self.num_samples = len(self.weights)
     self.seed = seed
@@ -671,8 +653,6 @@ class _ShardedWeightedSampler:
 
   def _global_order(self):
     """The full, rank-independent index draw for the current epoch."""
-    import torch
-
     generator = torch.Generator().manual_seed(self.seed + self.epoch)
     return torch.multinomial(self.weights,
                              self.num_samples,
@@ -714,12 +694,6 @@ def shard_index_sampler(loader, *, seed=0):
   Returns:
       A sampler to pass as ``sampler=`` when rebuilding the loader.
   """
-  from torch.utils.data import (
-      RandomSampler,
-      SequentialSampler,
-      WeightedRandomSampler,
-  )
-
   sampler = getattr(loader, "sampler", None)
   if isinstance(sampler, WeightedRandomSampler):
     return _ShardedWeightedSampler(sampler.weights, seed=seed)
@@ -761,7 +735,6 @@ def shard_loader(loader, *, seed=0):
   """
   if world_size() < 2:
     return loader
-  from torch.utils.data import DataLoader
 
   kwargs = {
       "num_workers": loader.num_workers,
@@ -791,8 +764,6 @@ def _is_shuffling(loader):
   ``DataLoader`` exposes no ``shuffle`` attribute, so the intent is recovered
   from the sampler it built (``RandomSampler`` means ``shuffle=True``).
   """
-  from torch.utils.data import RandomSampler
-
   return isinstance(loader.sampler, RandomSampler)
 
 
