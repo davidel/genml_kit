@@ -10,7 +10,7 @@ import torch
 from genml_kit.losses import DEFAULT_LOSS, LOSSES, load_loss
 from genml_kit.losses.focal import CombinedFocalLoss
 from genml_kit.methods.classification import ClassificationMethod
-from genml_kit.utils.args import json_dict_type
+from genml_kit.utils.shared_args import json_dict_type
 from tests.cli_args import train_args
 
 
