@@ -1569,7 +1569,7 @@ The neural classifier makes decisions through its head. The XGBoost option
 takes the encoder representation $`h = f_\theta(x)`$ instead and fits an
 ensemble of decision trees to those vectors.
 Reference: Chen & Guestrin, [XGBoost: A Scalable Tree Boosting System](https://arxiv.org/abs/1603.02754), KDD 2016.
-A tree partitions feature space with rules such as $`h_{37} < t`$ (comparing
+A tree partitions feature space with rules such as $`h_{37} \lt t`$ (comparing
 the 37th feature of $`h`$ against a learned threshold $`t`$); boosting adds
 trees sequentially so each new tree focuses on errors left by previous trees.
 This can work well when the dataset is small

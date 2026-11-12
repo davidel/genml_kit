@@ -150,7 +150,7 @@ a top-1 classifier.
 ## 4. Temperature And The Softmax
 
 The tempered softmax of a logit vector $`z \in \mathbb{R}^{C}`$ at
-temperature $`T > 0`$ is
+temperature $`T \gt 0`$ is
 
 $$
 \large
@@ -512,7 +512,7 @@ $$
 
 ### The normalisation is scale-invariant (proof)
 
-For any scalar $`c > 0`$:
+For any scalar $`c \gt 0`$:
 
 $$
 \large

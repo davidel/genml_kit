@@ -3,7 +3,7 @@
 
 GitHub runs its Markdown parser *before* handing math to KaTeX.  A number
 of otherwise-innocent byte patterns therefore render as raw text instead of
-math.  This script implements the checks R1-R10 documented in
+math.  This script implements the checks R1-R11 documented in
 ``docs/MARKDOWN_LATEX.txt`` and reports violations as::
 
     file:line:col: [R<n>] message
@@ -305,14 +305,29 @@ def _check_r7(path, idx, line, spans, next_line, findings):
   stripped = line.rstrip()
   if stripped.endswith(_CLOSE) and next_line is not None:
     nxt = next_line.lstrip()
-    if nxt.startswith('**') or nxt.startswith('*'):
+    if nxt.startswith(('**', '*')):
       _emit(findings, path, idx, max(0,
                                      len(stripped) - 2), 'R7',
             'math-close at end of line followed by emphasis on next line')
 
 
+def _find_bare_rel(text, ch):
+  """Offsets of bare '<' or '>' not part of <=, >=, ->, <-."""
+  offsets = []
+  for i, c in enumerate(text):
+    if c == ch:
+      prev_c = text[i - 1] if i > 0 else ''
+      next_c = text[i + 1] if i + 1 < len(text) else ''
+      if ch == '<' and (prev_c == '<' or next_c in ('=', '-', '<')):
+        continue
+      if ch == '>' and (prev_c in ('=', '-', '>') or next_c in ('=', '>')):
+        continue
+      offsets.append(i)
+  return offsets
+
+
 def _check_math_unicode(path, idx, line, spans, findings):
-  """R9 - raw unicode math symbols / ASCII spellings in math position."""
+  """R9 - raw unicode math symbols / ASCII spellings / bare < > in math position."""
   for kind, start, end in spans:
     if kind != MATH:
       continue
@@ -327,6 +342,11 @@ def _check_math_unicode(path, idx, line, spans, findings):
         _emit(findings, path, idx, start + pos, 'R9',
               f'ASCII {token!r} in math; use {repl}')
         pos = seg.find(token, pos + 1)
+    for ch, repl in (('<', '\\lt'), ('>', '\\gt')):
+      entity = '&lt;' if ch == '<' else '&gt;'
+      for pos in _find_bare_rel(seg, ch):
+        _emit(findings, path, idx, start + pos, 'R9',
+              f'bare {ch!r} in math renders as {entity} in KaTeX; use {repl}', True)
 
 
 def _display_escape_offsets(line):
@@ -372,6 +392,11 @@ def _check_display_line(path, idx, line, findings):
     while pos != -1:
       _emit(findings, path, idx, pos, 'R9', f'ASCII {token!r} in math; use {repl}')
       pos = line.find(token, pos + 1)
+  for ch, repl in (('<', '\\lt'), ('>', '\\gt')):
+    entity = '&lt;' if ch == '<' else '&gt;'
+    for pos in _find_bare_rel(line, ch):
+      _emit(findings, path, idx, pos, 'R9',
+            f'bare {ch!r} in math renders as {entity} in KaTeX; use {repl}', True)
 
 
 def _check_display_block(path, lines, roles, findings):
@@ -408,6 +433,61 @@ def _check_inline_r8(path, idx, line, spans, findings):
       pos = seg.find('\\\\,', pos + 1)
 
 
+def _check_r11(path, lines, roles, findings):
+  """R11 - GitHub page-level math complexity budget (y.total() <= 2000)."""
+  toggles = [
+      i for i, role in enumerate(roles)
+      if role == 'display' and DISPLAY_TOGGLE_RE.match(lines[i])
+  ]
+  display_blocks = list(zip(toggles[0::2], toggles[1::2]))
+  total_y = 0
+  math_idx = 0
+  limit_reported = False
+  i = 0
+  while i < len(lines):
+    disp = next((b for b in display_blocks if b[0] == i), None)
+    if disp:
+      start, end = disp
+      body = '\n'.join(lines[start:end + 1])
+      e = body.count('{') + 1
+      if e > 1000:
+        _emit(findings, path, start, 0, 'R11',
+              f'single display block has {e - 1} braces (GitHub limit is 1000)')
+      total_y += e
+      math_idx += 1
+      if total_y > 2000 and not limit_reported:
+        _emit(
+            findings, path, start, 0, 'R11',
+            f'page math complexity budget exceeded ({total_y} > 2000 at display '
+            f'block #{math_idx}); subsequent math expressions fail on GitHub '
+            'with "Unable to render expression."')
+        limit_reported = True
+      i = end + 1
+      continue
+    if roles[i] == 'text':
+      line = lines[i]
+      spans = split_inline(line)
+      for kind, start, end in spans:
+        if kind == MATH and line[end - 2:end] == _CLOSE:
+          span_body = line[start + 2:end - 2]
+          e = span_body.count('{') + 1
+          if e > 1000:
+            _emit(
+                findings, path, i, start, 'R11',
+                f'single inline math expression has {e - 1} braces '
+                '(GitHub limit is 1000)')
+          total_y += e
+          math_idx += 1
+          if total_y > 2000 and not limit_reported:
+            _emit(
+                findings, path, i, start, 'R11',
+                f'page math complexity budget exceeded ({total_y} > 2000 at '
+                f'expression #{math_idx} "${span_body}$"); subsequent math '
+                'expressions fail on GitHub with "Unable to render expression."')
+            limit_reported = True
+    i += 1
+
+
 def check_file(path):
   """Return the list of findings for ``path``."""
   findings = []
@@ -434,6 +514,7 @@ def check_file(path):
     _check_inline_r8(path, idx, line, spans, findings)
     _check_math_unicode(path, idx, line, spans, findings)
   _check_display_block(path, lines, roles, findings)
+  _check_r11(path, lines, roles, findings)
   findings.sort(key=lambda f: (f.line, f.col, f.rule))
   return findings
 
@@ -488,8 +569,15 @@ def _fix_line(line, findings_on_line, in_display=False):
       run = 0
       while col + run < len(new) and new[col + run] == '\\':
         run += 1
-      new = (new[:col] + '\\' + new[col:] if in_display
-             else new[:col] + new[col + 1:])
+      new = (new[:col] + '\\' + new[col:] if in_display else new[:col] + new[col + 1:])
+    elif f.rule == 'R9':
+      ch = new[col]
+      if ch in ('<', '>'):
+        repl = '\\lt' if ch == '<' else '\\gt'
+        nxt = new[col + 1] if col + 1 < len(new) else ''
+        if nxt.isalnum():
+          repl += ' '
+        new = new[:col] + repl + new[col + 1:]
   return new
 
 
@@ -564,8 +652,9 @@ def _needs_normalization(text):
     return True
   if any(token in text for token in (t for t, _ in ASCII_MATH)):
     return True
-  return bool(R4_RE.search(text) or _OPERATORNAME_RE.search(text) or
-              '*' in text)
+  if _find_bare_rel(text, '<') or _find_bare_rel(text, '>'):
+    return True
+  return bool(R4_RE.search(text) or _OPERATORNAME_RE.search(text) or '*' in text)
 
 
 def _normalize_math(text):
@@ -584,6 +673,14 @@ def _normalize_math(text):
     if token in new:
       new = new.replace(token, repl)
       notes.append(f'{token!r} -> {repl}')
+  for ch, repl in (('<', '\\lt'), ('>', '\\gt')):
+    indices = _find_bare_rel(new, ch)
+    if indices:
+      for idx in reversed(indices):
+        nxt = new[idx + 1] if idx + 1 < len(new) else ''
+        add_space = ' ' if nxt.isalnum() else ''
+        new = new[:idx] + repl + add_space + new[idx + 1:]
+      notes.append(f'bare {ch!r} -> {repl}')
   new, n = R4_RE.subn(lambda m: '^{\\ast}', new)
   if n:
     notes.append('raw asterisk superscript -> ^{\\ast}')
@@ -611,9 +708,7 @@ def _emit_display(clean):
 
 def _verify_local(text):
   """Run the checks on synthesized bytes; return any findings."""
-  with tempfile.NamedTemporaryFile('w',
-                                   suffix='.md',
-                                   delete=False,
+  with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False,
                                    encoding='utf-8') as fh:
     fh.write(text + '\n')
     path = fh.name
@@ -625,7 +720,7 @@ def _verify_local(text):
 
 def _extract_math(html):
   """Return the math payload GitHub echoed, or ``None``."""
-  m = re.search(r'<math-renderer[^>]*>(.*?)</math-renderer>', html, re.S)
+  m = re.search(r'<math-renderer[^>]*>(.*?)</math-renderer>', html, re.DOTALL)
   return m.group(1) if m else None
 
 
@@ -663,6 +758,9 @@ def emit_math(text, context, strict=False, remote=False):
       raise ValueError('--strict requires clean LaTeX input')
   else:
     clean, notes = _normalize_math(text)
+  if clean.count('{') > 1000:
+    raise ValueError(
+        'expression exceeds GitHub single-expression limit (1000 open braces)')
   if context == 'inline':
     out = _emit_inline(clean)
   elif context == 'display':

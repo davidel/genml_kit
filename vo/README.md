@@ -152,7 +152,7 @@ exactly, inside it.
 **Check your understanding.**  Why is a pure "zoom in" (camera moves straight
 toward a flat ground plane, staying perpendicular to it) a similarity and not,
 say, an affine transform?  *Answer: zooming scales every image distance from
-the image center by the same factor — that is exactly $`s > 0`$ with $`\theta = 0`$
+the image center by the same factor — that is exactly $`s \gt 0`$ with $`\theta = 0`$
 and $`t = 0`$, applied about the origin.  This falls inside the similarity
 family.  Affine would be needed only if horizontal and vertical scales
 differed — which a rigid camera cannot produce on a flat ground.*
@@ -226,7 +226,7 @@ $$
 \large
 x' = s \\, R_\theta \\, x + t,
 \qquad
-s > 0,\quad \theta \in (-\pi, \pi],\quad t = (t_x, t_y).
+s \gt 0,\quad \theta \in (-\pi, \pi],\quad t = (t_x, t_y).
 $$
 
 The translation $`t`$ is applied *after* scale and rotation.  Why this order?
@@ -506,11 +506,11 @@ $$
 because $`\mathop{\mathrm{atan2}}(\sin, \cos)`$ recovers the angle whose sine and cosine are
 $`c/s`$ and $`a/s`$.  The translation is simply the third column.
 
-**The reflection trap.**  `atan2` only gives the right $`\theta`$ when $`\det A > 0`$,
-i.e. when $`A`$ is a true rotation-scaling.  If $`\det A = ad - bc < 0`$, the
+**The reflection trap.**  `atan2` only gives the right $`\theta`$ when $`\det A \gt 0`$,
+i.e. when $`A`$ is a true rotation-scaling.  If $`\det A = ad - bc \lt 0`$, the
 linear part contains a *reflection* (a mirror), and $`\mathop{\mathrm{atan2}}(c, a)`$ returns an
 angle that is off by a sign — because a reflected frame is not a rotation.
-A rigid drone camera can never produce a mirror, so $`\det A < 0`$ is a *bug
+A rigid drone camera can never produce a mirror, so $`\det A \lt 0`$ is a *bug
 signal*: it means the matrix was built wrong, or the estimate has collapsed.
 The code checks the determinant and refuses to interpret a reflected matrix
 as a similarity; `test_umeyama_rejects_reflection` pins that behavior.
@@ -692,7 +692,7 @@ $`K \tilde{p}_{cam}`$.  The meaning of the parameters:
 model is not an arbitrary formula — it is the geometry of *similar triangles*.
 Place the pinhole at the origin with the optical axis along $`+z`$ and the sensor
 plane at $`z = f`$ (a distance $`f`$ behind the pinhole; for real lenses, $`f`$ is
-the focal length).  A world point $`P = (X, Y, Z)`$ with $`Z > 0`$ in front of the
+the focal length).  A world point $`P = (X, Y, Z)`$ with $`Z \gt 0`$ in front of the
 camera emits a ray through the pinhole, which lands on the sensor at the point
 where $`z = f`$ intersects the line from $`P`$ through the origin.
 
@@ -1234,7 +1234,7 @@ does not pin down whether the best fit is a rotation or a *reflection*.
 If $`d = -1`$ the classical SVD answer would silently produce a mirrored fit;
 the guard flips the sign to keep $`R`$ a genuine rotation.  We only ever want
 rotations — a drone cannot mirror its own view — so the guard is not a
-cosmetic detail but a correctness requirement.  This is the same $`\det < 0`$
+cosmetic detail but a correctness requirement.  This is the same $`\det \lt 0`$
 reflection trap seen in §5, surfacing here as a *protection* rather than a
 detection.
 
@@ -1408,7 +1408,7 @@ similarity.
 Why is this dramatically better than regressing parameters?
 
 1. **Validity for free.**  Any four deltas produce *a* similarity (via
-   Umeyama) with $`s > 0`$ and a genuine rotation.  A direct 4-vector regression
+   Umeyama) with $`s \gt 0`$ and a genuine rotation.  A direct 4-vector regression
    must learn — from data, imperfectly — not to emit $`s \le 0`$ or $`\theta`$ outside
    $`(- \pi, \pi]`$.  Here validity is guaranteed *by construction*, for every
    possible input.
@@ -1618,12 +1618,12 @@ the update well-defined; this is what the code's `l1_loss` uses.)
 
 **Why SmoothL1 blends them.**  L1's constant gradient is bad near zero (it
 never decays, causing slow convergence on small residuals), so the practical
-compromise — SmoothL1 — is L2 for $`|e| \le 1`$ and L1 for $`|e| > 1`$:
+compromise — SmoothL1 — is L2 for $`|e| \le 1`$ and L1 for $`|e| \gt 1`$:
 
 $$
 \large
 \mathrm{SmoothL1}(e) =
-\begin{cases} \tfrac12 e^2 & |e| \le 1 \\\\ |e| - \tfrac12 & |e| > 1 \end{cases}.
+\begin{cases} \tfrac12 e^2 & |e| \le 1 \\\\ |e| - \tfrac12 & |e| \gt 1 \end{cases}.
 $$
 
 Its gradient is $`e`$ for $`|e| \le 1`$ and $`\pm 1`$ beyond — continuous at the
@@ -1758,7 +1758,7 @@ reliable region of $`I_{b} \circ M^{-1}`$.  The reason is a direct consequence o
 the warp may push content off the frame, and zero-padded samples are
 *not* content; including them would teach the network to align with the zero
 border instead of the scene.  Technically, a mask is computed over
-$`(I_{a} > 0) \land (warped > 0)`$ and the zNCC is evaluated only on those pixels.
+$`(I_{a} \gt 0) \land (warped \gt 0)`$ and the zNCC is evaluated only on those pixels.
 This is the "padding policy and loss mask must agree" rule of §11.3, enforced
 in code.
 
@@ -1989,7 +1989,7 @@ proofs, not assertions.
 
 **Scale theorem.**  Work in 1-D for clarity (2-D is the same argument per
 axis).  Let $`g(x) = I(x / s)`$ be the image scaled by $`s`$ (a change of
-variable with $`s > 0`$).  Its Fourier transform is
+variable with $`s \gt 0`$).  Its Fourier transform is
 
 $$
 \large
@@ -2757,9 +2757,9 @@ is the defense already built into the system.
   differ in linear units; and nothing in a raw linear regression prevents a
   negative output.
 - **Why the design handles it.**  Scale is stored and regressed in *log*
-  space: $`s = e^{\mathrm{log} s} > 0`$ always, and log-space errors are symmetric
+  space: $`s = e^{\mathrm{log} s} \gt 0`$ always, and log-space errors are symmetric
   relative errors (§4.1, §16.2).  The Umeyama solve additionally guarantees
-  $`s > 0`$ by construction (§13).
+  $`s \gt 0`$ by construction (§13).
 
 ## B.4 Forward-Warping Holes
 

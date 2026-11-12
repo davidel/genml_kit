@@ -143,6 +143,12 @@ Details for each are in sections 4-9.
   \\  single backslash row break     rows collapse      write \\\\ (in bmatrix etc.)
   \operatorname                      not supported       use \mathrm{clip} etc.
   raw unicode math symbols           varies              use \pi \theta \gamma \to \le
+  bare < or > in math position       GitHub turns to     use \lt or \gt
+                                       &lt; or &gt;,
+                                       KaTeX fails
+  document math budget > 2000        "Unable to render   keep total <= 2000 (1 + braces
+  braces/tokens per page              expression." on     per formula); split large docs
+                                      all later formulas  into modular files or code spans
 
 --------------------------------------------------------------------------------
 4.  HAZARD:  THE ASTERISK  *  (emphasis)
@@ -354,12 +360,24 @@ NOT universal; it depends on which of the two math forms you used.
     fence syntax, e.g.  `$$\n\large\n...\n$$`  inside backticks.
 
 --------------------------------------------------------------------------------
-9.  HAZARD:  NAMED OPERATORS AND UNICODE
+9.  HAZARD:  NAMED OPERATORS, UNICODE, AND COMPARISON OPERATORS (<, >)
 --------------------------------------------------------------------------------
 
   - GitHub's renderer does NOT support \operatorname.  Use upright
     \mathrm{...} for multi-letter operator names:
         \mathrm{clip}, \mathrm{KL}, \arg\max, \max, \mathbb{E}
+
+  - Bare `<` and `>` must NEVER appear directly in math position (inline
+    or display).  CommonMark's HTML sanitizer escapes `<` and `>` into
+    `&lt;` and `&gt;`.  When KaTeX evaluates the formula in the browser,
+    it interprets the `&` as a tabular alignment column separator,
+    triggering a fatal `KaTeX parse error: Expected 'EOF', got '&'`.
+    The entire formula fails to render and falls back to raw text.
+    Always use LaTeX macros:
+        \lt  NOT  bare <
+        \gt  NOT  bare >
+        \le  NOT  <= or a unicode <=
+        \ge  NOT  >= or a unicode >=
 
   - All math symbols must be LaTeX, never raw unicode, in math position:
         \pi  NOT  the pi character
@@ -367,8 +385,40 @@ NOT universal; it depends on which of the two math forms you used.
         \gamma  NOT  gamma character
         \to  NOT  an arrow character
         \le  NOT  <= or a unicode <=
+        \ge  NOT  >= or a unicode >=
     Prose may use normal unicode punctuation (em-dash, section sign,
     ellipsis, etc.).
+
+--------------------------------------------------------------------------------
+9.1.  HAZARD:  PAGE-LEVEL MATH COMPLEXITY BUDGET (2000 BRACES / ELEMENTS)
+--------------------------------------------------------------------------------
+
+GitHub's client-side `<math-renderer>` web component enforces a hard limit
+across all math elements rendered on a single page:
+
+        let e = this.textContent.split("{").length;
+        if (y.update(this.#e, e), y.total() > 2e3 || e > 1e3)
+            return void this.#l();   // emits "Unable to render expression."
+
+Where:
+  - `y.total()` is a singleton running total of `1 + count('{')` across ALL
+    math elements on the page.
+  - `e > 1e3`: any single math expression containing > 1000 open braces fails.
+  - `y.total() > 2e3`: the moment the cumulative brace/formula count across the
+    ENTIRE page crosses 2000, GitHub instantly aborts rendering for that
+    formula AND ALL SUBSEQUENT FORMULAS on the page.
+  - Every single formula after the threshold fails with:
+        "Unable to render expression."
+    regardless of how simple or syntactically correct it is!
+
+FIX:
+  1) Keep total page complexity budget <= 2000 (ideally <= 1500 for safety margin).
+  2) When a project has extensive mathematical foundations (multiple probes,
+     algorithms, or dataset derivations), modularize the documentation:
+     split into `docs/theory_*.md` files linked from `README.md`.
+  3) Do not wrap trivial numbers (`65,504`), coordinates (`(cx, cy)`), or
+     simple variable names without LaTeX operators in `$``...`$` spans; use
+     standard Markdown code spans (``` `...` ```) instead.
 
 --------------------------------------------------------------------------------
 10.  ABSOLUTE RULES - CHECKLIST BEFORE COMMITTING DOCS WITH MATH
@@ -393,7 +443,9 @@ NOT universal; it depends on which of the two math forms you used.
     DOUBLE-backslashed inside $$ blocks (an odd run loses one level and
     renders bare -- set braces vanish, pipes become literal bars)
 [ ] named operators use \mathrm (never \operatorname)
+[ ] zero bare < or > in math position (use \lt and \gt to prevent HTML &lt;/&gt; KaTeX crashes)
 [ ] no raw unicode math symbols
+[ ] document math complexity budget: total braces + expressions <= 2000 (split massive theory/math docs into modular docs if exceeded)
 [ ] symbol table + formulas verified by running the verification
     scripts below on the file(s)
 
@@ -435,9 +487,10 @@ The checks it performs, in the script's own numbering:
        line followed by emphasis on the next line
   R8   display ``\\,`` that must be ``\\\\,``; inline ``\\\\,`` that must
        be ``\\,``
-  R9   ``\\operatorname``; raw unicode math symbols and ASCII
-       ``>= <= ->`` in math position
+  R9   ``\\operatorname``; raw unicode math symbols; ASCII
+       ``>= <= ->``; and bare ``< / >`` in math position
   R10  a ``$$`` line-start ``|...|`` absolute value
+  R11  document-level math complexity budget exceeded (> 2000 braces / math tokens) or single expression > 1000 braces
 
 Fenced code blocks and inline code spans are literals: the linter never
 checks them, which is also how a document may legitimately *show* a
@@ -473,8 +526,8 @@ synthesized output and must report nothing.
 Input handling:
 
   --strict         require already-clean LaTeX; anything the normalizer
-                   would rewrite (raw unicode, ``>= <= ->``, ``^*``,
-                   ``\\operatorname``) is an error instead.
+                   would rewrite (raw unicode, ``>= <= ->``, bare ``< >``,
+                   ``^*``, ``\\operatorname``) is an error instead.
   (default)        those unambiguous spellings are normalized and each
                    rewrite is reported on stderr.  A bare ``*`` is always
                    an error: it is ambiguous (use ``\\cdot``, ``\\times``,

@@ -80,7 +80,7 @@ this chapter once, slowly.
 ### 0.1 The Law of Total Expectation
 
 **Theorem (law of total expectation).**  Let $`X`$ be a random variable and
-$`Y`$ a random variable (or vector).  If $`\mathbb{E}[|X|] < \infty`$, then
+$`Y`$ a random variable (or vector).  If $`\mathbb{E}[|X|] \lt \infty`$, then
 
 $$
 \large
@@ -146,7 +146,7 @@ $$
 $$
 
 The third equality uses $`\nabla_\theta \log p = (\nabla_\theta p) / p`$
-(valid wherever $`p > 0`$; the standard regularity conditions exclude
+(valid wherever $`p \gt 0`$; the standard regularity conditions exclude
 atoms).  QED
 
 **How we use it.**  It is the entire engine of the policy-gradient theorem
@@ -180,7 +180,7 @@ $$
 **Proof.**  *Existence by construction.*  Pick any $`x_0`$ and iterate.
 Repeated application of the contraction inequality gives
 $`\lVert x_{k+1} - x_k \rVert \le \gamma^k \lVert x_1 - x_0 \rVert`$.  For
-$`m > n`$, the triangle inequality telescopes:
+$`m \gt n`$, the triangle inequality telescopes:
 
 $$
 \large
@@ -211,7 +211,7 @@ $$
 \\;\le\\; \gamma\\, \left\lVert x^{\ast} - y^{\ast} \right\rVert.
 $$
 
-Since $`\gamma < 1`$, the only possibility is $`\lVert x^{\ast} - y^{\ast} \rVert = 0`$,
+Since $`\gamma \lt 1`$, the only possibility is $`\lVert x^{\ast} - y^{\ast} \rVert = 0`$,
 i.e. $`x^{\ast} = y^{\ast}`$.  The geometric rate follows by
 applying the contraction to the pair $`(x_k, x^{\ast})`$ repeatedly.  QED
 
@@ -223,7 +223,7 @@ argument for the soft Bellman operator.
 ### 0.4 The Maximum-Entropy (KL-Duality) Result
 
 **Lemma.**  Fix a function $`Q(a)`$ over a finite action set and a
-temperature $`\alpha > 0`$.  Among all probability distributions $`\pi`$
+temperature $`\alpha \gt 0`$.  Among all probability distributions $`\pi`$
 over actions, the Gibbs distribution
 
 $$
@@ -387,7 +387,7 @@ G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots
 = \sum_{k=0}^{\infty} \gamma^k R_{t+k+1}.
 $$
 
-**Why the discount $`\gamma < 1`$ is not a hack.**  Two reasons, one
+**Why the discount $`\gamma \lt 1`$ is not a hack.**  Two reasons, one
 mathematical and one economic:
 
 - **Convergence.**  If every reward is bounded, $`|R_t| \le R_{\max}`$, the
@@ -396,12 +396,12 @@ mathematical and one economic:
 $$
 \large
 \lvert G_t \rvert \\;\le\\; \sum_{k=0}^{\infty} \gamma^k R_{\max}
-= \frac{R_{\max}}{1 - \gamma} < \infty.
+= \frac{R_{\max}}{1 - \gamma} \lt \infty.
 $$
 
   **Proof.**  The partial sums satisfy
   $`S_n = R_{\max}(1 - \gamma^{n+1})/(1-\gamma)`$, and
-  $`\gamma^{n+1} \to 0`$ as $`n \to \infty`$ because $`0 \le \gamma < 1`$.
+  $`\gamma^{n+1} \to 0`$ as $`n \to \infty`$ because $`0 \le \gamma \lt 1`$.
   Hence $`S_n \to R_{\max}/(1-\gamma)`$.  Without discounting
   ($`\gamma = 1`$) the infinite-horizon total diverges unless the process
   terminates almost surely; discounting makes *every* infinite-horizon
@@ -624,7 +624,7 @@ absolute value by the global sup-norm; the final equality uses that the
 double sum of probabilities equals 1.
 
 **Consequences (Banach fixed-point theorem, proved in Section 0.3).**
-Because $`\gamma < 1`$, $`\mathcal{T}^\pi`$ is a contraction on a complete
+Because $`\gamma \lt 1`$, $`\mathcal{T}^\pi`$ is a contraction on a complete
 metric space, so by Banach's theorem it has a **unique fixed point**, and
 iteration from any starting $`V_0`$ converges to it at a geometric rate:
 
@@ -898,7 +898,7 @@ $$
 \large
 \sum_{t=0}^{\infty} \alpha_t(s, a) = \infty,
 \qquad
-\sum_{t=0}^{\infty} \alpha_t(s, a)^2 < \infty
+\sum_{t=0}^{\infty} \alpha_t(s, a)^2 \lt \infty
 \qquad \text{(for every } s, a \text{ visited infinitely often).}
 $$
 
@@ -911,7 +911,7 @@ perturbation yields the standard convergence theorem (Jaakkola, Jordan, and
 Singh 1994; Watkins and Dayan 1992; see Appendix D).
 
 **Theorem (Q-learning convergence).**  For a finite MDP, if
-$`\sum_t \alpha_t(s,a) = \infty`$ and $`\sum_t \alpha_t(s,a)^2 < \infty`$
+$`\sum_t \alpha_t(s,a) = \infty`$ and $`\sum_t \alpha_t(s,a)^2 \lt \infty`$
 a.s. for every state–action pair visited infinitely often (e.g. with
 $`\varepsilon`$-greedy exploration, where every pair is visited i.o.), then
 $`Q_t \to Q^{\ast}`$ almost surely.
@@ -919,7 +919,7 @@ $`Q_t \to Q^{\ast}`$ almost surely.
 **Why exploration matters here.**  The step-size conditions alone are not
 enough: the pair $`(s, a)`$ must actually be *visited* infinitely often for
 its estimate to keep being updated.  This is exactly what
-$`\varepsilon`$-greedy (or any policy with $`\varepsilon > 0`$) guarantees,
+$`\varepsilon`$-greedy (or any policy with $`\varepsilon \gt 0`$) guarantees,
 and it is the mathematical reason RL separates *behaviour* policy from
 *target* policy: the behaviour policy must cover all actions, while the
 target policy is greedy.
@@ -1555,11 +1555,11 @@ L^{\text{CLIP}}(\theta)
   \Bigr) \right].
 $$
 
-**Why the min does what we want.**  When $`A_t > 0`$ (the action was better
+**Why the min does what we want.**  When $`A_t \gt 0`$ (the action was better
 than average), the objective wants $`r_t(\theta)`$ to be large — but only up
 to $`1 + \varepsilon`$; beyond that the clipped term is constant, so the min
 *pushes the gradient to zero* rather than encouraging the policy to change
-too much.  When $`A_t < 0`$ (the action was worse), the objective wants
+too much.  When $`A_t \lt 0`$ (the action was worse), the objective wants
 $`r_t`$ small — the min *keeps it from collapsing toward $`0`$ unboundedly
 (the floor $`1 - \varepsilon`$).  In both cases the surrogate is a
 lower bound
@@ -1573,7 +1573,7 @@ $$
 A_t\\,
 \begin{cases}
 \nabla_\theta r_t(\theta), & r_t(\theta) \in (1-\varepsilon,\\; 1+\varepsilon)
-  \\;\text{or}\\; (A_t < 0, r_t(\theta) > 1+\varepsilon) \\
+  \\;\text{or}\\; (A_t \lt 0, r_t(\theta) \gt 1+\varepsilon) \\
 0, & \text{otherwise (clipped)}.
 \end{cases}
 $$
@@ -1626,7 +1626,7 @@ J(\theta) \\;=\\;
 \right],
 $$
 
-where $`\alpha > 0`$ trades reward vs. exploration (the **temperature**).
+where $`\alpha \gt 0`$ trades reward vs. exploration (the **temperature**).
 Maximizing entropy keeps the policy stochastic and exploratory, which (a)
 improves exploration, (b) makes the policy robust to model error, and
 (c) can be warmer-started toward multi-modal behaviors.  SAC makes

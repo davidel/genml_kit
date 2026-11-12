@@ -192,12 +192,55 @@ class TestR9UnicodeAndAscii:
     text = "\n$$\n\\large\nx \u2264 y\n$$\n\n"
     assert "R9" in _rules(_check(tmp_path, text))
 
+  def test_bare_lt_in_inline_flagged(self, tmp_path):
+    assert "R9" in _rules(_check(tmp_path, "$`x < y`$\n"))
+
+  def test_bare_gt_in_inline_flagged(self, tmp_path):
+    assert "R9" in _rules(_check(tmp_path, "$`x > y`$\n"))
+
+  def test_bare_lt_in_display_flagged(self, tmp_path):
+    text = "\n$$\n\\large\nx < y\n$$\n\n"
+    assert "R9" in _rules(_check(tmp_path, text))
+
+  def test_bare_gt_in_display_flagged(self, tmp_path):
+    text = "\n$$\n\\large\nx > y\n$$\n\n"
+    assert "R9" in _rules(_check(tmp_path, text))
+
+  def test_shift_operators_not_flagged(self, tmp_path):
+    # <<, >> and <- are unambiguous and must not trip the bare < / > check.
+    for spelling in ("<<", ">>", "<-"):
+      text = f"$`x {spelling} y`$\n"
+      assert _check(tmp_path, text) == [], spelling
+
+  def test_lt_gt_macros_clean(self, tmp_path):
+    assert _check(tmp_path, "$`x \\lt y \\gt z`$\n") == []
+
+  def test_bare_lt_in_prose_clean(self, tmp_path):
+    assert _check(tmp_path, "a < b and c > d\n") == []
+
 
 class TestR10AbsoluteValue:
 
   def test_line_start_pipe_in_display_flagged(self, tmp_path):
     text = "\n$$\n\\large\n|a| \\le r\n$$\n\n"
     assert "R10" in _rules(_check(tmp_path, text))
+
+
+class TestR11MathBudget:
+
+  def test_single_display_expression_over_limit_flagged(self, tmp_path):
+    text = "\n$$\n\\large\n" + "{" * 1000 + "\n$$\n\n"
+    assert "R11" in _rules(_check(tmp_path, text))
+
+  def test_single_inline_expression_over_limit_flagged(self, tmp_path):
+    assert "R11" in _rules(_check(tmp_path, "$`" + "{" * 1000 + "`$\n"))
+
+  def test_page_total_over_budget_flagged(self, tmp_path):
+    block = "\n$$\n\\large\n" + "{" * 700 + "\n$$\n\n"
+    assert "R11" in _rules(_check(tmp_path, block * 3))
+
+  def test_small_page_clean(self, tmp_path):
+    assert _check(tmp_path, "\n$$\n\\large\na + b\n$$\n\n") == []
 
 
 class TestFix:
@@ -226,6 +269,32 @@ class TestFix:
     path = _write(tmp_path, text)
     check_md_math.apply_fixes(path, check_md_math.check_file(path))
     assert Path(path).read_text(encoding="utf-8") == text
+
+  def test_fix_rewrites_bare_relational_operators(self, tmp_path):
+    path = _write(tmp_path, "$`a < b`$ and $`c > d`$\n")
+    check_md_math.apply_fixes(path, check_md_math.check_file(path))
+    assert Path(path).read_text(encoding="utf-8") == "$`a \\lt b`$ and $`c \\gt d`$\n"
+    assert check_md_math.check_file(path) == []
+
+  def test_fix_spaces_control_word_before_alnum(self, tmp_path):
+    path = _write(tmp_path, "$`a <b`$\n")
+    check_md_math.apply_fixes(path, check_md_math.check_file(path))
+    assert Path(path).read_text(encoding="utf-8") == "$`a \\lt b`$\n"
+
+
+class TestEmit:
+
+  def test_emit_rejects_oversized_expression(self):
+    try:
+      check_md_math.emit_math("{" * 1001, "inline")
+    except ValueError as exc:
+      assert "1000" in str(exc)
+    else:
+      raise AssertionError("oversized expression was not rejected")
+
+  def test_emit_normalizes_bare_relational_operators(self):
+    out, _ = check_md_math.emit_math("a < b", "inline")
+    assert out == "$`a \\lt b`$"
 
 
 class TestCli:
