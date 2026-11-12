@@ -34,7 +34,8 @@ def train_xgboost_on_backbone(train_ds,
                               min_child_weight=1,
                               gamma=0.0,
                               reg_alpha=0.0,
-                              random_state=42):
+                              random_state=42,
+                              n_jobs=None):
   """Train XGBoost on top of backbone features extracted from a model.
 
   Loads the best checkpoint found under *checkpoint_dir* into a fresh
@@ -69,6 +70,8 @@ def train_xgboost_on_backbone(train_ds,
       gamma: XGBoost min split loss.
       reg_alpha: XGBoost L1 regularization.
       random_state: Seed for XGBoost's row/column sampling.
+      n_jobs: Number of parallel threads XGBoost may use; ``None`` (default)
+          lets XGBoost choose (one thread per core).
   """
   from genml_kit.io.checkpointing import select_best_checkpoint
   from genml_kit.training.model_utils import (
@@ -134,7 +137,8 @@ def train_xgboost_on_backbone(train_ds,
                               gamma=gamma,
                               reg_alpha=reg_alpha,
                               use_gpu=use_gpu,
-                              random_state=random_state)
+                              random_state=random_state,
+                              n_jobs=n_jobs)
 
     # 6. Evaluate on val set
     val_metrics = eval_xgboost(xgb_model,

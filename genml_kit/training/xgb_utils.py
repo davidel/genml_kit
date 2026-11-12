@@ -19,7 +19,8 @@ def train_xgboost(train_features,
                   gamma=0.0,
                   reg_alpha=0.0,
                   use_gpu=False,
-                  random_state=42):
+                  random_state=42,
+                  n_jobs=None):
   """Train an XGBoost classifier on backbone features.
 
   Args:
@@ -35,6 +36,10 @@ def train_xgboost(train_features,
       reg_alpha: L1 regularization term.
       use_gpu: If True, train on GPU with tree_method='hist' and device='cuda'.
       random_state: Seed for XGBoost's row/column sampling.
+      n_jobs: Number of parallel threads XGBoost may use.  ``None`` (default)
+          lets XGBoost pick (one thread per core), which is right for real
+          training.  Tests pin this to a small value to avoid oversubscribing
+          the host's process/thread budget.
 
   Returns:
       Fitted XGBClassifier.
@@ -54,6 +59,7 @@ def train_xgboost(train_features,
       "gamma": gamma,
       "reg_alpha": reg_alpha,
       "random_state": random_state,
+      "n_jobs": n_jobs,
       "verbosity": 0,
   }
   if use_gpu:
