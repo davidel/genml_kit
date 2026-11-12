@@ -10,9 +10,12 @@ scanning, and corpus-wide features (class weights, weighted/balanced samplers)
 are refused.
 """
 
+import pickle
+
 import numpy as np
 import pytest
 from PIL import Image
+from torch.utils.data import DataLoader, IterableDataset
 
 import datasets
 
@@ -55,6 +58,14 @@ def _untyped_stream(n=30):
                                                      "image": datasets.Image(),
                                                      "label": datasets.Value("string"),
                                                  }))
+
+
+class _Rows(IterableDataset):
+  """Proxy-like stream yielding ``(image, label)`` tuples (module-level: picklable)."""
+
+  def __iter__(self):
+    for i in range(50):
+      yield i, 0
 
 
 def _import_train():
@@ -137,6 +148,34 @@ class TestStreamingSplitAndWrap:
         "fake_stream", loader=lambda *a, **k: _stream(100), test_size=0.5, max_items=5)
     assert len([_ for _ in train_p]) == 5
     assert len([_ for _ in val_p]) == 5
+
+  def test_max_items_limiter_survives_a_worker_process(self):
+    """``--max_items`` on a stream must work with ``num_workers > 0``.
+
+    ``DataLoader`` pickles the dataset to each worker, so the truncating view
+    has to be a module-level class.  It used to be defined inside ``_take``,
+    which made every multi-worker run raise
+    ``Can't pickle local object '_take.<locals>._Limited'``.
+    """
+    from genml_kit.pipelines.images import _IterableProxyAdapter
+    from genml_kit.training.train import _Limited, _take
+
+    limited = _take(_Rows(), 4)
+    assert isinstance(limited, _Limited)
+    # A local class would fail here.
+    assert pickle.loads(pickle.dumps(limited)) is not None
+    # Single-process: the limit is exact (``_Rows`` yields ``(i, 0)`` tuples).
+    assert [i for i, _ in limited] == [0, 1, 2, 3]
+
+    # The pipeline wraps the limited stream in an IterableDataset adapter; the
+    # two layers together must survive being pickled to worker processes.  Each
+    # worker applies the limit to its own slice, so assert the run completes and
+    # respects the bound rather than a global multiset.
+    dataset = _IterableProxyAdapter(limited)
+    loader = DataLoader(dataset, batch_size=1, num_workers=2)
+    produced = [int(batch["image"][0]) for batch in loader]
+    assert produced
+    assert all(0 <= i < 4 for i in produced)
 
 
 class TestStreamingProxyConstraints:

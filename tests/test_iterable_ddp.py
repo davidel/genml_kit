@@ -116,6 +116,21 @@ class TestShardLoaderDispatch:
     assert sharded.num_workers == 0
     assert sharded.sampler is loader.sampler
 
+  def test_length_less_stream_reports_an_unknown_sample_count(self, monkeypatch):
+    """A one-pass stream has no batch count, so ``num_samples`` must say so.
+
+    ``__len__`` used to swallow the ``TypeError`` and return ``0``, which the
+    trainer rendered as ``[i/~0]`` -- a bogus denominator rather than the ``?``
+    an unknown length deserves.
+    """
+    from genml_kit.datasets.base import num_samples
+    monkeypatch.setattr(distributed, "world_size", lambda: 2)
+    monkeypatch.setattr(distributed, "rank", lambda: 0)
+    sharded = distributed.shard_loader(_loader(), seed=0, shuffle_buffer_k=2)
+    with pytest.raises(TypeError):
+      len(sharded)
+    assert num_samples(sharded) is None
+
 
 class TestRankStride:
   """Disjoint and exhaustive, over a range of round sizes."""

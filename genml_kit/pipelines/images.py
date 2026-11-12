@@ -34,36 +34,43 @@ from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
 
 
-class _ProxyAdapter(Dataset):
-  """Adapt HFDatasetProxy (tuple items ``(image, label)``) to dict items."""
+class _ProxyAdapterMixin:
+  """Map an ``HFDatasetProxy`` item (``(image, label)``) to a dict item.
+
+  Shared by the map-style and streaming adapters: they differ only in which
+  base class a ``DataLoader`` uses to pick its fetch strategy, not in how one
+  proxy row becomes a ``{"image", "label"}`` dict.
+  """
 
   def __init__(self, proxy):
     self._proxy = proxy
 
-  def __len__(self):
-    return len(self._proxy)
-
-  def __getitem__(self, idx):
-    image, label = self._proxy[idx]
+  def _to_dict(self, item):
+    image, label = item
     return {"image": image, "label": label}
 
   def __iter__(self):
-    for image, label in self._proxy:
-      yield {"image": image, "label": label}
+    for item in self._proxy:
+      yield self._to_dict(item)
+
+  def set_epoch(self, epoch):
+    """Forward the epoch to a source that reshuffles per epoch."""
+    if hasattr(self._proxy, "set_epoch"):
+      self._proxy.set_epoch(epoch)
 
 
-class _DictAdapter(Dataset):
-  """Adapt dict-returning datasets to the uniform ``{"image", "label"}`` key."""
+class _DictAdapterMixin:
+  """Map a dict item to the uniform ``{"image", "label"}`` key.
+
+  Shared by the map-style and streaming adapters (see
+  :class:`_ProxyAdapterMixin` for why the split exists at all).
+  """
 
   def __init__(self, dataset, image_column="image"):
     self._ds = dataset
     self._image_column = image_column
 
-  def __len__(self):
-    return len(self._ds)
-
-  def __getitem__(self, idx):
-    item = self._ds[idx]
+  def _to_dict(self, item):
     return {
         "image": item[self._image_column],
         "label": item.get("label", None),
@@ -71,31 +78,7 @@ class _DictAdapter(Dataset):
 
   def __iter__(self):
     for item in self._ds:
-      yield {
-          "image": item[self._image_column],
-          "label": item.get("label", None),
-      }
-
-
-class _IterableDictAdapter(IterableDataset):
-  """Streaming counterpart of :class:`_DictAdapter`.
-
-    ``_DictAdapter`` subclasses the map-style ``Dataset``, so a ``DataLoader``
-    treats its source as indexable and calls ``len`` on it.  A stream has no
-    length, so it needs a dataset the loader recognises as an
-    ``IterableDataset``; that is the only difference between the two adapters.
-    """
-
-  def __init__(self, dataset, image_column="image"):
-    self._ds = dataset
-    self._image_column = image_column
-
-  def __iter__(self):
-    for item in self._ds:
-      yield {
-          "image": item[self._image_column],
-          "label": item.get("label", None),
-      }
+      yield self._to_dict(item)
 
   def set_epoch(self, epoch):
     """Forward the epoch to a source that reshuffles per epoch."""
@@ -103,26 +86,32 @@ class _IterableDictAdapter(IterableDataset):
       self._ds.set_epoch(epoch)
 
 
-class _IterableProxyAdapter(IterableDataset):
-  """Streaming counterpart of :class:`_ProxyAdapter`.
+class _ProxyAdapter(_ProxyAdapterMixin, Dataset):
+  """Map-style adapter: indexable, so ``DataLoader`` fetches by index."""
 
-    ``_ProxyAdapter`` subclasses the map-style ``Dataset`` and calls ``len`` on
-    its proxy, so it cannot wrap a stream.  This variant only iterates, yielding
-    the same ``{"image", "label"}`` dicts; the proxy itself already turns each
-    raw row into an ``(image, label)`` tuple.
-    """
+  def __len__(self):
+    return len(self._proxy)
 
-  def __init__(self, proxy):
-    self._proxy = proxy
+  def __getitem__(self, idx):
+    return self._to_dict(self._proxy[idx])
 
-  def __iter__(self):
-    for image, label in self._proxy:
-      yield {"image": image, "label": label}
 
-  def set_epoch(self, epoch):
-    """Forward the epoch to a source that reshuffles per epoch."""
-    if hasattr(self._proxy, "set_epoch"):
-      self._proxy.set_epoch(epoch)
+class _IterableProxyAdapter(_ProxyAdapterMixin, IterableDataset):
+  """Streaming adapter: iterable, so ``DataLoader`` takes the iterable path."""
+
+
+class _DictAdapter(_DictAdapterMixin, Dataset):
+  """Map-style adapter: indexable, so ``DataLoader`` fetches by index."""
+
+  def __len__(self):
+    return len(self._ds)
+
+  def __getitem__(self, idx):
+    return self._to_dict(self._ds[idx])
+
+
+class _IterableDictAdapter(_DictAdapterMixin, IterableDataset):
+  """Streaming adapter: iterable, so ``DataLoader`` takes the iterable path."""
 
 
 def _adapt_dicts(dataset, image_column):
@@ -431,12 +420,6 @@ class ImagesPipeline(DataPipeline):
         collate_fn=_images_collate,
     )
     logging.info(ensemble.summary())
-
-  def _make_loader(self, dataset, batch_size, **kwargs):
-    return DataLoader(dataset,
-                      batch_size=batch_size,
-                      **kwargs,
-                      collate_fn=_images_collate)
 
   def to_device(self, blob, device):
     if isinstance(blob.data, (tuple, list)):

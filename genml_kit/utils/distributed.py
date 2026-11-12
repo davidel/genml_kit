@@ -789,11 +789,14 @@ class _ShardedBatchLoader:
       round_no += 1
 
   def __len__(self):
-    """Estimated batches this rank will yield (informational only)."""
-    try:
-      return len(self._loader) // self._world
-    except TypeError:
-      return 0
+    """Estimated batches this rank will yield (informational only).
+
+        Lets ``TypeError`` propagate when the wrapped loader has no length (a
+        one-pass stream): ``num_samples`` then falls back to an ``nsamples``
+        estimate or ``None``, rather than being handed a bogus ``0`` that the
+        trainer would render as ``[i/~0]``.
+        """
+    return len(self._loader) // self._world
 
   def __getattr__(self, name):
     # Everything else belongs to the wrapped loader.  DataPipeline.seek_batch

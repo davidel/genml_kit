@@ -246,23 +246,35 @@ def _load_streaming_splits(source,
   )
 
 
+class _Limited:
+  """Truncating view: yields the first *limit* items of a one-pass stream.
+
+  A module-level class on purpose: ``DataLoader`` pickles the dataset to each
+  worker process, and a class defined inside a function cannot be pickled, so
+  ``num_workers > 0`` would fail.  Attributes other than ``__iter__`` are
+  forwarded to the wrapped stream.
+  """
+
+  def __init__(self, inner, n):
+    self._inner = inner
+    self._n = n
+
+  def __iter__(self):
+    for index, item in enumerate(self._inner):
+      if index >= self._n:
+        return
+      yield item
+
+  def __getattr__(self, name):
+    # Reached only for attributes not defined on the view itself.  The
+    # underscore guard prevents infinite recursion when ``_inner`` is not yet
+    # set (e.g. mid-unpickle, before ``__init__`` runs).
+    if name.startswith("_"):
+      raise AttributeError(name)
+    return getattr(self._inner, name)
+
+
 def _take(stream, limit):
   """Yield at most *limit* items from *stream* (a stream-safe ``--max_items``)."""
-
-  class _Limited:
-    """Truncating view: yields the first *limit* items of a one-pass stream."""
-
-    def __init__(self, inner, n):
-      self._inner = inner
-      self._n = n
-
-    def __iter__(self):
-      for index, item in enumerate(self._inner):
-        if index >= self._n:
-          return
-        yield item
-
-    def __getattr__(self, name):
-      return getattr(self._inner, name)
 
   return _Limited(stream, limit)

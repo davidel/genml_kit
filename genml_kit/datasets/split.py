@@ -57,6 +57,19 @@ class IterableDatasetFilter:
 
     The routing pattern is fixed at construction and depends only on the
     ratios, so the same source order always splits the same way.
+
+    Worker-count interaction (accepted, not a bug)
+    ----------------------------------------------
+    The pattern is applied to whatever order the bucket's iterator yields, and
+    the source shards itself across workers *before* this filter enumerates it
+    (the leaf owns the worker split; see :class:`StreamingTransform`).  So the
+    filter routes each worker's sub-stream, not one global stream, and the
+    *effective* per-bucket ratio can therefore shift slightly with
+    ``num_workers`` when the worker count shares factors with the pattern
+    period.  This is intended and safe: coverage stays disjoint and exhaustive
+    (every item lands in exactly one bucket), only the exact split fraction is
+    worker-count dependent.  Train and val buckets must be consumed with the
+    *same* ``num_workers`` for their routing to stay consistent with each other.
     """
 
   def __init__(self, source, ratios):

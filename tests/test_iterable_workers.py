@@ -177,6 +177,37 @@ class TestNestedTransforms:
     assert_disjoint([train, val])
     assert_multiset_equal(train + val, list(range(300)))
 
+  @pytest.mark.parametrize("num_workers", [0, 2, 3, 4])
+  def test_split_stays_disjoint_and_exhaustive_for_any_worker_count(self, num_workers):
+    # Documented, accepted behaviour: the positional pattern is applied per
+    # worker's sub-stream, so the *effective* ratio can drift with num_workers
+    # (see IterableDatasetFilter's docstring).  What must never drift is the
+    # coverage invariant -- disjoint, exhaustive, no duplicates -- and that is
+    # what this test pins, for each worker count.
+    from genml_kit.datasets.split import IterableDatasetFilter
+
+    n = 240
+    splitter = IterableDatasetFilter(CountingStream(n), {"train": 0.75, "val": 0.25})
+    train = ids(
+        DataLoader(splitter.get_dataset("train"), batch_size=1,
+                   num_workers=num_workers))
+    val = ids(
+        DataLoader(splitter.get_dataset("val"), batch_size=1, num_workers=num_workers))
+    assert_no_duplicates(train)
+    assert_no_duplicates(val)
+    assert_disjoint([train, val])
+    assert_multiset_equal(train + val, list(range(n)))
+
+  def test_split_ratio_is_exact_without_workers(self):
+    # The single-process case (the drift-free baseline): the requested ratio is
+    # honoured exactly.  Complements the coverage-invariant test above, which
+    # covers the multi-worker drift documented on IterableDatasetFilter.
+    from genml_kit.datasets.split import IterableDatasetFilter
+
+    splitter = IterableDatasetFilter(CountingStream(240), {"train": 0.75, "val": 0.25})
+    assert len(ids(splitter.get_dataset("train"))) == 180
+    assert len(ids(splitter.get_dataset("val"))) == 60
+
   def test_naive_double_split_would_lose_items(self):
     # Control: a transform that (wrongly) re-splits loses ~1/num_workers of each
     # shard.  This documents the bug the StreamingTransform split avoids.

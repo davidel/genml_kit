@@ -15,8 +15,10 @@ from genml_kit.utils.seg import apply_mask_map
 def is_hf_stream(obj):
   """Return True when *obj* is a HuggingFace streaming ``IterableDataset``.
 
-    This is distinct from :func:`genml_kit.datasets.iterable.is_streaming_source`,
-    which tests ``isinstance(obj, torch.utils.data.IterableDataset)``: a HF
+    One of three overlapping capability checks; see
+    :func:`genml_kit.datasets.base.is_iterable` for how they relate.  This is
+    distinct from :func:`genml_kit.datasets.iterable.is_streaming_source`, which
+    tests ``isinstance(obj, torch.utils.data.IterableDataset)``: a HF
     ``datasets.IterableDataset`` is **not** a torch ``IterableDataset`` (it does
     not subclass it), so it needs its own check.
 

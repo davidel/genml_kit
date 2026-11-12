@@ -70,6 +70,21 @@ def is_random_access(obj):
 def is_iterable(obj):
   """Return True if *obj* can be iterated with ``for ... in ...``.
 
+    This is the broadest of three overlapping capability checks, and the only
+    duck-typed one:
+
+    * :func:`is_iterable` (here) -- any object with ``__iter__``; random access
+      implies it, but so does a bare stream.
+    * :func:`genml_kit.datasets.iterable.is_streaming_source` -- ``isinstance``
+      against *torch*'s ``IterableDataset`` (a ``DataLoader`` uses this to pick
+      its fetch path).
+    * :func:`genml_kit.datasets.hf_proxy.is_hf_stream` -- ``isinstance`` against
+      HuggingFace ``datasets.IterableDataset``, which is *not* a torch
+      ``IterableDataset``.
+
+    Prefer :func:`is_random_access` when the question is "can I index it?": a
+    stream that merely defines ``__iter__`` is not random-access.
+
     Args:
       obj: Any dataset-like object.
 

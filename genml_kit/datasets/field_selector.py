@@ -30,7 +30,28 @@ def _validate_fields(fields):
   return dict(fields)
 
 
-class FieldSelectorDataset:
+class _FieldSelectionMixin:
+  """Select-and-rename core shared by the map-style and streaming selectors.
+
+  Holds the source, the validated ``{SRC_NAME: DST_NAME}`` mapping, and the
+  per-item pick.  The two concrete classes differ only in how they read the
+  source (``__getitem__`` vs ``__iter__``), not in what they select.
+  """
+
+  def __init__(self, source, fields):
+    self._source = source
+    self._fields = _validate_fields(fields)
+
+  @property
+  def fields(self):
+    """The ``{SRC_NAME: DST_NAME}`` selection mapping."""
+    return dict(self._fields)
+
+  def _pick(self, item):
+    return {dst: item[src] for src, dst in self._fields.items()}
+
+
+class FieldSelectorDataset(_FieldSelectionMixin):
   """Select and rename fields of a random-access dict-returning dataset.
 
   Parameters
@@ -52,18 +73,6 @@ class FieldSelectorDataset:
   >>> ds[0]  # {"image": <value of my_dataset[0]["img"]>}
   """
 
-  def __init__(self, source, fields):
-    self._source = source
-    self._fields = _validate_fields(fields)
-
-  @property
-  def fields(self):
-    """The ``{SRC_NAME: DST_NAME}`` selection mapping."""
-    return dict(self._fields)
-
-  def _pick(self, item):
-    return {dst: item[src] for src, dst in self._fields.items()}
-
   def __len__(self):
     return len(self._source)
 
@@ -75,7 +84,7 @@ class FieldSelectorDataset:
       yield self._pick(item)
 
 
-class IterableFieldSelectorDataset(StreamingTransform):
+class IterableFieldSelectorDataset(_FieldSelectionMixin, StreamingTransform):
   """Select and rename fields of a one-pass streaming dataset.
 
   Same selection contract as :class:`FieldSelectorDataset`, for a source that
@@ -106,18 +115,9 @@ class IterableFieldSelectorDataset(StreamingTransform):
   label_names = ()
 
   def __init__(self, source, fields):
-    self._source = source
-    self._fields = _validate_fields(fields)
+    super().__init__(source, fields)
     #: Human-readable name, forwarded so ensemble summaries label the member.
     self.name = getattr(source, "name", type(source).__name__)
-
-  @property
-  def fields(self):
-    """The ``{SRC_NAME: DST_NAME}`` selection mapping."""
-    return dict(self._fields)
-
-  def _pick(self, item):
-    return {dst: item[src] for src, dst in self._fields.items()}
 
   def source_iter(self):
     for item in self._source:

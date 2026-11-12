@@ -75,10 +75,16 @@ class StreamingBatchPipe(IterableDataset):
       self.source.set_epoch(epoch)
 
   def _buffer_rng(self, buffer_index):
-    """A deterministic RNG for one buffer (varies per epoch and buffer)."""
+    """A deterministic RNG for one buffer (varies per epoch and buffer).
+
+        The seed is the *string* ``"{seed}-{epoch}-{buffer_index}"``, not the
+        sum of the three: summing would make distinct ``(epoch, buffer)`` pairs
+        collide (e.g. ``(1, 0)`` and ``(0, 1)``), so two different buffers could
+        shuffle identically.
+        """
     if self.seed is None:
       return random.Random(None)
-    return random.Random(self.seed + self.epoch + buffer_index)
+    return random.Random(f"{self.seed}-{self.epoch}-{buffer_index}")
 
   def __iter__(self):
     # No worker split here: the source owns it (see the module docstring).

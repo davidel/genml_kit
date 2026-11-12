@@ -15,7 +15,7 @@ from genml_kit.datasets.base import (
 )
 from genml_kit.datasets.ensemble import DatasetEnsemble
 from genml_kit.datasets.field_selector import (FieldSelectorDataset,
-                                              IterableFieldSelectorDataset)
+                                               IterableFieldSelectorDataset)
 from genml_kit.datasets.hf_proxy import HFDatasetProxy
 from genml_kit.datasets.iterable import StreamingDataset, is_streaming_source
 from genml_kit.datasets.split import IterableDatasetFilter

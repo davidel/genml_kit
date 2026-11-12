@@ -148,6 +148,13 @@ class StreamingTransform(StreamingDataset):
 def is_streaming_source(obj):
   """Return True when *obj* is a torch ``IterableDataset`` (no index space).
 
+    One of three overlapping capability checks; see
+    :func:`genml_kit.datasets.base.is_iterable` for how they relate.  This one
+    is a strict ``isinstance`` check, so a duck-typed stream that is not a torch
+    ``IterableDataset`` (e.g. a HuggingFace stream, or a plain wrapper) returns
+    False -- use ``not is_random_access(obj)`` when any non-indexable source
+    should count.
+
     Args:
       obj: Any dataset-like object.
 
