@@ -41,6 +41,7 @@ def load_and_split_dataset(
     label_column=None,
     loader=None,
     max_items=None,
+    dataset_arg=None,
 ):
   """Load a HuggingFace dataset, return ``(train_proxy, val_proxy)``.
 
@@ -53,6 +54,12 @@ def load_and_split_dataset(
     *max_items* caps each split to at most that many rows (a smoke-test
     convenience; the cap is applied to each split *after* the train/val
     split, so both halves get their own full budget).
+
+    *dataset_arg* (a ``KEY=VALUE`` dict from ``--dataset_arg``) is forwarded
+    verbatim to ``datasets.load_dataset``, so ``streaming=True`` reaches the
+    loader.  When the result is a streaming source the split is positional
+    (:class:`~genml_kit.datasets.split.IterableDatasetFilter`) and the sources
+    are wrapped in stream-safe :class:`HFDatasetProxy` instances.
     """
   if loader is None:
     loader = _datasets.load_dataset
@@ -60,7 +67,26 @@ def load_and_split_dataset(
     data_dir = dataset_name.split("/", 1)[1]
     raw = loader("imagefolder", data_dir=data_dir, cache_dir=cache_dir)
   else:
-    raw = loader(dataset_name, cache_dir=cache_dir)
+    raw = loader(dataset_name, cache_dir=cache_dir, **(dataset_arg or {}))
+
+  # A streaming source (or a dict of them) has no index space: the map-style
+  # split/wrap below cannot touch it.  Route it through the positional splitter.
+  if isinstance(raw, _datasets.IterableDataset):
+    return _load_streaming_splits(raw,
+                                  test_size=test_size,
+                                  image_column=image_column,
+                                  label_column=label_column,
+                                  train_transform=train_transform,
+                                  val_transform=val_transform,
+                                  max_items=max_items)
+  if isinstance(raw, _datasets.IterableDatasetDict):
+    return _load_streaming_splits(_streaming_base_split(raw),
+                                  test_size=test_size,
+                                  image_column=image_column,
+                                  label_column=label_column,
+                                  train_transform=train_transform,
+                                  val_transform=val_transform,
+                                  max_items=max_items)
 
   # Single split: validate, split and wrap.
   if isinstance(raw, _datasets.Dataset):
@@ -141,3 +167,102 @@ def load_and_split_dataset(
           label_column=label_column,
       ),
   )
+
+
+def _streaming_base_split(raw):
+  """Pick the single source to split positionally from an ``IterableDatasetDict``.
+
+    The ``train`` split (or the first declared, when there is no ``train``) is
+    the one source that :class:`IterableDatasetFilter` splits into train/val.
+
+    Args:
+      raw: A ``datasets.IterableDatasetDict``.
+
+    Returns:
+      The ``datasets.IterableDataset`` to split.
+    """
+  names = list(raw.keys())
+  if "train" in raw:
+    return raw["train"]
+  return raw[names[0]]
+
+
+def _load_streaming_splits(source,
+                           test_size=0.2,
+                           image_column=None,
+                           label_column=None,
+                           train_transform=None,
+                           val_transform=None,
+                           max_items=None):
+  """Split a streaming source positionally and wrap both buckets.
+
+    A stream has no index space, so ``train_test_split``/``select`` cannot be
+    used; the split is a fixed positional pattern over the one source
+    (:class:`~genml_kit.datasets.split.IterableDatasetFilter`), and both buckets
+    are independent views that stream it in a single pass.
+
+    Args:
+      source: The ``datasets.IterableDataset`` to split.
+      test_size: Fraction of items routed to the validation bucket.
+      image_column: Optional explicit image column (forwarded to the proxies).
+      label_column: Optional explicit label column (forwarded to the proxies).
+      train_transform, val_transform: Per-split item transforms.
+      max_items: Optional cap on the number of items per split (trims the
+        stream iterator; ``maybe_cap`` needs random access, which a stream lacks).
+
+    Returns:
+      tuple: ``(train_proxy, val_proxy)``, both stream-safe ``HFDatasetProxy``.
+
+    Raises:
+      ValueError: If *test_size* leaves no training rows.
+    """
+  from genml_kit.datasets.split import IterableDatasetFilter
+
+  if test_size is None or not 0.0 < test_size < 1.0:
+    fatal(
+        f"--val_split={test_size} must be strictly between 0 and 1 for a "
+        f"streaming source.", ValueError)
+  splitter = IterableDatasetFilter(source, {
+      "train": 1.0 - test_size,
+      "val": test_size,
+  })
+  train_stream = splitter.get_dataset("train")
+  val_stream = splitter.get_dataset("val")
+  if max_items is not None:
+    train_stream = _take(train_stream, max_items)
+    val_stream = _take(val_stream, max_items)
+
+  logging.info("Streaming source: positional train/val split (val_split=%s).",
+               test_size)
+  return (
+      HFDatasetProxy(train_stream,
+                     transform=train_transform,
+                     image_column=image_column,
+                     label_column=label_column),
+      HFDatasetProxy(val_stream,
+                     transform=val_transform,
+                     image_column=image_column,
+                     label_column=label_column),
+  )
+
+
+def _take(stream, limit):
+  """Yield at most *limit* items from *stream* (a stream-safe ``--max_items``)."""
+
+  class _Limited:
+    """Truncating view: yields the first *limit* items of a one-pass stream."""
+
+    def __init__(self, inner, n):
+      self._inner = inner
+      self._n = n
+
+    def __iter__(self):
+      for index, item in enumerate(self._inner):
+        if index >= self._n:
+          return
+        yield item
+
+    def __getattr__(self, name):
+      return getattr(self._inner, name)
+
+  return _Limited(stream, limit)

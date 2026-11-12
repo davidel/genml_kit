@@ -103,6 +103,28 @@ class _IterableDictAdapter(IterableDataset):
       self._ds.set_epoch(epoch)
 
 
+class _IterableProxyAdapter(IterableDataset):
+  """Streaming counterpart of :class:`_ProxyAdapter`.
+
+    ``_ProxyAdapter`` subclasses the map-style ``Dataset`` and calls ``len`` on
+    its proxy, so it cannot wrap a stream.  This variant only iterates, yielding
+    the same ``{"image", "label"}`` dicts; the proxy itself already turns each
+    raw row into an ``(image, label)`` tuple.
+    """
+
+  def __init__(self, proxy):
+    self._proxy = proxy
+
+  def __iter__(self):
+    for image, label in self._proxy:
+      yield {"image": image, "label": label}
+
+  def set_epoch(self, epoch):
+    """Forward the epoch to a source that reshuffles per epoch."""
+    if hasattr(self._proxy, "set_epoch"):
+      self._proxy.set_epoch(epoch)
+
+
 def _adapt_dicts(dataset, image_column):
   """Pick the dict adapter matching *dataset*'s capability.
 
@@ -143,6 +165,7 @@ class ImagesPipeline(DataPipeline):
     self.train_proxy = None
     self.val_proxy = None
     self.ensemble = None
+    self.streaming = False
     self.num_labels = None
     self.id2label = None
     self.label2id = None
@@ -240,6 +263,7 @@ class ImagesPipeline(DataPipeline):
         image_column=args.image_column,
         label_column=args.label_column,
         seed=args.seed,
+        dataset_arg=args.dataset_arg,
     )
     self.train_proxy = train_proxy
     self.val_proxy = val_proxy
@@ -247,8 +271,13 @@ class ImagesPipeline(DataPipeline):
     self.id2label = {int(k): v for k, v in train_proxy.id2label.items()}
     self.label2id = {k: int(v) for k, v in train_proxy.label2id.items()}
 
+    # A streaming proxy has no index space: anything that reads a column across
+    # the whole corpus (class weights, the balanced sampler's label array) cannot
+    # run, so class weighting is skipped for streams.
+    self.streaming = not is_random_access(train_proxy)
+
     logging.info("num_labels: %s", self.num_labels)
-    if train_proxy.label_column:
+    if train_proxy.label_column and not self.streaming:
       self.class_weights = compute_class_weights(train_proxy.dataset, self.num_labels,
                                                  train_proxy.label_column)
       logging.info("Inverse-frequency weights: %s", fmt_weights(self.class_weights))
@@ -256,8 +285,13 @@ class ImagesPipeline(DataPipeline):
       self.class_multipliers = parse_class_multipliers(args.class_multipliers,
                                                        self.num_labels, label2id_int)
 
-    self.train_dataset = _ProxyAdapter(train_proxy)
-    self.val_dataset = _ProxyAdapter(val_proxy) if val_proxy is not None else None
+    if self.streaming:
+      self.train_dataset = _IterableProxyAdapter(train_proxy)
+      self.val_dataset = (_IterableProxyAdapter(val_proxy)
+                          if val_proxy is not None else None)
+    else:
+      self.train_dataset = _ProxyAdapter(train_proxy)
+      self.val_dataset = (_ProxyAdapter(val_proxy) if val_proxy is not None else None)
     self.tta_transform = getattr(method, "tta_transform", None)
 
     data_generator = torch.Generator()
@@ -270,6 +304,11 @@ class ImagesPipeline(DataPipeline):
       logging.warning("--sampler balanced requires a label column; falling back to "
                       "shuffle=True.")
       effective_sampler = "none"
+    if self.streaming and effective_sampler in ("weighted", "balanced"):
+      fatal(
+          f"--sampler {effective_sampler} reads the whole label column, which a "
+          f"streaming source has no index space for.  Use --sampler none, or a "
+          f"materialised (non-streaming) --dataset.", ValueError)
 
     # The two samplers implement *different* DataLoader contracts, so they go
     # into different slots: ``build_weighted_sampler`` yields per-item indices

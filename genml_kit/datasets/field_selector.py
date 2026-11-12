@@ -7,18 +7,19 @@ ones.  They differ in what they wrap, not in what they select:
 * :class:`FieldSelectorDataset` wraps a random-access dataset (``__getitem__`` +
   ``__len__``) and forwards both.
 * :class:`IterableFieldSelectorDataset` wraps a one-pass stream.  It subclasses
-  :class:`~genml_kit.datasets.iterable.StreamingDataset`, which is what makes
+  :class:`~genml_kit.datasets.iterable.StreamingTransform`, which is what makes
   ``isinstance(wrapper, torch.utils.data.IterableDataset)`` true -- the only
   thing ``DataLoader`` consults when choosing its fetch path.  A wrapper that
   merely *defines* ``__iter__`` is not enough: torch decides the dataset kind by
   ``isinstance`` at construction, and our own ``is_iterable`` helper is never
-  called by it.
+  called by it.  As a transform it forwards the source's worker split instead of
+  splitting a second time.
 
 Both fail loudly on a missing source field (``KeyError``) rather than yielding a
 silently partial item.
 """
 
-from genml_kit.datasets.iterable import StreamingDataset
+from genml_kit.datasets.iterable import StreamingTransform
 from genml_kit.utils.logging import fatal
 
 
@@ -74,15 +75,15 @@ class FieldSelectorDataset:
       yield self._pick(item)
 
 
-class IterableFieldSelectorDataset(StreamingDataset):
+class IterableFieldSelectorDataset(StreamingTransform):
   """Select and rename fields of a one-pass streaming dataset.
 
   Same selection contract as :class:`FieldSelectorDataset`, for a source that
-  can only be iterated.  It is a :class:`StreamingDataset`, so:
+  can only be iterated.  It is a :class:`StreamingTransform`, so:
 
   * ``DataLoader`` sees an ``IterableDataset`` and takes its iterable fetch path;
-  * the strided worker split is inherited, applied *after* field selection, so
-    workers stay balanced;
+  * it forwards the source's worker split instead of applying its own, so the
+    split happens exactly once at the leaf (not ``1 / num_workers**2``);
   * the length is unknown, so ``len()`` raises ``TypeError`` (which
     ``num_samples`` and ``is_random_access`` handle).
 
@@ -121,9 +122,3 @@ class IterableFieldSelectorDataset(StreamingDataset):
   def source_iter(self):
     for item in self._source:
       yield self._pick(item)
-
-  def set_epoch(self, epoch):
-    super().set_epoch(epoch)
-    # Forward so a source that reshuffles per epoch stays consistent.
-    if hasattr(self._source, "set_epoch"):
-      self._source.set_epoch(epoch)

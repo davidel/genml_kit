@@ -731,10 +731,14 @@ Streaming sources can be used in two places:
   (see below). If every dataset in an ensemble streams, the ensemble streams
   too, in declaration order.
 
-The image *classification* path (`--pipeline images --dataset`) still requires a
-materialised split: it needs the label vocabulary and class counts, which cannot
-be discovered without scanning the whole corpus. For streaming image data, use
-the ensemble path (`--datasets`).
+- **`--dataset` with `--pipeline images` (classification)** — pass
+  `streaming=True` through `--dataset_arg` to stream an image *classification*
+  source instead of materialising it. The train/val split becomes a positional
+  one (`IterableDatasetFilter`), and the label column must be a typed
+  `ClassLabel` so the class vocabulary is read from the dataset's `features`
+  without scanning the corpus. Class weighting (`--sampler weighted` /
+  `balanced`, inverse-frequency weights) needs the whole label column, so it is
+  refused for streams with a clear error.
 
 **What works, and what does not.** A stream has no index space, so anything
 that needs one is refused with a clear error rather than silently misbehaving:
@@ -747,6 +751,7 @@ that needs one is refused with a clear error rather than silently misbehaving:
 | `--val_split` | index slice | positional split (`IterableDatasetFilter`) |
 | `--sampler weighted` / `balanced` | yes | not available (needs labels across the whole corpus) |
 | `--max_items` | yes | yes (caps the stream) |
+| Classification (`--dataset`) | yes | yes, with a typed `ClassLabel` label column |
 
 Because a stream cannot be shuffled by index, `shuffle` is disabled for it and
 its order is the source order. Under DDP, `--shuffle_buffer_k` supplies

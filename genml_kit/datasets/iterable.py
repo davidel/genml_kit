@@ -18,6 +18,12 @@ class MyStream(StreamingDataset):
 loader = DataLoader(MyStream(), num_workers=4)   # each row seen exactly once
 ```
 
+The split must happen exactly **once**, at the leaf source.  A wrapper that wraps
+another stream (selecting fields, filtering a split bucket, ...) inherits from
+:class:`StreamingTransform` instead, which forwards iteration to its source and
+never splits again -- splitting an already-split shard would keep only about
+``1 / num_workers**2`` of the corpus.
+
 Rank (DDP) sharding is deliberately *not* here: it happens one level up, on the
 already-batched stream, so that this class stays composable with any batch size.
 """
@@ -86,6 +92,57 @@ class StreamingDataset(IterableDataset):
     for index, item in enumerate(self.source_iter()):
       if self.worker_slice(index):
         yield item
+
+
+class StreamingTransform(StreamingDataset):
+  """Base class for streams that *transform* another stream.
+
+    A transform forwards iteration to its source and applies **no** worker split
+    of its own: the wrapped source already shards itself across workers (a
+    :class:`StreamingDataset` via :meth:`StreamingDataset.worker_slice`, a
+    HuggingFace ``IterableDataset`` via its own ``num_shards`` sharding).  Slicing
+    again here would re-split an already-split shard, so each worker would keep
+    only about ``1 / num_workers**2`` of the corpus.
+
+    Subclasses implement :meth:`source_iter` exactly like :class:`StreamingDataset`
+    and get the single-split behaviour for free.
+
+    Attributes:
+      _source: The wrapped stream.  Used by :meth:`set_epoch` to forward the
+        epoch; subclasses must set it in ``__init__``.
+  """
+
+  @property
+  def features(self):
+    """The wrapped source's ``datasets.Features``, when it has one.
+
+        A transform yields its source's rows unchanged in shape, so its schema
+        is the source's schema.  Forwarding ``features`` lets feature-based
+        column detection (image/label/``ClassLabel`` vocabulary) run on the
+        transform without touching the corpus.
+        """
+    return getattr(self._source, "features", None)
+
+  @property
+  def column_names(self):
+    """The wrapped source's column names, when it declares them."""
+    return getattr(self._source, "column_names", None)
+
+  def __iter__(self):
+    yield from self.source_iter()
+
+  def set_epoch(self, epoch):
+    """Record the epoch and forward it to the wrapped source.
+
+        Parameters
+        ----------
+        epoch : int
+            The epoch about to start.
+        """
+    super().set_epoch(epoch)
+    # Forward so a source that reshuffles per epoch stays consistent.
+    if hasattr(self._source, "set_epoch"):
+      self._source.set_epoch(epoch)
 
 
 def is_streaming_source(obj):

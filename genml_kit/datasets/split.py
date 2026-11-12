@@ -21,16 +21,18 @@ Example:
 
 import math
 
-from genml_kit.datasets.iterable import StreamingDataset
+from genml_kit.datasets.iterable import StreamingTransform
 from genml_kit.utils.logging import fatal
 
 
-class _FilteredStream(StreamingDataset):
+class _FilteredStream(StreamingTransform):
   """One bucket of an :class:`IterableDatasetFilter` split.
 
     Filters the shared source by enumerated position, so the bucket is a view
-    over the original stream rather than a copy of it.  The worker split is
-    inherited and applies *after* filtering, keeping workers balanced.
+    over the original stream rather than a copy of it.  As a
+    :class:`StreamingTransform` it forwards the source's worker split instead of
+    applying its own: the source already shards itself across workers, so a
+    second split here would keep only about ``1 / num_workers**2`` of the corpus.
     """
 
   def __init__(self, source, pattern, name):
@@ -43,12 +45,6 @@ class _FilteredStream(StreamingDataset):
     for index, item in enumerate(self._source):
       if self._pattern[index % period] == self._name:
         yield item
-
-  def set_epoch(self, epoch):
-    super().set_epoch(epoch)
-    # Forward so a source that reshuffles per epoch stays consistent.
-    if hasattr(self._source, "set_epoch"):
-      self._source.set_epoch(epoch)
 
 
 class IterableDatasetFilter:

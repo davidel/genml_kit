@@ -6,9 +6,27 @@ import datasets
 import numpy as np
 from PIL import Image
 
+from genml_kit.datasets.base import is_random_access
 from genml_kit.datasets.iterable import is_streaming_source
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seg import apply_mask_map
+
+
+def is_hf_stream(obj):
+  """Return True when *obj* is a HuggingFace streaming ``IterableDataset``.
+
+    This is distinct from :func:`genml_kit.datasets.iterable.is_streaming_source`,
+    which tests ``isinstance(obj, torch.utils.data.IterableDataset)``: a HF
+    ``datasets.IterableDataset`` is **not** a torch ``IterableDataset`` (it does
+    not subclass it), so it needs its own check.
+
+    Args:
+      obj: Any dataset-like object.
+
+    Returns:
+      bool: True for a ``datasets.IterableDataset``.
+    """
+  return isinstance(obj, datasets.IterableDataset)
 
 
 def _is_array_feature(feat):
@@ -32,7 +50,17 @@ class HFDatasetProxy:
 
     Auto-detects image and label columns, normalizes labels to
     ``ClassLabel``, and converts filepath strings to decoded PIL images.
+
+    A streaming source (``datasets.IterableDataset``) is supported without
+    materialising it: the normalising ``map``/``cast`` steps are skipped and
+    conversion happens per item.  The label column must be a typed
+    ``ClassLabel`` so the vocabulary can be read from ``features``.
     """
+
+  #: False for a random-access source; set in ``__init__`` once the loaded
+  #: dataset is known to be a stream.  The class-level default keeps the
+  #: attribute readable on instances built via ``__new__`` (as tests do).
+  _streaming = False
 
   KNOWN_IMAGE_NAMES = frozenset({
       "image",
@@ -99,27 +127,70 @@ class HFDatasetProxy:
                mask_column=None,
                mask_map=None,
                mask_ignore_index=None):
+    # A streaming source has no index space: ``map``/``cast_column``/column scans
+    # would materialise the corpus (or fail outright).  This covers both a raw
+    # HuggingFace ``IterableDataset`` and any wrapper that is not random-access
+    # (e.g. a positional split bucket).  Detect it up front so those
+    # normalisation steps are skipped; conversion happens per item in
+    # ``_convert`` instead.
+    self._streaming = is_hf_stream(hf_dataset) or not is_random_access(hf_dataset)
     self._image_col = image_column or self.detect_image_column(hf_dataset)
-    self.dataset = self.normalize_image_column(hf_dataset, self._image_col)
+    self.dataset = hf_dataset
     self._mask_col = mask_column
     self._label_col = None
     self._mask_map = mask_map
     self._mask_ignore_index = mask_ignore_index
 
-    if self._mask_col is not None:
-      # A mask column makes this a segmentation source: normalise it as an
-      # image feature and skip label detection entirely.
-      self.dataset = self.normalize_image_column(self.dataset, self._mask_col)
+    if self._streaming:
+      # Nothing to normalise on a stream: the columns are already typed (a
+      # ``ClassLabel`` label, an ``Image``/array image) and ``_convert`` decodes
+      # per item.  Just record which columns to read, and require a typed
+      # ``ClassLabel`` label so the vocabulary can be read without scanning.
+      self._label_col = label_column or self.detect_label_column(hf_dataset)
+      if self._mask_col is None and self._label_col is not None:
+        self._require_classlabel(hf_dataset, self._label_col)
     else:
-      self._label_col = label_column or self.detect_label_column(self.dataset)
-      self.dataset = self.normalize_labels(self.dataset, self._label_col)
+      self.dataset = self.normalize_image_column(hf_dataset, self._image_col)
+      if self._mask_col is not None:
+        # A mask column makes this a segmentation source: normalise it as an
+        # image feature and skip label detection entirely.
+        self.dataset = self.normalize_image_column(self.dataset, self._mask_col)
+      else:
+        self._label_col = label_column or self.detect_label_column(self.dataset)
+        self.dataset = self.normalize_labels(self.dataset, self._label_col)
 
     self._transform = transform
+
+  @staticmethod
+  def _require_classlabel(dataset, label_col):
+    """Fail unless *label_col* is a typed ``ClassLabel`` on a stream.
+
+        A stream cannot be scanned to discover its label vocabulary, so the only
+        way to know ``num_labels`` / ``label_names`` without materialising the
+        corpus is to read them from the column's ``ClassLabel`` feature.
+
+        Args:
+          dataset: The streaming source.
+          label_col: The label column name.
+
+        Raises:
+          ValueError: If the column is not a ``ClassLabel`` feature.
+        """
+    feat = None
+    features = getattr(dataset, "features", None)
+    if features is not None:
+      feat = features.get(label_col)
+    if not isinstance(feat, datasets.ClassLabel):
+      fatal(
+          f"Streaming image classification needs a typed ClassLabel in column "
+          f"'{label_col}' (found {type(feat).__name__}). Pre-map the labels to a "
+          f"ClassLabel, or use the ensemble path (--datasets) which streams.",
+          ValueError)
 
   def __len__(self):
     # A streaming HF source has no length; surface that as TypeError rather
     # than AttributeError so ``num_samples`` returns its estimate/None.
-    if is_streaming_source(self.dataset):
+    if self._streaming or is_streaming_source(self.dataset):
       raise TypeError("streaming image dataset has no length")
     return len(self.dataset)
 
@@ -209,12 +280,18 @@ class HFDatasetProxy:
 
   @property
   def label_names(self):
-    """Return the list of class names from the ``label`` feature."""
+    """Return the list of class names from the ``label`` feature.
+
+        On a stream the column cannot be scanned, so the names are read from the
+        ``ClassLabel`` feature (guaranteed present by ``_require_classlabel``).
+        """
     if self._label_col is None:
       return []
     feat = self.dataset.features[self._label_col]
     if isinstance(feat, datasets.ClassLabel):
       return feat.names
+    if self._streaming:
+      raise TypeError("streaming label column has no ClassLabel vocabulary")
     return sorted(set(self.dataset[self._label_col]))
 
   @property

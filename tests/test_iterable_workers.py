@@ -136,6 +136,69 @@ class TestReiteration:
     assert first != second
 
 
+class TestNestedTransforms:
+  """A wrapper over a StreamingDataset must not split a second time.
+
+  StreamingDataset.__iter__ strides by the index of items *as yielded by
+  source_iter*.  If a transform that forwards its source also split, the outer
+  split would re-slice an already-split shard and keep about
+  ``1 / num_workers**2`` of the corpus.  Transforms are StreamingTransform, which
+  never splits; these tests pin that under real worker processes.
+  """
+
+  @pytest.mark.parametrize("num_workers", [2, 3])
+  def test_field_selector_preserves_full_coverage(self, num_workers):
+    from genml_kit.datasets.field_selector import IterableFieldSelectorDataset
+
+    nested = IterableFieldSelectorDataset(CountingStream(300), {"id": "id"})
+    got = ids(DataLoader(nested, batch_size=1, num_workers=num_workers))
+    assert_multiset_equal(got, list(range(300)))
+    assert_no_duplicates(got)
+
+  @pytest.mark.parametrize("num_workers", [2, 3])
+  def test_split_bucket_over_field_selector_partitions_corpus(self, num_workers):
+    # A streaming split over a transform must still partition the corpus: the
+    # buckets are disjoint and together cover every item exactly once.  The
+    # precise per-item routing can shift with the worker count (the positional
+    # pattern is applied per worker's sub-stream), so that full disjoint
+    # coverage is the invariant to pin, not an exact membership list.
+    from genml_kit.datasets.field_selector import IterableFieldSelectorDataset
+    from genml_kit.datasets.split import IterableDatasetFilter
+
+    source = IterableFieldSelectorDataset(CountingStream(300), {"id": "id"})
+    splitter = IterableDatasetFilter(source, {"train": 0.75, "val": 0.25})
+    train = ids(
+        DataLoader(splitter.get_dataset("train"), batch_size=1,
+                   num_workers=num_workers))
+    val = ids(
+        DataLoader(splitter.get_dataset("val"), batch_size=1, num_workers=num_workers))
+    assert_no_duplicates(train)
+    assert_no_duplicates(val)
+    assert_disjoint([train, val])
+    assert_multiset_equal(train + val, list(range(300)))
+
+  def test_naive_double_split_would_lose_items(self):
+    # Control: a transform that (wrongly) re-splits loses ~1/num_workers of each
+    # shard.  This documents the bug the StreamingTransform split avoids.
+    from genml_kit.datasets.iterable import StreamingDataset
+
+    class _DoubleSplit(StreamingDataset):
+
+      def __init__(self, inner):
+        self._inner = inner
+
+      def source_iter(self):
+        for index, item in enumerate(self._inner):
+          if self.worker_slice(index):
+            yield item
+
+    nested = _DoubleSplit(CountingStream(300))
+    got = ids(DataLoader(nested, batch_size=1, num_workers=2))
+    # The inner split keeps 1/2, the outer re-splits to ~1/4: strictly fewer
+    # items than the corpus, and far fewer than the correct 300.
+    assert len(got) < 300
+
+
 class TestSingleProcessBaseline:
 
   def test_no_workers_matches_full_stream(self):
