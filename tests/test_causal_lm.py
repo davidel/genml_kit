@@ -213,6 +213,19 @@ class TestPackedDispatch:
     assert call["attention_mask"].dim() == 2
     assert call["attention_mask"].tolist() == [[1, 1, 1, 1]]
 
+  def test_causal_model_gets_plain_2d_mask(self):
+    method = build_method("causal_lm")
+    method._packed_capability = "causal"
+    model = _RecordingLM()
+    method._forward(model, _packed_blob())
+    call = model.calls[-1]
+    # The model does not isolate documents: it gets the ordinary 2-D
+    # key-padding mask and position_ids, and never sees the boundary tensors.
+    assert call["attention_mask"].dim() == 2
+    assert call["attention_mask"].tolist() == [[1, 1, 1, 1]]
+    assert "segment_ids" not in call["kwargs"]
+    assert "position_ids" in call["kwargs"]
+
   def test_varlen_model_gets_flash_boundaries(self):
     method = build_method("causal_lm")
     method._packed_capability = "varlen"

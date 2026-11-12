@@ -2476,8 +2476,8 @@ model:
 | Mode | How it batches | Document isolation |
 |---|---|---|
 | *(default)* | pad every row to the batch's longest item | plain, document-exact 2-D mask |
-| `--packing wrapped` | concatenate the tokenized stream (EOS-separated) and slice into `max_seq_len` windows | via `segment_ids` (below) |
-| `--packing bfd` | best-fit-decreasing: longest document first into the open bin with the least remaining space | via `segment_ids` (below) |
+| `--packing wrapped` | concatenate the tokenized stream (EOS-separated) and slice into `max_seq_len` windows | via `segment_ids` (model-dependent, below) |
+| `--packing bfd` | best-fit-decreasing: longest document first into the open bin with the least remaining space | via `segment_ids` (model-dependent, below) |
 | `--length_bucket` | no packing: sort by a cheap character-length proxy, group into buckets, shuffle within and across them, emit similar-length batches | plain, document-exact 2-D mask |
 
 `wrapped` is the historical behaviour and may split a document across two
@@ -2542,6 +2542,7 @@ Document isolation (independent of the boundary loss) works as follows:
   | `"block_diagonal"` | a 4-D `[B, 1, L, L]` additive mask | exact (no flash kernel) |
   | `"varlen"` | `FlashAttentionKwargs` (`cu_seq_lens_q/k`, `max_length_q/k`) on a flattened `[1, total]` batch | exact (flash when `flash-attn` is installed) |
   | `"segment_ids"` | the raw `[B, L]` `segment_ids` runs plus the 2-D padding mask and `position_ids` | model-defined (reset state per run) |
+  | `"causal"` | only the 2-D padding mask and `position_ids` (no boundary tensors) | none -- documents are concatenated and may attend across boundaries (the standard LLM pre-training recipe) |
 
   HuggingFace decoders are inferred automatically: `--attn_implementation
   flash_attention_2` implies `varlen`, otherwise `block_diagonal`.  Custom
@@ -2550,16 +2551,25 @@ Document isolation (independent of the boundary loss) works as follows:
   score matrix (linear / kernelized, streaming or recurrent attention): a dense
   block-diagonal mask would defeat the cost such a mechanism is built to avoid,
   so the model instead receives the raw per-token document runs and resets its
-  state at each boundary.
+  state at each boundary.  The `causal` mode opts *out* of document isolation
+  altogether: the model receives only the ordinary 2-D key-padding mask and
+  `position_ids`, and a plain causal mask attends across document boundaries.
+  This is the recipe used by GPT-3, PaLM, LLaMA, Falcon and Mistral
+  (concatenate with an EOD marker, no cross-document blocking), so it is the
+  right choice when reproducing that setup.  The collator still emits
+  `segment_ids`; a `causal` model simply ignores them.  Use `causal` for models
+  that compute attention without an `L x L` score matrix *and* want to match
+  mainstream pre-training; keep `segment_ids` when document isolation is itself
+  the property under test.
 
 Because document boundaries are derived from `segment_ids` (not the raw
-`attention_mask`), packing a model that only understands a 2-D mask is a hard
-error rather than a silent cross-document leak.  The collator also masks the
-label opening each document, so the causal shift never predicts across a
-boundary -- packed training stays equivalent to the per-document padded case and
-`--mask_prompt` is honoured.  `flash-attn` is an optional extra
-(`pip install genml_kit[flash]`); without it everything runs on the
-block-diagonal (pure-torch) path, so CPU and CI never require a GPU.
+`attention_mask`), unless the model declares `causal`, packing a model that only
+understands a 2-D mask is a hard error rather than a silent cross-document leak.
+The collator also masks the label opening each document, so the causal shift
+never predicts across a boundary -- packed training stays equivalent to the
+per-document padded case and `--mask_prompt` is honoured.  `flash-attn` is an
+optional extra (`pip install genml_kit[flash]`); without it everything runs on
+the block-diagonal (pure-torch) path, so CPU and CI never require a GPU.
 
 `--dataset`, `--split`, `--val_split`, `--cache_dir`, `--image_column`,
 `--max_seq_len`, `--sequence_mode`, `--mask_prompt`, `--pad_to_multiple_of` and

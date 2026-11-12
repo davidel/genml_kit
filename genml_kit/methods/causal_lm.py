@@ -69,9 +69,10 @@ def _resolve_packed_capability(model):
   """How *model* keeps documents isolated in a packed window.
 
   Custom models declare :attr:`GenerativeLM.PACKED_ATTENTION` (default
-  ``"none"``).  HuggingFace decoders are inferred from their attention
-  backend: a flash kernel packs natively (varlen), the other backends
-  (sdpa/eager) take a 4-D additive mask (block diagonal).
+  ``"none"``); ``"causal"`` opts out of isolation entirely (plain causal mask,
+  the standard pre-training recipe).  HuggingFace decoders are inferred from
+  their attention backend: a flash kernel packs natively (varlen), the other
+  backends (sdpa/eager) take a 4-D additive mask (block diagonal).
   """
   # A declared attribute wins (custom models always carry one via the base
   # class).  Resolved with the recursive (dotted-path) helper so a missing
@@ -251,6 +252,15 @@ class CausalLMMethod(Method):
                    attention_mask=data["attention_mask"],
                    position_ids=data["position_ids"],
                    segment_ids=segment_ids)
+    if capability == "causal":
+      # The model does not isolate documents: it takes the ordinary 2-D
+      # key-padding mask and a plain causal mask, so tokens may attend across
+      # document boundaries.  This is the standard LLM pre-training recipe
+      # (concatenate documents with an EOD marker, no cross-document blocking),
+      # so the boundary tensors are deliberately not forwarded.
+      return model(input_ids=data["input_ids"],
+                   attention_mask=data["attention_mask"],
+                   position_ids=data["position_ids"])
     fatal(
         "Packed batch received but the model cannot isolate documents "
         "(PACKED_ATTENTION='none').", ValueError)

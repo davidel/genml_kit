@@ -50,6 +50,13 @@ class GenerativeLM(nn.Module):
       matrix (linear / kernelized, streaming or recurrent attention): a dense
       block-diagonal mask would defeat the very cost such a mechanism avoids, so
       the model resets its state at each ``segment_ids`` boundary itself.
+    - ``"causal"`` -- the model does **not** isolate documents: it takes the
+      ordinary 2-D key-padding ``attention_mask`` and ``position_ids`` and lets
+      a plain causal mask attend across document boundaries.  This is the
+      standard LLM pre-training recipe (GPT-3, PaLM, LLaMA, Falcon, Mistral all
+      concatenate documents with an EOD marker and do not block cross-document
+      attention), so it is the right choice when reproducing that setup.  The
+      method passes no boundary tensors; the model never sees ``segment_ids``.
 
     Subclasses inherit a working :meth:`generate`.  Override it only to route
     to a faster or native decoder; the default implementation handles the
