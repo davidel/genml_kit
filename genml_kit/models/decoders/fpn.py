@@ -12,6 +12,7 @@ import torch.nn.functional as F
 
 from genml_kit.models.decoders import DECODERS
 from genml_kit.models.decoders.base import BaseDecoder
+from genml_kit.utils.logging import fatal
 
 
 @DECODERS.register("fpn")
@@ -37,8 +38,9 @@ class FPNDecoder(BaseDecoder):
       in_channels = in_channels[len(self.in_channels) - keep:]
       self.in_channels = list(in_channels)
     if len(self.in_channels) < 2:
-      raise ValueError("FPNDecoder needs at least 2 encoder levels "
-                       f"(got {len(self.in_channels)})")
+      fatal(
+          "FPNDecoder needs at least 2 encoder levels "
+          f"(got {len(self.in_channels)})", ValueError)
 
     self.depth = len(self.in_channels)
     self.lateral = nn.ModuleList(
@@ -53,8 +55,8 @@ class FPNDecoder(BaseDecoder):
     """Return ``(B, num_classes, H, W)`` logits at the finest level."""
     levels = pyramid.levels
     if len(levels) < self.depth:
-      raise ValueError(f"FPNDecoder expects >= {self.depth} encoder levels, "
-                       f"got {len(levels)}")
+      fatal(f"FPNDecoder expects >= {self.depth} encoder levels, "
+            f"got {len(levels)}", ValueError)
     levels = levels[len(levels) - self.depth:]
 
     # Lateral 1x1 projections: (B, C_i, H_i, W_i) -> (B, F, H_i, W_i).

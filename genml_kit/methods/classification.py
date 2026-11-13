@@ -154,8 +154,9 @@ class ClassificationMethod(Method):
     if targets is None and labels is not None:
       targets = labels
     if targets is None:
-      raise ValueError("ClassificationMethod.train_step requires labels in "
-                       "blob.meta (or via the labels keyword).")
+      fatal(
+          "ClassificationMethod.train_step requires labels in "
+          "blob.meta (or via the labels keyword).", ValueError)
 
     use_mixup = self._mixup_alpha() > 0 and images.size(0) >= 2
     if use_mixup:

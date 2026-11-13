@@ -155,6 +155,10 @@ class QNetwork(nn.Module):
     """Hard-copy online parameters to the target network."""
     self._ema.copy_hard()
 
+  def soft_update(self, tau):
+    """Soft Polyak update: target = (1-tau)*target + tau*online."""
+    self._ema.update(1.0 - tau)
+
 
 @MODELS.register("rl/qnet")
 def load_rl_qnet(space=None,

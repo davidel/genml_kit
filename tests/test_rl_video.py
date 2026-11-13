@@ -17,9 +17,10 @@ import pytest
 import torch
 
 from genml_kit.models.rl.spaces import space_spec
-from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+from genml_kit.pipelines.rl import RLPipeline
 from genml_kit.training.video_utils import write_video
 from tests.cli_args import train_args
+from tests.scripted_env import _ScriptedEnv
 
 
 def _make_frames(n=5, size=32):

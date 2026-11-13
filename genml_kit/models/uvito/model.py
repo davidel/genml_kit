@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.models.transformer_utils import TransformerBlock
+from genml_kit.utils.logging import fatal
 
 
 class UVito(nn.Module):
@@ -77,22 +78,25 @@ class UVito(nn.Module):
     # string, so (c, h, w) cannot be known statically; (h, w) also become
     # the number of spatial transformer tokens below.
     if feature_tap == 0:
-      raise ValueError("feature_tap=0 selects the raw input image (SMP exposes the "
-                       "unmodified input as features[0]); use a non-zero index, "
-                       "e.g. -1 for the deepest stage.")
+      fatal(
+          "feature_tap=0 selects the raw input image (SMP exposes the "
+          "unmodified input as features[0]); use a non-zero index, "
+          "e.g. -1 for the deepest stage.", ValueError)
     # (1, 3, H, W)
     dummy_input = torch.randn(1, 3, img_size, img_size)
     with torch.no_grad():
       features = self.frozen_encoder(dummy_input)
       if abs(feature_tap) >= len(features):
-        raise ValueError(f"feature_tap={feature_tap} is out of range: this encoder "
-                         f"exposes {len(features)} pyramid entries, so the valid "
-                         f"range is [{-(len(features) - 1)}, {len(features) - 1}].")
+        fatal(
+            f"feature_tap={feature_tap} is out of range: this encoder "
+            f"exposes {len(features)} pyramid entries, so the valid "
+            f"range is [{-(len(features) - 1)}, {len(features) - 1}].", ValueError)
       if self.frozen_encoder.out_channels[feature_tap] == 0:
-        raise ValueError(f"feature_tap={feature_tap} selects a stage this encoder does "
-                         f"not expose (out_channels[feature_tap] == 0, as with early "
-                         f"stages of some tu-* timm encoders). out_channels: "
-                         f"{self.frozen_encoder.out_channels}.")
+        fatal(
+            f"feature_tap={feature_tap} selects a stage this encoder does "
+            f"not expose (out_channels[feature_tap] == 0, as with early "
+            f"stages of some tu-* timm encoders). out_channels: "
+            f"{self.frozen_encoder.out_channels}.", ValueError)
       # (1, C, H/s, W/s)
       bottleneck = features[feature_tap]
     c, h, w = bottleneck.shape[1], bottleneck.shape[2], bottleneck.shape[3]

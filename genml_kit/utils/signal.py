@@ -13,6 +13,8 @@ import logging
 import signal
 import threading
 
+from genml_kit.utils.logging import fatal
+
 _UNHANDLEABLE = frozenset({"SIGKILL", "SIGSTOP"})
 
 
@@ -71,7 +73,7 @@ class sigexcept:
       if not token:
         continue
       if token in _UNHANDLEABLE:
-        raise ValueError(f"{token} cannot be handled; refusing no-op setup")
+        fatal(f"{token} cannot be handled; refusing no-op setup", ValueError)
       sig = getattr(signal, token, None)
       if sig is None or not isinstance(sig, signal.Signals):
         logging.warning("sigexcept: signal %r not available on this platform; ignoring",
@@ -79,13 +81,13 @@ class sigexcept:
         continue
       resolved.append((token, int(sig)))
     if not resolved:
-      raise ValueError("sigexcept: no handleable signals in spec")
+      fatal("sigexcept: no handleable signals in spec", ValueError)
     return resolved
 
   def __enter__(self):
     if threading.current_thread() is not threading.main_thread():
-      raise ValueError("sigexcept: signal handlers can only be installed from the "
-                       "main thread")
+      fatal("sigexcept: signal handlers can only be installed from the "
+            "main thread", ValueError)
     self._resolved = self._parse_spec()
     self.received = []
     self._unwinding = False

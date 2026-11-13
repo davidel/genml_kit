@@ -90,7 +90,11 @@ class TestInProgressResume:
 
   def test_legacy_checkpoint_resumes_next_epoch(self, tmp_path):
     path, model = self._write(tmp_path, epoch=4)
-    _, start_epoch, _, extra = resume_checkpoint(path, "unused.pt", model, "cpu")
+    _, start_epoch, _, extra = resume_checkpoint(path,
+                                                 "unused.pt",
+                                                 model,
+                                                 "cpu",
+                                                 metric_key="best_macro_f1")
     assert start_epoch == 5
     assert extra.get("in_progress") is None
 
@@ -102,7 +106,11 @@ class TestInProgressResume:
                                   "micro_step": 37,
                                   "phase": "optimize"
                               })
-    _, start_epoch, _, extra = resume_checkpoint(path, "unused.pt", model, "cpu")
+    _, start_epoch, _, extra = resume_checkpoint(path,
+                                                 "unused.pt",
+                                                 model,
+                                                 "cpu",
+                                                 metric_key="best_macro_f1")
     # ``epoch`` field is the last *completed* epoch (4); the marker points into
     # epoch 5, which is where resume continues.
     assert start_epoch == 5
@@ -115,7 +123,11 @@ class TestInProgressResume:
                                   "epoch": 9,
                                   "micro_step": 1
                               })
-    _, start_epoch, _, extra = resume_checkpoint(path, "unused.pt", model, "cpu")
+    _, start_epoch, _, extra = resume_checkpoint(path,
+                                                 "unused.pt",
+                                                 model,
+                                                 "cpu",
+                                                 metric_key="best_macro_f1")
     # Marker for a future epoch does not pull start_epoch backwards.
     assert start_epoch == 5
     assert extra["in_progress"]["epoch"] == 9

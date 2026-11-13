@@ -12,13 +12,14 @@ from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.methods.rl_sac import SACMethod
 from genml_kit.models.rl.qnetwork import QNetwork
 from genml_kit.models.rl.spaces import space_spec
-from genml_kit.pipelines.contracts import LossOutput
-from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
-from genml_kit.training.rl_trainer import RLTrainer
-from genml_kit.training.optim_factory import Optimization
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
+from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.pipelines.rl import RLPipeline
+from genml_kit.training.rl_trainer import RLTrainer
+from genml_kit.training.optim_factory import Optimization
 from tests.cli_args import train_args
+from tests.scripted_env import _ScriptedEnv
 
 
 class FakeRLMethod(DQNMethod):
@@ -195,8 +196,8 @@ class TestRLTrainer:
 
   def test_warmup_fills_buffer(self):
     with tempfile.TemporaryDirectory() as checkpoint_dir:
-      model, optimization, method, pipeline, args = _build_trainer(warmup_steps=8,
-                                                                   env_steps_per_epoch=3)
+      model, optimization, method, pipeline, args = _build_trainer(
+          warmup_steps=8, env_steps_per_epoch=3)
       args.checkpoint = checkpoint_dir
       trainer = RLTrainer(
           args=args,
@@ -1276,8 +1277,9 @@ class TestObservationNormalization:
 
   def test_pipeline_obs_normalize_disabled(self):
     """Test pipeline works normally when obs_normalize is False."""
-    from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+    from genml_kit.pipelines.rl import RLPipeline
     from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+    from tests.scripted_env import _ScriptedEnv
 
     pipeline = RLPipeline()
     pipeline.env = _ScriptedEnv(obs_dim=4)
@@ -1303,8 +1305,9 @@ class TestObservationNormalization:
     pipeline's obs_rms into the checkpoint, and the driver restores it via
     pipeline.load_checkpoint_state().
     """
-    from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv, RunningMeanStd
+    from genml_kit.pipelines.rl import RLPipeline, RunningMeanStd
     from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+    from tests.scripted_env import _ScriptedEnv
 
     pipeline = RLPipeline()
     pipeline.env = _ScriptedEnv(obs_dim=4)
@@ -1341,8 +1344,9 @@ class TestObservationNormalization:
 
   def test_pipeline_obs_normalize_enabled(self):
     """Test pipeline normalizes observations when enabled."""
-    from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+    from genml_kit.pipelines.rl import RLPipeline
     from genml_kit.datasets.replay_buffer import ReplayBufferDataset
+    from tests.scripted_env import _ScriptedEnv
 
     pipeline = RLPipeline()
     pipeline.env = _ScriptedEnv(obs_dim=4)

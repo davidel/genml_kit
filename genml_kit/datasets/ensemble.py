@@ -231,7 +231,7 @@ def _first_sample_image_member(source):
   for member, value in next(iter(source)).items():
     if isinstance(value, Image.Image):
       return member
-  raise fatal(
+  fatal(
       "webdataset: the first sample holds no image member.  Pass "
       "--image_column naming the member that holds the image.", ValueError)
 

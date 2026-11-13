@@ -23,6 +23,8 @@ feature width and ``N`` a token count.
 import torch
 import torch.nn.functional as F
 
+from genml_kit.utils.logging import fatal
+
 
 def kd_response_loss(student_logits,
                      teacher_logits,
@@ -45,7 +47,7 @@ def kd_response_loss(student_logits,
       Scalar loss tensor.
   """
   if temperature <= 0:
-    raise ValueError("kd_response_loss requires temperature > 0.")
+    fatal("kd_response_loss requires temperature > 0.", ValueError)
   # (B, C) log-probabilities of the tempered student distribution.
   student_log_probs = F.log_softmax(student_logits / temperature, dim=-1)
   # (B, C) probabilities of the tempered teacher distribution (the target).
@@ -165,8 +167,9 @@ def _attention_map(feature_map, p, eps):
   elif feature_map.dim() == 3:
     channel_dim = 2
   else:
-    raise ValueError("kd_attention_loss expects a 3-D or 4-D feature map; got "
-                     f"{feature_map.dim()}-D.")
+    fatal(
+        "kd_attention_loss expects a 3-D or 4-D feature map; got "
+        f"{feature_map.dim()}-D.", ValueError)
   # A(h) = sum_c |h_c|^p:  (B, C, H, W) -> (B, H, W)  or  (B, N, C) -> (B, N).
   att = feature_map.abs().pow(p).sum(dim=channel_dim)
   # L2 norm of each sample's flattened map: (B, *spatial) -> (B,).

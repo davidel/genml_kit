@@ -212,8 +212,10 @@ def test_resume_continues_same_order_single_epoch(tmp_path):
   assert in_progress["micro_step"] >= 1
 
   _, start_epoch, _, extra = resume_checkpoint(str(tmp_path / "ckpt_latest.pt"),
-                                               "unused.pt", torch.nn.Sequential(),
-                                               "cpu")
+                                               "unused.pt",
+                                               torch.nn.Sequential(),
+                                               "cpu",
+                                               metric_key="best_macro_f1")
   # Resume into the interrupted epoch, not the next one.
   assert start_epoch == 0
 

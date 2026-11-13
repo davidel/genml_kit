@@ -12,6 +12,8 @@ the ``nn.Module`` classes free of gymnasium imports.
 
 from collections import namedtuple
 
+from genml_kit.utils.logging import fatal
+
 # Fields
 # obs_shape:   (4,) for a vector env; (3, 84, 84) for an image env.
 # obs_dim:     ``prod(obs_shape)`` -- the MLP input size.
@@ -59,8 +61,9 @@ def space_spec(observation_space, action_space, obs_dim=None):
   shape = getattr(observation_space, "shape", None)
   if obs_dim is None:
     if shape is None:
-      raise ValueError(f"Cannot infer obs_dim from observation space "
-                       f"{observation_space!r}; pass --obs_dim explicitly")
+      fatal(
+          f"Cannot infer obs_dim from observation space "
+          f"{observation_space!r}; pass --obs_dim explicitly", ValueError)
     obs_dim = int(_prod(shape))
   else:
     obs_dim = int(obs_dim)

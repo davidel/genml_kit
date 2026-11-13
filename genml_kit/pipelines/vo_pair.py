@@ -88,8 +88,13 @@ class VOPairPipeline(DataPipeline):
                        default=0,
                        help="Seed the pair generator for reproducible pairs.")
 
-  def build_loader(self, args, mode="train", **kwargs):
-    """Build (and cache) the train/val loaders for *mode*."""
+  def build_loader(self, args, mode="train", *, needs_labels=None, **kwargs):
+    """Build (and cache) the train/val loaders for *mode*.
+
+    ``needs_labels`` is accepted for signature parity with
+    :meth:`DataPipeline.build_loader`; VO pairs always carry their own
+    metadata, so it is unused here.
+    """
     seed = args.seeded_pairs
     image_size = args.image_size or 64
     size = (image_size, image_size)

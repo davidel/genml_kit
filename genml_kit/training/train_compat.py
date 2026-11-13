@@ -13,7 +13,6 @@ import re
 
 import torch
 from torchvision.transforms import v2
-from torchvision.transforms.v2 import InterpolationMode
 
 from genml_kit.losses.focal import CombinedFocalLoss
 from genml_kit.training.eval import evaluate_performance
@@ -28,6 +27,7 @@ from genml_kit.training.labels import (
 )
 from genml_kit.training.model_utils import (
     apply_lora,
+    build_val_transform,
     enable_grad_checkpointing,
     freeze_model,
 )
@@ -84,11 +84,9 @@ def build_transforms(processor, image_size, train_aug_fn=None):
         v2.ElasticTransform(alpha=50.0, sigma=5.0),
         *tail,
     ])
-  val_augmentations = v2.Compose([
-      v2.Resize(image_size, interpolation=InterpolationMode.BICUBIC),
-      v2.CenterCrop(image_size),
-      *tail,
-  ])
+  # Validation transform is shared with inference (model_utils): a single
+  # source of truth for the Resize -> CenterCrop -> normalize chain.
+  val_augmentations = build_val_transform(processor, image_size)
   return train_augmentations, val_augmentations
 
 

@@ -10,6 +10,7 @@ from genml_kit.models import load_model
 from genml_kit.models.contrastive import ContrastiveEncoder
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.losses.contrastive import supcon_loss
+from genml_kit.utils.logging import fatal
 
 
 @METHODS.register
@@ -87,8 +88,8 @@ class SupConMethod(Method):
     images = blob.data
     labels_ = blob.meta.get("labels", labels)
     if labels_ is None:
-      raise ValueError(
-          "SupConMethod requires labels (blob.meta['labels'] or labels kwarg).")
+      fatal("SupConMethod requires labels (blob.meta['labels'] or labels kwarg).",
+            ValueError)
     features = model(images)
     loss = supcon_loss(features, labels_, temperature=model.temperature)
     return LossOutput(loss=loss,
@@ -104,7 +105,3 @@ class SupConMethod(Method):
         "proj_hidden": args.proj_hidden,
         "temperature": args.temperature,
     }
-
-  def validate(self, model, images, num_samples):
-    # No pixel-space visualization for contrastive.
-    pass

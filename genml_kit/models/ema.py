@@ -81,3 +81,30 @@ def linear_momentum(step, total, start, end):
     return start
   ratio = min(step / total, 1.0)
   return start + (end - start) * ratio
+
+
+def compute_step_budget(args, pipeline):
+  """Total optimizer steps for an EMA ramp, or ``None`` when not computable.
+
+  ``global_step`` counts optimizer steps (the trainer increments it once per
+  ``grad_accum_steps`` flush), so the budget divides the micro-batch total
+  ``len(train_loader) * epochs`` by ``grad_accum_steps``.  Returns ``None``
+  when the loader is absent or has no ``len()`` (an iterable-only stream), so
+  callers leave the ramp a no-op until the budget is known.
+
+  Args:
+      args: Parsed CLI args; uses ``epochs`` and ``grad_accum_steps``.
+      pipeline: Data pipeline exposing ``train_loader``.
+
+  Returns:
+      int | None: Total optimizer steps, or ``None`` when not computable.
+  """
+  loader = getattr(pipeline, "train_loader", None)
+  epochs = args.epochs
+  if loader is None or not epochs:
+    return None
+  try:
+    total = len(loader) * epochs
+  except TypeError:  # iterable-only dataset (no len()): leave the ramp a no-op
+    return None
+  return total // max(args.grad_accum_steps or 1, 1)

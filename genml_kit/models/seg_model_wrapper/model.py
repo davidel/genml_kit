@@ -20,6 +20,7 @@ import torch.nn as nn
 
 from genml_kit.models.registry import ModelOutput
 from genml_kit.models.seg_model_wrapper.encoder import probe_encoder
+from genml_kit.utils.logging import fatal
 
 
 class SegModelWrapper(nn.Module):
@@ -58,7 +59,7 @@ class SegModelWrapper(nn.Module):
     if pixel_values is None:
       pixel_values = kwargs.get("images")
     if pixel_values is None:
-      raise ValueError("SegModelWrapper.forward requires pixel_values")
+      fatal("SegModelWrapper.forward requires pixel_values", ValueError)
     # Encoder: (B, 3, H, W) -> feature pyramid of (B, C_i, H_i, W_i).
     pyramid = self.encoder(pixel_values)
     # Decoder: pyramid -> (B, num_classes, H, W) logits.

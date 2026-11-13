@@ -17,6 +17,7 @@ import torch.nn as nn
 
 from genml_kit.models.registry import ModelOutput
 from genml_kit.models.seg_model_wrapper.encoder import TimmEncoder, probe_encoder  # noqa: F401
+from genml_kit.utils.logging import fatal
 
 
 class DetModelWrapper(nn.Module):
@@ -51,7 +52,7 @@ class DetModelWrapper(nn.Module):
     """Return ``ModelOutput`` carrying the structured detection predictions."""
     pixel_values = kwargs.get("images") if pixel_values is None else pixel_values
     if pixel_values is None:
-      raise ValueError("DetModelWrapper.forward requires pixel_values")
+      fatal("DetModelWrapper.forward requires pixel_values", ValueError)
     # Encoder: (B, 3, H, W) -> feature pyramid of (B, C_i, H_i, W_i).
     pyramid = self.encoder(pixel_values)
     # Head: pyramid -> per-level class / box / centerness predictions.

@@ -14,6 +14,7 @@ import torch.nn.functional as F
 
 from genml_kit.models.decoders import DECODERS
 from genml_kit.models.decoders.base import BaseDecoder
+from genml_kit.utils.logging import fatal
 
 
 def _double_conv(in_ch, out_ch):
@@ -53,8 +54,9 @@ class UNetDecoder(BaseDecoder):
       in_channels = in_channels[len(self.in_channels) - keep:]
       self.in_channels = list(in_channels)
     if len(self.in_channels) < 2:
-      raise ValueError("UNetDecoder needs at least 2 encoder levels "
-                       f"(got {len(self.in_channels)})")
+      fatal(
+          "UNetDecoder needs at least 2 encoder levels "
+          f"(got {len(self.in_channels)})", ValueError)
 
     self.depth = len(self.in_channels)
 
@@ -78,8 +80,9 @@ class UNetDecoder(BaseDecoder):
     """
     levels = pyramid.levels
     if len(levels) < self.depth:
-      raise ValueError(f"UNetDecoder expects >= {self.depth} encoder levels, got "
-                       f"{len(levels)}")
+      fatal(
+          f"UNetDecoder expects >= {self.depth} encoder levels, got "
+          f"{len(levels)}", ValueError)
     # Keep the deepest ``depth`` levels (finest first ordering preserved).
     levels = levels[len(levels) - self.depth:]
 

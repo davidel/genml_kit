@@ -244,7 +244,8 @@ class SegmentationMethod(Method):
         if len(rows) >= n:
           break
     if rows:
-      grid = np.concatenate(rows, axis=0)  # (n*H, 3*W, 3) uint8
+      # Assembled contact-sheet grid: (n*H, 3*W, 3) uint8.
+      grid = np.concatenate(rows, axis=0)
       logger.log_artifact("seg/overlay", "image", grid, step=global_step)
 
   def get_checkpoint_state(self, model, args):

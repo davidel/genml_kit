@@ -279,7 +279,8 @@ class CausalLMMethod(Method):
           "CausalLMMethod.train_step requires meta['labels'] "
           "(the text collator provides them).", ValueError)
     out = self._forward(model, blob)
-    logits = out.logits  # [B, L, V]
+    # LM head output: [B, L, V] logits over the vocabulary.
+    logits = out.logits
     # Shift: token t is predicted from positions < t.  Drop the last logit and
     # the first label so both align to positions 1..L-1: [B, L, V] -> [B, L-1, V]
     # and [B, L] -> [B, L-1].

@@ -53,7 +53,8 @@ def dice_loss(logits, target, *, ignore_index=255, eps=1.0):
   probs = torch.softmax(logits, dim=1)
   one_hot, valid = _one_hot(target, num_classes, ignore_index)
 
-  dims = (0, 2, 3)  # sum over batch + spatial
+  # Reduce over (batch, H, W), keeping the class axis.
+  dims = (0, 2, 3)
   intersection = torch.sum(probs * one_hot * valid, dim=dims)
   cardinality = torch.sum((probs + one_hot) * valid, dim=dims)
 

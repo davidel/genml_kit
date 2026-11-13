@@ -24,6 +24,8 @@ import collections
 import logging
 import re
 
+from genml_kit.utils.logging import fatal
+
 LayerPair = collections.namedtuple("LayerPair", ["teacher", "student"])
 
 
@@ -65,8 +67,8 @@ def iter_named_layers(model, pattern=None):
     layers.append((name, module))
   if not layers:
     if regex is not None:
-      raise ValueError(f"No module name matched pattern {pattern!r}.")
-    raise ValueError("No layers found in the given model.")
+      fatal(f"No module name matched pattern {pattern!r}.", ValueError)
+    fatal("No layers found in the given model.", ValueError)
   return layers
 
 
@@ -133,14 +135,14 @@ def match_layers(teacher_layers, student_layers, strategy="uniform", pattern=Non
           ``"by_name"`` pattern, typically).
   """
   if not teacher_layers or not student_layers:
-    raise ValueError("Both teacher_layers and student_layers must be non-empty.")
+    fatal("Both teacher_layers and student_layers must be non-empty.", ValueError)
 
   if strategy == "by_index":
     if len(teacher_layers) != len(student_layers):
-      raise ValueError(
+      fatal(
           f"strategy='by_index' needs equal depth; got {len(teacher_layers)} "
           f"teacher and {len(student_layers)} student layers.  Use 'uniform' "
-          "for different depths.")
+          "for different depths.", ValueError)
     pairs = [
         LayerPair(t_mod, s_mod)
         for (_, t_mod), (_, s_mod) in zip(teacher_layers, student_layers)
@@ -183,12 +185,14 @@ def match_layers(teacher_layers, student_layers, strategy="uniform", pattern=Non
       logging.warning("  Skipped %d unmatched layer(s): %s", len(skipped),
                       ", ".join(skipped))
     if not pairs:
-      raise ValueError(f"strategy='by_name' matched no teacher/student layers"
-                       f"{f' for pattern {pattern!r}' if pattern is not None else ''}.")
+      fatal(
+          f"strategy='by_name' matched no teacher/student layers"
+          f"{f' for pattern {pattern!r}' if pattern is not None else ''}.", ValueError)
     return pairs
 
-  raise ValueError(f"Unknown strategy {strategy!r}; expected one of "
-                   "'by_index', 'uniform', 'by_name'.")
+  fatal(
+      f"Unknown strategy {strategy!r}; expected one of "
+      "'by_index', 'uniform', 'by_name'.", ValueError)
 
 
 def _log_matches(matched):

@@ -50,7 +50,8 @@ from genml_kit.utils.shared_args import (
     ARG_EPOCHS, ARG_GRAD_CHECKPOINT, ARG_IMAGE_COLUMN, ARG_IMAGE_SIZE, ARG_IN_CH,
     ARG_LORA, ARG_MAX_ITEMS, ARG_MAX_SEQ_LEN, ARG_MASK_PROMPT, ARG_METHOD, ARG_MODEL,
     ARG_MODEL_ARG, ARG_NUM_WORKERS, ARG_PAD_TO_MULTIPLE_OF, ARG_PARAM_INIT, ARG_SEED,
-    ARG_SHUFFLE_BUFFER_K, ARG_SEQUENCE_MODE, ARG_SPLIT, ARG_VAL_SPLIT, add_shared_arg)
+    ARG_SHUFFLE_BUFFER_K, ARG_SEQUENCE_MODE, ARG_SPLIT, ARG_VAL_SPLIT,
+    DEFAULT_VISION_MODEL, add_shared_arg)
 
 
 def build_parser():
@@ -83,7 +84,7 @@ def build_parser():
       choices=METHODS.list_names(),
       help="Objective (available: {}).".format(", ".join(METHODS.list_names())),
   )
-  add_shared_arg(parser, ARG_MODEL, default="google/vit-base-patch16-224")
+  add_shared_arg(parser, ARG_MODEL, default=DEFAULT_VISION_MODEL)
   add_shared_arg(
       parser,
       ARG_MODEL_ARG,

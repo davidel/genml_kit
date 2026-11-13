@@ -31,10 +31,11 @@ from genml_kit.methods.rl_dqn import DQNMethod
 from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.methods.rl_sac import SACMethod
 from genml_kit.models.rl.spaces import space_spec
-from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+from genml_kit.pipelines.rl import RLPipeline
 from genml_kit.training.optim_factory import Optimization
 from genml_kit.training.rl_trainer import RLTrainer
 from tests.cli_args import train_args
+from tests.scripted_env import _ScriptedEnv
 
 pytestmark = pytest.mark.slow
 

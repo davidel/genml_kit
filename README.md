@@ -1942,11 +1942,13 @@ class Classifier(nn.Module):
         super().__init__()
         self.head = nn.Linear(hidden_size, num_labels)
 
-    def forward(self, hidden_states):          # (B, N, D) tensor
+    def forward(self, hidden_states):
+        # (B, N, D) tensor.
         features = hidden_states[:, 0]         # CLS token
         return self.head(features)
 
-    def extract_features(self, hidden_states): # (B, N, D) → (B, D)
+    def extract_features(self, hidden_states):
+        # (B, N, D) → (B, D).
         return hidden_states[:, 0]
 ```
 

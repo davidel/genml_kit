@@ -26,6 +26,37 @@ from genml_kit.utils.distributed import all_reduce_gradients, is_distributed
 from genml_kit.utils.logging import fatal
 
 
+class SACOptimization:
+  """Bundle of the three SAC optimizers (critic, actor, alpha).
+
+  Defined at module scope (not inside ``build_optimization``) so the type is
+  stable across calls and importable/picklable.  ``optimizer`` mirrors the
+  critic optimizer for callers that expect the single-optimizer interface;
+  ``scheduler`` / ``scaler`` are ``None`` (SAC uses neither).
+  """
+
+  def __init__(self, critic_opt, actor_opt, alpha_opt):
+    self.critic_opt = critic_opt
+    self.actor_opt = actor_opt
+    self.alpha_opt = alpha_opt
+    # For backward compatibility with logging etc.
+    self.optimizer = critic_opt
+    self.scheduler = None
+    self.scaler = None
+
+  def state_dict(self):
+    return {
+        "critic_opt": self.critic_opt.state_dict(),
+        "actor_opt": self.actor_opt.state_dict(),
+        "alpha_opt": self.alpha_opt.state_dict(),
+    }
+
+  def load_state_dict(self, state):
+    self.critic_opt.load_state_dict(state["critic_opt"])
+    self.actor_opt.load_state_dict(state["actor_opt"])
+    self.alpha_opt.load_state_dict(state["alpha_opt"])
+
+
 @METHODS.register
 class SACMethod(RLMethod):
   """Soft Actor-Critic (off-policy, continuous actions).
@@ -61,6 +92,10 @@ class SACMethod(RLMethod):
   NAME = "sac"
   METRIC_KEY = "eval_return"
   NEEDS_LABELS = False
+  MODEL_ARG_EXCLUDES = frozenset({
+      "sac_gamma", "sac_tau", "sac_alpha", "sac_auto_alpha", "sac_target_entropy",
+      "sac_critic_lr", "sac_actor_lr", "sac_alpha_lr"
+  })
 
   def _ensure_losses(self):
     """Lazily initialise the loss bundle if ``build_model`` did not.
@@ -193,15 +228,8 @@ class SACMethod(RLMethod):
     # registry.  The factory may return a single module -- used as the
     # critic, with the default ``rl/actor_critic`` actor -- or a dict
     # ``{"actor": ..., "critic": ...}`` supplying both parts.
-    sac_kwargs = {
-        k: v for k, v in args.model_arg.items() if k not in {
-            "sac_gamma", "sac_tau", "sac_alpha", "sac_auto_alpha", "sac_target_entropy",
-            "sac_critic_lr", "sac_actor_lr", "sac_alpha_lr"
-        }
-    }
-    model_name = args.model
-    if not model_name or model_name == "google/vit-base-patch16-224":
-      model_name = "rl/sac_critic"
+    sac_kwargs = self.model_kwargs(args)
+    model_name = self.resolve_model_name(args, "rl/sac_critic")
     result = load_model(
         model_name,
         num_labels=0,
@@ -267,30 +295,6 @@ class SACMethod(RLMethod):
         actor_opt.load_state_dict(optim_state["actor_opt"])
       if "alpha_opt" in optim_state:
         alpha_opt.load_state_dict(optim_state["alpha_opt"])
-
-    # Return a custom optimization object
-    class SACOptimization:
-
-      def __init__(self, critic_opt, actor_opt, alpha_opt):
-        self.critic_opt = critic_opt
-        self.actor_opt = actor_opt
-        self.alpha_opt = alpha_opt
-        # For backward compatibility with logging etc.
-        self.optimizer = critic_opt
-        self.scheduler = None
-        self.scaler = None
-
-      def state_dict(self):
-        return {
-            "critic_opt": self.critic_opt.state_dict(),
-            "actor_opt": self.actor_opt.state_dict(),
-            "alpha_opt": self.alpha_opt.state_dict(),
-        }
-
-      def load_state_dict(self, state):
-        self.critic_opt.load_state_dict(state["critic_opt"])
-        self.actor_opt.load_state_dict(state["actor_opt"])
-        self.alpha_opt.load_state_dict(state["alpha_opt"])
 
     return SACOptimization(critic_opt, actor_opt, alpha_opt)
 

@@ -1,7 +1,5 @@
 """BYOL: Bootstrap Your Own Latent (Grill et al., NeurIPS 2020)."""
 
-import contextlib
-
 import torch
 from torchvision.transforms import v2
 
@@ -9,6 +7,7 @@ from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.models import load_model
 from genml_kit.models.byol import BYOL
+from genml_kit.models.ema import compute_step_budget, linear_momentum
 from genml_kit.pipelines.contracts import LossOutput
 from genml_kit.augmentations.dual_view import DualViewTransform
 from genml_kit.training.model_utils import set_train_mode
@@ -116,18 +115,10 @@ class BYOLMethod(Method):
     """Compute the optimizer-step budget for the EMA momentum ramp.
 
     Lifecycle position 2: both loaders exist, so ``len(train_loader)`` is
-    final.  ``global_step`` is the optimizer-step counter (the trainer
-    increments it once per ``grad_accum_steps`` flushes), so the budget
-    is the micro-batch total divided by ``grad_accum_steps`` -- the ramp
-    completes exactly at the last optimizer step of the last epoch.
+    final.  See :func:`genml_kit.models.ema.compute_step_budget` for the
+    optimizer-step accounting.
     """
-    total = None
-    with contextlib.suppress(TypeError):
-      # Iterable-only datasets: no len().
-      total = len(pipeline.train_loader)
-    if total:
-      total = total * args.epochs // max(args.grad_accum_steps, 1)
-    self._total_steps = total
+    self._total_steps = compute_step_budget(args, pipeline)
 
   def train_step(self, model, blob, global_step, *, labels=None):
     """Compute the BYOL loss for one dual-view blob (train path).
@@ -160,12 +151,8 @@ class BYOLMethod(Method):
 
   def _current_momentum(self, global_step, model):
     total = getattr(self, "_total_steps", None)
-    if not total:
-      return self._momentum_start()
-    ratio = min(global_step / total, 1.0)
-    start = self._momentum_start()
-    end = self._momentum_end()
-    return end + (start - end) * (1.0 - ratio)
+    return linear_momentum(global_step, total, self._momentum_start(),
+                           self._momentum_end())
 
   def _momentum_start(self):
     return getattr(self, "_byol_momentum", 0.996)
@@ -183,6 +170,3 @@ class BYOLMethod(Method):
   def load_checkpoint_state(self, model, state, args):
     self._byol_momentum = state.get("momentum", args.byol_momentum)
     self._byol_final_momentum = state.get("final_momentum", args.byol_final_momentum)
-
-  def validate(self, model, images, num_samples):
-    pass

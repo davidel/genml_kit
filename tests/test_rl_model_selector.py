@@ -20,8 +20,9 @@ from genml_kit.models.rl.qnetwork import DuelingQHead, QNetwork
 from genml_kit.models.rl.sac_model import SACModel
 from genml_kit.models.rl.sac_critic import SACCritic
 from genml_kit.models.rl.spaces import space_spec
-from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+from genml_kit.pipelines.rl import RLPipeline
 from tests.cli_args import train_args
+from tests.scripted_env import _ScriptedEnv
 
 
 def _make_args(**overrides):

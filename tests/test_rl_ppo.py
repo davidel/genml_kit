@@ -8,9 +8,10 @@ import torch
 from genml_kit.methods import METHODS
 from genml_kit.methods.rl_ppo import PPOMethod
 from genml_kit.models.rl.spaces import space_spec
-from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+from genml_kit.pipelines.rl import RLPipeline
 from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 from tests.cli_args import train_args
+from tests.scripted_env import _ScriptedEnv
 
 
 def _make_args(**overrides):

@@ -27,6 +27,7 @@ broadcasting, silently-wrong loss.
 import torch
 
 from genml_kit.utils.attr import MISSING, get_attribute, maybe_call
+from genml_kit.utils.logging import fatal
 
 # Attribute paths probed (in order) to infer the backbone output dimension.
 _BACKBONE_DIM_PATHS = (
@@ -61,7 +62,7 @@ def detect_backbone_dim(encoder):
     val = get_attribute(encoder, path)
     if val is not MISSING:
       return val
-  raise ValueError("Cannot infer backbone output dimension.")
+  fatal("Cannot infer backbone output dimension.", ValueError)
 
 
 def encode_with_backbone(encoder, images):
@@ -141,13 +142,14 @@ def require_matching_features(*features, names=None):
           are not all identical.
   """
   if len(features) < 2:
-    raise ValueError("require_matching_features needs at least two tensors.")
+    fatal("require_matching_features needs at least two tensors.", ValueError)
   shapes = [tuple(f.shape) for f in features]
   if len(set(shapes)) != 1:
     if names is not None:
       labels = [f"{n}:{s}" for n, s in zip(names, shapes)]
     else:
       labels = [str(s) for s in shapes]
-    raise ValueError("Feature shapes must match exactly to avoid broadcasting; got " +
-                     ", ".join(labels))
+    fatal(
+        "Feature shapes must match exactly to avoid broadcasting; got " +
+        ", ".join(labels), ValueError)
   return features[0]

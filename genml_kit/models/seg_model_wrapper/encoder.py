@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.models.decoders.base import EncoderLevel, EncoderPyramid
+from genml_kit.utils.logging import fatal
 
 
 class TimmEncoder(nn.Module):
@@ -32,8 +33,9 @@ class TimmEncoder(nn.Module):
     self.model = model
     info = getattr(model, "feature_info", None)
     if info is None:
-      raise ValueError("TimmEncoder requires a model with feature_info "
-                       "(create it with features_only=True)")
+      fatal(
+          "TimmEncoder requires a model with feature_info "
+          "(create it with features_only=True)", ValueError)
     self._all_indices = list(info.out_indices)
     if out_indices is None:
       self._selected = list(range(len(self._all_indices)))
@@ -49,8 +51,9 @@ class TimmEncoder(nn.Module):
   def out_channels(self):
     """Per-level channel counts (available after the first forward)."""
     if self._channels is None:
-      raise RuntimeError("TimmEncoder.out_channels is only known after a "
-                         "forward pass; call probe() first.")
+      fatal(
+          "TimmEncoder.out_channels is only known after a "
+          "forward pass; call probe() first.", RuntimeError)
     return list(self._channels)
 
   def _to_nchw(self, feature, expected_channels):
@@ -65,9 +68,10 @@ class TimmEncoder(nn.Module):
     if feature.shape[-1] == expected_channels:
       return feature.permute(0, 3, 1, 2).contiguous()
     # Shapes should always match; fail loudly if timm changes its contract.
-    raise ValueError(f"TimmEncoder could not locate the channel axis (expected "
-                     f"{expected_channels}) in feature with shape "
-                     f"{tuple(feature.shape)}")
+    fatal(
+        f"TimmEncoder could not locate the channel axis (expected "
+        f"{expected_channels}) in feature with shape "
+        f"{tuple(feature.shape)}", ValueError)
 
   def forward(self, x):
     """Return an :class:`EncoderPyramid` for ``(B, 3, H, W)`` inputs.

@@ -24,6 +24,10 @@ class DQNMethod(RLMethod):
   NAME = "dqn"
   METRIC_KEY = "eval_return"
   NEEDS_LABELS = False
+  MODEL_ARG_EXCLUDES = frozenset({
+      "dqn_gamma", "dqn_tau", "dqn_epsilon_start", "dqn_epsilon_end",
+      "dqn_epsilon_decay_steps", "dqn_ddqn", "dqn_dueling", "dqn_n_step"
+  })
 
   def _ensure_losses(self):
     """Lazily initialise the loss bundle if ``build_model`` did not.
@@ -148,15 +152,9 @@ class DQNMethod(RLMethod):
     # falling back to the two DQN defaults preserves today's behaviour
     # when the user does not pass ``--model`` (the shared parser default
     # is the vision model, which must not leak into RL runs).
-    model_name = args.model
-    if not model_name or model_name == "google/vit-base-patch16-224":
-      model_name = ("rl/qnet_dueling" if args.dqn_dueling else "rl/qnet")
-    dqn_kwargs = {
-        k: v for k, v in args.model_arg.items() if k not in {
-            "dqn_gamma", "dqn_tau", "dqn_epsilon_start", "dqn_epsilon_end",
-            "dqn_epsilon_decay_steps", "dqn_ddqn", "dqn_dueling", "dqn_n_step"
-        }
-    }
+    registered = "rl/qnet_dueling" if args.dqn_dueling else "rl/qnet"
+    model_name = self.resolve_model_name(args, registered)
+    dqn_kwargs = self.model_kwargs(args)
     model = load_model(
         model_name,
         num_labels=0,
@@ -205,9 +203,7 @@ class DQNMethod(RLMethod):
         model.hard_update()
     elif self._tau < 1.0:
       # Soft Polyak update: target = (1-tau)*target + tau*online.
-      with torch.no_grad():
-        for p, pt in zip(model.online.parameters(), model.target.parameters()):
-          pt.data.mul_(1.0 - self._tau).add_(p.data, alpha=self._tau)
+      model.soft_update(self._tau)
     else:
       # Default: hard update every step.
       model.hard_update()

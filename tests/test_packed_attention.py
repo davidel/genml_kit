@@ -57,7 +57,8 @@ class TestBlockDiagonalMask:
   def test_attention_matches_separate_documents(self):
     """Packed attention output == attending each document in isolation."""
     torch.manual_seed(0)
-    q = torch.randn(1, 2, 4, 5)  # [B, H, L, D]
+    # [B, H, L, D] query/key/value tensors.
+    q = torch.randn(1, 2, 4, 5)
     k = torch.randn(1, 2, 4, 5)
     v = torch.randn(1, 2, 4, 5)
     seg = torch.tensor([[0, 0, 1, 1]])  # two 2-token documents in one window

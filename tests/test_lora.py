@@ -297,6 +297,7 @@ class TestResumeCheckpointWithLoRA:
         path,
         fresh,
         device=torch.device("cpu"),
+        metric_key="best_macro_f1",
     )
 
     assert epoch == 4
@@ -339,6 +340,7 @@ class TestResumeCheckpointWithLoRA:
         path,
         fresh,
         device=torch.device("cpu"),
+        metric_key="best_macro_f1",
     )
 
     assert epoch == 6
@@ -376,7 +378,8 @@ class TestResumeCheckpointWithLoRA:
     model, _, _, extra = resume_checkpoint(path,
                                            path,
                                            model,
-                                           device=torch.device("cpu"))
+                                           device=torch.device("cpu"),
+                                           metric_key="best_macro_f1")
 
     lora_names = extract_lora_params(model)
     freeze_model(model, (r"head",) + tuple(re.escape(name) for name in lora_names))

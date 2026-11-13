@@ -26,6 +26,7 @@ class PPOMethod(RLMethod):
   METRIC_KEY = "eval_return"
   NEEDS_LABELS = False
   IS_ON_POLICY = True
+  MODEL_ARG_EXCLUDES = frozenset({"log_std_init", "log_std_min", "log_std_max"})
 
   def _ensure_losses(self):
     """Lazily initialise the loss bundle if ``build_model`` did not.
@@ -184,14 +185,8 @@ class PPOMethod(RLMethod):
     # The ``space`` spec (built from the env) decides obs/action sizes
     # and discreteness; ``--ppo_log_std_*`` stay method-level knobs read
     # here, and everything else in ``--model_arg`` is forwarded.
-    model_name = args.model
-    if not model_name or model_name == "google/vit-base-patch16-224":
-      model_name = "rl/actor_critic"
-    model_kwargs = {
-        k: v
-        for k, v in args.model_arg.items()
-        if k not in {"log_std_init", "log_std_min", "log_std_max"}
-    }
+    model_name = self.resolve_model_name(args, "rl/actor_critic")
+    model_kwargs = self.model_kwargs(args)
     model = load_model(
         model_name,
         num_labels=0,

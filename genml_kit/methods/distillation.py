@@ -45,7 +45,7 @@ from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
 from genml_kit.models import load_model
 from genml_kit.models.contrastive import ProjectionHead
-from genml_kit.models.ema import EMAModel, linear_momentum
+from genml_kit.models.ema import EMAModel, compute_step_budget, linear_momentum
 from genml_kit.models.encoder_utils import detect_backbone_dim, encode_with_backbone
 from genml_kit.models.layer_match import iter_named_layers, match_layers
 from genml_kit.pipelines.contracts import LossOutput
@@ -270,7 +270,7 @@ class DistillationMethod(Method):
       fatal("--method distillation requires a labeled --dataset.", ValueError)
     self.set_label_space(pipeline.num_labels, pipeline.id2label, pipeline.label2id)
     self._cfg = _KdConfig.from_args(args)
-    self._total_steps = _step_budget(args, pipeline)
+    self._total_steps = compute_step_budget(args, pipeline)
 
   def build_model(self, args, device):
     """Construct the student, its teacher, and the FitNets projectors."""
@@ -493,10 +493,6 @@ class DistillationMethod(Method):
       self._cfg.ema_momentum = state["momentum"]
       self._cfg.ema_final_momentum = state["final_momentum"]
 
-  def validate(self, model, images, num_samples):
-    # No pixel-space visualization for distillation.
-    pass
-
 
 class _KdConfig:
   """Resolved KD hyperparameters (kept off ``args`` for a stable signature)."""
@@ -524,23 +520,6 @@ class _KdConfig:
 def _resolve_labels(blob, labels):
   """Labels from the keyword argument, else from ``blob.meta['labels']``."""
   return labels if labels is not None else blob.meta.get("labels")
-
-
-def _step_budget(args, pipeline):
-  """Total optimizer steps for the EMA ramp, or None when it cannot be sized.
-
-  ``global_step`` counts optimizer steps (the trainer increments it once per
-  ``grad_accum_steps`` flushes), so the budget divides the micro-batch total.
-  """
-  loader = getattr(pipeline, "train_loader", None)
-  epochs = args.epochs
-  if loader is None or not epochs:
-    return None
-  try:
-    total = len(loader) * epochs
-  except TypeError:  # iterable-only dataset (no len()): leave the ramp a no-op
-    return None
-  return total // max(args.grad_accum_steps or 1, 1)
 
 
 def _flatten(feature):

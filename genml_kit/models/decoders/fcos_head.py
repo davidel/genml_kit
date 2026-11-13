@@ -26,6 +26,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.models.decoders import DECODERS
+from genml_kit.utils.logging import fatal
 
 # Per-level dense predictions.  Each list is ordered finest-level-first,
 # matching ``EncoderPyramid.levels``:
@@ -139,8 +140,9 @@ class FCOSHead(nn.Module):
     levels = pyramid.levels
     strides = list(pyramid.strides)
     if len(self.cls_tower) != len(levels):
-      raise ValueError(f"FCOSHead built for {len(self.cls_tower)} levels but "
-                       f"got a pyramid with {len(levels)} levels")
+      fatal(
+          f"FCOSHead built for {len(self.cls_tower)} levels but "
+          f"got a pyramid with {len(levels)} levels", ValueError)
 
     cls_out, box_out, ctr_out = [], [], []
     for i, level in enumerate(levels):

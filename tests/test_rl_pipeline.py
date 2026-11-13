@@ -5,10 +5,11 @@ import torch
 
 import genml_kit.pipelines.rl as rl
 from genml_kit.models.rl.spaces import space_spec
-from genml_kit.pipelines.rl import RLPipeline, _ScriptedEnv
+from genml_kit.pipelines.rl import RLPipeline
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.datasets.replay_buffer import Transition
 from tests.cli_args import train_args
+from tests.scripted_env import _ScriptedEnv
 
 
 class TestScriptedEnv:

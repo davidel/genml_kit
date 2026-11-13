@@ -103,9 +103,9 @@ def _extract_lora_archive(tar, destination):
     path = PurePosixPath(name)
     if (path.is_absolute() or ".." in path.parts or "\\" in name or
         ntpath.splitdrive(name)[0]):
-      raise ValueError(f"Unsafe path in LoRA archive: {name!r}")
+      fatal(f"Unsafe path in LoRA archive: {name!r}", ValueError)
     if not (member.isdir() or member.isfile()):
-      raise ValueError(f"Unsupported LoRA archive member: {name!r}")
+      fatal(f"Unsupported LoRA archive member: {name!r}", ValueError)
 
   tar.extractall(destination, members)
 
@@ -483,7 +483,7 @@ def resume_checkpoint(ckpt_latest,
                       ckpt_best,
                       model,
                       device,
-                      metric_key="best_macro_f1",
+                      metric_key,
                       default_metric=0.0):
   """Resume model state from an existing checkpoint.
 
@@ -647,11 +647,7 @@ def fetch_remote_checkpoint(remote_uri, ckpt_latest, ckpt_best):
   return restored
 
 
-def open_resume_context(args,
-                        model,
-                        device,
-                        metric_key="best_macro_f1",
-                        default_metric=0.0):
+def open_resume_context(args, model, device, metric_key, default_metric=0.0):
   """Fetch remote checkpoints and auto-resume into ``model``.
 
   Wraps the resume boilerplate used by ``train.py``:

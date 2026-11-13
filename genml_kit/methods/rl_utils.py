@@ -8,6 +8,7 @@ numpy array suitable for ``pipeline.step_env``.
 """
 
 from genml_kit.methods.base import Method
+from genml_kit.utils.shared_args import DEFAULT_VISION_MODEL
 
 
 class RLMethod(Method):
@@ -30,12 +31,31 @@ class RLMethod(Method):
   independent of how a method reaches its parameters.
   """
 
+  #: ``--model_arg`` keys owned by a specific RL method and therefore stripped
+  #: from the kwargs forwarded to the model factory.  Subclasses override.
+  MODEL_ARG_EXCLUDES = frozenset()
+
   def wrap_model(self, model, device, args):
     """Return *model* unwrapped; RL reduces gradients explicitly.
 
         See the class docstring for why a DDP wrap is wrong for these methods.
         """
     return model
+
+  def resolve_model_name(self, args, registered):
+    """Return the model factory name for an RL run.
+
+        ``--model`` selects the registered factory.  When it is unset, or left
+        at the shared vision default (:data:`DEFAULT_VISION_MODEL`) that no RL
+        policy can load, fall back to *registered* (the method's own factory).
+        """
+    if not args.model or args.model == DEFAULT_VISION_MODEL:
+      return registered
+    return args.model
+
+  def model_kwargs(self, args):
+    """Return ``--model_arg`` minus this method's own (``MODEL_ARG_EXCLUDES``)."""
+    return {k: v for k, v in args.model_arg.items() if k not in self.MODEL_ARG_EXCLUDES}
 
 
 def rl_evaluate(method,

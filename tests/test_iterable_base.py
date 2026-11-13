@@ -107,7 +107,7 @@ class TestNoLenSafety:
     assert len(ids(ds)) == 6
 
   def test_step_budget_returns_none_for_stream(self):
-    from genml_kit.methods.distillation import _step_budget
+    from genml_kit.models.ema import compute_step_budget
 
     class _Args:
       epochs = 3
@@ -116,7 +116,7 @@ class TestNoLenSafety:
     class _Pipeline:
       train_loader = CountingStream(5)
 
-    assert _step_budget(_Args(), _Pipeline()) is None
+    assert compute_step_budget(_Args(), _Pipeline()) is None
 
 
 class TestWrapperIteration:

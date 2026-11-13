@@ -76,8 +76,9 @@ class RolloutBuffer(Dataset):
                         step).  When omitted, ``terminated = done``.
         """
     if self._ptr >= self._rollout_len:
-      raise RuntimeError(f"RolloutBuffer overflow: ptr={self._ptr}, "
-                         f"capacity={self._rollout_len}")
+      fatal(
+          f"RolloutBuffer overflow: ptr={self._ptr}, "
+          f"capacity={self._rollout_len}", RuntimeError)
     if terminated is None:
       terminated = float(done)
     self._obs[self._ptr] = torch.as_tensor(obs, dtype=torch.float32)
@@ -102,9 +103,10 @@ class RolloutBuffer(Dataset):
                          Scalar broadcasting is no longer supported.
         """
     if isinstance(next_values, (int, float)):
-      raise ValueError("set_next_values no longer accepts scalars. "
-                       "Pass a tensor/array of shape (rollout_len,) with "
-                       "per-step bootstrap values.")
+      fatal(
+          "set_next_values no longer accepts scalars. "
+          "Pass a tensor/array of shape (rollout_len,) with "
+          "per-step bootstrap values.", ValueError)
     next_values = torch.as_tensor(next_values, dtype=torch.float32).flatten()
     assert next_values.numel() == self._rollout_len, (
         f"next_values must have {self._rollout_len} elements, "
@@ -238,7 +240,7 @@ class RolloutBuffer(Dataset):
         """
     n = len(self)
     if n == 0:
-      raise ValueError("RolloutBuffer is empty")
+      fatal("RolloutBuffer is empty", ValueError)
     gen = generator if generator is not None else self._rng
     return torch.randint(n, (batch_size,), generator=gen)
 

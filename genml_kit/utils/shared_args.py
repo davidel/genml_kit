@@ -55,6 +55,13 @@ ARG_CACHE_DIR = ("cache_dir", {
     "help": "HuggingFace cache directory.",
 })
 
+# Default of ``--model``: the generic vision backbone.  RL factories must NOT
+# treat this default as an explicit user choice, so ``RLMethod`` compares
+# against this single constant to decide whether to fall back to its own
+# registered factory.  Defined here so the CLI default and the RL fallback can
+# never drift apart.
+DEFAULT_VISION_MODEL = "google/vit-base-patch16-224"
+
 ARG_MODEL = ("model", {
     "type": str,
     "help": "HF model name/path or timm model (e.g. 'timm:eva02_base_patch14'). "

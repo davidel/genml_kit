@@ -231,9 +231,11 @@ class TestExternalTeacher:
     assert state["teacher_kind"] == "external"
     assert "momentum" not in state
 
-  def test_validate_is_noop(self):
+  def test_log_validation_is_noop(self):
+    # DistillationMethod has no pixel-space visualization, so the base
+    # ``log_validation`` hook is a silent no-op (see Method.log_validation).
     method, _ = _make_method()
-    assert method.validate(None, None, 0) is None
+    assert method.log_validation(None, None, None, None, 0, None) is None
 
 
 class TestPrepareTransforms:
@@ -288,9 +290,9 @@ class TestStepBudget:
       train_loader = None
 
     args = _parse_args()
-    from genml_kit.methods.distillation import _step_budget
+    from genml_kit.models.ema import compute_step_budget
 
-    assert _step_budget(args, _P()) is None
+    assert compute_step_budget(args, _P()) is None
 
   def test_computes_len_times_epochs(self):
 
@@ -298,6 +300,6 @@ class TestStepBudget:
       train_loader = [0, 0, 0]
 
     args = _parse_args(epochs=2, grad_accum_steps=2)
-    from genml_kit.methods.distillation import _step_budget
+    from genml_kit.models.ema import compute_step_budget
 
-    assert _step_budget(args, _P()) == 3
+    assert compute_step_budget(args, _P()) == 3

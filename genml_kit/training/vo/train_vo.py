@@ -17,6 +17,7 @@ import torch.nn.functional as f
 
 from genml_kit.geometry.similarity import corner_residual, wrap_angle
 from genml_kit.training.model_utils import model_mode
+from genml_kit.utils.logging import fatal
 
 VOMetrics = collections.namedtuple("VOMetrics", [
     "mce",
@@ -60,9 +61,10 @@ def vo_metrics_from_output(out, gt, gt_residual, src, dst, *, gt_corners_dst=Non
       VOMetrics of batch means (mce in pixels, dtheta in radians).
   """
   if src is None or dst is None:
-    raise ValueError("vo_metrics_from_output requires ground-truth corners: mce is "
-                     "defined against the truth (vo/README.md s6), not against the "
-                     "prediction's own corner offsets.")
+    fatal(
+        "vo_metrics_from_output requires ground-truth corners: mce is "
+        "defined against the truth (vo/README.md s6), not against the "
+        "prediction's own corner offsets.", ValueError)
   target = dst if gt_corners_dst is None else gt_corners_dst
   mce = corner_residual(out.params, src, target).mean()
   dlog_s = (out.params.log_s - gt["log_s"]).abs().mean()
@@ -121,8 +123,9 @@ def _gt_corners(meta, device=None):
   src = getattr(meta, "corners_src", None)
   dst = getattr(meta, "corners_dst", None)
   if src is None or dst is None:
-    raise ValueError("VOPairMeta is missing corners_src/corners_dst; mce cannot be "
-                     "computed without ground-truth corners (vo/README.md s6).")
+    fatal(
+        "VOPairMeta is missing corners_src/corners_dst; mce cannot be "
+        "computed without ground-truth corners (vo/README.md s6).", ValueError)
   if device is not None:
     src, dst = src.to(device), dst.to(device)
   return src, dst

@@ -15,6 +15,8 @@ import collections
 
 import torch
 
+from genml_kit.utils.logging import fatal
+
 SimilarityParams = collections.namedtuple("SimilarityParams", ["log_s", "theta", "t"])
 
 
@@ -115,8 +117,9 @@ def umeyama_similarity(src, dst, weights=None, eps=1e-8):
       SimilarityParams with fields shaped (B,), (B,), (B, 2).
   """
   if src.dim() != 3 or dst.dim() != 3:
-    raise ValueError("src and dst must be (B, N, 2), got "
-                     f"{tuple(src.shape)} and {tuple(dst.shape)}")
+    fatal(
+        "src and dst must be (B, N, 2), got "
+        f"{tuple(src.shape)} and {tuple(dst.shape)}", ValueError)
   w = torch.ones_like(src[..., 0]) if weights is None else weights
   w_sum = w.sum(dim=-1, keepdim=True).clamp_min(eps)
   mu_src = (w.unsqueeze(-1) * src).sum(dim=1) / w_sum
