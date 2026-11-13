@@ -27,6 +27,13 @@ VOMetrics = collections.namedtuple("VOMetrics", [
 ],
                                    defaults=[float("nan")] * 4)
 
+# What ``vo_losses`` returns: the scalar total loss and the per-component dict.
+VOLossOutput = collections.namedtuple("VOLossOutput", ["total", "parts"])
+
+# What ``_gt_corners`` returns: the ground-truth source / destination corners.
+# A namedtuple (not a namespace) because callers star-unpack it.
+GTCorners = collections.namedtuple("GTCorners", ["src", "dst"])
+
 STAGES = {"supervised": 0, "photometric": 1}
 
 
@@ -89,7 +96,7 @@ def vo_losses(pred, batch, cfg, stage):
       stage: int loss stage (see ``STAGES``).
 
   Returns:
-      (scalar loss tensor, dict of loss components for logging).
+      VOLossOutput: the scalar total loss tensor and the per-component dict.
   """
   params = pred.params
   gt = batch["meta"].gt
@@ -109,11 +116,11 @@ def vo_losses(pred, batch, cfg, stage):
     photo = photometric_residual(batch["image_a"], batch["image_b"], params)
     total = total + cfg.w_photo * photo
     parts["photo"] = photo.detach()
-  return total, parts
+  return VOLossOutput(total=total, parts=parts)
 
 
 def _gt_corners(meta, device=None):
-  """Return ``(src, dst)`` pixel corners from a meta object, batched.
+  """Return a :class:`GTCorners` (``src`` / ``dst``) from a meta object, batched.
 
   Both sides of the mean corner error of vo/README.md s6.  Raises when
   the meta predates the ``corners_src``/``corners_dst`` fields rather
@@ -128,7 +135,7 @@ def _gt_corners(meta, device=None):
         "computed without ground-truth corners (vo/README.md s6).", ValueError)
   if device is not None:
     src, dst = src.to(device), dst.to(device)
-  return src, dst
+  return GTCorners(src=src, dst=dst)
 
 
 def _src(batch):

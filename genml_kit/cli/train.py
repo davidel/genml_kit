@@ -396,13 +396,17 @@ def _run(args):
   method.load_checkpoint_state(model, {}, args)
 
   states_to_load = parse_state_flags(args.state_load)
-  model, start_epoch, best_metric, ckpt_extra = open_resume_context(
+  resume = open_resume_context(
       args,
       model,
       device,
       metric_key=f"best_{method.METRIC_KEY}",
       default_metric=method.initial_best_metric,
   )
+  model = resume.model
+  start_epoch = resume.start_epoch
+  best_metric = resume.best_metric
+  ckpt_extra = resume.extra
   method.load_checkpoint_state(model, ckpt_extra.get("method_state", {}), args)
   # Restore pipeline state (e.g., observation-normalization RMS for RL) saved
   # by RLTrainer.saver_extra() into the checkpoint.  Only pipelines that opt

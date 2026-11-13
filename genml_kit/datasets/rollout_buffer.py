@@ -121,7 +121,7 @@ class RolloutBuffer(Dataset):
         """
     from genml_kit.losses.rl import gae
 
-    self._advantages, self._returns = gae(
+    gae_out = gae(
         self._rewards,
         self._values,
         self._next_values,
@@ -130,6 +130,7 @@ class RolloutBuffer(Dataset):
         lam=lam,
         terminated=self._terminated,
     )
+    self._advantages, self._returns = gae_out.advantages, gae_out.returns
     self._filled = True
 
   def normalize_advantages(self, eps=1e-8):

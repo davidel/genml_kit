@@ -20,12 +20,18 @@ Example
 True
 """
 
+import collections
+
 MISSING = object()
 """Sentinel returned when an attribute path cannot be resolved."""
 
+# What ``_getattr`` returns: the resolved value, its parent object, and the
+# last attribute name (needed to set the attribute back on the parent).
+AttrsResolved = collections.namedtuple("AttrsResolved", ["value", "parent", "attr"])
+
 
 def _getattr(obj, attr):
-  """Walk a dotted attribute path and return (value, parent, last_attr).
+  """Walk a dotted attribute path and return an :class:`AttrsResolved`.
 
   Parameters
   ----------
@@ -36,8 +42,8 @@ def _getattr(obj, attr):
 
   Returns
   -------
-  tuple[Any, Any, str]
-      ``(value, parent_object, last_attribute_name)`` on success, or
+  AttrsResolved
+      ``(value, parent, attr)`` on success, or
       ``(MISSING, MISSING, MISSING)`` if any segment is missing.
   """
   parent, parts = MISSING, attr.split('.')
@@ -45,11 +51,11 @@ def _getattr(obj, attr):
   for name in parts:
     nobj = getattr(obj, name, None)
     if nobj is None:
-      return MISSING, MISSING, MISSING
+      return AttrsResolved(value=MISSING, parent=MISSING, attr=MISSING)
 
     parent, obj = obj, nobj
 
-  return obj, parent, parts[-1]
+  return AttrsResolved(value=obj, parent=parent, attr=parts[-1])
 
 
 def get_attribute(obj, attr):
@@ -71,8 +77,7 @@ def get_attribute(obj, attr):
   --------
   >>> get_attribute(model, 'use_grad_checkpoint') is MISSING if no such attr else True
   """
-  value, *_ = _getattr(obj, attr)
-  return value
+  return _getattr(obj, attr).value
 
 
 def maybe_call(obj, attr, *args, **kwargs):
@@ -98,7 +103,7 @@ def maybe_call(obj, attr, *args, **kwargs):
   >>> maybe_call(model, 'model.set_grad_checkpointing', enable=True)
   >>> maybe_call(model, 'backbone.gradient_checkpointing_enable')
   """
-  fn, *_ = _getattr(obj, attr)
+  fn = _getattr(obj, attr).value
 
   if fn is MISSING:
     return MISSING
@@ -132,10 +137,10 @@ def maybe_setattr(obj, attr, value):
   --------
   >>> maybe_setattr(model, 'model.use_grad_checkpoint', True)
   """
-  avalue, parent, sattr = _getattr(obj, attr)
+  resolved = _getattr(obj, attr)
 
-  if avalue is MISSING:
+  if resolved.value is MISSING:
     return MISSING
 
-  setattr(parent, sattr, value)
-  return avalue
+  setattr(resolved.parent, resolved.attr, value)
+  return resolved.value

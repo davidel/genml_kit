@@ -12,8 +12,12 @@ Example::
 """
 
 import argparse
+import collections
 
 from genml_kit.utils.logging import fatal
+
+# What ``parse_inline_spec`` returns: the name and the parsed kwargs.
+InlineSpec = collections.namedtuple("InlineSpec", ["name", "kwargs"])
 
 
 def parse_value(s):
@@ -88,7 +92,7 @@ def _split_list_items(s):
 
 
 def parse_inline_spec(spec, kind="spec"):
-  """Split an inline ``"name:key=value,..."`` string into ``(name, kwargs)``.
+  """Split an inline ``"name:key=value,..."`` string into an :class:`InlineSpec`.
 
   Shared by the classifier and decoder registries.  The part before the
   first ``:`` is the name (a registered name or a ``.py`` path); the
@@ -113,7 +117,7 @@ def parse_inline_spec(spec, kind="spec"):
   spec = str(spec).strip()
   name, sep, body = spec.partition(":")
   if not sep or not body.strip():
-    return name, {}
+    return InlineSpec(name=name, kwargs={})
   kwargs = {}
   for item in _split_list_items(body.strip()):
     if "=" not in item:
@@ -123,7 +127,7 @@ def parse_inline_spec(spec, kind="spec"):
       )
     key, val = item.split("=", 1)
     kwargs[key.strip()] = parse_value(val.strip())
-  return name, kwargs
+  return InlineSpec(name=name, kwargs=kwargs)
 
 
 class KVPairAction(argparse.Action):

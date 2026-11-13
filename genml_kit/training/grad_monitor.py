@@ -31,6 +31,7 @@ directly comparable across parameters of different sizes.
 
 import collections
 import logging
+from types import SimpleNamespace
 
 from genml_kit.utils.table import format_table
 
@@ -58,15 +59,16 @@ def _find_common_root(strings):
 def _strip_common_prefix(rows):
   """Strip the common dotted prefix from parameter names.
 
-  Returns ``(prefix, stripped_rows)``.  Each row is a
-  ``(name, stats_dict, status)`` tuple.  When no meaningful prefix
-  exists the original rows are returned unchanged.
+  Returns a trivial grouping of ``prefix`` and ``stripped_rows``.  Each
+  row is a ``(name, stats_dict, status)`` tuple.  When no meaningful
+  prefix exists the original rows are returned unchanged.
   """
   prefix = _find_common_root([r[0] for r in rows])
   if not prefix:
-    return "", rows
+    return SimpleNamespace(prefix="", rows=rows)
   pfx = prefix + "."
-  return pfx, [(name[len(pfx):], s, st) for name, s, st in rows]
+  return SimpleNamespace(prefix=pfx,
+                         rows=[(name[len(pfx):], s, st) for name, s, st in rows])
 
 
 def create_grad_monitor(args, model):
@@ -291,7 +293,8 @@ class GradMonitor:
         rows.append((name, s, name_status.get(name, "OK")))
 
     if rows:
-      prefix, rows = _strip_common_prefix(rows)
+      stripped = _strip_common_prefix(rows)
+      prefix, rows = stripped.prefix, stripped.rows
       if prefix:
         lines.append(f"  Prefix (stripped): {prefix}")
 

@@ -89,6 +89,8 @@ def train_xgboost_on_backbone(train_ds,
   ckpt_path = select_best_checkpoint(checkpoint_dir)
   if ckpt_path is not None:
     logging.info(f"Loading checkpoint: {ckpt_path}")
+    # ``load_model_for_inference`` returns a ModelWithProcessor namedtuple;
+    # unpacked here because tests monkeypatch a plain 2-tuple.
     model_best, xgb_processor = load_model_for_inference(
         model_spec,
         ckpt_path,
@@ -107,6 +109,8 @@ def train_xgboost_on_backbone(train_ds,
 
     # 3. Collect features
     logging.info("Extracting train features...")
+    # ``collect_features`` returns a FeatureBatch namedtuple; unpacked here
+    # because tests monkeypatch a plain 2-tuple.
     train_features, train_labels = collect_features(model_best,
                                                     train_proxy,
                                                     device,

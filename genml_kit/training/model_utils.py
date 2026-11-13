@@ -1,8 +1,10 @@
 """Shared model loading and preprocessing utilities."""
 
+import collections
 import logging
 import re
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -14,6 +16,17 @@ from genml_kit.io.checkpointing import format_count
 from genml_kit.models import load_model, load_processor
 from genml_kit.utils.attr import MISSING, maybe_call, maybe_setattr
 from genml_kit.utils.logging import fatal
+
+# What ``collect_features`` returns: the extracted feature matrix and the
+# matching label vector.
+FeatureBatch = collections.namedtuple("FeatureBatch", ["features", "labels"])
+
+# What ``_find_head_module`` returns: the head's attribute name and module.
+HeadModule = collections.namedtuple("HeadModule", ["attr_name", "module"])
+
+# What ``load_model_for_inference`` returns: the loaded model and its processor.
+ModelWithProcessor = collections.namedtuple("ModelWithProcessor",
+                                            ["model", "processor"])
 
 
 def set_train_mode(net, mode='train'):
@@ -92,12 +105,12 @@ def _find_head_module(model):
   """Locate the classification head on a model.
 
     Searches for common head attribute names in the order most HF and
-    custom models use them.  Returns ``(attr_name, module)`` or ``None``.
+    custom models use them.  Returns a :class:`HeadModule` or ``None``.
     """
   for attr in ("classifier", "head", "fc"):
     mod = getattr(model, attr, None)
     if mod is not None and isinstance(mod, torch.nn.Module):
-      return attr, mod
+      return HeadModule(attr_name=attr, module=mod)
 
 
 def extract_lora_params(model):
@@ -256,7 +269,7 @@ def freeze_model(model, trainable_prefixes):
   total = sum(1 for _ in model.parameters())
   logging.info(f"Froze {total - thawed}/{total} parameters "
                f"(thawed patterns: {', '.join(trainable_prefixes)})")
-  return total, thawed
+  return SimpleNamespace(total=total, thawed=thawed)
 
 
 def trainable_state_dict(model):
@@ -352,7 +365,7 @@ def load_model_for_inference(
         image_size: Input resolution (pixels).
 
     Returns:
-        (model, processor) tuple.
+        ModelWithProcessor: the loaded *model* and its *processor*.
     """
   ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
 
@@ -405,7 +418,7 @@ def load_model_for_inference(
   )
 
   model.to(device).eval()
-  return model, processor
+  return ModelWithProcessor(model=model, processor=processor)
 
 
 def extract_features(outputs):
@@ -494,7 +507,7 @@ def _extract_backbone_features_impl(model, pixel_values):
     fatal(
         "Cannot extract backbone features — no classification head found "
         "and the model does not implement extract_backbone_features().", ValueError)
-  _, head_module = head
+  head_module = head.module
   captured = []
 
   def hook(module, inp, out):
@@ -524,8 +537,8 @@ def collect_features(model, dataset, device, batch_size=128):
         batch_size: batch size for feature extraction (default 128).
 
     Returns:
-        features: np.ndarray of shape [N, hidden_size], dtype float32.
-        labels: np.ndarray of shape [N], dtype int64.
+        FeatureBatch: ``features`` ``[N, hidden_size]`` float32 and ``labels``
+        ``[N]`` int64 numpy arrays.
     """
   with model_mode(model, "eval"):
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
@@ -540,7 +553,8 @@ def collect_features(model, dataset, device, batch_size=128):
         features_list.append(features.cpu().numpy())
         labels_list.append(batch_labels.numpy())
 
-    return np.concatenate(features_list), np.concatenate(labels_list)
+    return FeatureBatch(features=np.concatenate(features_list),
+                        labels=np.concatenate(labels_list))
 
 
 def enable_grad_checkpointing(model):

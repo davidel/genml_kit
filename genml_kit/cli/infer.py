@@ -104,7 +104,7 @@ def main(argv=None):
   device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
   logging.info(f"Using device: {device}")
 
-  model, processor = load_model_for_inference(
+  loaded = load_model_for_inference(
       model_name=args.model,
       checkpoint_path=args.checkpoint,
       device=device,
@@ -113,6 +113,7 @@ def main(argv=None):
       proc_kwargs=args.proc_arg,
       image_size=args.image_size,
   )
+  model, processor = loaded.model, loaded.processor
   transform = build_val_transform(processor, args.image_size)
 
   xgb_model = None

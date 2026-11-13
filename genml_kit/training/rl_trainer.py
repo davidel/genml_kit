@@ -13,7 +13,7 @@ import torch
 
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
 from genml_kit.training.train_reporting import (MetricKind, metric, TrainReporting)
-from genml_kit.training.trainer import BaseTrainer
+from genml_kit.training.trainer import BaseTrainer, TrainEpochResult
 from genml_kit.training.video_utils import write_video
 from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.utils.attr import get_attribute, maybe_call, MISSING
@@ -134,11 +134,11 @@ class RLTrainer(BaseTrainer):
         action = np.random.uniform(-1, 1, size=action_shape[0]).astype(np.float32)
       else:
         action = int(torch.randint(0, self.method.n_actions, (1,)).item())
-      next_obs, reward, done, info = self.pipeline.step_env(action)
-      terminated = _terminated_from(info, done)
-      self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done),
-                                       terminated)
-      obs = next_obs if not done else self.pipeline.reset_env()
+      step_out = self.pipeline.step_env(action)
+      terminated = _terminated_from(step_out.info, step_out.done)
+      self.pipeline.replay_buffer.push(obs, action, step_out.reward, step_out.obs,
+                                       float(step_out.done), terminated)
+      obs = step_out.obs if not step_out.done else self.pipeline.reset_env()
       maybe_call(self.method, "step_epsilon")
     self._warmup_obs = obs
 
@@ -179,13 +179,13 @@ class RLTrainer(BaseTrainer):
       # For continuous, step_env expects the full action array; for discrete, a scalar.
       # action is already a 1D numpy array from SAC.act()
       action_for_env = action if is_continuous else int(action)
-      next_obs, reward, done, info = self.pipeline.step_env(action_for_env)
-      terminated = _terminated_from(info, done)
-      self.pipeline.replay_buffer.push(obs, action, reward, next_obs, float(done),
-                                       terminated)
+      step_out = self.pipeline.step_env(action_for_env)
+      terminated = _terminated_from(step_out.info, step_out.done)
+      self.pipeline.replay_buffer.push(obs, action, step_out.reward, step_out.obs,
+                                       float(step_out.done), terminated)
       maybe_call(self.method, "step_epsilon")
 
-      obs = next_obs if not done else self.pipeline.reset_env()
+      obs = step_out.obs if not step_out.done else self.pipeline.reset_env()
 
       # Learn.
       batch = self.pipeline.replay_buffer.sample(batch_size)
@@ -281,7 +281,7 @@ class RLTrainer(BaseTrainer):
       )
 
     reporter.summary()
-    return reporter.epoch_avg_loss(), step
+    return TrainEpochResult(loss=reporter.epoch_avg_loss().loss, step=step)
 
   def _train_epoch_ppo(self, epoch, saver, step, monitor):
     """On-policy: collect rollout \u2192 compute GAE \u2192 SGD epochs."""
@@ -361,29 +361,28 @@ class RLTrainer(BaseTrainer):
 
     if not resume_optimize:
       for i in range(local_len):
-        action, log_prob, value, raw_action = self.method.act(self.model,
-                                                              obs,
-                                                              deterministic=False)
-        next_obs, reward, done, info = self.pipeline.step_env(action)
-        terminated = _terminated_from(info, done)
+        act_out = self.method.act(self.model, obs, deterministic=False)
+        step_out = self.pipeline.step_env(act_out.action)
+        terminated = _terminated_from(step_out.info, step_out.done)
+        reward = step_out.reward
         # Update the discounted-return running stats with the RAW reward,
         # then normalize what is stored in the buffer (SB3 sequence).
         if ret_norm is not None:
           ret_norm.update(reward)
           reward = ret_norm.normalize_reward(reward)
-        collect.add(obs, action, log_prob, reward, value, float(done), raw_action,
-                    terminated)
+        collect.add(obs, act_out.action, act_out.log_prob, reward, act_out.value,
+                    float(step_out.done), act_out.raw_action, terminated)
 
         with torch.no_grad():
-          next_obs_t = torch.as_tensor(next_obs,
+          next_obs_t = torch.as_tensor(step_out.obs,
                                        dtype=torch.float32,
                                        device=self.device).unsqueeze(0)
           next_values[i] = self.model.get_value(next_obs_t).item()
 
         total_reward += reward
-        obs = next_obs
+        obs = step_out.obs
 
-        if done:
+        if step_out.done:
           if ret_norm is not None:
             ret_norm.reset_per_episode()
           total_reward = 0.0
@@ -568,7 +567,7 @@ class RLTrainer(BaseTrainer):
         break
 
     reporter.summary()
-    return reporter.epoch_avg_loss(), step
+    return TrainEpochResult(loss=reporter.epoch_avg_loss().loss, step=step)
 
   def _gather_rollout(self, local, global_rollout):
     """Gather per-rank rollout *local* into *global_rollout* on every rank.

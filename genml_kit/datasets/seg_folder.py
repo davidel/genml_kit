@@ -137,7 +137,9 @@ class SegFolderDataset:
         mask = np.array(handle, dtype=np.int64)
       return image, mask
 
-    (image, mask), _ = getitem_retry(idx, load, n)
+    # ``load`` returns the dataset-protocol ``(image, mask)`` item; unwrap it
+    # from the retry result.
+    image, mask = getitem_retry(idx, load, n).item
     # Palette ('P'), grayscale ('L') and 16-bit ('I;16') masks all decode to
     # (H, W) class-id maps and are returned as-is.  A true RGB mask stays
     # (H, W, 3) so ``apply_mask_map`` can remap colour triplets instead of

@@ -189,7 +189,7 @@ def run_generate(args):
     fatal("No prompts to generate from.", ValueError)
   logging.info("Generating for %d prompt(s).", len(prompts))
 
-  model, tokenizer = load_lm_for_inference(
+  loaded = load_lm_for_inference(
       model_name=args.model,
       tokenizer_name=args.tokenizer,
       checkpoint=args.checkpoint,
@@ -200,6 +200,7 @@ def run_generate(args):
       attn_implementation=args.attn_implementation,
       tokenizer_arg=args.tokenizer_arg,
   )
+  model, tokenizer = loaded.model, loaded.tokenizer
 
   config = _sampling_config(args)
   completions = generate_from_prompts(model,

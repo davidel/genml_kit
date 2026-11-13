@@ -48,12 +48,12 @@ from genml_kit.models.contrastive import ProjectionHead
 from genml_kit.models.ema import EMAModel, compute_step_budget, linear_momentum
 from genml_kit.models.encoder_utils import detect_backbone_dim, encode_with_backbone
 from genml_kit.models.layer_match import iter_named_layers, match_layers
-from genml_kit.pipelines.contracts import LossOutput
+from genml_kit.pipelines.contracts import CaptureOutput, LossOutput
 from genml_kit.utils.logging import fatal
 
 
 def _forward_with_capture(module, images, capture_modules=None):
-  """Run ``module(pixel_values=images)`` and return ``(logits, activations)``.
+  """Run ``module(pixel_values=images)`` and return a :class:`CaptureOutput`.
 
   When *capture_modules* is given, a forward hook records each module's output
   during the pass; *activations* is then a list parallel to *capture_modules*
@@ -66,15 +66,15 @@ def _forward_with_capture(module, images, capture_modules=None):
       capture_modules: Optional list of submodules to hook.
 
   Returns:
-      ``(logits, activations)``: logits ``(B, n_classes)`` (the model's
-      ``.logits`` when it exposes one, else the raw output), and either ``None``
-      (no capture requested) or a list parallel to *capture_modules*.
+      CaptureOutput: ``logits`` ``(B, n_classes)`` (the model's ``.logits``
+      when it exposes one, else the raw output), and ``activations`` either
+      ``None`` (no capture requested) or a list parallel to *capture_modules*.
   """
   # Fast path: no hooks needed, so skip the bookkeeping entirely.
   if capture_modules is None:
     # (B, C, H, W) -> model output (or a ModelOutput holding .logits).
     out = module(pixel_values=images)
-    return getattr(out, "logits", out), None
+    return CaptureOutput(logits=getattr(out, "logits", out), activations=None)
 
   # Captured outputs keyed by the hooking index, so order is independent of the
   # order in which the submodules actually fire.
@@ -104,7 +104,7 @@ def _forward_with_capture(module, images, capture_modules=None):
   # List aligned with capture_modules; entries are the recorded activations or
   # None when a given module never fired during this pass.
   activations = [captured.get(i) for i in range(len(capture_modules))]
-  return logits, activations
+  return CaptureOutput(logits=logits, activations=activations)
 
 
 class DistillationPair(nn.Module):
@@ -251,6 +251,8 @@ class DistillationMethod(Method):
         image_size=args.image_size,
         cache_dir=args.cache_dir,
     )
+    # ``resolve_augmentations`` returns a TransformBundle namedtuple; unpack it
+    # here because TestPrepareTransforms monkeypatches a plain 3-tuple.
     self.train_transforms, self.val_transforms, self.tta_transform = (
         resolve_augmentations(args, processor))
 
@@ -371,8 +373,9 @@ class DistillationMethod(Method):
 
     # Student logits (B, n_classes); s_feats is a list of (B, ...) activations
     # (or None when feature KD is off).
-    logits, s_feats = _forward_with_capture(model.student, images,
-                                            self._capture_modules(model))
+    student_out = _forward_with_capture(model.student, images,
+                                        self._capture_modules(model))
+    logits, s_feats = student_out.logits, student_out.activations
     if model.teacher_kind == "ema":
       # Advance the teacher BEFORE producing its targets for this step.
       momentum = linear_momentum(global_step, self._total_steps, self._cfg.ema_momentum,
@@ -382,8 +385,9 @@ class DistillationMethod(Method):
     # Teacher targets are constants: run under no_grad (no graph retained).
     with torch.no_grad():
       # (B, n_classes) teacher logits; t_feats parallel to s_feats.
-      teacher_logits, t_feats = _forward_with_capture(model.teacher, images,
-                                                      self._capture_targets(model))
+      teacher_out = _forward_with_capture(model.teacher, images,
+                                          self._capture_targets(model))
+      teacher_logits, t_feats = teacher_out.logits, teacher_out.activations
 
     # Supervised anchor: scalar cross-entropy of the student logits.
     ce = torch.nn.functional.cross_entropy(logits, labels)
@@ -406,10 +410,12 @@ class DistillationMethod(Method):
     images = blob.data
     labels = _resolve_labels(blob, labels)
     with torch.no_grad():
-      logits, s_feats = _forward_with_capture(model.student, images,
-                                              self._capture_modules(model))
-      teacher_logits, t_feats = _forward_with_capture(model.teacher, images,
-                                                      self._capture_targets(model))
+      student_out = _forward_with_capture(model.student, images,
+                                          self._capture_modules(model))
+      teacher_out = _forward_with_capture(model.teacher, images,
+                                          self._capture_targets(model))
+      logits, s_feats = student_out.logits, student_out.activations
+      teacher_logits, t_feats = teacher_out.logits, teacher_out.activations
       ce = torch.nn.functional.cross_entropy(logits, labels)
       kd = self._kd_terms(model, images, logits, teacher_logits, s_feats, t_feats)
     loss = ce + kd
@@ -559,7 +565,7 @@ def _activation_dims(args, model, modules, device):
   # Dummy batch (1, 3, S, S): shapes are batch-independent for these modules.
   dummy = torch.zeros(1, 3, size, size, device=device)
   # One forward pass captures every module's activation (list of (1, ...) or None).
-  _, feats = _forward_with_capture(model, dummy, modules)
+  feats = _forward_with_capture(model, dummy, modules).activations
   dims = []
   for i, feat in enumerate(feats):
     if feat is None:

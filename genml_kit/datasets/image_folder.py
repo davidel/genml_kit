@@ -205,10 +205,10 @@ class ImageFolderDataset:
     def load(i):
       return Image.open(self._paths[i]).convert("RGB")
 
-    image, gidx = getitem_retry(idx, load, n)
+    result = getitem_retry(idx, load, n)
     if self._labels is not None:
-      return {"image": image, "label": int(self._labels[gidx])}
-    return {"image": image}
+      return {"image": result.item, "label": int(self._labels[result.index])}
+    return {"image": result.item}
 
 
 def load_imagefolder(root, *, split=None):

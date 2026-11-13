@@ -31,6 +31,11 @@ VOPairMeta = collections.namedtuple("VOPairMeta", [
     "corners_dst",
 ])
 
+# What ``homography_to_similarity`` returns: the similarity parameter dict, the
+# irreducible corner residual, and the source / destination corner tensors.
+SimilarityFit = collections.namedtuple(
+    "SimilarityFit", ["sim", "residual", "corners_src", "corners_dst"])
+
 
 def look_at_ground_h(cam_pos, cam_rpy, cam, _size):
   """Ground-to-image homography of a pinhole camera over a z=0 plane.
@@ -116,8 +121,9 @@ def homography_to_similarity(h, size):
       size: (W, H) of the image.
 
   Returns:
-      (sim_params dict with log_s/theta/t tensors, residual_px float,
-       corners float64 (4, 2), mapped float64 (4, 2)).
+      SimilarityFit: the ``sim`` parameter dict (log_s/theta/t), the
+      ``residual`` in pixels, and the ``corners_src`` / ``corners_dst``
+      ``(4, 2)`` float tensors.
 
   The two corner arrays are the integer source corners and their
   true homography-mapped destinations, both in *pixel* coordinates
@@ -148,7 +154,10 @@ def homography_to_similarity(h, size):
       "theta": fit.theta[0].item(),
       "t": fit.t[0].tolist(),
   }
-  return sim, residual, src[0], dst[0]
+  return SimilarityFit(sim=sim,
+                       residual=residual,
+                       corners_src=src[0],
+                       corners_dst=dst[0])
 
 
 def params_to_matrix_np(log_s, theta, t):
@@ -332,21 +341,20 @@ class VOPairDataset:
     h_b = look_at_ground_h(cam_b, rpy_b, self._cam, self._size)
     frame_a = self._render(base, h_a)
     frame_b = self._render(base, h_b)
-    sim, residual, corners_src, corners_dst = homography_to_similarity(
-        h_b @ np.linalg.inv(h_a), self._size)
+    fit = homography_to_similarity(h_b @ np.linalg.inv(h_a), self._size)
     gt = {
-        "log_s": torch.tensor(sim["log_s"]),
-        "theta": torch.tensor(sim["theta"]),
-        "t": torch.tensor(sim["t"]),
+        "log_s": torch.tensor(fit.sim["log_s"]),
+        "theta": torch.tensor(fit.sim["theta"]),
+        "t": torch.tensor(fit.sim["t"]),
     }
     image_a = torch.tensor(frame_a, dtype=torch.float32).unsqueeze(0)
     image_b = torch.tensor(frame_b, dtype=torch.float32).unsqueeze(0)
     meta = VOPairMeta(gt=gt,
-                      gt_residual=torch.tensor(residual, dtype=torch.float32),
+                      gt_residual=torch.tensor(fit.residual, dtype=torch.float32),
                       terrain=self._terrain,
                       range_bin=int(
                           np.clip(np.searchsorted([0.1, 0.2, 0.3], abs(motion["dx"])),
                                   0, 3)),
-                      corners_src=corners_src.to(torch.float32),
-                      corners_dst=corners_dst.to(torch.float32))
+                      corners_src=fit.corners_src.to(torch.float32),
+                      corners_dst=fit.corners_dst.to(torch.float32))
     return {"image_a": image_a, "image_b": image_b, "meta": meta}

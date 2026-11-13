@@ -18,6 +18,7 @@ import time
 
 import torch
 
+from genml_kit.pipelines.contracts import EpochAverages
 from genml_kit.training.metrics_sinks import ensure_logger
 from genml_kit.training.optim_factory import report_lr
 from genml_kit.utils.attr import maybe_call, MISSING
@@ -230,10 +231,14 @@ class TrainReporting:
       self._log_step(batch_idx, global_step)
 
   def epoch_avg_loss(self):
-    """Return the epoch-level average loss (unscaled)."""
+    """Return the epoch-level :class:`EpochAverages` (unscaled).
+
+    ``top1`` is ``None`` here; subclasses that track accuracy override
+    this to fill it in.
+    """
     if self._total_samples == 0:
-      return 0.0
-    return self._total_loss / self._total_samples
+      return EpochAverages(loss=0.0, top1=None)
+    return EpochAverages(loss=self._total_loss / self._total_samples, top1=None)
 
   @staticmethod
   def _context(line_loss, avg_loss):
@@ -277,7 +282,7 @@ class TrainReporting:
     float
         The epoch-level average loss.
     """
-    avg_loss = self.epoch_avg_loss()
+    avg_loss = self.epoch_avg_loss().loss
     elapsed = time.time() - self._start_time
     gpu = gpu_stats_str(self._device)
     parts = [f"loss={avg_loss:.4f}"]
@@ -313,7 +318,7 @@ class TrainReporting:
     w_loss = self._window_loss / w_samples if w_samples > 0 else 0.0
 
     # Cumulative metrics.
-    avg_loss = self.epoch_avg_loss()
+    avg_loss = self.epoch_avg_loss().loss
 
     # Hardware / optimizer info.
     gpu = gpu_stats_str(self._device)
@@ -487,11 +492,11 @@ class ImageTrainReporting(TrainReporting):
         zero_division=0) * 100.0
 
   def epoch_avg_loss(self):
-    """Return ``(avg_loss, top1_accuracy)`` tuple."""
-    avg_loss = super().epoch_avg_loss()
+    """Return the epoch-level :class:`EpochAverages` with ``top1`` filled."""
+    avg_loss = super().epoch_avg_loss().loss
     top1 = (self._correct_top1 / self._total_samples *
             100.0 if self._total_samples else 0.0)
-    return avg_loss, top1
+    return EpochAverages(loss=avg_loss, top1=top1)
 
   def _extra_str(self, ctx):
     """Render every extra metric as name=value pairs, honouring its kind.
@@ -522,13 +527,14 @@ class ImageTrainReporting(TrainReporting):
     return "".join(parts)
 
   def summary(self):
-    """Log image-specific summary and return ``(avg_loss, top1)``.
+    """Log image-specific summary and return :class:`EpochAverages`.
 
     ``top1`` is the epoch accuracy.  It is only present when the run
     actually tracked accuracy -- a method with no classification head
     would otherwise print a permanent, misleading 0.00%.
     """
-    avg_loss, top1 = self.epoch_avg_loss()
+    epoch_avg = self.epoch_avg_loss()
+    avg_loss, top1 = epoch_avg.loss, epoch_avg.top1
     elapsed = time.time() - self._start_time
     gpu = gpu_stats_str(self._device)
     parts = [
@@ -556,7 +562,7 @@ class ImageTrainReporting(TrainReporting):
                              self._metric_value(name, m, ctx),
                              epoch=self._current_epoch,
                              kind=m.kind)
-    return avg_loss, top1
+    return EpochAverages(loss=avg_loss, top1=top1)
 
   def _log_step(self, batch_idx, global_step):
     """Emit the windowed log line, plus accuracy when the method has it."""
@@ -566,7 +572,8 @@ class ImageTrainReporting(TrainReporting):
     w_loss = self._window_loss / w_samples if w_samples > 0 else 0.0
 
     # Cumulative metrics.
-    avg_loss, top1 = self.epoch_avg_loss()
+    epoch_avg = self.epoch_avg_loss()
+    avg_loss, top1 = epoch_avg.loss, epoch_avg.top1
 
     # Hardware / optimizer info.
     gpu = gpu_stats_str(self._device)

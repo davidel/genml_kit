@@ -42,6 +42,7 @@ import logging
 import os
 import random
 from itertools import islice
+from types import SimpleNamespace
 
 import torch
 import torch.distributed as dist
@@ -312,16 +313,16 @@ def init_distributed(backend=None):
   """
   if is_distributed():
     return False
-  _rank, size, local = _env_ranks()
-  if size <= 1:
+  env = _env_ranks()
+  if env.world_size <= 1:
     return False
   if backend is None:
     backend = "nccl" if _cuda_available() else "gloo"
   if backend == "nccl" and _cuda_available():
-    torch.cuda.set_device(local)
+    torch.cuda.set_device(env.local_rank)
   dist.init_process_group(backend=backend)
   logging.info("Distributed init: backend=%s rank=%d/%d local_rank=%d", backend, rank(),
-               size, local)
+               env.world_size, env.local_rank)
   return True
 
 
@@ -332,7 +333,11 @@ def destroy_distributed():
 
 
 def _env_ranks():
-  """Return ``(rank, world_size, local_rank)`` from the launcher env vars."""
+  """Return the launcher's ``rank`` / ``world_size`` / ``local_rank``.
+
+  A plain grouping of three scalars read from the environment; a
+  ``SimpleNamespace`` keeps the call site self-describing.
+  """
 
   def _int(name, default):
     raw = os.environ.get(name)
@@ -341,7 +346,9 @@ def _env_ranks():
     except ValueError:
       return default
 
-  return _int("RANK", 0), _int("WORLD_SIZE", 1), _int("LOCAL_RANK", 0)
+  return SimpleNamespace(rank=_int("RANK", 0),
+                         world_size=_int("WORLD_SIZE", 1),
+                         local_rank=_int("LOCAL_RANK", 0))
 
 
 def _cuda_available():

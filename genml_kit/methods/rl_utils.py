@@ -7,8 +7,17 @@ hook is ``_eval_action(model, obs)``, which returns a scalar (int) or 1-D
 numpy array suitable for ``pipeline.step_env``.
 """
 
+import collections
+
 from genml_kit.methods.base import Method
 from genml_kit.utils.shared_args import DEFAULT_VISION_MODEL
+
+# What the RL methods' ``act`` returns during rollout collection: the squashed
+# action handed to the environment (numpy for continuous, int for discrete),
+# its log-probability, the value estimate, and the raw pre-tanh action
+# (``None`` for discrete).
+ActOutput = collections.namedtuple("ActOutput",
+                                   ["action", "log_prob", "value", "raw_action"])
 
 
 class RLMethod(Method):
@@ -101,7 +110,8 @@ def rl_evaluate(method,
     episode_steps = 0
     while not done and episode_steps < max_steps:
       action = method._eval_action(model, obs)
-      obs, reward, done, _ = pipeline.step_env(action)
+      step_out = pipeline.step_env(action)
+      obs, reward, done = step_out.obs, step_out.reward, step_out.done
       episode_return += reward
       episode_steps += 1
       total_steps += 1

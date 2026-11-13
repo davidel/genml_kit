@@ -10,14 +10,19 @@ caused by background pixels dominating) with a per-pixel cross-entropy
 term (stable gradients early in training).
 """
 
+import collections
+
 import torch
 import torch.nn.functional as F
+
+# What ``_one_hot`` returns: the one-hot label map and the valid-pixel mask.
+OneHotMask = collections.namedtuple("OneHotMask", ["one_hot", "valid_mask"])
 
 
 def _one_hot(target, num_classes, ignore_index):
   """One-hot encode ``(B, H, W)`` -> ``(B, C, H, W)`` and an ignore mask.
 
-  Returns ``(one_hot, valid_mask)`` where ``valid_mask`` is ``(B, 1, H, W)``
+  Returns a :class:`OneHotMask` whose ``valid_mask`` is ``(B, 1, H, W)``
   with zeros at ignored pixels.  When ``ignore_index`` is negative every
   pixel is valid.
   """
@@ -34,7 +39,7 @@ def _one_hot(target, num_classes, ignore_index):
   # Move the class axis to channels: (B, H, W, C) -> (B, C, H, W).
   one_hot = one_hot.permute(0, 3, 1, 2).to(torch.float32)
   # Valid mask gains a channel axis: (B, H, W) -> (B, 1, H, W).
-  return one_hot, valid.unsqueeze(1).to(torch.float32)
+  return OneHotMask(one_hot=one_hot, valid_mask=valid.unsqueeze(1).to(torch.float32))
 
 
 def dice_loss(logits, target, *, ignore_index=255, eps=1.0):
@@ -51,7 +56,8 @@ def dice_loss(logits, target, *, ignore_index=255, eps=1.0):
   """
   num_classes = logits.size(1)
   probs = torch.softmax(logits, dim=1)
-  one_hot, valid = _one_hot(target, num_classes, ignore_index)
+  oh = _one_hot(target, num_classes, ignore_index)
+  one_hot, valid = oh.one_hot, oh.valid_mask
 
   # Reduce over (batch, H, W), keeping the class axis.
   dims = (0, 2, 3)

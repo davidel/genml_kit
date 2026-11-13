@@ -22,9 +22,20 @@ All consume the ``segment_ids`` tensor the collator emits under packing:
 marking padding.
 """
 
+import collections
+
 import torch
 
 from genml_kit.utils.logging import fatal
+
+# What ``segments_to_cu_seqlens`` returns: the ``int32`` cumulative offsets and
+# the longest document length.
+CuSeqlens = collections.namedtuple("CuSeqlens", ["cu_seqlens", "max_seqlen"])
+
+# What ``flash_varlen_layout`` returns: the kept-token mask, the cumulative
+# document offsets, and the longest document length.
+PackedLayout = collections.namedtuple("PackedLayout",
+                                      ["valid", "cu_seqlens", "max_length"])
 
 
 def segments_to_cu_seqlens(segment_ids):
@@ -36,9 +47,8 @@ def segments_to_cu_seqlens(segment_ids):
       padding is not allowed.
 
   Returns:
-    ``(cu_seqlens, max_seqlen)`` where ``cu_seqlens`` is an ``int32`` tensor of
-    ``N + 1`` offsets (``N`` documents) and ``max_seqlen`` is the longest
-    document length.
+    CuSeqlens: ``cu_seqlens`` is an ``int32`` tensor of ``N + 1`` offsets
+    (``N`` documents) and ``max_seqlen`` is the longest document length.
   """
   if segment_ids.dim() != 1:
     fatal(
@@ -46,7 +56,10 @@ def segments_to_cu_seqlens(segment_ids):
         f"got shape {tuple(segment_ids.shape)}", ValueError)
   n = segment_ids.numel()
   if n == 0:
-    return torch.zeros(1, dtype=torch.int32, device=segment_ids.device), 0
+    return CuSeqlens(cu_seqlens=torch.zeros(1,
+                                            dtype=torch.int32,
+                                            device=segment_ids.device),
+                     max_seqlen=0)
   # A new sequence starts wherever the document index changes.  Both operands
   # are [n-1]; the comparison is [n-1] bool and nonzero gives one row per start
   # (the +1 shifts a gap-at-i into a start-at-i+1).  Result: [num_changes].
@@ -64,7 +77,7 @@ def segments_to_cu_seqlens(segment_ids):
   # Consecutive differences give the [num_docs] per-document lengths.
   lengths = bounds[1:] - bounds[:-1]
   max_seqlen = int(lengths.max().item()) if lengths.numel() else 0
-  return cu_seqlens, max_seqlen
+  return CuSeqlens(cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
 
 
 def flash_varlen_layout(attention_mask, segment_ids):
@@ -114,7 +127,7 @@ def flash_varlen_layout(attention_mask, segment_ids):
   cu_seqlens = torch.zeros(total_runs + 1, dtype=torch.int32, device=device)
   cu_seqlens[1:] = torch.cumsum(counts, dim=0).to(torch.int32)
   max_length = int(counts.max().item()) if total_runs else 0
-  return valid, cu_seqlens, max_length
+  return PackedLayout(valid=valid, cu_seqlens=cu_seqlens, max_length=max_length)
 
 
 def build_block_diagonal_mask(segment_ids):

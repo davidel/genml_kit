@@ -6,7 +6,9 @@ becomes a general "Method".  See plans/GENERIC_PIPELINE.md (v4.2).
 """
 
 from genml_kit.pipelines.base import DataPipeline
-from genml_kit.pipelines.contracts import DataBlob, LossOutput
+from genml_kit.pipelines.contracts import (CaptureOutput, DataBlob, EnvStep,
+                                           EpochAverages, LossOutput, MAPState,
+                                           PolicyOutput, SplitPair)
 from genml_kit.pipelines.registry import PIPELINES, build_pipeline
 
 
@@ -22,6 +24,12 @@ __all__ = [
     "PIPELINES",
     "DataBlob",
     "LossOutput",
+    "CaptureOutput",
+    "EnvStep",
+    "EpochAverages",
+    "MAPState",
+    "PolicyOutput",
+    "SplitPair",
     "DataPipeline",
     "build_pipeline",
 ]

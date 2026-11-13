@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -167,8 +169,8 @@ class CustomPatchTransformer(nn.Module):
             (or modified version with mask tokens injected).
 
         Returns:
-            ``(cls_out, spatial_out)`` where *cls_out* is
-            ``(B, num_cls_tokens, D)`` and *spatial_out* is ``(B, N, D)``.
+            SimpleNamespace: ``cls_out`` ``(B, num_cls_tokens, D)`` and
+            ``spatial_out`` ``(B, N, D)``.
         """
     B = patch_embeddings.shape[0]
     x = patch_embeddings
@@ -196,15 +198,16 @@ class CustomPatchTransformer(nn.Module):
     x = self.ln_norm(x)
 
     # Split: CLS slots (B, num_cls, D) and spatial slots (B, N, D)
-    # CLS, spatial.
-    return (x[:, :self.num_cls_tokens, :], x[:, self.num_cls_tokens:, :])
+    return SimpleNamespace(cls_out=x[:, :self.num_cls_tokens, :],
+                           spatial_out=x[:, self.num_cls_tokens:, :])
 
   def forward(self, x):
     # Conv stem: (B, 3, H, W) -> (B, N, D) patch embeddings.
     embeddings = self.patch_embed(x)
     # Transformer core splits the (B, K + N, D) sequence into
     # CLS (B, K, D) + spatial (B, N, D) tokens.
-    cls_out, spatial_out = self._run_transformer(embeddings)
+    run = self._run_transformer(embeddings)
+    cls_out, spatial_out = run.cls_out, run.spatial_out
     if self.head is None:
       # Headless mode: flatten the CLS tokens (uvito convention):
       # (B, K, D) -> (B, K * D).
@@ -242,7 +245,8 @@ class CustomPatchTransformer(nn.Module):
             ``(B, D)`` pooled backbone embedding.
         """
     embeddings = self.patch_embed(x)
-    cls_out, spatial_out = self._run_transformer(embeddings)
+    run = self._run_transformer(embeddings)
+    cls_out, spatial_out = run.cls_out, run.spatial_out
     if self.head is not None:
       # (B, K, D) with (B, N, D) keys/values -> (B, K, D).
       cls_out = self.cls_guided_pool(cls_out, spatial_out)
@@ -270,5 +274,4 @@ class CustomPatchTransformer(nn.Module):
         Returns:
             ``(B, N, D)`` spatial transformer output (CLS tokens dropped).
         """
-    _, spatial_out = self._run_transformer(patch_embeddings)
-    return spatial_out
+    return self._run_transformer(patch_embeddings).spatial_out

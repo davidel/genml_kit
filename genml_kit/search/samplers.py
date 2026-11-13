@@ -31,6 +31,7 @@ value.  Samplers always *maximise* internally.
 
 import abc
 import math
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -233,8 +234,8 @@ class _GpEiSampler(Sampler):
     proposals = []
     for _ in range(n):
       candidates = self.rng.random((n_candidates, len(self.space)))
-      mean, var = self._posterior(candidates, x, kernel, chol, alpha, length_scale)
-      ei = self._expected_improvement(mean, var, best)
+      post = self._posterior(candidates, x, kernel, chol, alpha, length_scale)
+      ei = self._expected_improvement(post.mean, post.var, best)
       proposals.append(self._decode(candidates[int(np.argmax(ei))]))
     return proposals
 
@@ -254,12 +255,13 @@ class _GpEiSampler(Sampler):
     return linalg.cho_solve(chol, rhs)
 
   def _posterior(self, candidates, x, kernel, chol, alpha, length_scale):
+    """GP posterior mean / variance at *candidates* (a trivial grouping)."""
     from scipy import linalg
     k_star = self._kernel(candidates, x, length_scale)
     mean = k_star @ alpha
     v = linalg.cho_solve(chol, k_star.T)
     var = np.clip(1.0 - (k_star * v.T).sum(axis=1), 1e-12, None)
-    return mean, var
+    return SimpleNamespace(mean=mean, var=var)
 
   @staticmethod
   def _expected_improvement(mean, var, best):

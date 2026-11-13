@@ -6,8 +6,14 @@ gradient + alpha loss).  Pure-torch, batched, reduction-aware.
 All formulas reference ``rl/README.md``.
 """
 
+import collections
+
 import torch
 import torch.nn.functional as F
+
+# What ``gae`` returns: the advantage estimates and the discounted returns
+# (the value-head targets).
+GAEOutput = collections.namedtuple("GAEOutput", ["advantages", "returns"])
 
 
 def td_target(
@@ -115,8 +121,8 @@ def gae(rewards, values, next_values, dones, gamma, lam, terminated=None):
                  ``(1 − dones)`` always stops the trace at episode boundaries.
 
   Returns:
-    advantages: (T,) GAE advantage estimates.
-    returns:    (T,) discounted returns (targets for the value head).
+    GAEOutput: ``advantages`` (T,) GAE advantage estimates, and ``returns``
+    (T,) discounted returns (targets for the value head).
   """
   rewards = rewards.squeeze(-1) if rewards.dim() == 2 else rewards
   values = values.squeeze(-1) if values.dim() == 2 else values
@@ -143,7 +149,7 @@ def gae(rewards, values, next_values, dones, gamma, lam, terminated=None):
     advantages[t] = last_gae
 
   returns = advantages + values
-  return advantages, returns
+  return GAEOutput(advantages=advantages, returns=returns)
 
 
 def clipped_surrogate(ratio, advantages, clip_eps):

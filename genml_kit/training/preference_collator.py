@@ -15,6 +15,8 @@ tokens -- the DPO/reward convention.  When there is no prompt, the chosen /
 rejected strings are treated as complete sequences and every token is scored.
 """
 
+from types import SimpleNamespace
+
 import torch
 
 from genml_kit.pipelines.contracts import DataBlob
@@ -52,7 +54,7 @@ class PreferenceCollator:
     self.pad_to_multiple_of = pad_to_multiple_of
 
   def _encode(self, prompt, response):
-    """Return ``(input_ids, labels)`` for one response (prompt prepended)."""
+    """Return the ``ids`` / ``labels`` for one response (prompt prepended)."""
     prompt_ids = []
     if prompt:
       prompt_ids = self.tokenizer.encode(prompt, add_special_tokens=False)
@@ -64,24 +66,25 @@ class PreferenceCollator:
       labels = [IGNORE_INDEX] * len(prompt_ids) + list(response_ids)
     else:
       labels = list(ids)
-    return ids[:self.max_seq_len], labels[:self.max_seq_len]
+    return SimpleNamespace(ids=ids[:self.max_seq_len], labels=labels[:self.max_seq_len])
 
   def _pad(self, sequences):
-    """Right-pad ``(ids, labels)`` pairs to a shared length -> tensor dict."""
+    """Right-pad encoded pairs to a shared length -> a SimpleNamespace."""
     pad_id = self.tokenizer.pad_token_id
-    max_len = max(len(ids) for ids, _ in sequences)
+    max_len = max(len(enc.ids) for enc in sequences)
     if self.pad_to_multiple_of:
       step = self.pad_to_multiple_of
       max_len = ((max_len + step - 1) // step) * step
     input_ids, attention_mask, labels = [], [], []
-    for ids, item_labels in sequences:
-      pad = max_len - len(ids)
-      input_ids.append(ids + [pad_id] * pad)
-      attention_mask.append([1] * len(ids) + [0] * pad)
-      labels.append(item_labels + [IGNORE_INDEX] * pad)
-    return (torch.tensor(input_ids, dtype=torch.long),
-            torch.tensor(attention_mask,
-                         dtype=torch.long), torch.tensor(labels, dtype=torch.long))
+    for enc in sequences:
+      pad = max_len - len(enc.ids)
+      input_ids.append(enc.ids + [pad_id] * pad)
+      attention_mask.append([1] * len(enc.ids) + [0] * pad)
+      labels.append(enc.labels + [IGNORE_INDEX] * pad)
+    return SimpleNamespace(input_ids=torch.tensor(input_ids, dtype=torch.long),
+                           attention_mask=torch.tensor(attention_mask,
+                                                       dtype=torch.long),
+                           labels=torch.tensor(labels, dtype=torch.long))
 
   def __call__(self, batch):
     chosen, rejected = [], []
@@ -92,18 +95,18 @@ class PreferenceCollator:
       chosen.append(self._encode(prompt, item["chosen"]))
       rejected.append(self._encode(prompt, item["rejected"]))
 
-    chosen_ids, chosen_mask, chosen_labels = self._pad(chosen)
-    rejected_ids, rejected_mask, rejected_labels = self._pad(rejected)
+    chosen_pad = self._pad(chosen)
+    rejected_pad = self._pad(rejected)
     return DataBlob(
         data={
-            "chosen_input_ids": chosen_ids,
-            "chosen_attention_mask": chosen_mask,
-            "rejected_input_ids": rejected_ids,
-            "rejected_attention_mask": rejected_mask,
+            "chosen_input_ids": chosen_pad.input_ids,
+            "chosen_attention_mask": chosen_pad.attention_mask,
+            "rejected_input_ids": rejected_pad.input_ids,
+            "rejected_attention_mask": rejected_pad.attention_mask,
         },
         meta={
-            "chosen_labels": chosen_labels,
-            "rejected_labels": rejected_labels,
+            "chosen_labels": chosen_pad.labels,
+            "rejected_labels": rejected_pad.labels,
         },
         size=len(chosen),
     )

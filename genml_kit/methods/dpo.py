@@ -133,16 +133,17 @@ class DPOMethod(Method):
       ref_rejected = _shifted_logps(self.reference_model, data["rejected_input_ids"],
                                     data["rejected_attention_mask"],
                                     blob.meta["rejected_labels"])
-    loss, chosen_rewards, rejected_rewards = self._dpo_loss(policy_chosen,
-                                                            policy_rejected, ref_chosen,
-                                                            ref_rejected, beta)
-    margin = (chosen_rewards - rejected_rewards).mean()
+    dpo_out = self._dpo_loss(policy_chosen, policy_rejected, ref_chosen, ref_rejected,
+                             beta)
+    loss = dpo_out.loss
+    margin = (dpo_out.chosen_rewards - dpo_out.rejected_rewards).mean()
+    accuracy = (dpo_out.chosen_rewards > dpo_out.rejected_rewards).float().mean()
     return LossOutput(
         loss,
         {
             "loss": loss.detach(),
             "margin": margin,
-            "accuracy": (chosen_rewards > rejected_rewards).float().mean(),
+            "accuracy": accuracy,
         },
         None,
     )

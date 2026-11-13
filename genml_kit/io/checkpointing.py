@@ -4,6 +4,7 @@ Extracted from ``train.py`` to avoid code duplication with ``pretrain.py``.
 Both scripts import these functions rather than maintaining separate copies.
 """
 
+import collections
 import io
 import logging
 import ntpath
@@ -20,6 +21,20 @@ from genml_kit.training.param_align import AlignConfig, align_state_dicts, repor
 from genml_kit.utils.attr import MISSING, get_attribute
 from genml_kit.utils.distributed import is_main_process, world_size
 from genml_kit.utils.logging import fatal
+
+# What ``resume_checkpoint`` / ``open_resume_context`` return: the (possibly
+# LoRA-wrapped) model, the epoch to resume at, the best metric so far, and the
+# leftover checkpoint extras (optimizer/scheduler/AMP state, method state).
+ResumeState = collections.namedtuple("ResumeState",
+                                     ["model", "start_epoch", "best_metric", "extra"])
+
+# What ``deserialize_lora_state`` returns: the model (possibly re-wrapped as a
+# ``PeftModel``) and the set of state-dict keys restored from the blob.
+LoraRestore = collections.namedtuple("LoraRestore", ["model", "loaded_keys"])
+
+# What ``filter_state_dict`` returns: the filtered state dict and the list of
+# ``(key, reason)`` pairs describing each dropped key.
+StateDictFilter = collections.namedtuple("StateDictFilter", ["filtered", "skipped"])
 
 
 def rename_keys(state_dict, patterns):
@@ -117,8 +132,8 @@ def deserialize_lora_state(model, blob):
   Works whether *model* is already a ``PeftModel`` or a plain model.
 
   Returns:
-      Tuple of ``(model, loaded_keys)`` where *loaded_keys* is the set of
-      state-dict keys that were restored from the blob.
+      LoraRestore: the *model* and the set of state-dict keys (*loaded_keys*)
+      that were restored from the blob.
   """
   from peft import PeftModel
 
@@ -140,7 +155,7 @@ def deserialize_lora_state(model, blob):
       model = PeftModel.from_pretrained(model, tmpdir)
 
   loaded = set(model.state_dict().keys()) - before
-  return model, loaded
+  return LoraRestore(model=model, loaded_keys=loaded)
 
 
 def select_best_checkpoint(root_path):
@@ -342,7 +357,7 @@ def filter_state_dict(ckpt_state, model_state):
   """Filter a checkpoint state dict to only include keys compatible with the model.
 
     Skips keys whose tensor shape differs between checkpoint and model.
-    Returns ``(filtered_state, skipped)`` where *skipped* is a list of
+    Returns a :class:`StateDictFilter` whose *skipped* field is a list of
     ``(key, reason)`` tuples describing why each key was dropped.
     """
   filtered = {}
@@ -358,7 +373,7 @@ def filter_state_dict(ckpt_state, model_state):
       ))
     else:
       filtered[k] = v
-  return filtered, skipped
+  return StateDictFilter(filtered=filtered, skipped=skipped)
 
 
 def should_save_periodic(global_step, save_every):
@@ -502,8 +517,8 @@ def resume_checkpoint(ckpt_latest,
             ``method.initial_best_metric`` is the method-declared sentinel
             (``-inf`` when maximizing, ``inf`` when minimizing).
 
-    Returns ``(start_epoch, best_metric, extra)`` where *extra* contains
-    auxiliary checkpoint state and other non-model metadata.
+    Returns a :class:`ResumeState`; its *extra* field contains auxiliary
+    checkpoint state and other non-model metadata.
     """
 
   resume_path = None
@@ -513,7 +528,7 @@ def resume_checkpoint(ckpt_latest,
     resume_path = ckpt_best
 
   if not resume_path:
-    return model, 0, default_metric, {}
+    return ResumeState(model=model, start_epoch=0, best_metric=default_metric, extra={})
 
   logging.info(f"Resuming from checkpoint: {resume_path}")
   # weights_only=False is intentional: resume checkpoints contain
@@ -536,20 +551,20 @@ def resume_checkpoint(ckpt_latest,
   lora_keys = set()
   if lora_blob is not None:
     logging.info(f"  lora_state_blob: {len(lora_blob)} bytes")
-    model, lora_keys = deserialize_lora_state(model, lora_blob)
+    lora = deserialize_lora_state(model, lora_blob)
+    model, lora_keys = lora.model, lora.loaded_keys
     logging.info(f"  Restored {len(lora_keys)} LoRA keys from blob")
 
-  filtered, skipped = filter_state_dict(
+  sd_filter = filter_state_dict(
       ckpt["model_state_dict"],
       model.state_dict(),
   )
-  if skipped:
-    for k, reason in skipped:
-      logging.warning(f"  Skipped key '{k}': {reason}")
+  for k, reason in sd_filter.skipped:
+    logging.warning(f"  Skipped key '{k}': {reason}")
 
-  result = model.load_state_dict(filtered, strict=False)
-  matched = len(filtered) - len(result.unexpected_keys)
-  logging.info(f"  Restored model weights ({matched}/{len(filtered)} keys)")
+  result = model.load_state_dict(sd_filter.filtered, strict=False)
+  matched = len(sd_filter.filtered) - len(result.unexpected_keys)
+  logging.info(f"  Restored model weights ({matched}/{len(sd_filter.filtered)} keys)")
 
   truly_missing = set(result.missing_keys) - lora_keys
   if truly_missing:
@@ -578,7 +593,7 @@ def resume_checkpoint(ckpt_latest,
       for k, v in ckpt.items()
       if k not in {"model_state_dict", "lora_state_blob", "epoch", metric_key}
   }
-  extra["_model_state_skipped"] = bool(skipped)
+  extra["_model_state_skipped"] = bool(sd_filter.skipped)
 
   if resumed_mid_epoch:
     logging.info(f"  Resumed mid-epoch {start_epoch} at step "
@@ -586,7 +601,10 @@ def resume_checkpoint(ckpt_latest,
                  f"best_metric={best_metric:.4f}")
   else:
     logging.info(f"  Resumed at epoch {start_epoch}, best_metric={best_metric:.4f}")
-  return model, start_epoch, best_metric, extra
+  return ResumeState(model=model,
+                     start_epoch=start_epoch,
+                     best_metric=best_metric,
+                     extra=extra)
 
 
 def warn_world_size_mismatch(ckpt_world_size, current_world_size):
@@ -664,12 +682,12 @@ def open_resume_context(args, model, device, metric_key, default_metric=0.0):
           *metric_key*; see :func:`resume_checkpoint`.
 
   Returns:
-      Tuple ``(model, start_epoch, best_metric, ckpt_extra)``.
+      A :class:`ResumeState`.
   """
   ckpt_latest = args.checkpoint + "_latest.pt"
   ckpt_best = args.checkpoint + "_best.pt"
   fetch_remote_checkpoint(args.remote_checkpoint, ckpt_latest, ckpt_best)
-  model, start_epoch, best_metric, ckpt_extra = resume_checkpoint(
+  return resume_checkpoint(
       ckpt_latest,
       ckpt_best,
       model,
@@ -677,7 +695,6 @@ def open_resume_context(args, model, device, metric_key, default_metric=0.0):
       metric_key=metric_key,
       default_metric=default_metric,
   )
-  return model, start_epoch, best_metric, ckpt_extra
 
 
 def restore_training_state(extra, optimizer, scheduler, scaler, states_to_load):

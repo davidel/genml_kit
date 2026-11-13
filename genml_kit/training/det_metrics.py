@@ -26,6 +26,8 @@ import numpy as np
 import torch
 from torchvision.ops import box_iou
 
+from genml_kit.pipelines.contracts import MAPState
+
 # COCO's ten IoU thresholds, used for the headline mAP.
 _DEFAULT_THRESHOLDS = np.arange(0.5, 1.0, 0.05)
 
@@ -82,19 +84,18 @@ class MAPMeter:
 
   @property
   def state(self):
-    """The accumulated ``(detections, ground_truth)`` lists (for merging)."""
-    return (self._detections, self._ground_truth)
+    """The accumulated :class:`MAPState` records (for merging)."""
+    return MAPState(detections=self._detections, ground_truth=self._ground_truth)
 
   def extend(self, state):
-    """Append another meter's ``state`` (per-image records) to this one.
+    """Append another meter's :class:`MAPState` records to this one.
 
     Used to merge the per-rank accumulators of a distributed validation run:
     mAP is the area under a global precision/recall curve, so the raw records
     must be concatenated before reducing, never averaged as scalars.
     """
-    detections, ground_truth = state
-    self._detections.extend(detections)
-    self._ground_truth.extend(ground_truth)
+    self._detections.extend(state.detections)
+    self._ground_truth.extend(state.ground_truth)
 
   def compute(self):
     """Return ``{"map", "map_50", "map_75"}`` over the accumulated data."""

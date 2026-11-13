@@ -120,9 +120,9 @@ class VOPairMethod(Method):
         "dc": out.dc,
     }
     pred = VOPrediction(params=out.params, conf=out.conf)
-    loss, parts = vo_losses(pred, batch, self._cfg, self._stage)
-    metrics = {k: v.detach() for k, v in parts.items()}
-    return LossOutput(loss=loss, metrics=metrics)
+    vo_out = vo_losses(pred, batch, self._cfg, self._stage)
+    metrics = {k: v.detach() for k, v in vo_out.parts.items()}
+    return LossOutput(loss=vo_out.total, metrics=metrics)
 
   def evaluate(self, model, loader, device, to_device):
     """Return ``{"mce": ...}`` over the loader (DataBlob items).

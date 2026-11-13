@@ -29,6 +29,7 @@ converts to a maximise-internal view using ``objective_is_min``.
 """
 
 import threading
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -70,30 +71,34 @@ class Pruner:
     return max(values) if values else None
 
   def _value_at_new_rung(self, trial_id, series):
-    """Record and return the trial's value at the newest rung it reached."""
+    """Record and return the trial's value at the newest rung it reached.
+
+    A trivial grouping of the rung index and the value at it (``None``
+    when the trial has not advanced to a fresh rung yet).
+    """
     rungs = self._rungs_up_to(len(series))
     if not rungs:
-      return None, None
+      return SimpleNamespace(rung=None, value=None)
     rung = rungs[-1]
     seen = self._recorded.setdefault(trial_id, set())
     if rung in seen:
-      return rung, None
+      return SimpleNamespace(rung=rung, value=None)
     value = self._rung_value(series, rung)
     if value is None:
-      return rung, None
+      return SimpleNamespace(rung=rung, value=None)
     seen.add(rung)
     self._rung_values.setdefault(rung, []).append(value)
-    return rung, value
+    return SimpleNamespace(rung=rung, value=value)
 
   def should_stop(self, trial_id, series):
     """Return whether the trial identified by *trial_id* should be pruned."""
     if len(series) < self.min_resource:
       return False
     with self._lock:
-      rung, value = self._value_at_new_rung(trial_id, series)
-      if rung is None or value is None:
+      newest = self._value_at_new_rung(trial_id, series)
+      if newest.rung is None or newest.value is None:
         return False
-      return self._decide(rung, value)
+      return self._decide(newest.rung, newest.value)
 
   def _decide(self, rung, value):
     """Policy hook: whether *value* at *rung* should be pruned."""

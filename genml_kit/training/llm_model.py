@@ -16,6 +16,7 @@ Nothing here is HuggingFace-specific: the base model goes through the same
 registry the trainer uses, so custom models work unchanged.
 """
 
+import collections
 import logging
 import os
 
@@ -25,6 +26,9 @@ from genml_kit.io.checkpointing import (deserialize_lora_state, filter_state_dic
                                         select_best_checkpoint)
 from genml_kit.models import load_model, load_tokenizer
 from genml_kit.utils.logging import fatal
+
+# What ``load_lm_for_inference`` returns: the causal LM and its tokenizer.
+LmWithTokenizer = collections.namedtuple("LmWithTokenizer", ["model", "tokenizer"])
 
 
 def resolve_checkpoint_file(path):
@@ -61,15 +65,17 @@ def load_checkpoint_into_model(model, checkpoint, device):
 
   if blob is not None:
     logging.info("  Restoring LoRA adapters from embedded blob (%d bytes).", len(blob))
-    model, lora_keys = deserialize_lora_state(model, blob)
-    logging.info("  Restored %d LoRA keys.", len(lora_keys))
+    lora = deserialize_lora_state(model, blob)
+    model = lora.model
+    logging.info("  Restored %d LoRA keys.", len(lora.loaded_keys))
 
-  filtered, skipped = filter_state_dict(state, model.state_dict())
-  for key, reason in skipped:
+  sd_filter = filter_state_dict(state, model.state_dict())
+  for key, reason in sd_filter.skipped:
     logging.warning("  Skipped key '%s': %s", key, reason)
-  result = model.load_state_dict(filtered, strict=False)
-  matched = len(filtered) - len(result.unexpected_keys)
-  logging.info("  Restored model weights (%d/%d keys).", matched, len(filtered))
+  result = model.load_state_dict(sd_filter.filtered, strict=False)
+  matched = len(sd_filter.filtered) - len(result.unexpected_keys)
+  logging.info("  Restored model weights (%d/%d keys).", matched,
+               len(sd_filter.filtered))
   if result.missing_keys:
     logging.warning("  Missing keys: %s", result.missing_keys)
   return model
@@ -117,7 +123,8 @@ def load_lm_for_inference(model_name,
         tokenizer_arg: extra kwargs forwarded to the tokenizer factory.
 
     Returns:
-        ``(model, tokenizer)`` with the model in ``eval`` mode on *device*.
+        LmWithTokenizer: the *model* (in ``eval`` mode on *device*) and its
+        *tokenizer*.
     """
   device = torch.device(device)
   tokenizer = load_tokenizer(tokenizer_name or model_name,
@@ -138,4 +145,4 @@ def load_lm_for_inference(model_name,
     model = load_lora_adapter(model, lora_adapter)
   model.to(device)
   model.eval()
-  return model, tokenizer
+  return LmWithTokenizer(model=model, tokenizer=tokenizer)

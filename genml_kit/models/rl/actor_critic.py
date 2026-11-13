@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.models.registry import MODELS
+from genml_kit.pipelines.contracts import PolicyOutput
 
 
 class _MLPBackbone(nn.Module):
@@ -227,7 +228,11 @@ class GaussianActor(nn.Module):
     entropy = dist.entropy().sum(dim=-1)
     # Value is computed by the critic head, not the actor
     value = None
-    return squashed, raw_action, log_prob, entropy, value
+    return PolicyOutput(action=squashed,
+                        raw_action=raw_action,
+                        log_prob=log_prob,
+                        entropy=entropy,
+                        value=value)
 
 
 class ValueHead(nn.Module):
@@ -418,7 +423,11 @@ class ActorCritic(nn.Module):
         action = squashed
         raw_action = raw
 
-    return action, raw_action, log_prob, entropy, value
+    return PolicyOutput(action=action,
+                        raw_action=raw_action,
+                        log_prob=log_prob,
+                        entropy=entropy,
+                        value=value)
 
 
 @MODELS.register("rl/actor_critic")

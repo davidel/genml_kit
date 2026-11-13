@@ -41,7 +41,7 @@ from genml_kit.datasets.transforms import (
     build_seg_geometric,
 )
 from genml_kit.pipelines.base import DataPipeline
-from genml_kit.pipelines.contracts import DataBlob
+from genml_kit.pipelines.contracts import DataBlob, SplitPair
 from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
@@ -139,7 +139,8 @@ class SegmentationPipeline(DataPipeline):
           "SegmentationPipeline requires --dataset "
           "(e.g. segfolder:/data/voc2012 or a HF name + --mask_column)", ValueError)
 
-    train_ds, val_ds = self._load_datasets(args)
+    splits = self._load_datasets(args)
+    train_ds, val_ds = splits.train, splits.val
 
     train_tf = getattr(method, "train_transforms", None) or self._default_transform(
         args, is_train=True)
@@ -211,19 +212,20 @@ class SegmentationPipeline(DataPipeline):
     all_masks = [
         np.asarray(s[i]["mask"]) for s in (train_raw, val_raw) for i in range(len(s))
     ]
-    mask_map, _ = build_mask_map(all_masks, ignore_index=ignore_index)
+    mask_map = build_mask_map(all_masks, ignore_index=ignore_index).mask_map
     if not mask_map:
       fatal("SegmentationPipeline: no class ids found in segfolder masks", ValueError)
     self.mask_map = mask_map
 
-    return (_MaskRemapAdapter(train_raw, mask_map, ignore_index),
-            _MaskRemapAdapter(val_raw, mask_map, ignore_index))
+    return SplitPair(train=_MaskRemapAdapter(train_raw, mask_map, ignore_index),
+                     val=_MaskRemapAdapter(val_raw, mask_map, ignore_index))
 
   def _load_hf(self, args, name):
     import datasets as _datasets
 
     raw = _datasets.load_dataset(name, cache_dir=args.cache_dir)
-    train_raw, val_raw = self._split_hf(raw, args)
+    split_pair = self._split_hf(raw, args)
+    train_raw, val_raw = split_pair.train, split_pair.val
 
     # Image column: an explicit --image_column wins; otherwise auto-detect
     # (pixel_values / image / ...) instead of forcing a literal "image".
@@ -246,16 +248,16 @@ class SegmentationPipeline(DataPipeline):
     mask_map = self._load_or_build_mask_map(args, name, image_col, mask_col,
                                             ignore_index, raw)
 
-    return (HFDatasetProxy(train_raw,
-                           image_column=image_col,
-                           mask_column=mask_col,
-                           mask_map=mask_map,
-                           mask_ignore_index=ignore_index),
-            HFDatasetProxy(val_raw,
-                           image_column=image_col,
-                           mask_column=mask_col,
-                           mask_map=mask_map,
-                           mask_ignore_index=ignore_index))
+    return SplitPair(train=HFDatasetProxy(train_raw,
+                                          image_column=image_col,
+                                          mask_column=mask_col,
+                                          mask_map=mask_map,
+                                          mask_ignore_index=ignore_index),
+                     val=HFDatasetProxy(val_raw,
+                                        image_column=image_col,
+                                        mask_column=mask_col,
+                                        mask_map=mask_map,
+                                        mask_ignore_index=ignore_index))
 
   @staticmethod
   def _class_map_cache_dir(args):
@@ -343,7 +345,8 @@ class SegmentationPipeline(DataPipeline):
         "SegmentationPipeline: scanning %d masks to build the "
         "class-id map (one-time, may take a moment)...", n)
     t0 = time.time()
-    mask_map, key_type = build_mask_map(iter_masks(), ignore_index=ignore_index)
+    built = build_mask_map(iter_masks(), ignore_index=ignore_index)
+    mask_map, key_type = built.mask_map, built.key_type
     logging.info("SegmentationPipeline: %d classes from %d masks in %.1fs",
                  len(mask_map), seen,
                  time.time() - t0)
@@ -365,23 +368,23 @@ class SegmentationPipeline(DataPipeline):
 
   @staticmethod
   def _split_hf(raw, args):
-    """Return ``(train_split, val_split)`` from an HF Dataset / DatasetDict."""
+    """Return a :class:`SplitPair` from an HF Dataset / DatasetDict."""
     import datasets as _datasets
 
     val_frac = args.val_split
     seed = args.seed or 0
     if isinstance(raw, _datasets.Dataset):
       split = raw.train_test_split(test_size=val_frac, seed=seed)
-      return split["train"], split["test"]
+      return SplitPair(train=split["train"], val=split["test"])
 
     keys = list(raw.keys())
     if "validation" in keys:
-      return raw["train"], raw["validation"]
+      return SplitPair(train=raw["train"], val=raw["validation"])
     if "test" in keys:
-      return raw["train"], raw["test"]
+      return SplitPair(train=raw["train"], val=raw["test"])
     train_key = "train" if "train" in keys else keys[0]
     split = raw[train_key].train_test_split(test_size=val_frac, seed=seed)
-    return split["train"], split["test"]
+    return SplitPair(train=split["train"], val=split["test"])
 
   def _make_loader(self, dataset, args, *, shuffle):
     generator = None

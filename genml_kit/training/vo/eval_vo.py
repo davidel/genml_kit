@@ -30,6 +30,10 @@ from genml_kit.utils.table import format_table
 EvalRow = collections.namedtuple(
     "EvalRow", ["slice", "n", "mce", "dlog_s", "dtheta", "conf_mae", "gt_fit_mce"])
 
+# What ``evaluate_sliced`` returns: one EvalRow per slice, and the rendered
+# text table.
+SlicedReport = collections.namedtuple("SlicedReport", ["rows", "table"])
+
 # VOMetrics fields, accumulated in this order.
 _FIELDS = ("mce", "dlog_s", "dtheta", "conf_mae")
 
@@ -51,9 +55,9 @@ def evaluate_sliced(dataset, predict, group_key="terrain", image_size=64):
           GT-fit reference column.
 
   Returns:
-      (rows, table): one :class:`EvalRow` per slice, and the rendered
-      text lines.  ``EvalRow.mce`` is model error, ``EvalRow.gt_fit_mce``
-      the ground-truth-fit reference.
+      SlicedReport: ``rows`` is one :class:`EvalRow` per slice, ``table``
+      the rendered text lines.  ``EvalRow.mce`` is model error,
+      ``EvalRow.gt_fit_mce`` the ground-truth-fit reference.
 
   Note:
       Previously ``(model, dataset, device, group_key)``.  The *model*
@@ -95,7 +99,7 @@ def evaluate_sliced(dataset, predict, group_key="terrain", image_size=64):
           str(row.n), f"{row.mce:.2f}", f"{row.gt_fit_mce:.2f}", f"{row.dlog_s:.4f}",
           f"{row.dtheta * 180.0 / math.pi:.2f}", f"{row.conf_mae:.3f}"
       ] for row in rows])
-  return rows, table
+  return SlicedReport(rows=rows, table=table)
 
 
 def _batched_gt(gt):

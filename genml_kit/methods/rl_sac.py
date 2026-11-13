@@ -373,12 +373,9 @@ class SACMethod(RLMethod):
     obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
     with torch.no_grad():
       # model.actor is ActorCritic, which has get_action_and_value
-      action, _, _, _, _ = model.actor.get_action_and_value(
-          obs_t,
-          deterministic=deterministic,
-      )
+      out = model.actor.get_action_and_value(obs_t, deterministic=deterministic)
     # Return as numpy array (1D for continuous actions)
-    action_np = action.squeeze(0).cpu().numpy()
+    action_np = out.action.squeeze(0).cpu().numpy()
     # Ensure it's a flat 1D array
     return action_np.flatten()
 
@@ -414,7 +411,8 @@ class SACMethod(RLMethod):
     alpha = self._get_alpha()
 
     with torch.no_grad():
-      next_action, _, next_log_prob, _, _ = model.actor.get_action_and_value(next_obs)
+      next_out = model.actor.get_action_and_value(next_obs)
+      next_action, next_log_prob = next_out.action, next_out.log_prob
       # Target networks are plain Sequential modules; call forward directly.
       q1_next = model.q1.target(torch.cat([next_obs, next_action], dim=-1)).squeeze(-1)
       q2_next = model.q2.target(torch.cat([next_obs, next_action], dim=-1)).squeeze(-1)
@@ -447,7 +445,8 @@ class SACMethod(RLMethod):
     for p in model.q2.net.parameters():
       p.requires_grad_(False)
 
-    new_action, _, new_log_prob, _, _ = model.actor.get_action_and_value(obs)
+    new_out = model.actor.get_action_and_value(obs)
+    new_action, new_log_prob = new_out.action, new_out.log_prob
     # CRITICAL: intentionally NOT under ``torch.no_grad``.  ``new_action``
     # is a reparameterised sample (rsample -> tanh), so evaluating Q here
     # builds the chain ``action -> Q`` that the policy gradient needs in

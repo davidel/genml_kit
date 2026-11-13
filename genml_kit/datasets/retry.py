@@ -1,7 +1,14 @@
 """getitem_retry — robust index loader with random-fallback retry."""
 
+import collections
 import logging
 import random
+
+# What ``getitem_retry`` returns: the loaded item plus the index it was actually
+# loaded from (which differs from the requested index after a random fallback).
+# Defined here (not in ``pipelines.contracts``) so this low-level dataset helper
+# does not depend on the ``pipelines`` package.
+RetryResult = collections.namedtuple("RetryResult", ["item", "index"])
 
 
 def getitem_retry(idx, fn, size, max_retry=5):
@@ -20,8 +27,8 @@ def getitem_retry(idx, fn, size, max_retry=5):
 
   Returns
   -------
-  tuple[Any, int]
-      ``(item, actual_index)`` — the loaded item and the index that was
+  RetryResult
+      ``(item, index)`` — the loaded item and the index that was
       ultimately used (may differ from *idx* after retries).
 
   Raises
@@ -31,7 +38,7 @@ def getitem_retry(idx, fn, size, max_retry=5):
   """
   for attempt in range(max_retry + 1):
     try:
-      return fn(idx), idx
+      return RetryResult(item=fn(idx), index=idx)
     except Exception:
       if attempt < max_retry:
         old_idx = idx

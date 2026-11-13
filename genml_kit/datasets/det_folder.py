@@ -28,6 +28,7 @@ recoverable through :meth:`DetFolderDataset.id2label`.
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import torch
 from PIL import Image
@@ -81,14 +82,15 @@ class DetFolderDataset:
           FileNotFoundError,
       )
 
-    self._records, self._id2label = self._parse()
+    parsed = self._parse()
+    self._records, self._id2label = parsed.records, parsed.id2label
 
   def _parse(self):
     """Read the COCO JSON and build per-image box/label records.
 
     Returns
     -------
-    (list, dict)
+    SimpleNamespace
       ``records`` is a list of ``(image_path, boxes, labels)`` where
       ``boxes`` is ``(N, 4)`` float32 ``xyxy`` and ``labels`` is ``(N,)``
       int64 in the compacted ``[0, C)`` space.  ``id2label`` maps a compact
@@ -159,16 +161,15 @@ class DetFolderDataset:
             "annotation file does not exist",
             FileNotFoundError,
         )
-      boxes, labels = self._boxes_for(by_image.get(int(entry["id"]), []),
-                                      raw_to_compact)
-      records.append((image_path, boxes, labels))
+      boxes_labels = self._boxes_for(by_image.get(int(entry["id"]), []), raw_to_compact)
+      records.append((image_path, boxes_labels.boxes, boxes_labels.labels))
 
     if not records:
       fatal(f"DetFolderDataset: no images found in '{self._annotation_path}'",
             ValueError)
     logging.info("DetFolderDataset: %d images, %d classes (%s)", len(records),
                  len(raw_to_compact), self.name)
-    return records, id2label
+    return SimpleNamespace(records=records, id2label=id2label)
 
   @staticmethod
   def _boxes_for(anns, raw_to_compact):
@@ -181,8 +182,9 @@ class DetFolderDataset:
 
     Returns
     -------
-    (torch.Tensor, torch.Tensor)
-      ``(N, 4)`` float32 ``xyxy`` boxes and ``(N,)`` int64 compact labels.
+    SimpleNamespace
+      ``boxes`` is ``(N, 4)`` float32 ``xyxy`` and ``labels`` is ``(N,)``
+      int64 compact labels.
     """
     boxes = []
     labels = []
@@ -195,10 +197,10 @@ class DetFolderDataset:
     if not boxes:
       # An image with no (usable) boxes is legal -- it is a pure background
       # sample and still contributes negatives to the classification loss.
-      return torch.zeros((0, 4), dtype=torch.float32), torch.zeros((0,),
-                                                                   dtype=torch.long)
-    return (torch.tensor(boxes,
-                         dtype=torch.float32), torch.tensor(labels, dtype=torch.long))
+      return SimpleNamespace(boxes=torch.zeros((0, 4), dtype=torch.float32),
+                             labels=torch.zeros((0,), dtype=torch.long))
+    return SimpleNamespace(boxes=torch.tensor(boxes, dtype=torch.float32),
+                           labels=torch.tensor(labels, dtype=torch.long))
 
   @property
   def id2label(self):
@@ -229,8 +231,7 @@ class DetFolderDataset:
       # record (transforms run in DataLoader workers over shared memory).
       return {"image": image, "boxes": boxes.clone(), "labels": labels.clone()}
 
-    row, _ = getitem_retry(idx, load, n)
-    return row
+    return getitem_retry(idx, load, n).item
 
 
 def _has_named_splits(root):

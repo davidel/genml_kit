@@ -13,7 +13,7 @@ import torch
 
 from genml_kit.losses import load_loss
 from genml_kit.methods.registry import METHODS
-from genml_kit.methods.rl_utils import RLMethod
+from genml_kit.methods.rl_utils import ActOutput, RLMethod
 from genml_kit.models.registry import load_model
 from genml_kit.pipelines.contracts import LossOutput
 
@@ -215,22 +215,20 @@ class PPOMethod(RLMethod):
         """
     obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
     with torch.no_grad():
-      action, raw_action, log_prob, _, value = model.get_action_and_value(
-          obs_t,
-          deterministic=deterministic,
-      )
+      out = model.get_action_and_value(obs_t, deterministic=deterministic)
     if self._discrete:
-      return action.item(), log_prob.item(), value.item(), None
-    return (
-        action.squeeze(0).numpy(),
-        log_prob.item(),
-        value.item(),
-        raw_action.squeeze(0).numpy(),
-    )
+      return ActOutput(action=out.action.item(),
+                       log_prob=out.log_prob.item(),
+                       value=out.value.item(),
+                       raw_action=None)
+    return ActOutput(action=out.action.squeeze(0).numpy(),
+                     log_prob=out.log_prob.item(),
+                     value=out.value.item(),
+                     raw_action=out.raw_action.squeeze(0).numpy())
 
   def _eval_action(self, model, obs):
     """Return the deterministic action for evaluation."""
-    return self.act(model, obs, deterministic=True)[0]
+    return self.act(model, obs, deterministic=True).action
 
   def update_target(self, model, global_step):
     """PPO does not use target networks — no-op."""

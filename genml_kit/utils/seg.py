@@ -8,6 +8,7 @@ model package.
 import json
 import logging
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import torch.nn.functional as F
@@ -166,9 +167,9 @@ def build_mask_map(masks, ignore_index=None):
 
   Returns
   -------
-  tuple[dict, str]
-    ``(mask_map, key_type)`` -- the ``{raw_key: compact_id}`` mapping and
-    ``\"rgb\"`` / ``\"int\"`` for cache round-tripping.
+  SimpleNamespace
+    ``mask_map`` (the ``{raw_key: compact_id}`` mapping) and ``key_type``
+    (``\"rgb\"`` / ``\"int\"`` for cache round-tripping).
   """
   raw_keys = set()
   rgb = False
@@ -189,8 +190,10 @@ def build_mask_map(masks, ignore_index=None):
         raw_keys.add(int(v))
   raw_keys = sorted(raw_keys)
   if rgb:
-    return {key: idx for idx, key in enumerate(raw_keys)}, "rgb"
-  return {int(key): idx for idx, key in enumerate(raw_keys)}, "int"
+    mask_map = {key: idx for idx, key in enumerate(raw_keys)}
+    return SimpleNamespace(mask_map=mask_map, key_type="rgb")
+  mask_map = {int(key): idx for idx, key in enumerate(raw_keys)}
+  return SimpleNamespace(mask_map=mask_map, key_type="int")
 
 
 def load_mask_map_cache(cache_path, total_masks):

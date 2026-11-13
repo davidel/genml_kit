@@ -1,5 +1,6 @@
 """Unified cloud storage helpers for GCS, Cloudflare R2, and AWS S3."""
 
+import collections
 import contextlib
 import logging
 import os
@@ -9,17 +10,19 @@ import torch
 
 from genml_kit.utils.logging import fatal
 
+# What ``parse_storage_uri`` returns: the scheme, bucket, and object prefix.
+StorageURI = collections.namedtuple("StorageURI", ["scheme", "bucket", "prefix"])
+
 
 def parse_storage_uri(uri):
-  """Parse a ``gs://``, ``r2://``, or ``s3://`` URI into ``(scheme, bucket,
-  prefix)``.
+  """Parse a ``gs://``, ``r2://``, or ``s3://`` URI into a :class:`StorageURI`.
 
     Args:
         uri: A storage URI.  Must start with ``gs://`` (Google Cloud
             Storage), ``r2://`` (Cloudflare R2), or ``s3://`` (AWS S3).
 
     Returns:
-        A tuple ``(scheme, bucket, prefix)`` where *scheme* is ``"gs"``,
+        StorageURI: ``(scheme, bucket, prefix)`` where *scheme* is ``"gs"``,
         ``"r2"``, or ``"s3"``.
   """
   if uri.startswith("gs://"):
@@ -37,7 +40,7 @@ def parse_storage_uri(uri):
   parts = without_scheme.split("/", 1)
   bucket = parts[0]
   prefix = parts[1] if len(parts) > 1 else ""
-  return scheme, bucket, prefix
+  return StorageURI(scheme=scheme, bucket=bucket, prefix=prefix)
 
 
 def _object_key(local_path, prefix):
@@ -248,16 +251,16 @@ def storage_download(remote_uri, local_path):
     Returns:
         ``True`` when *local_path* was written from remote storage.
     """
-  scheme, bucket, prefix = parse_storage_uri(remote_uri)
+  uri = parse_storage_uri(remote_uri)
   try:
-    if scheme == "gs":
-      result = _download_gcs(bucket, local_path, prefix)
-    elif scheme == "r2":
-      result = _download_r2(bucket, local_path, prefix)
-    elif scheme == "s3":
-      result = _download_s3(bucket, local_path, prefix)
+    if uri.scheme == "gs":
+      result = _download_gcs(uri.bucket, local_path, uri.prefix)
+    elif uri.scheme == "r2":
+      result = _download_r2(uri.bucket, local_path, uri.prefix)
+    elif uri.scheme == "s3":
+      result = _download_s3(uri.bucket, local_path, uri.prefix)
     else:
-      fatal(f"Unsupported storage scheme: {scheme!r}", ValueError)
+      fatal(f"Unsupported storage scheme: {uri.scheme!r}", ValueError)
   except Exception as error:
     logging.warning(f"  Remote checkpoint fetch from {remote_uri} failed: {error}")
     return False
@@ -326,7 +329,7 @@ def save_checkpoint(save_dict, path, remote_uri=None):
   # The local commit is durable at this point; the remote sync is
   # best-effort and must stay after the rename.
   if remote_uri:
-    scheme, bucket, prefix = parse_storage_uri(remote_uri)
-    remote = storage_upload(bucket, path, prefix, scheme=scheme)
+    uri = parse_storage_uri(remote_uri)
+    remote = storage_upload(uri.bucket, path, uri.prefix, scheme=uri.scheme)
     logging.info(f"  Synced to remote: {remote}")
   return path

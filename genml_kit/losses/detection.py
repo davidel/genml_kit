@@ -28,11 +28,18 @@ already scaled its distances by the stride, so no stride bookkeeping is
 needed here.
 """
 
+import collections
+
 import torch
 import torch.nn.functional as F
 from torchvision.ops import generalized_box_iou_loss
 
 from genml_kit.losses.registry import LOSSES
+
+# What ``_assign_level`` returns: the per-location soft focal targets, the
+# positive mask, and the ``(l, t, r, b)`` regression targets.
+DetectionTargets = collections.namedtuple("DetectionTargets",
+                                          ["cls_target", "pos_mask", "reg_target"])
 
 
 def _focal_loss(logits, targets, alpha=0.25, gamma=2.0):
@@ -108,7 +115,7 @@ def _assign_level(points, boxes, labels, radius, num_classes):
 
   Returns
   -------
-  (torch.Tensor, torch.Tensor, torch.Tensor)
+  DetectionTargets
     ``cls_target`` ``(P, num_classes)`` soft focal targets,
     ``pos_mask`` ``(P,)`` bool positives, and
     ``reg_target`` ``(P, 4)`` ``(l, t, r, b)`` distances for positives
@@ -120,7 +127,9 @@ def _assign_level(points, boxes, labels, radius, num_classes):
   pos_mask = torch.zeros(num_points, dtype=torch.bool, device=points.device)
   reg_target = points.new_zeros((num_points, 4))
   if boxes.numel() == 0:
-    return cls_target, pos_mask, reg_target
+    return DetectionTargets(cls_target=cls_target,
+                            pos_mask=pos_mask,
+                            reg_target=reg_target)
 
   # Distances from every point to every box edge: (P, 1, 2) - (1, M, 2) -> (P, M).
   px = points[:, 0].unsqueeze(1)
@@ -169,7 +178,9 @@ def _assign_level(points, boxes, labels, radius, num_classes):
   reg_target[pos, 3] = bottom[pos, chosen]
   # Soft focal target = 1.0 on the true class at a positive location.
   cls_target[pos, labels[chosen]] = 1.0
-  return cls_target, pos_mask, reg_target
+  return DetectionTargets(cls_target=cls_target,
+                          pos_mask=pos_mask,
+                          reg_target=reg_target)
 
 
 class FCOSLoss(torch.nn.Module):
@@ -250,12 +261,11 @@ class FCOSLoss(torch.nn.Module):
     for img in range(batch_size):
       boxes = targets[img]["boxes"].to(cls_logits.device)
       labels = targets[img]["labels"].to(cls_logits.device)
-      cls_t, pos_mask, reg_t = _assign_level(points, boxes, labels,
-                                             self.center_sampling_radius,
-                                             self.num_classes)
-      all_cls_t.append(cls_t)
-      all_reg_t.append(reg_t)
-      all_pos.append(pos_mask)
+      targets_out = _assign_level(points, boxes, labels, self.center_sampling_radius,
+                                  self.num_classes)
+      all_cls_t.append(targets_out.cls_target)
+      all_reg_t.append(targets_out.reg_target)
+      all_pos.append(targets_out.pos_mask)
     # (B, P_total, C) / (B, P_total, 4) / (B, P_total).
     cls_target = torch.stack(all_cls_t, dim=0)
     reg_target = torch.stack(all_reg_t, dim=0)

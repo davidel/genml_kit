@@ -8,6 +8,7 @@ contract (``data=images``, ``meta={\"labels\": ...}``) and device
 transfer; never builds models or losses.
 """
 
+import collections
 import logging
 
 import torch
@@ -32,6 +33,10 @@ from genml_kit.training.labels import (
 from genml_kit.utils.env import getenv
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
+
+# What ``build_pretrain_dataset`` returns: the transformed dataset and the
+# underlying ensemble (needed for its label space / column metadata).
+PretrainDataset = collections.namedtuple("PretrainDataset", ["dataset", "ensemble"])
 
 
 class _ProxyAdapterMixin:
@@ -242,7 +247,7 @@ class ImagesPipeline(DataPipeline):
     # Imported lazily to avoid a circular import (train -> pipelines.images).
     from genml_kit.training.train import load_and_split_dataset
 
-    train_proxy, val_proxy = load_and_split_dataset(
+    split_pair = load_and_split_dataset(
         args.dataset,
         cache_dir=args.cache_dir,
         test_size=args.val_split,
@@ -254,6 +259,7 @@ class ImagesPipeline(DataPipeline):
         seed=args.seed,
         dataset_arg=args.dataset_arg,
     )
+    train_proxy, val_proxy = split_pair.train, split_pair.val
     self.train_proxy = train_proxy
     self.val_proxy = val_proxy
     self.num_labels = train_proxy.num_labels
@@ -510,4 +516,4 @@ def build_pretrain_dataset(args, needs_labels=False, transform=None):
   if not needs_labels:
     dataset = _select_image_field(dataset, ensemble)
   logging.info(ensemble.summary())
-  return dataset, ensemble
+  return PretrainDataset(dataset=dataset, ensemble=ensemble)

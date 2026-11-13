@@ -214,8 +214,9 @@ class CausalLMMethod(Method):
       # tokens row-major (documents stay contiguous), pass the derived
       # cu_seqlens / max_length, then scatter the flattened logits back to
       # [B, L, V] so the unchanged shifted cross-entropy lines up with labels.
-      valid, cu_seqlens, max_length = flash_varlen_layout(data["attention_mask"],
-                                                          segment_ids)
+      layout = flash_varlen_layout(data["attention_mask"], segment_ids)
+      valid, cu_seqlens, max_length = (layout.valid, layout.cu_seqlens,
+                                       layout.max_length)
       input_ids = data["input_ids"]
       position_ids = data["position_ids"]
       out = model(input_ids=input_ids[valid].unsqueeze(0),

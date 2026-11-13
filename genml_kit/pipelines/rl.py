@@ -14,7 +14,7 @@ from genml_kit.datasets.replay_buffer import ReplayBufferDataset
 from genml_kit.datasets.rollout_buffer import RolloutBuffer
 from genml_kit.models.rl.spaces import space_spec
 from genml_kit.pipelines.base import DataPipeline
-from genml_kit.pipelines.contracts import DataBlob
+from genml_kit.pipelines.contracts import DataBlob, EnvStep
 from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.pipelines.rl_normalize import ReturnNormalizer, RunningMeanStd
 from genml_kit.utils.distributed import rank
@@ -81,13 +81,13 @@ class GymnasiumEnvWrapper:
     return obs
 
   def step(self, action):
-    """Execute *action* and return ``(obs, reward, done, info)``."""
+    """Execute *action* and return an :class:`EnvStep`."""
     obs, reward, terminated, truncated, info = self.env.step(action)
     done = terminated or truncated
     info = dict(info)
     info["terminated"] = terminated
     info["truncated"] = truncated
-    return obs, reward, done, info
+    return EnvStep(obs=obs, reward=reward, done=done, info=info)
 
   def render_frame(self):
     """Return the current frame as a numpy RGB (H, W, 3) uint8 array.
@@ -407,7 +407,8 @@ class RLPipeline(DataPipeline):
   def step_env(self, action):
     """Execute *action* in the environment.
 
-    Returns ``(next_obs, reward, done, info)`` as plain Python / numpy.
+    Returns an :class:`EnvStep` (``obs``, ``reward``, ``done``, ``info``)
+    as plain Python / numpy.
 
     When the wrapped env uses the Gymnasium 5-tuple API, the true
     MDP-end flag is additionally surfaced in ``info["terminated"]`` and
@@ -430,7 +431,7 @@ class RLPipeline(DataPipeline):
       # Update RMS with the new observation
       self.obs_rms.update(next_obs[None, ...])
       next_obs = self.obs_rms.normalize(next_obs, clip=self._obs_norm_clip)
-    return next_obs, reward, float(done), info
+    return EnvStep(obs=next_obs, reward=reward, done=float(done), info=info)
 
   def can_record_video(self):
     """Whether the current env can produce frames for a video.

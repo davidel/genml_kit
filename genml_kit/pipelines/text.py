@@ -20,6 +20,7 @@ from genml_kit.datasets.base import is_random_access, is_shuffleable, num_sample
 from genml_kit.datasets.batch_policy import item_text
 from genml_kit.datasets.text_proxy import StreamingTextDataset, load_raw_split
 from genml_kit.pipelines.base import DataPipeline
+from genml_kit.pipelines.contracts import SplitPair
 from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
@@ -277,7 +278,8 @@ class TextPipeline(DataPipeline):
     self._mask_prompt = args.mask_prompt
     self._pad_to_multiple_of = args.pad_to_multiple_of
 
-    self.train_dataset, self.val_dataset = self._load_splits(args)
+    splits = self._load_splits(args)
+    self.train_dataset, self.val_dataset = splits.train, splits.val
     self._tokens_per_unit = _estimate_tokens_per_unit(self.train_dataset, tokenizer)
     self.train_collator = self._make_collator(tokenizer, args.batch_size)
     self.val_collator = self._make_collator(tokenizer, args.batch_size)
@@ -379,7 +381,8 @@ class TextPipeline(DataPipeline):
         })
         train_ds = splitter.get_dataset("train")
         val_ds = splitter.get_dataset("val")
-        return _wrap(train_ds, cap=args.max_items), _wrap(val_ds, cap=args.max_items)
+        return SplitPair(train=_wrap(train_ds, cap=args.max_items),
+                         val=_wrap(val_ds, cap=args.max_items))
       # Held-out fraction of the training split -- one load, split in memory.
       # ``--max_items`` caps the dataset *before* carving the val fraction, so
       # a budgeted run still yields the requested number of training rows plus a
@@ -390,8 +393,8 @@ class TextPipeline(DataPipeline):
       if n_val >= n:
         fatal(f"--val_split={val_split} leaves no training rows "
               f"(dataset has {n}).", ValueError)
-      return _wrap(full.select(range(n - n_val))), _wrap(
-          full.select(range(n - n_val, n)))
+      return SplitPair(train=_wrap(full.select(range(n - n_val))),
+                       val=_wrap(full.select(range(n - n_val, n))))
 
     train = _wrap(load_raw_split(args.dataset,
                                  args.split,
@@ -408,7 +411,7 @@ class TextPipeline(DataPipeline):
       logging.info("No validation split for %s (%s); val_loader disabled.",
                    args.dataset, exc)
       val = None
-    return train, val
+    return SplitPair(train=train, val=val)
 
   def to_device(self, blob, device):
     """Move ``input_ids`` / ``attention_mask`` and ``meta['labels']``."""

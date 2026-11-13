@@ -263,7 +263,7 @@ def run_eval(args):
   dataset = _load_eval_data(args)
   columns = dataset.column_names
 
-  model, tokenizer = load_lm_for_inference(
+  loaded = load_lm_for_inference(
       model_name=args.model,
       tokenizer_name=args.tokenizer,
       checkpoint=args.checkpoint,
@@ -274,6 +274,7 @@ def run_eval(args):
       attn_implementation=args.attn_implementation,
       tokenizer_arg=args.tokenizer_arg,
   )
+  model, tokenizer = loaded.model, loaded.tokenizer
 
   report = {"model": args.model, "split": args.split, "n_items": len(dataset)}
 

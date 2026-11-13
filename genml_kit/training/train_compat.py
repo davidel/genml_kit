@@ -7,6 +7,7 @@ weights, the XGBoost post-stage) are re-homed here and re-exported from
 ``training.train`` for backward compatibility.
 """
 
+import collections
 import gc
 import logging
 import re
@@ -33,6 +34,13 @@ from genml_kit.training.model_utils import (
 )
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.script import load_extern
+
+# What ``build_transforms`` returns: the train and validation transform chains.
+TransformPair = collections.namedtuple("TransformPair", ["train", "val"])
+
+# What ``resolve_augmentations`` returns: the train/val transforms plus the
+# optional test-time-augmentation transform (``None`` when TTA is off).
+TransformBundle = collections.namedtuple("TransformBundle", ["train", "val", "tta"])
 
 __all__ = [
     "CombinedFocalLoss",
@@ -87,7 +95,7 @@ def build_transforms(processor, image_size, train_aug_fn=None):
   # Validation transform is shared with inference (model_utils): a single
   # source of truth for the Resize -> CenterCrop -> normalize chain.
   val_augmentations = build_val_transform(processor, image_size)
-  return train_augmentations, val_augmentations
+  return TransformPair(train=train_augmentations, val=val_augmentations)
 
 
 def resolve_augmentations(args, processor):
@@ -106,12 +114,12 @@ def resolve_augmentations(args, processor):
       tta_transform = load_tta_transform(args.tta, image_size=args.image_size)
       logging.info(f"Loaded TTA transform from {args.tta}")
 
-  train_transforms, val_transforms = build_transforms(processor, args.image_size,
-                                                      train_aug_fn)
+  transforms = build_transforms(processor, args.image_size, train_aug_fn)
+  train_transforms, val_transforms = transforms.train, transforms.val
   logging.info(f"Image size: {args.image_size}")
   logging.info(f"Train transforms: {train_transforms}")
   logging.info(f"Val transforms:   {val_transforms}")
-  return train_transforms, val_transforms, tta_transform
+  return TransformBundle(train=train_transforms, val=val_transforms, tta=tta_transform)
 
 
 def apply_freeze_patterns(args, model):

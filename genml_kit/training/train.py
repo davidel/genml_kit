@@ -13,6 +13,7 @@ import datasets as _datasets
 from genml_kit.datasets.capped import maybe_cap
 from genml_kit.datasets.hf_proxy import HFDatasetProxy  # noqa: F401
 from genml_kit.models import load_model, load_processor  # noqa: F401
+from genml_kit.pipelines.contracts import SplitPair
 from genml_kit.pipelines.images import (  # noqa: F401
     build_pretrain_dataset, build_pretrain_transform, compute_class_weights,
 )
@@ -98,20 +99,18 @@ def load_and_split_dataset(
           ValueError,
       )
     split = raw.train_test_split(test_size=test_size, seed=seed)
-    return (
-        HFDatasetProxy(
-            maybe_cap(split["train"], max_items),
-            transform=train_transform,
-            image_column=image_column,
-            label_column=label_column,
-        ),
-        HFDatasetProxy(
-            maybe_cap(split["test"], max_items),
-            transform=val_transform,
-            image_column=image_column,
-            label_column=label_column,
-        ),
-    )
+    return SplitPair(train=HFDatasetProxy(
+        maybe_cap(split["train"], max_items),
+        transform=train_transform,
+        image_column=image_column,
+        label_column=label_column,
+    ),
+                     val=HFDatasetProxy(
+                         maybe_cap(split["test"], max_items),
+                         transform=val_transform,
+                         image_column=image_column,
+                         label_column=label_column,
+                     ))
 
   # DatasetDict: validate and select existing train/validation splits, or
   # create a validation split from training data when none is supplied.
@@ -153,20 +152,18 @@ def load_and_split_dataset(
       label_column or "auto-detected",
       " (explicit)" if label_column else "",
   )
-  return (
-      HFDatasetProxy(
-          maybe_cap(train_split, max_items),
-          transform=train_transform,
-          image_column=image_column,
-          label_column=label_column,
-      ),
-      HFDatasetProxy(
-          maybe_cap(val_split, max_items),
-          transform=val_transform,
-          image_column=image_column,
-          label_column=label_column,
-      ),
-  )
+  return SplitPair(train=HFDatasetProxy(
+      maybe_cap(train_split, max_items),
+      transform=train_transform,
+      image_column=image_column,
+      label_column=label_column,
+  ),
+                   val=HFDatasetProxy(
+                       maybe_cap(val_split, max_items),
+                       transform=val_transform,
+                       image_column=image_column,
+                       label_column=label_column,
+                   ))
 
 
 def _streaming_base_split(raw):
@@ -211,7 +208,7 @@ def _load_streaming_splits(source,
         stream iterator; ``maybe_cap`` needs random access, which a stream lacks).
 
     Returns:
-      tuple: ``(train_proxy, val_proxy)``, both stream-safe ``HFDatasetProxy``.
+      SplitPair: ``train`` / ``val``, both stream-safe ``HFDatasetProxy``.
 
     Raises:
       ValueError: If *test_size* leaves no training rows.
@@ -234,16 +231,14 @@ def _load_streaming_splits(source,
 
   logging.info("Streaming source: positional train/val split (val_split=%s).",
                test_size)
-  return (
-      HFDatasetProxy(train_stream,
-                     transform=train_transform,
-                     image_column=image_column,
-                     label_column=label_column),
-      HFDatasetProxy(val_stream,
-                     transform=val_transform,
-                     image_column=image_column,
-                     label_column=label_column),
-  )
+  return SplitPair(train=HFDatasetProxy(train_stream,
+                                        transform=train_transform,
+                                        image_column=image_column,
+                                        label_column=label_column),
+                   val=HFDatasetProxy(val_stream,
+                                      transform=val_transform,
+                                      image_column=image_column,
+                                      label_column=label_column))
 
 
 class _Limited:

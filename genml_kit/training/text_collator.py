@@ -34,7 +34,9 @@ is the GPT-2/GPT-3 recipe that teaches the model what follows a document.  The
 two are compiled together by :mod:`genml_kit.training.sequence_mode`.
 """
 
+import collections
 import logging
+from types import SimpleNamespace
 
 import torch
 
@@ -42,6 +44,11 @@ from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.utils.logging import fatal
 
 IGNORE_INDEX = -100
+
+# One packed window: the token ids, the labels, the per-token document index,
+# and the per-token position (resets to 0 at each document).
+PackedWindow = collections.namedtuple("PackedWindow",
+                                      ["ids", "labels", "segment_ids", "position_ids"])
 
 
 class TextCollator:
@@ -122,10 +129,10 @@ class TextCollator:
     self.pad_to_multiple_of = pad_to_multiple_of
 
   def _encode_item(self, item):
-    """Return ``(input_ids, labels)`` for one raw item."""
+    """Return the ``ids`` / ``labels`` for one raw item (a SimpleNamespace)."""
     if "input_ids" in item:
       ids = list(item["input_ids"])
-      return ids, list(ids)
+      return SimpleNamespace(ids=ids, labels=list(ids))
 
     if "prompt" in item and "response" in item:
       prompt = item["prompt"] or ""
@@ -139,11 +146,11 @@ class TextCollator:
         labels = [IGNORE_INDEX] * len(prompt_ids) + list(response_ids)
       else:
         labels = list(ids)
-      return ids, labels
+      return SimpleNamespace(ids=ids, labels=labels)
 
     if "text" in item:
       ids = self.tokenizer.encode(item["text"], add_special_tokens=True)
-      return ids, list(ids)
+      return SimpleNamespace(ids=ids, labels=list(ids))
 
     fatal(
         "TextCollator item has none of 'text', 'prompt'+'response', "
@@ -171,11 +178,10 @@ class TextCollator:
     return [self._runs_for_window(w) for w in raw_windows]
 
   def _runs_for_window(self, tokens):
-    """Turn ``[(tok, label, doc_idx), ...]`` into the window's four lists.
+    """Turn ``[(tok, label, doc_idx), ...]`` into a :class:`PackedWindow`.
 
-        Returns ``(ids, labels, segment_ids, position_ids)``.  Runs break
-        whenever the source document changes, and position ids reset at every
-        run start so each window is self-describing (this matches the
+        Runs break whenever the source document changes, and position ids reset
+        at every run start so each window is self-describing (this matches the
         transformers ``position_ids.min()`` sequence-start convention).
         """
     # Four parallel lists, each of length len(tokens).
@@ -213,7 +219,10 @@ class TextCollator:
       for j in range(1, len(labels)):
         if segment_ids[j] != segment_ids[j - 1]:
           labels[j] = IGNORE_INDEX
-    return ids, labels, segment_ids, position_ids
+    return PackedWindow(ids=ids,
+                        labels=labels,
+                        segment_ids=segment_ids,
+                        position_ids=position_ids)
 
   def _pack_wrapped(self, sequences):
     """Concatenate sequences and slice into ``max_seq_len`` windows.
@@ -228,8 +237,8 @@ class TextCollator:
     # terminates (so it never opens a spurious new run) and carries the EOS id
     # as its label (a real target, matching the non-packing contract).
     stream = []
-    for doc_idx, (ids, labels) in enumerate(sequences):
-      for tok, label in zip(ids, labels):
+    for doc_idx, encoded in enumerate(sequences):
+      for tok, label in zip(encoded.ids, encoded.labels):
         stream.append((tok, label, doc_idx))
       if sep is not None:
         stream.append((sep, sep, doc_idx))
@@ -281,8 +290,9 @@ class TextCollator:
     # per document.
     keep = self.max_seq_len - 1 if sep is not None else self.max_seq_len
     docs = []
-    for doc_idx, (ids, labels) in enumerate(sequences):
-      toks = [(tok, label, doc_idx) for tok, label in zip(ids[:keep], labels[:keep])]
+    for doc_idx, encoded in enumerate(sequences):
+      toks = [(tok, label, doc_idx)
+              for tok, label in zip(encoded.ids[:keep], encoded.labels[:keep])]
       if sep is not None:
         toks.append((sep, sep, doc_idx))
       docs.append(toks)
@@ -331,13 +341,14 @@ class TextCollator:
     # contract and no boundary tensors are produced).
     padded = []
     if self.packing:
-      for ids, packed_labels, doc_ids, pos_ids in self._pack(
-          [self._encode_item(it) for it in batch]):
-        padded.append((ids, packed_labels, doc_ids, pos_ids))
+      for window in self._pack([self._encode_item(it) for it in batch]):
+        padded.append(
+            (window.ids, window.labels, window.segment_ids, window.position_ids))
     else:
       for item in batch:
-        ids, labels = self._encode_item(item)
-        padded.append((ids[:self.max_seq_len], labels[:self.max_seq_len], None, None))
+        encoded = self._encode_item(item)
+        padded.append((encoded.ids[:self.max_seq_len],
+                       encoded.labels[:self.max_seq_len], None, None))
 
     pad_id = self.tokenizer.pad_token_id
     # Rectangular batch width: the longest row, optionally rounded up (e.g. to 8

@@ -43,4 +43,42 @@ ValidationResult = collections.namedtuple("ValidationResult",
                                           ["metrics", "weight", "accumulators"],
                                           defaults=[0.0, None])
 
-__all__ = ["DataBlob", "LossOutput", "ValidationResult"]
+# What ``RLPipeline.step_env`` returns: one environment transition, unwrapped
+# from the Gymnasium 5-tuple to the 4-tuple the RL trainer consumes.
+EnvStep = collections.namedtuple("EnvStep", ["obs", "reward", "done", "info"])
+
+# What the RL actor's ``get_action_and_value`` returns.  ``raw_action`` is the
+# pre-tanh action (needed to re-evaluate log-probs on stored rollouts);
+# ``entropy`` and ``value`` are the policy entropy and the critic estimate.
+PolicyOutput = collections.namedtuple(
+    "PolicyOutput", ["action", "raw_action", "log_prob", "entropy", "value"])
+
+# What the reporting ``epoch_avg_loss`` returns: the epoch-mean loss and the
+# epoch accuracy (``top1`` is ``None`` for methods that track no accuracy).
+EpochAverages = collections.namedtuple("EpochAverages", ["loss", "top1"])
+
+# What ``_forward_with_capture`` returns: the model logits plus the captured
+# intermediate activations (``None`` when no capture modules were requested).
+CaptureOutput = collections.namedtuple("CaptureOutput", ["logits", "activations"])
+
+# What ``MAPMeter.state`` returns (and ``MAPMeter.extend`` consumes): the raw
+# per-image detection and ground-truth records, concatenated across ranks
+# before mAP is reduced (never averaged as scalars).
+MAPState = collections.namedtuple("MAPState", ["detections", "ground_truth"])
+
+# A dataset's train/validation split, however it was derived (HF
+# ``train_test_split``, a named ``validation`` split, or a positional stream
+# split).  Shared by the pipeline and training dataset loaders.
+SplitPair = collections.namedtuple("SplitPair", ["train", "val"])
+
+__all__ = [
+    "DataBlob",
+    "LossOutput",
+    "ValidationResult",
+    "EnvStep",
+    "PolicyOutput",
+    "EpochAverages",
+    "CaptureOutput",
+    "MAPState",
+    "SplitPair",
+]

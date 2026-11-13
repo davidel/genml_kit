@@ -11,9 +11,15 @@ Import direction is safe in both directions: this module only imports
 compat re-export hub can all depend on it.
 """
 
+import collections
+
 import torch
 
 from genml_kit.utils.logging import fatal
+
+# What ``mixup_data`` returns: the mixed images, the two label sets, and the
+# mixing coefficient.  ``y_a`` is always the dominant label (``lam >= 0.5``).
+MixupBatch = collections.namedtuple("MixupBatch", ["mixed_x", "y_a", "y_b", "lam"])
 
 
 def fmt_weights(weights, decimals=3):
@@ -91,14 +97,14 @@ def parse_class_multipliers(s, num_labels, label2id):
 def mixup_data(x, y, alpha=0.2):
   """Apply Mixup to a batch: returns mixed images, and two label sets + lambda.
 
-  Returns ``(mixed_x, y_a, y_b, lam)`` where ``lam`` is the interpolation
-  coefficient sampled from ``Beta(alpha, alpha)``.  When ``alpha <= 0`` the
-  function is a no-op and returns the originals unchanged.
+  Returns a :class:`MixupBatch` whose ``lam`` is the interpolation coefficient
+  sampled from ``Beta(alpha, alpha)``.  When ``alpha <= 0`` the function is a
+  no-op and returns the originals unchanged.
   """
   import numpy as np
 
   if alpha <= 0:
-    return x, y, y, 1.0
+    return MixupBatch(mixed_x=x, y_a=y, y_b=y, lam=1.0)
   lam = np.random.beta(alpha, alpha)
   # Fold into lam so y_a is always the dominant label and callers can
   # use y_a alone for hard-label metrics; the y_b contribution survives
@@ -107,4 +113,4 @@ def mixup_data(x, y, alpha=0.2):
   batch_size = x.size(0)
   index = torch.randperm(batch_size, device=x.device)
   mixed_x = lam * x + (1.0 - lam) * x[index]
-  return mixed_x, y, y[index], lam
+  return MixupBatch(mixed_x=mixed_x, y_a=y, y_b=y[index], lam=lam)

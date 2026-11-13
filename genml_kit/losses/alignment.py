@@ -17,7 +17,14 @@ hyperparameters.  Registered in ``LOSSES`` as ``dpo`` / ``bradley_terry`` so an
 external script can override either via ``load_loss``.
 """
 
+import collections
+
 import torch.nn.functional as F
+
+# What ``dpo_loss`` returns: the scalar DPO loss plus the per-sample implicit
+# rewards for the chosen and rejected responses (used for reward diagnostics).
+DPOLosses = collections.namedtuple("DPOLosses",
+                                   ["loss", "chosen_rewards", "rejected_rewards"])
 
 # Matches training.text_collator.IGNORE_INDEX (CrossEntropyLoss' default).
 IGNORE_INDEX = -100
@@ -67,8 +74,8 @@ def dpo_loss(policy_chosen_logps,
         beta: KL-strength temperature.
 
     Returns:
-        ``(loss, chosen_rewards, rejected_rewards)`` where *loss* is a scalar
-        and the rewards are ``(B,)`` tensors (detached-friendly).
+        DPOLosses: *loss* is a scalar and *chosen_rewards* / *rejected_rewards*
+        are detached ``(B,)`` tensors.
     """
   chosen_logratio = policy_chosen_logps - ref_chosen_logps
   rejected_logratio = policy_rejected_logps - ref_rejected_logps
@@ -76,7 +83,9 @@ def dpo_loss(policy_chosen_logps,
   loss = -F.logsigmoid(logits).mean()
   chosen_rewards = beta * chosen_logratio
   rejected_rewards = beta * rejected_logratio
-  return loss, chosen_rewards.detach(), rejected_rewards.detach()
+  return DPOLosses(loss=loss,
+                   chosen_rewards=chosen_rewards.detach(),
+                   rejected_rewards=rejected_rewards.detach())
 
 
 def bradley_terry_loss(chosen_scores, rejected_scores):

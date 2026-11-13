@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 
 from genml_kit.datasets.preference_proxy import load_raw_split
 from genml_kit.pipelines.base import DataPipeline
+from genml_kit.pipelines.contracts import SplitPair
 from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
@@ -97,7 +98,8 @@ class PreferencePipeline(DataPipeline):
     self._mask_prompt = args.mask_prompt
     self._pad_to_multiple_of = args.pad_to_multiple_of
 
-    self.train_dataset, self.val_dataset = self._load_splits(args)
+    splits = self._load_splits(args)
+    self.train_dataset, self.val_dataset = splits.train, splits.val
     self.train_collator = self._make_collator(tokenizer)
     self.val_collator = self._make_collator(tokenizer)
 
@@ -162,8 +164,8 @@ class PreferencePipeline(DataPipeline):
       if n_val >= n:
         fatal(f"--val_split={val_split} leaves no training rows "
               f"(dataset has {n}).", ValueError)
-      return _wrap(full.select(range(n - n_val))), _wrap(
-          full.select(range(n - n_val, n)))
+      return SplitPair(train=_wrap(full.select(range(n - n_val))),
+                       val=_wrap(full.select(range(n - n_val, n))))
 
     train = _wrap(load_raw_split(args.dataset,
                                  args.split,
@@ -180,7 +182,7 @@ class PreferencePipeline(DataPipeline):
       logging.info("No validation split for %s (%s); val_loader disabled.",
                    args.dataset, exc)
       val = None
-    return train, val
+    return SplitPair(train=train, val=val)
 
   def to_device(self, blob, device):
     """Move the four token tensors and both label tensors to *device*."""

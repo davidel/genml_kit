@@ -25,7 +25,7 @@ from genml_kit.datasets.det_folder import load_detfolder
 from genml_kit.datasets.det_transforms import build_det_transform
 from genml_kit.datasets.factory import parse_dataset_specs
 from genml_kit.pipelines.base import DataPipeline
-from genml_kit.pipelines.contracts import DataBlob
+from genml_kit.pipelines.contracts import DataBlob, SplitPair
 from genml_kit.pipelines.registry import PIPELINES
 from genml_kit.utils.logging import fatal
 from genml_kit.utils.seed import seed_worker
@@ -95,7 +95,8 @@ class DetectionPipeline(DataPipeline):
       fatal("DetectionPipeline requires --dataset "
             "(e.g. detfolder//data/coco2017)", ValueError)
 
-    train_ds, val_ds = self._load_datasets(args)
+    splits = self._load_datasets(args)
+    train_ds, val_ds = splits.train, splits.val
     # The class count comes from the dataset's compacted label space; the
     # method reads it during wire_data to size the head.  Train and val share
     # the map (they come from the same corpus), so either is authoritative.
@@ -146,7 +147,7 @@ class DetectionPipeline(DataPipeline):
         annotation_file=args.det_annotation_file or "annotations.json",
     )
     if "val" in splits:
-      return splits["train"], splits["val"]
+      return SplitPair(train=splits["train"], val=splits["val"])
 
     # No explicit val split: derive one from the train set.  The datasets
     # implement __getitem__/__len__ but not Subset-friendly bookkeeping, so
@@ -161,8 +162,8 @@ class DetectionPipeline(DataPipeline):
     generator = torch.Generator().manual_seed(args.seed or 0)
     train_subset, val_subset = random_split(train_full, [n_train, n_val],
                                             generator=generator)
-    return _SubsetWithMeta(train_subset,
-                           train_full), _SubsetWithMeta(val_subset, train_full)
+    return SplitPair(train=_SubsetWithMeta(train_subset, train_full),
+                     val=_SubsetWithMeta(val_subset, train_full))
 
   def _make_loader(self, dataset, args, *, shuffle):
     generator = None

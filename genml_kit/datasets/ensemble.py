@@ -198,8 +198,7 @@ class _HFDataset:
     # ``getitem_retry`` retries a transient read failure on another index; it
     # needs the length, which a streaming source does not have (and which never
     # reaches here: a stream is read through ``__iter__``).
-    item, _ = getitem_retry(idx, lambda i: self._convert(self._ds[i]), len(self._ds))
-    return item
+    return getitem_retry(idx, lambda i: self._convert(self._ds[i]), len(self._ds)).item
 
   def __iter__(self):
     """Iterate the underlying source, converting one row at a time.

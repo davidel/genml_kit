@@ -53,6 +53,10 @@ TrainingResult = namedtuple("TrainingResult", [
     "interrupt_signals",
 ])
 
+# What ``train_epoch`` (and the RL subclasses' per-epoch helpers) return: the
+# epoch's mean loss and the advanced global step.
+TrainEpochResult = namedtuple("TrainEpochResult", ["loss", "step"])
+
 
 class _NoMonitor:
   """Null-object grad monitor: step() is a no-op."""
@@ -148,7 +152,7 @@ class BaseTrainer:
     return (self.resume_step_in_epoch // accum) * accum
 
   def train_epoch(self, epoch, saver, step, monitor, skip=0):
-    """Run one training epoch; return ``(avg_loss, new_step)``.
+    """Run one training epoch; return a :class:`TrainEpochResult`.
 
     ``skip`` fast-forwards the loader by that many micro-batches (used to
     resume inside an interrupted epoch).  It is ``grad_accum_steps``-aligned
@@ -311,7 +315,7 @@ class BaseTrainer:
                                   saver=saver)
 
     reporter.summary()
-    return reporter.epoch_avg_loss()[0], step
+    return TrainEpochResult(loss=reporter.epoch_avg_loss().loss, step=step)
 
   def _optimizer_step(self, step, step_in_epoch, *, epoch, scaler, monitor, saver):
     """Apply one optimizer step for the accumulation window just completed.
@@ -497,11 +501,12 @@ class BaseTrainer:
           skip = self._resume_skip(epoch)
           self.resume_step_in_epoch = 0
           self._epoch_progress = {"epoch": epoch, "micro_step": skip}
-          _, self.global_step = self.train_epoch(epoch,
-                                                 saver,
-                                                 self.global_step,
-                                                 grad_monitor,
-                                                 skip=skip)
+          epoch_result = self.train_epoch(epoch,
+                                          saver,
+                                          self.global_step,
+                                          grad_monitor,
+                                          skip=skip)
+          self.global_step = epoch_result.step
           self.epoch = epoch
           # Epoch fully ran: it is no longer "in progress".
           self._epoch_progress = None

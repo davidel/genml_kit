@@ -119,6 +119,8 @@ class ClassificationMethod(Method):
         image_size=args.image_size,
         cache_dir=args.cache_dir,
     )
+    # ``resolve_augmentations`` returns a TransformBundle namedtuple; unpack it
+    # here because the distillation test pins this consumption style.
     self.train_transforms, self.val_transforms, self.tta_transform = (
         resolve_augmentations(args, processor))
 
@@ -160,9 +162,9 @@ class ClassificationMethod(Method):
 
     use_mixup = self._mixup_alpha() > 0 and images.size(0) >= 2
     if use_mixup:
-      images, targets_a, targets_b, lam = mixup_data(images,
-                                                     targets,
-                                                     alpha=self._mixup_alpha())
+      mixup = mixup_data(images, targets, alpha=self._mixup_alpha())
+      images, targets_a, targets_b, lam = (mixup.mixed_x, mixup.y_a, mixup.y_b,
+                                           mixup.lam)
     else:
       targets_a = targets
 
