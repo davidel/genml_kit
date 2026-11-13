@@ -9,6 +9,7 @@ import torch.nn as nn
 from genml_kit.methods import METHODS
 from genml_kit.methods.distillation import DistillationMethod, DistillationPair
 from genml_kit.pipelines.contracts import DataBlob
+from genml_kit.training.train_compat import TransformBundle
 
 IMG = 8
 
@@ -257,7 +258,7 @@ class TestPrepareTransforms:
   def test_sets_train_val_tta_transforms(self, monkeypatch):
     import genml_kit.models
 
-    sentinel = (object(), object(), object())
+    sentinel = TransformBundle(train=object(), val=object(), tta=object())
 
     def _fake_resolve(args, processor):
       return sentinel
@@ -268,9 +269,9 @@ class TestPrepareTransforms:
 
     method, _ = _make_method()
     method.prepare_transforms(self._args(), "cpu")
-    assert method.train_transforms is sentinel[0]
-    assert method.val_transforms is sentinel[1]
-    assert method.tta_transform is sentinel[2]
+    assert method.train_transforms is sentinel.train
+    assert method.val_transforms is sentinel.val
+    assert method.tta_transform is sentinel.tta
 
 
 class TestBuildModel:

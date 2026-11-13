@@ -89,9 +89,7 @@ def train_xgboost_on_backbone(train_ds,
   ckpt_path = select_best_checkpoint(checkpoint_dir)
   if ckpt_path is not None:
     logging.info(f"Loading checkpoint: {ckpt_path}")
-    # ``load_model_for_inference`` returns a ModelWithProcessor namedtuple;
-    # unpacked here because tests monkeypatch a plain 2-tuple.
-    model_best, xgb_processor = load_model_for_inference(
+    loaded = load_model_for_inference(
         model_spec,
         ckpt_path,
         device="cpu",
@@ -100,7 +98,8 @@ def train_xgboost_on_backbone(train_ds,
         image_size=image_size,
         proc_kwargs=proc_kwargs,
     )
-    model_best = model_best.to(device)
+    model_best = loaded.model.to(device)
+    xgb_processor = loaded.processor
 
     # 2. Rebuild train and val datasets with val transforms (not train augs)
     val_transform = build_val_transform(xgb_processor, image_size)
@@ -109,19 +108,16 @@ def train_xgboost_on_backbone(train_ds,
 
     # 3. Collect features
     logging.info("Extracting train features...")
-    # ``collect_features`` returns a FeatureBatch namedtuple; unpacked here
-    # because tests monkeypatch a plain 2-tuple.
-    train_features, train_labels = collect_features(model_best,
-                                                    train_proxy,
-                                                    device,
-                                                    batch_size=batch_size)
+    train_batch = collect_features(model_best,
+                                   train_proxy,
+                                   device,
+                                   batch_size=batch_size)
+    train_features, train_labels = train_batch.features, train_batch.labels
     logging.info(f"  Train features shape: {train_features.shape}")
 
     logging.info("Extracting val features...")
-    val_features, val_labels = collect_features(model_best,
-                                                val_proxy,
-                                                device,
-                                                batch_size=batch_size)
+    val_batch = collect_features(model_best, val_proxy, device, batch_size=batch_size)
+    val_features, val_labels = val_batch.features, val_batch.labels
     logging.info(f"  Val features shape: {val_features.shape}")
 
     # 4. Free the PyTorch model before XGBoost training

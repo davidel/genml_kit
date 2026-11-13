@@ -251,10 +251,10 @@ class DistillationMethod(Method):
         image_size=args.image_size,
         cache_dir=args.cache_dir,
     )
-    # ``resolve_augmentations`` returns a TransformBundle namedtuple; unpack it
-    # here because TestPrepareTransforms monkeypatches a plain 3-tuple.
-    self.train_transforms, self.val_transforms, self.tta_transform = (
-        resolve_augmentations(args, processor))
+    bundle = resolve_augmentations(args, processor)
+    self.train_transforms = bundle.train
+    self.val_transforms = bundle.val
+    self.tta_transform = bundle.tta
 
   def set_label_space(self, num_labels, id2label, label2id):
     """Record the label space (mirrors the classification method)."""

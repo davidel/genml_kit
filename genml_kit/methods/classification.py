@@ -119,10 +119,10 @@ class ClassificationMethod(Method):
         image_size=args.image_size,
         cache_dir=args.cache_dir,
     )
-    # ``resolve_augmentations`` returns a TransformBundle namedtuple; unpack it
-    # here because the distillation test pins this consumption style.
-    self.train_transforms, self.val_transforms, self.tta_transform = (
-        resolve_augmentations(args, processor))
+    bundle = resolve_augmentations(args, processor)
+    self.train_transforms = bundle.train
+    self.val_transforms = bundle.val
+    self.tta_transform = bundle.tta
 
   def wire_data(self, args, pipeline):
     """Read the pipeline's label space and weights; build the criterion.

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import torch
 
+from genml_kit.training.model_utils import FeatureBatch, ModelWithProcessor
 from genml_kit.training.xgb_pipeline import train_xgboost_on_backbone
 
 
@@ -42,7 +43,7 @@ def _fake_collect_features(model, dataset, device, batch_size=128):
   """Return synthetic 2-class features regardless of the dataset."""
   features = np.random.RandomState(0).randn(20, 4).astype(np.float32)
   labels = np.arange(20) % 2
-  return features, labels
+  return FeatureBatch(features=features, labels=labels)
 
 
 class TestEndToEnd:
@@ -54,7 +55,8 @@ class TestEndToEnd:
         patch("genml_kit.io.checkpointing.select_best_checkpoint",
               return_value=str(tmp_path / "ckpt_best.pt")),
         patch("genml_kit.training.model_utils.load_model_for_inference",
-              return_value=(fake_model, fake_processor)),
+              return_value=ModelWithProcessor(model=fake_model,
+                                              processor=fake_processor)),
         patch("genml_kit.training.model_utils.build_val_transform", return_value=None),
         patch("genml_kit.training.model_utils.collect_features",
               side_effect=_fake_collect_features),
