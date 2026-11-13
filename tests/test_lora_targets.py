@@ -146,6 +146,14 @@ class TestResolverRealModels:
 class TestResolverAppliesToPeft:
 
   @pytest.mark.filterwarnings("ignore:fan_in_fan_out is set to False:UserWarning")
+  # peft (<= 0.21.3) reads the deprecated is_gradient_checkpointing property in
+  # PeftModel.__init__, which transformers >= 5.23 turns into a FutureWarning.
+  # Scoped to the emitting module; peft's own module does not match. REMOVE
+  # once peft's PeftModel.__init__ calls is_activation_checkpointing instead
+  # (already the case on peft main, not yet released).
+  @pytest.mark.filterwarnings("ignore:`is_gradient_checkpointing` is"
+                              " deprecated.*:FutureWarning:"
+                              "transformers.modeling_utils")
   def test_gpt2_resolved_targets_adapt_attention(self):
     from genml_kit.training.model_utils import apply_lora
 
