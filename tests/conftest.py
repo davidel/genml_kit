@@ -29,11 +29,60 @@ genuinely needs multi-threaded BLAS can raise it back for its own scope::
 ``threadpoolctl`` ships transitively with scikit-learn; add it to the ``dev``
 extras if a test ever needs to rely on it directly.  The variables use
 ``setdefault`` so an explicit override in the environment still wins.
+
+Opting heavy tests back in
+--------------------------
+The pin above is a *session default*, not a blanket rule.  The slow/network
+tests spend their time in convolution/attention math, so single-threaded
+kernels make them several times slower.  Those tests opt back in through the
+``_wide_blas`` fixture below, which widens the torch intra-op pool to a
+moderate width (see :mod:`tests.threads`) for the duration of the test.
+
+The width is deliberately capped rather than set to the CPU count: widening
+to every core *at runtime* oversubscribes the host and is measurably slower
+than the pinned default, while a small width recovers most of the throughput.
+The cap is overridable via ``GENML_TEST_BLAS_THREADS``.
 """
 
 import os
 
+# Set these before importing anything that may pull in NumPy/PyTorch: the BLAS
+# backend reads its thread pool size once, at first import, so a later
+# assignment would be ignored.  (Ruff's E402 allows os.environ setup between
+# imports for exactly this reason.)
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
+import pytest
+
+from tests.threads import wide_threads
+
+
+@pytest.fixture(autouse=True)
+def _wide_blas(request):
+  """Widen BLAS/OpenMP for heavy slow/network tests, then restore.
+
+  The session default pins the pools to one thread (see the module
+  docstring); that keeps XGBoost and the forked DataLoader workers inside the
+  CI thread budget, but it makes the convergence/e2e tests several times
+  slower.  Those opt back in here -- to a *moderate* width, because widening
+  to every core at runtime oversubscribes the host and is slower still.
+
+  Tests without a ``slow``/``network``/``service`` marker (notably the XGB
+  suite the pin exists for) are left untouched.
+  """
+  marks = ("slow", "network", "service")
+  if not any(request.node.get_closest_marker(mark) for mark in marks):
+    yield
+    return
+
+  import torch
+
+  previous = torch.get_num_threads()
+  torch.set_num_threads(wide_threads())
+  try:
+    yield
+  finally:
+    torch.set_num_threads(previous)

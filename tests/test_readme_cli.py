@@ -70,6 +70,7 @@ import pytest
 import yaml
 
 from tests import services
+from tests.threads import wide_blas_env
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -1174,6 +1175,9 @@ def run_spec(spec, tmp_path):
     _prepare_fixtures(run_root, spec)
 
     env = os.environ.copy()
+    # The session pins BLAS/OpenMP to one thread; widen it for the spawned
+    # CLI so the heavy README fences are not slowed several-fold.
+    env.update(wide_blas_env())
     env["PYTHONPATH"] = os.pathsep.join([str(REPO_ROOT),
                                          env.get("PYTHONPATH", "")]).strip(os.pathsep)
     for key, value in spec.env.items():
