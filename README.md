@@ -2655,6 +2655,31 @@ gaps: `byte` (a dependency-free tokenizer for offline tests) and
 `spm` (a bare SentencePiece `tokenizer.model`, behind the optional
 `sentencepiece` dependency).
 
+A byte-level BPE is built separately, from a corpus subset, by
+`genml-kit-tokenizer`. Building is a one-shot offline job rather than a side
+effect of a training run, so the text behind the vocabulary is a reproducible
+artifact: pass the resulting directory straight to `--tokenizer`. The
+`tokenizer_meta.json` sidecar records the corpus, split, fraction, seed and
+row counts it was trained on.
+
+<!-- genml-cli-test
+name: tokenizer-build
+override:
+  - --dataset {tmp}/text
+  - --out {tmp}/tok
+extra: --vocab_size 128 --fraction 0.5 --seed 0
+-->
+```bash
+genml-kit-tokenizer --dataset roneneldan/TinyStories --text_column text \
+                    --fraction 0.1 --seed 42 --vocab_size 4096 \
+                    --cache_dir hf --out hf/tokenizers/ts_bpe_4096_s0.1
+```
+
+`--fraction (0.0, 1.0]` trains on that share of the rows: an indexable dataset
+yields exactly `round(n*fraction)` rows, drawn without replacement and
+seed-stable, while `--streaming` corpora get a seeded per-row sample (use
+`--max_rows` to bound how much of a stream is read).
+
 ### Generation
 
 `genml-kit-llm generate` turns prompts into completions. Generation is a

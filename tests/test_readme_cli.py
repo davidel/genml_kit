@@ -95,6 +95,7 @@ _ENTRY_MODULES = {
     "genml-kit-infer": "genml_kit.cli.infer",
     "genml-kit-llm": "genml_kit.cli.llm",
     "genml-kit-tune": "genml_kit.cli.tune",
+    "genml-kit-tokenizer": "genml_kit.cli.tokenizer",
 }
 
 # Launchers that run an entry *module* under ``python -m <launcher>``.  A
