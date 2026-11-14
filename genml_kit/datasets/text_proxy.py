@@ -189,7 +189,13 @@ def load_text_dataset(name,
                           response_column=response_column)
 
 
-def load_raw_split(name, split, *, cache_dir=None, token=None, dataset_arg=None):
+def load_raw_split(name,
+                   split,
+                   *,
+                   cache_dir=None,
+                   token=None,
+                   dataset_arg=None,
+                   streaming=False):
   """Load *split* from a HF hub dataset or a ``save_to_disk`` directory.
 
     Returns the bare ``datasets.Dataset`` (no proxy wrapper), so the
@@ -198,8 +204,14 @@ def load_raw_split(name, split, *, cache_dir=None, token=None, dataset_arg=None)
     *dataset_arg* (a ``KEY=VALUE`` dict from ``--dataset_arg``) is forwarded
     verbatim to ``datasets.load_dataset`` -- e.g. ``name`` selects an HF
     subset/config.  It is ignored for on-disk ``save_to_disk`` directories.
+
+    *streaming* asks ``datasets`` for a one-pass ``IterableDataset`` instead
+    of a materialised one.  It has no effect on an on-disk directory, which is
+    already materialised, so it is ignored there and logged.
     """
   if os.path.isdir(name):
+    if streaming:
+      logging.info("Ignoring streaming=true for on-disk dataset %r.", name)
     loaded = datasets.load_from_disk(name)
     if isinstance(loaded, datasets.DatasetDict):
       if split not in loaded:
@@ -208,8 +220,14 @@ def load_raw_split(name, split, *, cache_dir=None, token=None, dataset_arg=None)
             f"Available: {sorted(loaded.keys())}.", ValueError)
       return loaded[split]
     return loaded
+  # Only forward ``streaming`` when it was asked for: the default ``False`` is
+  # ``load_dataset``'s own default, and passing it explicitly would change the
+  # kwargs every existing caller forwards.
+  extra = dict(dataset_arg or {})
+  if streaming:
+    extra["streaming"] = True
   return datasets.load_dataset(name,
                                split=split,
                                cache_dir=cache_dir,
                                token=token,
-                               **(dataset_arg or {}))
+                               **extra)

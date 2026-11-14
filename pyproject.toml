@@ -47,6 +47,7 @@ genml-kit-train = "genml_kit.cli.train:main"
 genml-kit-infer = "genml_kit.cli.infer:main"
 genml-kit-llm = "genml_kit.cli.llm:main"
 genml-kit-tune = "genml_kit.cli.tune:main"
+genml-kit-tokenizer = "genml_kit.cli.tokenizer:main"
 
 [tool.setuptools.packages.find]
 include = ["genml_kit*"]
