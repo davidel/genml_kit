@@ -443,8 +443,6 @@ class DistributedModel:
     object.__setattr__(self, "_semantic", semantic)
     object.__setattr__(self, "_forward_module", forward_module)
 
-  # -- the one explicit peel ------------------------------------------------
-
   @property
   def module(self):
     """The semantic model (this is the only supported unwrap point)."""
@@ -464,8 +462,6 @@ class DistributedModel:
     """
     return object.__getattribute__(self, "_semantic").__class__
 
-  # -- attribute transparency ----------------------------------------------
-
   def __getattr__(self, name):
     # Reached only when normal lookup failed, so our own handles (which live
     # in ``__dict__``) never come through here.  The underscore guard stops
@@ -480,8 +476,6 @@ class DistributedModel:
     else:
       setattr(object.__getattribute__(self, "_semantic"), name, value)
 
-  # -- the training entry point --------------------------------------------
-
   def __call__(self, *args, **kwargs):
     """Run the forward pass through the DDP wrapper (grad all-reduce)."""
     return object.__getattribute__(self, "_forward_module")(*args, **kwargs)
@@ -489,8 +483,6 @@ class DistributedModel:
   def forward(self, *args, **kwargs):
     """Alias of :meth:`__call__` for callers that prefer an explicit name."""
     return self(*args, **kwargs)
-
-  # -- delegation of the surface the harness relies on ---------------------
 
   def state_dict(self, *args, **kwargs):
     """Return the semantic model's state dict (no ``module.*`` prefix)."""

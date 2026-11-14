@@ -101,8 +101,6 @@ class StudySpec:
       data["space"][name.strip()] = spec.strip()
     return cls(data)
 
-  # -- helpers -------------------------------------------------------------
-
   @staticmethod
   def _build_space(data):
     space = data.get("space")

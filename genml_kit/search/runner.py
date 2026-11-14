@@ -226,8 +226,6 @@ class StudyRunner:
       self._run_parallel(start_id, remaining)
     return self.store
 
-  # -- single-process path -------------------------------------------------
-
   def _run_sequential(self, start_id, remaining):
     next_id = start_id
     while remaining is None or remaining > 0:
@@ -243,8 +241,6 @@ class StudyRunner:
       next_id += 1
       if remaining is not None:
         remaining -= 1
-
-  # -- multi-process path --------------------------------------------------
 
   def _run_parallel(self, start_id, remaining):
     next_id = start_id
@@ -271,8 +267,6 @@ class StudyRunner:
           with self._store_lock:
             self.store.record(trial)
           logging.info("Trial %s %s: best=%s", trial.trial_id, trial.status, trial.best)
-
-  # -- helpers -------------------------------------------------------------
 
   def _observed(self):
     with self._store_lock:

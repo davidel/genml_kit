@@ -238,7 +238,6 @@ class MetricsLogger:
     for sink in self._sinks:
       sink.run_fact(key, value)
 
-  # -- SummaryWriter-compatible passthrough (keeps legacy call sites working) --
   def add_scalar(self, tag, value, step):
     self.log_step(tag, value, step=step)
 

@@ -32,8 +32,6 @@ class StudyStore:
     self.trials = {}  # trial_id -> Trial
     self.header = None
 
-  # -- lifecycle -----------------------------------------------------------
-
   @classmethod
   def create(cls, study_dir, spec_dict=None):
     """Create (or open) a study directory, writing the header once."""
@@ -71,8 +69,6 @@ class StudyStore:
           continue
         self.trials[record["trial_id"]] = Trial.from_record(record)
 
-  # -- access --------------------------------------------------------------
-
   @property
   def next_trial_id(self):
     return (max(self.trials) + 1) if self.trials else 0
@@ -89,8 +85,6 @@ class StudyStore:
         pairs.append((trial.config, trial.best))
     return pairs
 
-  # -- mutation ------------------------------------------------------------
-
   def record(self, trial):
     """Persist (or update) *trial* in the ledger."""
     self.trials[trial.trial_id] = trial
@@ -99,8 +93,6 @@ class StudyStore:
   def _append_line(self, record):
     with open(self.path, "a", encoding="utf-8") as handle:
       handle.write(json.dumps(record) + "\n")
-
-  # -- reporting -----------------------------------------------------------
 
   def leaderboard(self, top=None, direction="max"):
     """Return scored trials sorted best-first for *direction*."""

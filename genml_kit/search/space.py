@@ -99,8 +99,6 @@ class Dimension:
     self.log = log
     self.step = step
 
-  # -- construction --------------------------------------------------------
-
   @classmethod
   def from_spec(cls, name, spec):
     """Parse one ``name=<spec>`` body into a :class:`Dimension`."""
@@ -149,8 +147,6 @@ class Dimension:
       return cls(name, "int", low=low, high=high, log=log, step=step)
     return cls(name, "float", low=float(low), high=float(high), log=log, step=step)
 
-  # -- sampling ------------------------------------------------------------
-
   def sample(self, rng):
     """Draw one value for this dimension from *rng* (a ``numpy`` Generator)."""
     if self.kind == "choice":
@@ -189,8 +185,6 @@ class Dimension:
     if self.kind == "int":
       return int(round(value))
     return float(value)
-
-  # -- unit-hypercube encoding (for model-based samplers) ------------------
 
   def to_unit(self, value):
     """Map *value* onto ``[0, 1]`` for the model-based samplers."""
