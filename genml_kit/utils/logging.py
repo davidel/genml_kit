@@ -54,7 +54,7 @@ class GlogFormatter(logging.Formatter):
     return "\n".join(f"{hdr} {line}" for line in lines)
 
 
-def fatal(msg, exc=RuntimeError):
+def fatal(msg, exc=RuntimeError, cause=None):
   """Log *msg* at CRITICAL level and raise *exc*.
 
   Use this for unrecoverable errors where the program must stop immediately.
@@ -63,9 +63,14 @@ def fatal(msg, exc=RuntimeError):
   Args:
       msg: Message to log and include in the exception.
       exc: Exception class to raise (default: ``RuntimeError``).
+      cause: Optional exception to chain as ``__cause__``.  Pass this instead
+          of writing ``raise exc(msg) from cause`` so the error is still
+          logged at CRITICAL level.
   """
   logging.critical(msg)
-  raise exc(msg)
+  if cause is None:
+    raise exc(msg)
+  raise exc(msg) from cause
 
 
 STDERR_TARGET = "STDERR"

@@ -63,9 +63,9 @@ def _check_fraction(fraction):
   try:
     fraction = float(fraction)
   except (TypeError, ValueError) as e:
-    raise ValueError(f"--fraction must be a float, got {fraction!r}") from e
+    fatal(f"--fraction must be a float, got {fraction!r}", ValueError, cause=e)
   if not 0.0 < fraction <= 1.0:
-    raise ValueError(f"--fraction must be in (0.0, 1.0], got {fraction!r}")
+    fatal(f"--fraction must be in (0.0, 1.0], got {fraction!r}", ValueError)
   return fraction
 
 
@@ -292,10 +292,10 @@ def train_tokenizer(dataset,
 
   fraction = _check_fraction(fraction)
   if vocab_size <= len(_SPECIAL_TOKENS):
-    raise ValueError(f"--vocab_size must exceed {len(_SPECIAL_TOKENS)}, "
-                     f"got {vocab_size}")
+    fatal(f"--vocab_size must exceed {len(_SPECIAL_TOKENS)}, got {vocab_size}",
+          ValueError)
   if max_rows is not None and max_rows <= 0:
-    raise ValueError(f"--max_rows must be positive, got {max_rows}")
+    fatal(f"--max_rows must be positive, got {max_rows}", ValueError)
 
   # ``load_raw_split`` takes the HF subset/config through *dataset_arg*, so a
   # standalone *dataset_name* is folded in rather than dropped.

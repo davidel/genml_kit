@@ -13,7 +13,6 @@ import argparse
 import logging
 
 from genml_kit.models.tokenizer_train import DEFAULT_VOCAB_SIZE, train_tokenizer
-from genml_kit.utils.logging import fatal
 from genml_kit.utils.script import load_extern
 from genml_kit.utils.shared_args import (ARG_CACHE_DIR, ARG_DATASET, ARG_DATASET_ARG,
                                          ARG_SEED, ARG_SPLIT, add_shared_args)
@@ -140,10 +139,7 @@ def main(argv=None):
   parser = build_parser()
   args = parser.parse_args(argv)
   logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-  try:
-    run_train(args)
-  except (ValueError, OSError) as e:
-    fatal(str(e), type(e))
+  run_train(args)
 
 
 if __name__ == "__main__":
