@@ -29,13 +29,14 @@ DECODERS = Registry("decoder")
 
 
 def parse_decoder_spec(spec):
-  """Split an inline decoder spec into ``(name, kwargs)``.
+  """Split an inline decoder spec into an :class:`InlineSpec`.
 
   The CLI expresses decoders as a single string, e.g.::
 
       decoder=unet:depth=4,decoder_channels=256
 
-  Delegates to :func:`~genml_kit.utils.cli.parse_inline_spec`.
+  Delegates to :func:`~genml_kit.utils.cli.parse_inline_spec`.  A decoder
+  takes keyword arguments only, so a positional argument is rejected.
 
   Parameters
   ----------
@@ -44,10 +45,17 @@ def parse_decoder_spec(spec):
 
   Returns
   -------
-  (str, dict)
-      The decoder name and its constructor kwargs.
+  InlineSpec
+      The decoder ``name`` and its constructor ``kwargs`` (``args`` empty).
   """
-  return parse_inline_spec(spec, kind="decoder")
+  parsed = parse_inline_spec(spec, kind="decoder")
+  if parsed.args:
+    fatal(
+        f"Decoder spec {spec!r} takes key=value arguments only, got "
+        f"positional {parsed.args!r}.",
+        ValueError,
+    )
+  return parsed
 
 
 def build_decoder(spec, in_channels, num_classes, **kwargs):
@@ -70,7 +78,9 @@ def build_decoder(spec, in_channels, num_classes, **kwargs):
   -------
   BaseDecoder
   """
-  name, spec_kwargs = parse_decoder_spec(spec)
+  parsed = parse_decoder_spec(spec)
+  name = parsed.name
+  spec_kwargs = dict(parsed.kwargs)
   spec_kwargs.update(kwargs)
 
   if is_script_spec(name):

@@ -95,7 +95,7 @@ def load_det_wrapper(
                                 **kwargs)
 
   # Validate the head spec early so a typo fails before the probe.
-  head_name, _ = parse_decoder_spec(head)
+  head_name = parse_decoder_spec(head).name
 
   # ``checkpoint_path`` is accepted for protocol parity but intentionally
   # unused here: the training harness restores weights itself (via

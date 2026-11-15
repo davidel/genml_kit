@@ -47,9 +47,14 @@ class TestDecoders:
       assert name in DECODERS.list_names()
 
   def test_parse_decoder_spec(self):
-    name, kwargs = parse_decoder_spec("unet:depth=4,decoder_channels=128")
-    assert name == "unet"
-    assert kwargs == {"depth": 4, "decoder_channels": 128}
+    spec = parse_decoder_spec("unet:depth=4,decoder_channels=128")
+    assert spec.name == "unet"
+    assert spec.args == []
+    assert spec.kwargs == {"depth": 4, "decoder_channels": 128}
+
+  def test_parse_decoder_spec_rejects_positional(self):
+    with pytest.raises(ValueError):
+      parse_decoder_spec("unet:4")
 
   def test_unknown_decoder_raises(self):
     with pytest.raises(ValueError, match="Unknown decoder"):

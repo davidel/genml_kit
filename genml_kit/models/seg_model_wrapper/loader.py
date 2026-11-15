@@ -104,7 +104,7 @@ def load_seg_wrapper(
   encoder = _build_encoder(backbone, out_indices, pretrained, cache_dir, kwargs)
 
   # Validate the decoder spec early so a typo fails before the probe.
-  dec_name, _ = parse_decoder_spec(decoder)
+  dec_name = parse_decoder_spec(decoder).name
 
   model = build_seg_model(
       encoder,

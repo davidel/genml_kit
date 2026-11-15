@@ -471,37 +471,44 @@ class TestClassifierSpec:
   def test_name_only(self):
     from genml_kit.training.classifiers import parse_classifier_spec
 
-    assert parse_classifier_spec("mlp") == ("mlp", {})
+    assert parse_classifier_spec("mlp") == ("mlp", [], {})
 
   def test_name_with_kwargs(self):
     from genml_kit.training.classifiers import parse_classifier_spec
 
-    name, kwargs = parse_classifier_spec("mlp:hidden=512,dropout=0.3")
-    assert name == "mlp"
-    assert kwargs == {"hidden": 512, "dropout": 0.3}
+    spec = parse_classifier_spec("mlp:hidden=512,dropout=0.3")
+    assert spec.name == "mlp"
+    assert spec.args == []
+    assert spec.kwargs == {"hidden": 512, "dropout": 0.3}
 
   def test_kwarg_values_are_typed(self):
     from genml_kit.training.classifiers import parse_classifier_spec
 
-    _name, kwargs = parse_classifier_spec("m:a=3,b=2.5,c=true")
-    assert kwargs == {"a": 3, "b": 2.5, "c": True}
+    spec = parse_classifier_spec("m:a=3,b=2.5,c=true")
+    assert spec.kwargs == {"a": 3, "b": 2.5, "c": True}
 
   def test_bracketed_list_values(self):
     from genml_kit.training.classifiers import parse_classifier_spec
 
-    _name, kwargs = parse_classifier_spec("m:cls_slice=(0, 1),n=[1, 2]")
-    assert kwargs == {"cls_slice": [0, 1], "n": [1, 2]}
+    spec = parse_classifier_spec("m:cls_slice=(0, 1),n=[1, 2]")
+    assert spec.kwargs == {"cls_slice": [0, 1], "n": [1, 2]}
 
   def test_py_path_spec(self):
     from genml_kit.training.classifiers import parse_classifier_spec
 
-    assert parse_classifier_spec("my_cls.py") == ("my_cls.py", {})
+    assert parse_classifier_spec("my_cls.py") == ("my_cls.py", [], {})
 
   def test_malformed_spec_raises(self):
     from genml_kit.training.classifiers import parse_classifier_spec
 
     with pytest.raises(ValueError):
       parse_classifier_spec("mlp:hidden512")
+
+  def test_positional_arg_rejected(self):
+    from genml_kit.training.classifiers import parse_classifier_spec
+
+    with pytest.raises(ValueError):
+      parse_classifier_spec("mlp:512")
 
   def test_load_model_consumes_spec(self):
     """load_model(cls_model_wrapper:...) parses classifier=<spec>."""

@@ -16,8 +16,8 @@ import collections
 
 from genml_kit.utils.logging import fatal
 
-# What ``parse_inline_spec`` returns: the name and the parsed kwargs.
-InlineSpec = collections.namedtuple("InlineSpec", ["name", "kwargs"])
+# What ``parse_inline_spec`` returns: the name, positional args and kwargs.
+InlineSpec = collections.namedtuple("InlineSpec", ["name", "args", "kwargs"])
 
 
 def parse_value(s):
@@ -92,15 +92,20 @@ def _split_list_items(s):
 
 
 def parse_inline_spec(spec, kind="spec"):
-  """Split an inline ``"name:key=value,..."`` string into an :class:`InlineSpec`.
+  """Split an inline ``"name:arg0,arg1,key=value,..."`` string.
 
-  Shared by the classifier and decoder registries.  The part before the
-  first ``:`` is the name (a registered name or a ``.py`` path); the
-  remainder is a comma-separated ``key=value`` list converted with
-  :func:`parse_value` (so ints, floats, booleans, and bracketed lists
-  work).  Bracket-aware splitting keeps values such as ``(0, 1)`` intact.
+  The part before the first ``:`` is the name (a registered name or a
+  ``.py`` path); the remainder is a comma-separated list of items.  An item
+  with an ``=`` is a ``key=value`` keyword argument; an item without one is
+  a positional argument.  Every value is converted with :func:`parse_value`
+  (so ints, floats, booleans, and bracketed lists work), and quoting forces
+  a ``str``.  Bracket-aware splitting keeps values such as ``(0, 1)`` intact.
 
-  A spec without a colon is just a name with no kwargs.
+  Commas separate items -- a ``:`` may appear at most once.  A stray colon
+  inside an item (e.g. ``"name:8x560:nv=4"``) is an error rather than a
+  second separator, so the message points at the comma form.
+
+  A spec without a colon is just a name with no args or kwargs.
 
   Parameters
   ----------
@@ -111,23 +116,32 @@ def parse_inline_spec(spec, kind="spec"):
 
   Returns
   -------
-  (str, dict)
-      The name and its constructor kwargs.
+  InlineSpec
+      The name plus its positional ``args`` (list) and ``kwargs`` (dict).
   """
   spec = str(spec).strip()
-  name, sep, body = spec.partition(":")
-  if not sep or not body.strip():
-    return InlineSpec(name=name, kwargs={})
+  name, body = spec.split(":", 1) if ":" in spec else (spec, "")
+  name = name.strip()
+  if not body.strip():
+    return InlineSpec(name=name, args=[], kwargs={})
+  args = []
   kwargs = {}
   for item in _split_list_items(body.strip()):
-    if "=" not in item:
+    # Only the part before ``=`` may not contain a colon, so a colon inside a
+    # kwarg value (e.g. ``url=http://host``) stays legal.
+    head = item.split("=", 1)[0]
+    if ":" in head:
       fatal(
-          f"Expected key=value in {kind} spec {spec!r}, got: {item!r}",
+          f"Unexpected ':' in {kind} spec {spec!r} item {item!r}; use a comma "
+          f"to separate args, e.g. 'name:arg0,key=value'.",
           ValueError,
       )
-    key, val = item.split("=", 1)
-    kwargs[key.strip()] = parse_value(val.strip())
-  return InlineSpec(name=name, kwargs=kwargs)
+    if "=" in item:
+      key, val = item.split("=", 1)
+      kwargs[key.strip()] = parse_value(val.strip())
+    else:
+      args.append(parse_value(item))
+  return InlineSpec(name=name, args=args, kwargs=kwargs)
 
 
 class KVPairAction(argparse.Action):

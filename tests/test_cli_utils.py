@@ -4,7 +4,8 @@ import argparse
 
 import pytest
 
-from genml_kit.utils.cli import KVPairAction, parse_value
+from genml_kit.utils.cli import (InlineSpec, KVPairAction, parse_inline_spec,
+                                 parse_value)
 
 
 class TestParseValue:
@@ -211,3 +212,51 @@ class TestKVPairAction:
     parser = self._make_parser()
     args = parser.parse_args(["--model_arg", 'revision="10"'])
     assert args.model_arg == {"revision": "10"}
+
+
+class TestParseInlineSpec:
+  """Tests for the inline ``name:arg,key=value`` spec parser."""
+
+  def test_name_only(self):
+    assert parse_inline_spec("byte") == InlineSpec(name="byte", args=[], kwargs={})
+
+  def test_name_and_kwargs(self):
+    spec = parse_inline_spec("unet:depth=4,decoder_channels=128")
+    assert spec == InlineSpec(name="unet",
+                              args=[],
+                              kwargs={
+                                  "depth": 4,
+                                  "decoder_channels": 128,
+                              })
+
+  def test_positional_args(self):
+    spec = parse_inline_spec("arm:8x560")
+    assert spec.name == "arm"
+    assert spec.args == ["8x560"]
+    assert spec.kwargs == {}
+
+  def test_positional_args_and_kwargs(self):
+    spec = parse_inline_spec("arm:8x560,nv=4")
+    assert spec.args == ["8x560"]
+    assert spec.kwargs == {"nv": 4}
+
+  def test_args_are_typed(self):
+    spec = parse_inline_spec("arm:10,true")
+    assert spec.args == [10, True]
+
+  def test_quoted_arg_stays_string(self):
+    spec = parse_inline_spec('arm:"10"')
+    assert spec.args == ["10"]
+
+  def test_colon_in_item_is_error(self):
+    """A stray ':' inside the body must be an error, not a second separator."""
+    with pytest.raises(ValueError, match="comma"):
+      parse_inline_spec("arm:8x560:nv=4")
+
+  def test_colon_in_kwarg_value_is_allowed(self):
+    """Only the key side may not contain a ':'; a URL value stays legal."""
+    spec = parse_inline_spec("m:url=http://host/x")
+    assert spec.kwargs == {"url": "http://host/x"}
+
+  def test_empty_body(self):
+    assert parse_inline_spec("name:") == InlineSpec(name="name", args=[], kwargs={})

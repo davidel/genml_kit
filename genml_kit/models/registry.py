@@ -21,6 +21,8 @@ Custom model/processor loaders register themselves via the
 import logging
 from collections import namedtuple
 
+from genml_kit.utils.cli import parse_inline_spec
+from genml_kit.utils.logging import fatal
 from genml_kit.utils.registry import Registry
 from genml_kit.utils.script import load_extern, is_script_spec
 
@@ -37,7 +39,9 @@ def parse_model_name(name):
   """Parse a fully-qualified model name string.
 
   The colon syntax ``"model_name:hf_name"`` (used for custom models
-  that wrap a HuggingFace backbone) is split into its components.
+  that wrap a HuggingFace backbone) is split into its components via
+  :func:`~genml_kit.utils.cli.parse_inline_spec`, so a model name may carry
+  **at most one** positional argument -- the backbone -- and no kwargs.
 
   Parameters
   ----------
@@ -51,22 +55,27 @@ def parse_model_name(name):
   ParsedModelName
       A namedtuple with fields:
 
-      - **model** -- The registered custom model name, or the full
-        *name* when there is no colon.
-      - **backbone** -- The HuggingFace backbone identifier (the part
+      - **model** -- The registered model name (the part before the
+        colon), or the whole string when there is no colon.
+      - **backbone** -- The HuggingFace model identifier (the part
         after the colon), or ``None``.
       - **processor** -- The HuggingFace model identifier used to
         load the processor.  Equals *backbone* when a colon is
         present, otherwise equals *name*.
   """
-  if ":" in name:
-    model, backbone = name.split(":", 1)
-    return ParsedModelName(
-        model=model,
-        backbone=backbone,
-        processor=backbone,
+  spec = parse_inline_spec(name, kind="model")
+  if len(spec.args) > 1 or spec.kwargs:
+    fatal(
+        f"Model name takes at most one argument (the backbone) and no "
+        f"keyword arguments, got {name!r}.",
+        ValueError,
     )
-  return ParsedModelName(model=name, backbone=None, processor=name)
+  backbone = spec.args[0] if spec.args else None
+  return ParsedModelName(
+      model=spec.name,
+      backbone=backbone,
+      processor=backbone if backbone is not None else spec.name,
+  )
 
 
 class ModelOutput:

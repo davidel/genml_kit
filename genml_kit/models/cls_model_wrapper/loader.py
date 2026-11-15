@@ -41,20 +41,20 @@ def load_cls_model_wrapper(*,
         "cls_model_wrapper requires a classifier head. Pass it via "
         "--model_arg, e.g. --model_arg classifier=mlp:hidden=512. "
         "Available built-ins: mlp, cls_attention. A .py path also works.", ValueError)
-  classifier, classifier_args = parse_classifier_spec(classifier_spec)
+  parsed = parse_classifier_spec(classifier_spec)
 
   model = ClsModelWrapper(
       backbone_name=backbone,
       num_labels=num_labels,
-      classifier=classifier,
-      classifier_args=classifier_args,
+      classifier=parsed.name,
+      classifier_args=dict(parsed.kwargs),
       cache_dir=cache_dir,
   )
   model.to(device)
 
   logging.info(
       "ClsModelWrapper ready — classifier=%s, params=%.1fM",
-      classifier,
+      parsed.name,
       sum(p.numel() for p in model.parameters()) / 1e6,
   )
   return model

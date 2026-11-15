@@ -25,13 +25,14 @@ CLASSIFIERS = Registry("classifier")
 
 
 def parse_classifier_spec(spec):
-  """Split an inline classifier spec into ``(name, kwargs)``.
+  """Split an inline classifier spec into an :class:`InlineSpec`.
 
   The CLI expresses classifier heads as a single string, e.g.::
 
       classifier=mlp:hidden=512,dropout=0.3
 
-  Delegates to :func:`~genml_kit.utils.cli.parse_inline_spec`.
+  Delegates to :func:`~genml_kit.utils.cli.parse_inline_spec`.  A classifier
+  takes keyword arguments only, so a positional argument is rejected.
 
   Parameters
   ----------
@@ -40,10 +41,17 @@ def parse_classifier_spec(spec):
 
   Returns
   -------
-  (str, dict)
-      The classifier name and its constructor kwargs.
+  InlineSpec
+      The classifier ``name`` and its constructor ``kwargs`` (``args`` empty).
   """
-  return parse_inline_spec(spec, kind="classifier")
+  parsed = parse_inline_spec(spec, kind="classifier")
+  if parsed.args:
+    fatal(
+        f"Classifier spec {spec!r} takes key=value arguments only, got "
+        f"positional {parsed.args!r}.",
+        ValueError,
+    )
+  return parsed
 
 
 def build_classifier(spec, num_labels, hidden_size, **kwargs):
