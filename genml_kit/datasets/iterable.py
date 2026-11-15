@@ -162,3 +162,46 @@ def is_streaming_source(obj):
       bool: True for a pure streaming source.
     """
   return isinstance(obj, IterableDataset)
+
+
+def safe_len(loader, default=None):
+  """Number of batches in *loader*, or *default* when it has no length.
+
+    The batch-count counterpart to
+    :func:`genml_kit.datasets.base.num_samples` (which estimates *samples*).
+    It honours the same convention documented there: an iterable-only source
+    deliberately raises ``TypeError`` from ``__len__`` to signal "no length",
+    so callers must tolerate its absence rather than break on it.
+
+    A plain ``len(loader)`` cannot be used for this.  ``DataLoader.__len__``
+    delegates to ``len(self.dataset)``, so an ``IterableDataset``-backed
+    loader -- every streaming corpus, and the ``StreamingBatchPipe`` batch
+    pipes that wrap one -- raises ``TypeError`` mid-run instead of simply
+    reporting an unknown length.  Use this helper anywhere a batch count feeds
+    bookkeeping (a step budget, a progress total, a starting counter) that
+    must not bring down a streaming run.
+
+    Only ``TypeError`` is swallowed, because that is the one exception the
+    "no length" convention raises, so the failure mode is narrow: a ``None``
+    loader, or an object whose ``__len__`` raises something else, still
+    propagates instead of being mistaken for "unknown".
+
+    Args:
+      loader: Any sized-or-unsized object, typically a ``DataLoader``.
+      default: Value to return when *loader* has no usable length.  Callers
+        that need an integer (a step counter, say) should pass e.g. ``0``;
+        callers that want to distinguish "unknown" from a real value should
+        leave it ``None``.
+
+    Returns:
+      int | None: ``len(loader)`` when available, else *default*.
+
+    Examples:
+      >>> safe_len(DataLoader(map_dataset, batch_size=4))       # 25
+      >>> safe_len(DataLoader(iterable_dataset, batch_size=4))  # None
+      >>> safe_len(DataLoader(iterable_dataset), default=0)     # 0
+    """
+  try:
+    return len(loader)
+  except TypeError:
+    return default

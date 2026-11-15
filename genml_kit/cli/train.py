@@ -15,6 +15,7 @@ import argparse
 import logging
 import sys
 
+from genml_kit.datasets.iterable import safe_len
 from genml_kit.io.checkpointing import (
     open_resume_context,
     parse_state_flags,
@@ -382,7 +383,8 @@ def _run(args):
   pipeline.build_loader(args, mode="val", method=method)
   # Shard the training set across ranks (no-op single-process, or when
   # --dist_arg shard=false).  Must run before the epoch-budget math below, which
-  # reads len(train_loader).
+  # reads len(train_loader) -- except for a streaming corpus, whose loader has
+  # no length (see ``safe_len``).
   maybe_call(pipeline, "shard_train_loader", args)
   # Shard the validation set too (no-op single-process, or when
   # --dist_arg shard=false).  Its per-rank results are merged across ranks in
@@ -421,11 +423,13 @@ def _run(args):
                                     states_to_load,
                                     method=method)
   train_loader = getattr(pipeline, "train_loader", None)
-  global_step = ckpt_extra.get(
-      "global_step",
-      (start_epoch *
-       (len(train_loader) // args.grad_accum_steps) if train_loader is not None else 0),
-  )
+  # ``safe_len`` returns 0 for a streaming loader, which has no batch count: the
+  # starting step is then derived from ``start_epoch`` alone, exactly as it would
+  # be for an empty map-style loader.  This is bookkeeping only -- the epoch loop
+  # iterates until the stream is exhausted, so no work is skipped or repeated.
+  micro_batches = safe_len(train_loader, 0)
+  global_step = ckpt_extra.get("global_step",
+                               start_epoch * (micro_batches // args.grad_accum_steps))
   # Mid-epoch resume: a checkpoint taken on an interrupt carries ``in_progress``
   # pointing at the epoch that was cut short.  ``start_epoch`` already equals
   # that epoch (``resume_checkpoint`` resumes *into* it), so surface the

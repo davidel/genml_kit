@@ -26,6 +26,8 @@ instead would rename those keys (``target_encoder.*`` ->
 
 import torch
 
+from genml_kit.datasets.iterable import safe_len
+
 
 class EMAModel:
   """Frozen target module moved toward a source module.
@@ -103,8 +105,7 @@ def compute_step_budget(args, pipeline):
   epochs = args.epochs
   if loader is None or not epochs:
     return None
-  try:
-    total = len(loader) * epochs
-  except TypeError:  # iterable-only dataset (no len()): leave the ramp a no-op
+  batches = safe_len(loader)
+  if batches is None:  # iterable-only dataset (no len()): leave the ramp a no-op
     return None
-  return total // max(args.grad_accum_steps or 1, 1)
+  return (batches * epochs) // max(args.grad_accum_steps or 1, 1)
