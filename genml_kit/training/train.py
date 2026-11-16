@@ -260,6 +260,22 @@ class _Limited:
         return
       yield item
 
+  def num_samples(self):
+    """Best-effort item count of the truncated stream, or ``None``.
+
+        ``min(inner_estimate, cap)`` when the wrapped stream declares an
+        estimate, else the cap itself -- a guaranteed upper bound (the view
+        never yields more than ``_n`` items).
+
+        Returns:
+          int | None: The estimated item count, or ``None`` when unknown.
+        """
+    from genml_kit.datasets.base import num_samples
+    inner = num_samples(self._inner)
+    if inner is None:
+      return self._n
+    return min(inner, self._n)
+
   def __getattr__(self, name):
     # Reached only for attributes not defined on the view itself.  The
     # underscore guard prevents infinite recursion when ``_inner`` is not yet

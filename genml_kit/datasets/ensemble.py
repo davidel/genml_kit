@@ -469,6 +469,28 @@ class DatasetEnsemble:
       raise TypeError("streaming ensemble has no length")
     return self._offsets[-1] if self._offsets else 0
 
+  def num_samples(self):
+    """Best-effort total item count across every member, or ``None``.
+
+        Informational only (progress output).  A random-access ensemble is
+        exact; a streaming one sums its members' estimates and degrades to
+        ``None`` as soon as any member's count is unknown, since a partial sum
+        would understate the corpus.
+
+        Returns:
+          int | None: The estimated item count, or ``None`` when unknown.
+        """
+    if not self.streaming:
+      return len(self)
+    from genml_kit.datasets.base import num_samples
+    total = 0
+    for ds in self._datasets:
+      count = num_samples(ds)
+      if count is None:
+        return None
+      total += count
+    return total
+
   def __iter__(self):
     """Concatenate every member's items, in declaration order.
 

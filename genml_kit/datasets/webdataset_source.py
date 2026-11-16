@@ -104,8 +104,9 @@ class WebDatasetSource(StreamingDataset):
         (``shards-{0000..0009}.tar``), or an explicit list of them.
       image_format: PIL mode every image member is converted to.  Only affects
         members webdataset decodes as images.
-      nsamples: Optional estimate of the sample count, for progress output only;
-        pass it when the pipeline should render ``[i/~N]`` rather than ``[i/?]``.
+      num_samples: Optional estimate of the sample count, for progress output
+        only; pass it when the pipeline should render ``[i/~N]`` rather than
+        ``[i/?]``.
       transform: Optional callable applied to every image member before it is
         yielded.
     """
@@ -123,7 +124,7 @@ class WebDatasetSource(StreamingDataset):
                *,
                name=None,
                image_format="RGB",
-               nsamples=None,
+               num_samples=None,
                transform=None):
     if image_format not in _IMAGE_FORMATS:
       fatal(
@@ -134,8 +135,8 @@ class WebDatasetSource(StreamingDataset):
     self.name = name or str(urls)
     self.image_format = image_format
     self.transform = transform
-    if nsamples is not None:
-      self.nsamples = nsamples
+    # Record the progress-only estimate on the base class.
+    super().__init__(num_samples=num_samples)
 
   def _pipeline(self):
     """Build the webdataset pipeline for one pass over the shards."""

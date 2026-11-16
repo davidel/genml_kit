@@ -170,3 +170,20 @@ class TestBuckets:
     split = IterableDatasetFilter(source, {"train": 0.8, "val": 0.2})
     split.get_dataset("train").set_epoch(7)
     assert source.epoch == 7
+
+  def test_bucket_estimate_scales_the_source_count(self):
+    # A bucket receives exactly its share of the source positions, so its
+    # estimate is the source estimate scaled by the bucket's period share.
+    from genml_kit.datasets.base import num_samples
+
+    source = _Source(100)
+    source.num_samples = lambda: 1000
+    split = IterableDatasetFilter(source, {"train": 0.8, "val": 0.2})
+    assert num_samples(split.get_dataset("train")) == 800
+    assert num_samples(split.get_dataset("val")) == 200
+
+  def test_bucket_estimate_is_none_when_source_is(self):
+    from genml_kit.datasets.base import num_samples
+
+    split = IterableDatasetFilter(_Source(10), {"train": 0.8, "val": 0.2})
+    assert num_samples(split.get_dataset("train")) is None

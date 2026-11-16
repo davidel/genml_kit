@@ -38,13 +38,30 @@ class StreamingDataset(IterableDataset):
     applies the strided worker split (``i % num_workers == worker_id``), which
     keeps worker work balanced for any corpus size and never duplicates an item.
 
-    Attributes:
-      nsamples: Optional *estimate* of the total item count, for progress output
-        only.  Never load-bearing; ``None`` means unknown.
+    A subclass may pass ``num_samples=`` to the constructor to declare an
+    item-count *estimate* for progress output (see :meth:`num_samples`).
     """
 
-  #: Optional estimate of the total item count.  Informational only.
-  nsamples = None
+  def __init__(self, num_samples=None):
+    """Record an optional item-count estimate for progress output only.
+
+        Args:
+          num_samples: Optional *estimate* of the total item count.  Never
+            load-bearing; ``None`` means unknown.  Kept private because
+            ``num_samples`` is also the name of this class' estimate *method*.
+        """
+    self._num_samples = num_samples
+
+  def num_samples(self):
+    """Best-effort estimate of this source's total item count, or ``None``.
+
+        Informational only: it feeds progress output and must never size a loop.
+        Subclasses that can compute a better estimate override this.
+
+        Returns:
+          int | None: The estimated item count, or ``None`` when unknown.
+        """
+    return getattr(self, "_num_samples", None)
 
   def source_iter(self):
     """Yield this source's items in order, ignoring workers.
@@ -122,6 +139,19 @@ class StreamingTransform(StreamingDataset):
         transform without touching the corpus.
         """
     return getattr(self._source, "features", None)
+
+  def num_samples(self):
+    """Forward the wrapped source's estimate (a transform is count-preserving).
+
+        A transform yields exactly the source's items, one per source item, so
+        the source's estimate is the transform's estimate.  Subclasses that
+        drop or fan out items (e.g. a positional split bucket) override this.
+
+        Returns:
+          int | None: The estimated item count, or ``None`` when unknown.
+        """
+    from genml_kit.datasets.base import num_samples
+    return num_samples(self._source)
 
   @property
   def column_names(self):

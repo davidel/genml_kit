@@ -78,6 +78,22 @@ class CappedDataset:
   def __len__(self):
     return min(len(self._dataset), self._limit)
 
+  def num_samples(self):
+    """Best-effort item count of the capped view.
+
+        Exact when the wrapped dataset can be sized (``min(len, limit)``), and
+        otherwise the cap itself -- a guaranteed upper bound, which is the best
+        estimate available for a stream capped by ``--max_items``.
+
+        Returns:
+          int | None: The estimated item count, or ``None`` when unknown.
+        """
+    from genml_kit.datasets.base import num_samples
+    inner = num_samples(self._dataset)
+    if inner is None:
+      return self._limit
+    return min(inner, self._limit)
+
   def __getitem__(self, key):
     value = self._dataset[key]
     if isinstance(key, str):

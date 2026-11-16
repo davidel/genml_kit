@@ -46,6 +46,24 @@ class _FilteredStream(StreamingTransform):
       if self._pattern[index % period] == self._name:
         yield item
 
+  def num_samples(self):
+    """Best-effort item count for this bucket, or ``None`` when unknown.
+
+        The bucket receives exactly the source positions whose pattern slot is
+        this bucket's, so the estimate is the source's estimate scaled by the
+        bucket's share of the (exact) period.  ``None`` when the source has no
+        estimate, since a partial total would mislead.
+
+        Returns:
+          int | None: The estimated item count, or ``None`` when unknown.
+        """
+    from genml_kit.datasets.base import num_samples
+    total = num_samples(self._source)
+    if total is None:
+      return None
+    slots = sum(1 for name in self._pattern if name == self._name)
+    return round(total * slots / len(self._pattern))
+
 
 class IterableDatasetFilter:
   """Split one streaming source into named buckets by position.

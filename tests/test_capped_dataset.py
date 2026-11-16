@@ -91,3 +91,21 @@ class TestCappedDataset:
   def test_non_dataset_callable_passes_through(self):
     capped = CappedDataset(_ds(5), 2)
     assert capped.__len__() == 2
+
+  def test_num_samples_is_the_capped_length_when_inner_is_sizeable(self):
+    from genml_kit.datasets.base import num_samples
+
+    assert num_samples(CappedDataset(_ds(5), 2)) == 2
+    assert num_samples(CappedDataset(_ds(3), 100)) == 3
+
+  def test_num_samples_falls_back_to_the_cap_for_a_length_less_stream(self):
+    from genml_kit.datasets.base import num_samples
+
+    class _Stream:
+      """A stream with no ``__len__`` and no estimate."""
+
+      def __iter__(self):
+        return iter(range(100))
+
+    # ``len`` raises, so the cap is the upper-bound estimate.
+    assert num_samples(CappedDataset(_Stream(), 7)) == 7

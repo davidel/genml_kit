@@ -310,6 +310,26 @@ class TrainReporting:
                              kind=m.kind)
     return avg_loss
 
+  def _progress(self, batch_idx):
+    """Render the ``[i/N]`` progress prefix, degrading when N is unknown.
+
+        ``N`` is the batch count when known, ``~N`` when it is only an estimate
+        (a declared sample count converted to batches), and ``?`` when it is
+        unknown (a length-less stream with no estimate).  Shared by the base and
+        image reporters so the two cannot drift apart.
+
+        Args:
+          batch_idx: Zero-based index of the current batch.
+
+        Returns:
+          str: The bracketed progress prefix, e.g. ``[12/50]``.
+        """
+    if self._total_batches is None:
+      return f"[{batch_idx + 1}/?]"
+    if self._total_batches_estimated:
+      return f"[{batch_idx + 1}/~{self._total_batches}]"
+    return f"[{batch_idx + 1}/{self._total_batches}]"
+
   def _log_step(self, batch_idx, global_step):
     """Compute windowed & cumulative metrics and emit a log line."""
     elapsed = time.time() - self._last_log_time
@@ -328,13 +348,8 @@ class TrainReporting:
     unit = f"{self._throughput_unit}/s"
 
     # Console log.  The denominator degrades when the epoch length is unknown
-    # (a stream with no estimate) or approximate (a declared ``nsamples``).
-    if self._total_batches is None:
-      progress = f"[{batch_idx + 1}/?]"
-    elif self._total_batches_estimated:
-      progress = f"[{batch_idx + 1}/~{self._total_batches}]"
-    else:
-      progress = f"[{batch_idx + 1}/{self._total_batches}]"
+    # (a stream with no estimate) or approximate (a declared estimate).
+    progress = self._progress(batch_idx)
     msg = (f"  train {progress}"
            f" loss={w_loss:.4f}"
            f" {unit}={throughput:.0f}")
@@ -582,7 +597,7 @@ class ImageTrainReporting(TrainReporting):
     # Console log.  Accuracy is appended only when this run actually
     # tracked it: a method with no classification head would otherwise
     # print a permanent, meaningless top1=0.00% / macro_f1=0.00%.
-    msg = (f"  train [{batch_idx + 1}/{self._total_batches}]"
+    msg = (f"  train {self._progress(batch_idx)}"
            f" loss={w_loss:.4f} ({avg_loss:.4f})")
     if self._has_accuracy:
       msg += f" top1={self._window_accuracy():.2f}% ({top1:.2f}%)"

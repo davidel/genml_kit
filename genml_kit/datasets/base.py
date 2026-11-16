@@ -111,25 +111,46 @@ def is_shuffleable(obj):
 
 
 def num_samples(obj):
-  """Best-effort sample count for *obj*, or None when it cannot be known.
+  """Best-effort **sample** count for *obj*, or None when it cannot be known.
 
     Purely informational: this feeds progress output only.  Never use it to
     size a loop, and never let its absence or inaccuracy break a run.
 
+    The returned value always counts *samples* (items), never batches.  Callers
+    that need a batch count (the trainer's progress denominator) obtain it from
+    :func:`genml_kit.datasets.iterable.safe_len` first and only fall back to
+    this estimate, converting samples to batches with the loader's batch size.
+
     Resolution order:
 
-    1. ``len(obj)`` when the source can be sized (exact, random access);
-    2. an ``nsamples`` attribute when the source declares an estimate (e.g. an
-       ``nsamples`` dataset-arg for a stream);
-    3. ``None`` -- unknown, which callers must tolerate.
+    1. a loader-like ``obj`` that is not itself indexable (no ``__getitem__``)
+       but exposes a ``.dataset`` -- recurse into that dataset, so a size-less
+       ``DataLoader`` around a stream still surfaces the stream's estimate;
+    2. ``len(obj)`` when the source can be sized (exact, random access);
+    3. an ``obj.num_samples()`` method when the source computes its own estimate
+       (streams and wrappers that forward or derive a count);
+    4. ``None`` -- unknown, which callers must tolerate.
 
     Args:
-      obj: Any dataset-like object.
+      obj: Any dataset-like object (a dataset, a wrapper, or a loader).
 
     Returns:
       int | None: The estimated sample count, or None when unknown.
     """
+  # A loader (``DataLoader`` / its sharded wrapper) has no ``__getitem__`` and
+  # carries no samples of its own; recurse into the dataset it wraps so
+  # ``num_samples`` speaks in samples for a loader too.  An indexable object
+  # (a dataset, or a ``CappedDataset`` whose cap only its own ``len`` reflects)
+  # is skipped here so its exact count wins instead.
+  if not hasattr(obj, "__getitem__"):
+    inner = getattr(obj, "dataset", None)
+    if inner is not None and inner is not obj:
+      return num_samples(inner)
   try:
     return len(obj)
   except TypeError:
-    return getattr(obj, "nsamples", None)
+    pass
+  method = getattr(obj, "num_samples", None)
+  if callable(method):
+    return method()
+  return None

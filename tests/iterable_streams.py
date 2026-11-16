@@ -36,10 +36,9 @@ class CountingMapDataset:
 class CountingStream(StreamingDataset):
   """One-pass streaming source with no ``__len__`` and no ``__getitem__``."""
 
-  def __init__(self, n, nsamples=None, epoch=None):
+  def __init__(self, n, num_samples=None, epoch=None):
+    super().__init__(num_samples=num_samples)
     self.n = n
-    if nsamples is not None:
-      self.nsamples = nsamples
     self._epoch = epoch
 
   def set_epoch(self, epoch):

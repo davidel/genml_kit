@@ -124,8 +124,9 @@ class TestSampleContract:
     with pytest.raises(TypeError):
       len(WebDatasetSource(_make_shards(tmp_path, 4)))
 
-  def test_nsamples_is_an_estimate_only(self, tmp_path):
-    assert WebDatasetSource(_make_shards(tmp_path, 4), nsamples=999).nsamples == 999
+  def test_num_samples_is_an_estimate_only(self, tmp_path):
+    source = WebDatasetSource(_make_shards(tmp_path, 4), num_samples=999)
+    assert source.num_samples() == 999
 
   def test_single_shard_path_is_accepted(self, tmp_path):
     _write_shard(tmp_path / "one.tar", range(5))

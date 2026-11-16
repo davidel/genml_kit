@@ -791,7 +791,7 @@ class _ShardedBatchLoader:
     """Estimated batches this rank will yield (informational only).
 
         Lets ``TypeError`` propagate when the wrapped loader has no length (a
-        one-pass stream): ``num_samples`` then falls back to an ``nsamples``
+        one-pass stream): ``num_samples`` then falls back to a ``num_samples``
         estimate or ``None``, rather than being handed a bogus ``0`` that the
         trainer would render as ``[i/~0]``.
         """

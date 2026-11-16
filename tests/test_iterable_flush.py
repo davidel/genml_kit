@@ -74,17 +74,19 @@ class TestProgressRendering:
     assert reporter._total_batches_estimated is True
 
   def test_progress_strings(self):
-    # Replicates the formatting branch in ``step`` without running a step.
-    def render(total, estimated, index):
-      if total is None:
-        return f"[{index + 1}/?]"
-      if estimated:
-        return f"[{index + 1}/~{total}]"
-      return f"[{index + 1}/{total}]"
+    # Exercise the reporter's own renderer (shared by the base and image
+    # reporters), not a copy of its branches.
+    assert self._report(total_batches=10)._progress(0) == "[1/10]"
+    assert self._report(total_batches=10,
+                        total_batches_estimated=True)._progress(0) == "[1/~10]"
+    assert self._report(total_batches=None)._progress(0) == "[1/?]"
 
-    assert render(10, False, 0) == "[1/10]"
-    assert render(10, True, 0) == "[1/~10]"
-    assert render(None, False, 0) == "[1/?]"
+  def test_image_reporter_degrades_like_base(self):
+    # The image reporter used to hardcode ``{total_batches}`` and print
+    # ``[i/None]`` when the length was unknown; it now shares ``_progress``.
+    assert self._report(total_batches=None)._progress(1249) == "[1250/?]"
+    assert self._report(total_batches=10,
+                        total_batches_estimated=True)._progress(1249) == "[1250/~10]"
 
 
 class TestStreamEpochEnds:

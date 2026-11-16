@@ -6,6 +6,8 @@ capability predicates, the estimate-only ``num_samples``, ``__iter__`` on the
 wrappers, and the fact that a stream never gets an index-shuffling loader.
 """
 
+import types
+
 import pytest
 import torch
 from torch.utils.data import DataLoader
@@ -67,7 +69,7 @@ class TestCapabilityPredicates:
 
   def test_length_without_getitem_is_not_random_access(self):
     # A stream that only declares a count must not be treated as indexable.
-    ds = CountingStream(4, nsamples=4)
+    ds = CountingStream(4, num_samples=4)
     assert is_random_access(ds) is False
 
   def test_class_object_is_not_an_instance(self):
@@ -83,18 +85,33 @@ class TestNumSamples:
   def test_none_for_length_less_stream(self):
     assert num_samples(CountingStream(11)) is None
 
-  def test_nsamples_used_when_no_len(self):
-    assert num_samples(CountingStream(11, nsamples=42)) == 42
+  def test_declared_estimate_used_when_no_len(self):
+    assert num_samples(CountingStream(11, num_samples=42)) == 42
 
   def test_estimate_wins_over_len_when_declared(self):
-    # ``nsamples`` is only consulted when ``len`` is unavailable, so an
-    # explicit estimate never contradicts a real length.
+    # An explicit estimate is only consulted when ``len`` is unavailable, so it
+    # never contradicts a real length.
     ds = CountingMapDataset(5)
-    ds.nsamples = 999
+    ds.num_samples = lambda: 999
     assert num_samples(ds) == 5
 
   def test_never_raises_for_stream(self):
     assert num_samples(CountingStream(3)) is None
+
+  def test_sniffs_loader_dataset_when_loader_has_no_len(self):
+    # A loader-like object with no ``__getitem__`` delegates to its dataset, so
+    # a size-less loader around a sizeable dataset still reports the count.
+    loader = types.SimpleNamespace(dataset=CountingMapDataset(8))
+    assert num_samples(loader) == 8
+
+  def test_direct_num_samples_method_wins(self):
+
+    class _Computing(CountingStream):
+
+      def num_samples(self):
+        return 123
+
+    assert num_samples(_Computing(4)) == 123
 
 
 class TestNoLenSafety:

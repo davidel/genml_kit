@@ -58,6 +58,17 @@ class _ProxyAdapterMixin:
     for item in self._proxy:
       yield self._to_dict(item)
 
+  def num_samples(self):
+    """Forward the wrapped proxy's item count, if it has one.
+
+      The iterable adapter trades index access for streamed access; if the
+      wrapped proxy can still be sized (a source with ``__len__`` but no
+      ``__getitem__``), forwarding its count keeps the progress estimate
+      intact.  A genuinely length-less stream yields ``None``.
+      """
+    from genml_kit.datasets.base import num_samples
+    return num_samples(self._proxy)
+
   def set_epoch(self, epoch):
     """Forward the epoch to a source that reshuffles per epoch."""
     if hasattr(self._proxy, "set_epoch"):
@@ -67,9 +78,9 @@ class _ProxyAdapterMixin:
 class _DictAdapterMixin:
   """Map a dict item to the uniform ``{"image", "label"}`` key.
 
-  Shared by the map-style and streaming adapters (see
-  :class:`_ProxyAdapterMixin` for why the split exists at all).
-  """
+    Shared by the map-style and streaming adapters (see
+    :class:`_ProxyAdapterMixin` for why the split exists at all).
+    """
 
   def __init__(self, dataset, image_column="image"):
     self._ds = dataset
@@ -84,6 +95,16 @@ class _DictAdapterMixin:
   def __iter__(self):
     for item in self._ds:
       yield self._to_dict(item)
+
+  def num_samples(self):
+    """Forward the wrapped dataset's item count, if it has one.
+
+        See :meth:`_ProxyAdapterMixin.num_samples`: a source that is sizeable
+        even though it lacks ``__getitem__`` keeps its count through the
+        iterable adapter.
+        """
+    from genml_kit.datasets.base import num_samples
+    return num_samples(self._ds)
 
   def set_epoch(self, epoch):
     """Forward the epoch to a source that reshuffles per epoch."""

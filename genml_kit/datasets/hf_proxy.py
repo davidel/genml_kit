@@ -128,7 +128,8 @@ class HFDatasetProxy:
                label_column=None,
                mask_column=None,
                mask_map=None,
-               mask_ignore_index=None):
+               mask_ignore_index=None,
+               num_samples=None):
     # A streaming source has no index space: ``map``/``cast_column``/column scans
     # would materialise the corpus (or fail outright).  This covers both a raw
     # HuggingFace ``IterableDataset`` and any wrapper that is not random-access
@@ -162,6 +163,9 @@ class HFDatasetProxy:
         self.dataset = self.normalize_labels(self.dataset, self._label_col)
 
     self._transform = transform
+    # Progress-only estimate of the item count (for a stream that cannot be
+    # sized).  Never load-bearing; ``None`` means unknown.
+    self._num_samples = num_samples
 
   @staticmethod
   def _require_classlabel(dataset, label_col):
@@ -195,6 +199,20 @@ class HFDatasetProxy:
     if self._streaming or is_streaming_source(self.dataset):
       raise TypeError("streaming image dataset has no length")
     return len(self.dataset)
+
+  def num_samples(self):
+    """Best-effort item count, or ``None`` for a length-less stream.
+
+        A sizeable source answers exactly; a stream falls back to the estimate
+        passed to the constructor (``None`` when none was declared).  ``len``
+        raising is the streaming signal, so it is caught as well as tested.
+        """
+    if self._streaming or is_streaming_source(self.dataset):
+      return self._num_samples
+    try:
+      return len(self.dataset)
+    except TypeError:
+      return self._num_samples
 
   def __iter__(self):
     # Iterate the underlying source (which may be a streaming IterableDataset,

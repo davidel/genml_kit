@@ -39,11 +39,15 @@ class TextDatasetProxy:
                hf_dataset,
                text_column=None,
                prompt_column=None,
-               response_column=None):
+               response_column=None,
+               num_samples=None):
     self.dataset = hf_dataset
     self.text_column = text_column
     self.prompt_column = prompt_column
     self.response_column = response_column
+    #: Progress-only estimate of the item count (for a stream that cannot be
+    #: sized).  Never load-bearing; ``None`` means unknown.
+    self._num_samples = num_samples
     # A streaming source with unknown features (e.g. a hub stream, or anything
     # after ``.map()``) reports ``column_names is None`` until its first row is
     # pulled, and a pure streaming wrapper may not expose the attribute at all.
@@ -93,6 +97,20 @@ class TextDatasetProxy:
     if is_streaming_source(self.dataset):
       raise TypeError("streaming text dataset has no length")
     return len(self.dataset)
+
+  def num_samples(self):
+    """Best-effort item count, or ``None`` for a length-less stream.
+
+        A sizeable source answers exactly; a stream falls back to the estimate
+        passed to the constructor (``None`` when none was declared).  ``len``
+        raising is the streaming signal, so it is caught rather than relied on
+        via :func:`is_streaming_source` (a duck-typed stand-in is not a torch
+        ``IterableDataset``).
+        """
+    try:
+      return len(self.dataset)
+    except TypeError:
+      return self._num_samples
 
   def __iter__(self):
     # A streaming source has no index, so build each row from the iterator.
@@ -146,6 +164,15 @@ class StreamingTextDataset(IterableDataset):
 
   def __iter__(self):
     yield from self.proxy
+
+  def num_samples(self):
+    """Forward the wrapped proxy's item count, if it has one.
+
+        The proxy is sizeable for a random-access split and estimate-only for
+        a stream; forwarding keeps the progress estimate through the adapter.
+        """
+    from genml_kit.datasets.base import num_samples
+    return num_samples(self.proxy)
 
   def set_epoch(self, epoch):
     """No-op: a text stream carries no per-epoch shuffle state."""

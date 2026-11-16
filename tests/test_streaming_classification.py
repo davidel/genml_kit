@@ -166,7 +166,6 @@ class TestStreamingSplitAndWrap:
     assert pickle.loads(pickle.dumps(limited)) is not None
     # Single-process: the limit is exact (``_Rows`` yields ``(i, 0)`` tuples).
     assert [i for i, _ in limited] == [0, 1, 2, 3]
-
     # The pipeline wraps the limited stream in an IterableDataset adapter; the
     # two layers together must survive being pickled to worker processes.  Each
     # worker applies the limit to its own slice, so assert the run completes and
@@ -176,6 +175,49 @@ class TestStreamingSplitAndWrap:
     produced = [int(batch["image"][0]) for batch in loader]
     assert produced
     assert all(0 <= i < 4 for i in produced)
+
+  def test_max_items_limiter_reports_its_cap_as_an_estimate(self):
+    from genml_kit.datasets.base import num_samples
+    from genml_kit.training.train import _take
+
+    # ``_Rows`` declares no count, so the cap is the best (upper-bound) estimate.
+    assert num_samples(_take(_Rows(), 4)) == 4
+
+  def test_max_items_limiter_clamps_a_known_estimate(self):
+
+    class _Counted(_Rows):
+
+      def num_samples(self):
+        return 50
+
+    from genml_kit.datasets.base import num_samples
+    from genml_kit.training.train import _take
+
+    # A known inner estimate is clamped to the cap rather than replaced by it.
+    assert num_samples(_take(_Counted(), 4)) == 4
+    assert num_samples(_take(_Counted(), 100)) == 50
+
+
+class TestIterableAdapterCount:
+  """Wrapping a sizeable source in an iterable adapter keeps its count."""
+
+  def test_iterable_proxy_adapter_forwards_the_proxy_count(self):
+    from genml_kit.datasets.base import num_samples
+    from genml_kit.pipelines.images import _IterableProxyAdapter
+
+    proxy = HFDatasetProxy(_stream(12))
+    # The proxy itself is length-less (a stream) ...
+    assert num_samples(proxy) is None
+    # ... and so is its iterable adapter, which forwards the same answer.
+    assert num_samples(_IterableProxyAdapter(proxy)) is None
+
+  def test_iterable_adapter_preserves_a_declared_estimate(self):
+    from genml_kit.datasets.base import num_samples
+    from genml_kit.pipelines.images import _IterableProxyAdapter
+
+    proxy = HFDatasetProxy(_stream(12), num_samples=12)
+    assert num_samples(proxy) == 12
+    assert num_samples(_IterableProxyAdapter(proxy)) == 12
 
 
 class TestStreamingProxyConstraints:

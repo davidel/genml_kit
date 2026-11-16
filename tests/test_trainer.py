@@ -366,3 +366,51 @@ def test_vo_trainer_uses_shared_loop(tmp_path):
   latest = torch.load(str(tmp_path / "vo_ckpt_latest.pt"), weights_only=False)
   assert "best_mce" in latest
   assert "best_mce_negated" not in latest
+
+
+class TestEstimatedBatches:
+  """Sample-estimate -> per-rank batch-count conversion (streaming progress)."""
+
+  class _Loader:
+    """A length-less loader carrying an optional batch size and dataset."""
+
+    def __init__(self, dataset, batch_size=None):
+      self.dataset = dataset
+      if batch_size is not None:
+        self.batch_size = batch_size
+
+  class _Dataset:
+
+    def __init__(self, count):
+      self._count = count
+
+    def num_samples(self):
+      return self._count
+
+  def test_converts_samples_to_batches(self):
+    from genml_kit.training.trainer import _estimated_batches
+
+    loader = self._Loader(self._Dataset(100), batch_size=8)
+    assert _estimated_batches(loader) == 13  # ceil(100 / 8)
+
+  def test_none_without_an_estimate(self):
+    from genml_kit.training.trainer import _estimated_batches
+
+    loader = self._Loader(self._Dataset(None), batch_size=8)
+    assert _estimated_batches(loader) is None
+
+  def test_none_without_a_batch_size(self):
+    # A batch-sampler / packing stream loader has ``batch_size=None``; a wrong
+    # denominator is worse than none, so the estimate is withheld.
+    from genml_kit.training.trainer import _estimated_batches
+
+    loader = self._Loader(self._Dataset(100))
+    assert _estimated_batches(loader) is None
+
+  def test_divides_across_ranks(self, monkeypatch):
+    from genml_kit.training import trainer as trainer_mod
+
+    monkeypatch.setattr(trainer_mod, "world_size", lambda: 4)
+    loader = self._Loader(self._Dataset(100), batch_size=5)
+    # ceil(100 / 5 / 4) == 5 batches per rank.
+    assert trainer_mod._estimated_batches(loader) == 5

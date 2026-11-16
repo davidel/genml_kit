@@ -19,12 +19,14 @@ step + ``method.on_epoch_end`` in ``run()``.
 
 import contextlib
 import logging
+import math
 from collections import namedtuple
 from itertools import islice
 
 import torch
 
 from genml_kit.datasets.base import is_random_access, num_samples
+from genml_kit.datasets.iterable import safe_len
 from genml_kit.io.checkpointing import (
     CheckpointSaver,
     create_model_report,
@@ -43,6 +45,7 @@ from genml_kit.utils.distributed import (
     is_main_process,
     sampler_epoch,
     unwrap,
+    world_size,
 )
 from genml_kit.utils.signal import InterruptedException, sigexcept
 
@@ -56,6 +59,30 @@ TrainingResult = namedtuple("TrainingResult", [
 # What ``train_epoch`` (and the RL subclasses' per-epoch helpers) return: the
 # epoch's mean loss and the advanced global step.
 TrainEpochResult = namedtuple("TrainEpochResult", ["loss", "step"])
+
+
+def _estimated_batches(loader):
+  """Estimate a stream loader's per-rank batch count, or ``None``.
+
+    A length-less loader (a streaming source) declares its size in *samples*
+    (``num_samples``), while the progress denominator counts *batches*, so the
+    estimate is converted with the loader's own batch size and, under DDP, split
+    across ranks.  Returns ``None`` -- the honest "unknown" -- whenever any input
+    is missing (no batch size, e.g. a batch-sampler/packing stream loader, or no
+    estimate at all), rather than rendering a wrong or zero denominator.
+
+    Args:
+      loader: The training loader (may be a sharded loader wrapper).
+
+    Returns:
+      int | None: The estimated number of batches this rank will run, or None.
+    """
+  samples = num_samples(loader)
+  batch_size = getattr(loader, "batch_size", None)
+  if samples is None or not batch_size:
+    return None
+  world = world_size() or 1
+  return math.ceil(samples / batch_size / world)
 
 
 class _NoMonitor:
@@ -164,10 +191,14 @@ class BaseTrainer:
     scaler = self.optimization.scaler
     amp_dtype = amp_dtype_from_args(self.args)
     # Length is now a *hint*, not a loop bound: an epoch ends when the loader is
-    # exhausted.  ``num_samples`` is exact for random access, the declared
-    # estimate for a stream, and ``None`` when unknown -- the reporter degrades
-    # to ``[i/?]`` / ``[i/~N]`` accordingly.
-    total_batches = num_samples(self.pipeline.train_loader)
+    # exhausted.  For random access ``safe_len`` gives the exact batch count of
+    # this rank's loader (``None`` for a stream, whose loader has no ``len``).
+    # For a stream, fall back to the dataset's *sample* estimate converted to
+    # batches -- the reporter's denominator counts batches, matching the
+    # ``batch_idx`` numerator it is printed beside.
+    loader = self.pipeline.train_loader
+    exact = safe_len(loader)
+    total_batches = exact if exact is not None else _estimated_batches(loader)
     accum_steps = self.args.grad_accum_steps
 
     # A stream's length is at best a declared estimate, so render it with ``~``
@@ -175,7 +206,7 @@ class BaseTrainer:
     # fall back to the loader's, since not every pipeline exposes both.
     dataset = getattr(self.pipeline, "train_dataset", None)
     if dataset is None:
-      dataset = getattr(self.pipeline.train_loader, "dataset", None)
+      dataset = getattr(loader, "dataset", None)
     total_batches_estimated = dataset is not None and not is_random_access(dataset)
 
     reporter = ImageTrainReporting(
@@ -297,8 +328,11 @@ class BaseTrainer:
           global_step=step,
           # Report on the last known batch; ``None`` means the length is
           # unknown (a stream), in which case only ``log_every`` and the final
-          # ``summary()`` line speak.
-          report_now=(total_batches is not None and step_in_epoch + 1 == total_batches),
+          # ``summary()`` line speak.  An *estimated* total must not trigger the
+          # final report either: the estimate can be wrong, so the last real
+          # batch would otherwise log early or never.
+          report_now=(total_batches is not None and not total_batches_estimated and
+                      step_in_epoch + 1 == total_batches),
           extra_metrics=extra_metrics,
       )
 
