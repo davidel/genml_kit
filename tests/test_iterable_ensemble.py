@@ -11,6 +11,7 @@ so nothing here touches the network.
 """
 
 import io
+import os
 
 import datasets
 import pytest
@@ -165,6 +166,18 @@ class TestWebdatasetSpec:
     ensemble = DatasetEnsemble(configs)
     with pytest.raises(KeyError):
       next(iter(ensemble))
+
+  def test_cache_dir_reaches_the_webdataset_source(self, tmp_path):
+    # One --cache_dir must reach every download site, including the streaming
+    # webdataset source (not just the HF path).
+    spec = "webdataset:" + _make_shards(tmp_path)
+    cache = str(tmp_path / "cache")
+    ensemble = DatasetEnsemble(parse_dataset_specs([spec]), cache_dir=cache)
+    selector = ensemble._datasets[0]
+    # The ensemble wraps the WebDatasetSource in a field selector, which holds
+    # the wrapped stream as ``_source``.
+    assert selector._source.cache_dir == cache
+    assert os.path.isdir(cache)
 
 
 class TestWebDatasetSourceEnsembleContract:

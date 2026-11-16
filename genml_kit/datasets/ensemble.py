@@ -291,7 +291,8 @@ class DatasetEnsemble:
           from genml_kit.datasets.webdataset_source import WebDatasetSource
           source_ds = WebDatasetSource(name,
                                        name=f"webdataset:{name}",
-                                       image_format=cfg.get("image_format", "RGB"))
+                                       image_format=cfg.get("image_format", "RGB"),
+                                       cache_dir=cache_dir)
           # webdataset keys members by *extension* (``png``, ``jpg``, ...), so the
           # image member has to be renamed onto the ensemble's canonical key.
           # ``--image_column`` names that member explicitly; without it, the

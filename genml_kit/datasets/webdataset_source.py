@@ -50,6 +50,8 @@ the spec is what fixes it.  Any other member is passed through in whatever type
 webdataset decoded it to.
 """
 
+import os
+
 from PIL import Image
 
 from genml_kit.datasets.iterable import StreamingDataset
@@ -109,6 +111,10 @@ class WebDatasetSource(StreamingDataset):
         ``[i/?]``.
       transform: Optional callable applied to every image member before it is
         yielded.
+      cache_dir: Directory where webdataset caches *remote* shards, so a second
+        epoch re-reads the local copy instead of re-downloading.  Forwarded to
+        ``webdataset.WebDataset``; local shards are read in place and never
+        cache.  ``None`` (the default) streams remote shards without caching.
     """
 
   #: A webdataset sample carries no dataset-level label vocabulary, so the
@@ -125,7 +131,8 @@ class WebDatasetSource(StreamingDataset):
                name=None,
                image_format="RGB",
                num_samples=None,
-               transform=None):
+               transform=None,
+               cache_dir=None):
     if image_format not in _IMAGE_FORMATS:
       fatal(
           f"Unsupported image_format {image_format!r}; "
@@ -135,6 +142,11 @@ class WebDatasetSource(StreamingDataset):
     self.name = name or str(urls)
     self.image_format = image_format
     self.transform = transform
+    # webdataset requires its cache directory to exist already; create it so a
+    # shared --cache_dir that HuggingFace would have created works here too.
+    if cache_dir is not None:
+      os.makedirs(cache_dir, exist_ok=True)
+    self.cache_dir = cache_dir
     # Record the progress-only estimate on the base class.
     super().__init__(num_samples=num_samples)
 
@@ -150,7 +162,8 @@ class WebDatasetSource(StreamingDataset):
         # Shard order is stable; per-epoch reordering would be a second,
         # unseeded shuffle competing with the round-robin buffer.
         shardshuffle=False,
-        empty_check=False)
+        empty_check=False,
+        cache_dir=self.cache_dir)
     # The decode spec is fixed at "pil": it yields a PIL image for every image
     # member, and ``image_format`` then decides the mode.  webdataset's own spec
     # strings cannot express "PIL, mode chosen later", so converting after the

@@ -13,6 +13,7 @@ from genml_kit.datasets.base import (
     is_shuffleable,
     num_samples,
 )
+from genml_kit.datasets.counting import hf_num_samples, webdataset_num_samples
 from genml_kit.datasets.ensemble import DatasetEnsemble
 from genml_kit.datasets.field_selector import (FieldSelectorDataset,
                                                IterableFieldSelectorDataset)
@@ -38,9 +39,11 @@ __all__ = [
     "StreamingDataset",
     "Transition",
     "WebDatasetSource",
+    "hf_num_samples",
     "is_iterable",
     "is_random_access",
     "is_streaming_source",
     "is_shuffleable",
     "num_samples",
+    "webdataset_num_samples",
 ]

@@ -12,7 +12,11 @@ and image members converted to ``image_format``.  Field selection is
 ``FieldSelectorDataset``'s job, exercised at the bottom to show the two compose.
 """
 
+import functools
+import http.server
 import io
+import os
+import threading
 
 import numpy as np
 import pytest
@@ -58,6 +62,32 @@ def _labels(source):
   """The ``cls`` member of every sample, as a list (via FieldSelectorDataset)."""
   picked = FieldSelectorDataset(source, fields={"cls": "label"})
   return [item["label"] for item in picked]
+
+
+class _LoopbackShards:
+  """Serve *directory* over loopback HTTP and yield shard URLs.
+
+  Used to exercise ``cache_dir``: webdataset caches only *remote* shards, so a
+  ``file://`` path would bypass the cache under test.  Loopback keeps the test
+  hermetic (no real network, no ``network`` marker).
+  """
+
+  def __init__(self, directory):
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler,
+                                directory=str(directory))
+    self._httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+
+  def __enter__(self):
+    threading.Thread(target=self._httpd.serve_forever, daemon=True).start()
+    return self
+
+  def __exit__(self, *exc):
+    self._httpd.shutdown()
+    self._httpd.server_close()
+
+  def url(self, name):
+    port = self._httpd.server_address[1]
+    return f"http://127.0.0.1:{port}/{name}"
 
 
 class TestSampleContract:
@@ -358,3 +388,35 @@ class TestFailureModes:
       with pytest.raises(DecodingError):
         list(WebDatasetSource(str(path)))
       gc.collect()
+
+
+class TestCacheDir:
+  """``cache_dir`` forwards to webdataset, so remote shards are cached."""
+
+  def test_remote_shards_are_cached_when_cache_dir_is_given(self, tmp_path):
+    _write_shard(tmp_path / "s-0000.tar", range(3))
+    cache = tmp_path / "cache"
+    with _LoopbackShards(tmp_path) as server:
+      source = WebDatasetSource(server.url("s-0000.tar"), cache_dir=str(cache))
+      assert len(list(source)) == 3
+    cached = list(cache.rglob("*.tar"))
+    assert len(cached) == 1
+    assert cached[0].stat().st_size > 0
+
+  def test_second_pass_reads_the_cached_copy(self, tmp_path):
+    _write_shard(tmp_path / "s-0000.tar", range(4))
+    cache = tmp_path / "cache"
+    with _LoopbackShards(tmp_path) as server:
+      source = WebDatasetSource(server.url("s-0000.tar"), cache_dir=str(cache))
+      # First pass downloads into the cache; the server is then stopped, yet a
+      # second pass still succeeds because webdataset reads the cached copy.
+      assert len(list(source)) == 4
+    assert len(list(source)) == 4
+
+  def test_cache_dir_is_exposed_for_forwarding(self, tmp_path):
+    _write_shard(tmp_path / "s-0000.tar", range(2))
+    cache = str(tmp_path / "cache")
+    source = WebDatasetSource(str(tmp_path / "s-0000.tar"), cache_dir=cache)
+    assert source.cache_dir == cache
+    # webdataset needs the directory to pre-exist, so it is created eagerly.
+    assert os.path.isdir(cache)
