@@ -52,6 +52,7 @@ webdataset decoded it to.
 
 import os
 
+import webdataset as wds
 from PIL import Image
 
 from genml_kit.datasets.iterable import StreamingDataset
@@ -64,17 +65,6 @@ _META_PREFIX = "__"
 #: the modes a training pipeline has a use for, and a typo should fail at
 #: construction rather than on the first sample.
 _IMAGE_FORMATS = ("RGB", "RGBA", "L", "LA", "P", "CMYK")
-
-
-def _require_webdataset():
-  """Import ``webdataset``, or fail with the extra that provides it."""
-  try:
-    import webdataset as wds
-  except ImportError:
-    fatal(
-        "Streaming tar shards require the 'webdataset' package. "
-        "Install it with: pip install genml_kit[webdataset]", ImportError)
-  return wds
 
 
 def _convert_image(value, image_format):
@@ -152,7 +142,6 @@ class WebDatasetSource(StreamingDataset):
 
   def _pipeline(self):
     """Build the webdataset pipeline for one pass over the shards."""
-    wds = _require_webdataset()
     pipeline = wds.WebDataset(
         self.urls,
         # Both splitters off: this class and _ShardedBatchLoader do the

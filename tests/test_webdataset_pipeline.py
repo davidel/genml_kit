@@ -8,14 +8,12 @@ to be recognised and wrapped correctly.
 
 import io
 
-import pytest
+import webdataset
 from PIL import Image
 from torchvision.transforms import v2
 
 from genml_kit.pipelines.images import ImagesPipeline
 from tests.cli_args import train_args
-
-webdataset = pytest.importorskip("webdataset")
 
 
 def _make_shards(dirpath, n_shards=2, n_samples=4):

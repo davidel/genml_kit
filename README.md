@@ -810,11 +810,8 @@ e.g. `png`). If a shard carries more than one image member, name it explicitly:
 --datasets "webdataset:/data/train-{0000..0999}.tar" --image_column png
 ```
 
-The `webdataset` package is an optional extra:
-
-```bash
-pip install "genml_kit[webdataset]"
-```
+The `webdataset` package ships with the core install (it is a hard dependency,
+like `datasets` and `transformers`), so no extra is needed.
 
 A webdataset member is keyed by extension, so these sources are unlabeled by
 default (there is no dataset-level class vocabulary). Use a method that does not

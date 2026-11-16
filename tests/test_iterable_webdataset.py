@@ -21,6 +21,7 @@ import threading
 import numpy as np
 import pytest
 import torch
+import webdataset as wds
 from PIL import Image
 
 from genml_kit.datasets.base import is_iterable, is_random_access, num_samples
@@ -29,8 +30,6 @@ from genml_kit.datasets.field_selector import (FieldSelectorDataset,
 from genml_kit.datasets.iterable import StreamingDataset, is_streaming_source
 from genml_kit.datasets.webdataset_source import WebDatasetSource
 from genml_kit.utils import distributed
-
-wds = pytest.importorskip("webdataset", reason="webdataset extra not installed")
 
 
 def _png(mode="RGB", size=(4, 4), color=None):
@@ -354,15 +353,6 @@ class TestNoInternalSplitting:
 
 
 class TestFailureModes:
-
-  def test_missing_extra_reports_the_install_hint(self, tmp_path, monkeypatch):
-    import sys
-    # A None entry in sys.modules makes ``import webdataset`` raise ImportError,
-    # which is the only way to exercise the guard with the package installed.
-    monkeypatch.setitem(sys.modules, "webdataset", None)
-    source = WebDatasetSource("unused-{0000..0000}.tar")
-    with pytest.raises(ImportError, match=r"genml_kit\[webdataset\]"):
-      list(source)
 
   def test_non_image_member_raises(self, tmp_path):
     """A member named like an image but holding bytes is a config error.

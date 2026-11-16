@@ -15,6 +15,7 @@ dependencies = [
     "torchvision",
     "transformers",
     "datasets",
+    "webdataset",
     "xgboost>=2.0",
     "scikit-learn",
     "pillow",
@@ -32,9 +33,8 @@ uvito = ["segmentation_models_pytorch>=0.3.0"]
 rl = ["gymnasium>=0.29", "pygame>=2.1", "imageio[ffmpeg]>=2.31", "box2d>=2.3.10"]
 tune = ["scipy"]
 gpu = ["nvidia-ml-py"]
-webdataset = ["webdataset"]
 flash = ["flash-attn"]
-all = ["genml_kit[gcs,s3,lora,llm,llm-spm,timm,uvito,rl,tune,gpu,webdataset]"]
+all = ["genml_kit[gcs,s3,lora,llm,llm-spm,timm,uvito,rl,tune,gpu]"]
 dev = ["pytest", "ruff", "yapf", "pyyaml"]
 
 [project.urls]

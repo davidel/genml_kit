@@ -43,6 +43,7 @@ import urllib.parse
 import urllib.request
 
 import datasets
+from webdataset.shardlists import expand_urls
 
 #: Extensions whose row count can be read straight from a file footer.
 _FOOTER_EXTS = (".parquet", ".arrow")
@@ -651,16 +652,16 @@ def _expand_shards(shards):
   """Expand a shard brace pattern/list into concrete paths, or ``[]``.
 
   Uses webdataset's own expansion (``::``-separated patterns, env vars, brace
-  ranges), falling back to the raw value when webdataset is not installed.
+  ranges); a list or tuple is expanded entry by entry.
   """
   if shards is None:
     return []
+  entries = shards if isinstance(shards, (list, tuple)) else [shards]
   try:
-    from webdataset.shardlists import expand_urls
-  except ImportError:
-    return list(shards) if isinstance(shards, (list, tuple)) else [shards]
-  try:
-    return list(expand_urls(shards))
+    paths = []
+    for entry in entries:
+      paths.extend(expand_urls(entry))
+    return paths
   except Exception as e:
     logging.debug("shard expansion of %r failed: %s", shards, e)
     return []

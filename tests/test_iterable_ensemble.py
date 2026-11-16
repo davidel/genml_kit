@@ -15,14 +15,13 @@ import os
 
 import datasets
 import pytest
+import webdataset
 from PIL import Image
 
 from genml_kit.datasets.ensemble import DatasetEnsemble
 from genml_kit.datasets.factory import parse_dataset_specs
 from genml_kit.datasets.field_selector import IterableFieldSelectorDataset
 from genml_kit.datasets.webdataset_source import WebDatasetSource
-
-webdataset = pytest.importorskip("webdataset")
 
 
 def _make_shards(dirpath, n_shards=2, n_samples=3, ext="png"):
