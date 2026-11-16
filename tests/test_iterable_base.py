@@ -114,6 +114,51 @@ class TestNumSamples:
     assert num_samples(_Computing(4)) == 123
 
 
+class TestDeclaredCountStream:
+  """A stream carrying an estimate it recovered from cheap metadata."""
+
+  def test_declared_estimate_is_reported(self):
+    from genml_kit.datasets.iterable import DeclaredCountStream
+
+    wrapped = DeclaredCountStream(CountingStream(5), 100)
+    assert num_samples(wrapped) == 100
+
+  def test_source_estimate_wins_over_declared(self):
+    # The wrapped source is authoritative when it already declares a count.
+    from genml_kit.datasets.iterable import DeclaredCountStream
+
+    wrapped = DeclaredCountStream(CountingStream(5, num_samples=7), 100)
+    assert num_samples(wrapped) == 7
+
+  def test_iteration_is_transparent(self):
+    from genml_kit.datasets.iterable import DeclaredCountStream
+
+    wrapped = DeclaredCountStream(CountingStream(4), 4)
+    assert ids(wrapped) == [0, 1, 2, 3]
+
+  def test_adds_no_worker_split_of_its_own(self):
+    # A ``StreamingTransform``: forwarding iteration must not re-shard the
+    # source (a second split would keep only ~1/num_workers**2 of the corpus).
+    from genml_kit.datasets.iterable import DeclaredCountStream, is_streaming_source
+
+    wrapped = DeclaredCountStream(CountingStream(4), 4)
+    assert is_streaming_source(wrapped) is True
+    assert not is_random_access(wrapped)
+
+  def test_set_epoch_is_forwarded(self):
+    from genml_kit.datasets.iterable import DeclaredCountStream
+
+    source = CountingStream(4)
+    wrapped = DeclaredCountStream(source, 4)
+    wrapped.set_epoch(3)
+    assert source._epoch == 3
+
+  def test_none_declared_stays_unknown(self):
+    from genml_kit.datasets.iterable import DeclaredCountStream
+
+    assert num_samples(DeclaredCountStream(CountingStream(5), None)) is None
+
+
 class TestNoLenSafety:
   """No helper may explode on a source with no ``__len__``."""
 

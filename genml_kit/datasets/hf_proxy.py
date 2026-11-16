@@ -203,16 +203,25 @@ class HFDatasetProxy:
   def num_samples(self):
     """Best-effort item count, or ``None`` for a length-less stream.
 
-        A sizeable source answers exactly; a stream falls back to the estimate
-        passed to the constructor (``None`` when none was declared).  ``len``
+        A sizeable source answers exactly; a stream falls back first to the
+        estimate passed to the constructor and then to the wrapped source's own
+        estimate (e.g. a ``CappedDataset`` knows its ``--max_items`` cap).  ``len``
         raising is the streaming signal, so it is caught as well as tested.
         """
     if self._streaming or is_streaming_source(self.dataset):
-      return self._num_samples
+      return self._estimate_or_inner()
     try:
       return len(self.dataset)
     except TypeError:
+      return self._estimate_or_inner()
+
+  def _estimate_or_inner(self):
+    """Constructor estimate when set, else the wrapped source's own estimate."""
+    if self._num_samples is not None:
       return self._num_samples
+    from genml_kit.datasets.base import num_samples
+
+    return num_samples(self.dataset)
 
   def __iter__(self):
     # Iterate the underlying source (which may be a streaming IterableDataset,

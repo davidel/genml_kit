@@ -400,12 +400,24 @@ class TestEstimatedBatches:
     assert _estimated_batches(loader) is None
 
   def test_none_without_a_batch_size(self):
-    # A batch-sampler / packing stream loader has ``batch_size=None``; a wrong
-    # denominator is worse than none, so the estimate is withheld.
+    # A batch-sampler / packing stream loader has ``batch_size=None`` and no
+    # batch size on its dataset; a wrong denominator is worse than none, so the
+    # estimate is withheld.
     from genml_kit.training.trainer import _estimated_batches
 
     loader = self._Loader(self._Dataset(100))
     assert _estimated_batches(loader) is None
+
+  def test_batch_size_falls_back_to_the_dataset(self):
+    # A streaming batch pipe reaches the trainer as a ``batch_size=None``
+    # loader (it emits whole batches); its per-batch size lives on the dataset,
+    # so that is consulted rather than giving up.
+    from genml_kit.training.trainer import _estimated_batches
+
+    dataset = self._Dataset(100)
+    dataset.batch_size = 4
+    loader = self._Loader(dataset)
+    assert _estimated_batches(loader) == 25  # ceil(100 / 4)
 
   def test_divides_across_ranks(self, monkeypatch):
     from genml_kit.training import trainer as trainer_mod

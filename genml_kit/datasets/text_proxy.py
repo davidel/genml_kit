@@ -101,8 +101,9 @@ class TextDatasetProxy:
   def num_samples(self):
     """Best-effort item count, or ``None`` for a length-less stream.
 
-        A sizeable source answers exactly; a stream falls back to the estimate
-        passed to the constructor (``None`` when none was declared).  ``len``
+        A sizeable source answers exactly; a stream falls back first to the
+        estimate passed to the constructor and then to the wrapped source's own
+        estimate (e.g. a ``CappedDataset`` knows its ``--max_items`` cap).  ``len``
         raising is the streaming signal, so it is caught rather than relied on
         via :func:`is_streaming_source` (a duck-typed stand-in is not a torch
         ``IterableDataset``).
@@ -110,7 +111,12 @@ class TextDatasetProxy:
     try:
       return len(self.dataset)
     except TypeError:
+      pass
+    if self._num_samples is not None:
       return self._num_samples
+    from genml_kit.datasets.base import num_samples
+
+    return num_samples(self.dataset)
 
   def __iter__(self):
     # A streaming source has no index, so build each row from the iterator.

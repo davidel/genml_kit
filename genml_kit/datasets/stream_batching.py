@@ -68,6 +68,22 @@ class StreamingBatchPipe(IterableDataset):
     self.seed = seed
     self.epoch = 0
 
+  def num_samples(self):
+    """Forward the wrapped source's item-count estimate, or ``None``.
+
+        The pipe yields *batches*, but the only denominator a length-less stream
+        can offer is its source's *item* estimate; the trainer converts it to
+        batches with ``batch_size`` (see
+        :func:`genml_kit.training.trainer._estimated_batches`).  It is an
+        estimate -- informational progress output only.
+
+        Returns:
+          int | None: The estimated item count, or ``None`` when unknown.
+        """
+    from genml_kit.datasets.base import num_samples
+
+    return num_samples(self.source)
+
   def set_epoch(self, epoch):
     """Advance the epoch so the per-buffer shuffle changes next pass."""
     self.epoch = epoch

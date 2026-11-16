@@ -109,6 +109,29 @@ class TestNumSamplesUnchanged:
   def test_stream_estimate_absent(self):
     assert num_samples(_CountingStream()) is None
 
+  def test_batch_pipe_forwards_the_source_estimate(self):
+    # The pipe yields batches, but the only denominator a stream can offer is
+    # its source's item estimate; the trainer converts it with the batch size.
+    from genml_kit.datasets.iterable import DeclaredCountStream
+
+    stream = DeclaredCountStream(_CountingStream(8), 8)
+    assert num_samples(StreamingLengthBucketBatch(stream, 4)) == 8
+    assert num_samples(StreamingPackingBatch(stream, 4, 4, 1)) == 8
+
+  def test_batch_pipe_estimate_absent_without_a_source_estimate(self):
+    assert num_samples(StreamingLengthBucketBatch(_CountingStream(8), 4)) is None
+
+  def test_pipe_estimate_reaches_the_trainer_denominator(self, monkeypatch):
+    from genml_kit.datasets.iterable import DeclaredCountStream
+    from genml_kit.training.trainer import _estimated_batches
+
+    monkeypatch.setattr("genml_kit.training.trainer.world_size", lambda: 1)
+    stream = DeclaredCountStream(_CountingStream(1000), 1000)
+    pipe = StreamingLengthBucketBatch(stream, 8)
+    loader = DataLoader(pipe, batch_size=None)
+    # ceil(1000 / 8): the pipe's batch size is read from the dataset.
+    assert _estimated_batches(loader) == 125
+
   def test_map_estimate_is_exact(self):
     assert num_samples(_MapDataset(8)) == 8
 

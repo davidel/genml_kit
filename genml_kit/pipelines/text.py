@@ -369,12 +369,25 @@ class TextPipeline(DataPipeline):
                               prompt_column=prompt_column,
                               response_column=response_column)
 
+    def _declare(hf, split):
+      # A stream cannot be sized, so wrap it in an estimate carrier when one can
+      # be recovered from cheap metadata -- this is what feeds the pipeline's
+      # "N train items" log line and the trainer's progress denominator.  A
+      # random-access split answers with ``len`` and needs no wrapper.
+      from genml_kit.datasets.iterable import DeclaredCountStream
+
+      if is_random_access(hf):
+        return hf
+      estimate = self._declared_stream_count(args, split)
+      return hf if estimate is None else DeclaredCountStream(hf, estimate)
+
     val_split = args.val_split
     if val_split:
-      train = _wrap(load_raw_split(args.dataset,
-                                   args.split,
-                                   cache_dir=args.cache_dir,
-                                   dataset_arg=args.dataset_arg),
+      train = _wrap(_declare(
+          load_raw_split(args.dataset,
+                         args.split,
+                         cache_dir=args.cache_dir,
+                         dataset_arg=args.dataset_arg), args.split),
                     cap=args.max_items)
       if not is_random_access(train):
         # A stream cannot be sliced by index (``.select`` is unsupported), so the
@@ -403,22 +416,54 @@ class TextPipeline(DataPipeline):
       return SplitPair(train=_wrap(full.select(range(n - n_val))),
                        val=_wrap(full.select(range(n - n_val, n))))
 
-    train = _wrap(load_raw_split(args.dataset,
-                                 args.split,
-                                 cache_dir=args.cache_dir,
-                                 dataset_arg=args.dataset_arg),
+    train = _wrap(_declare(
+        load_raw_split(args.dataset,
+                       args.split,
+                       cache_dir=args.cache_dir,
+                       dataset_arg=args.dataset_arg), args.split),
                   cap=args.max_items)
     try:
       val_raw = load_raw_split(args.dataset,
                                "validation",
                                cache_dir=args.cache_dir,
                                dataset_arg=args.dataset_arg)
-      val = _wrap(val_raw, cap=args.max_items)
+      val = _wrap(_declare(val_raw, "validation"), cap=args.max_items)
     except (ValueError, KeyError, FileNotFoundError) as exc:
       logging.info("No validation split for %s (%s); val_loader disabled.",
                    args.dataset, exc)
       val = None
     return SplitPair(train=train, val=val)
+
+  def _declared_stream_count(self, args, split):
+    """Best-effort sample count for a streaming corpus, or ``None``.
+
+        Recovers the count from cheap metadata -- the dataset card, a file footer,
+        a datasets-server size -- without reading payloads (see
+        :func:`genml_kit.datasets.counting.hf_num_samples`).  ``streaming`` is
+        stripped because ``load_dataset_builder`` takes no such kwarg.
+
+        Returns:
+          int | None: The estimated item count, or ``None`` when unknown.
+        """
+    from genml_kit.datasets.counting import hf_num_samples
+    from genml_kit.utils.env import getenv
+
+    load_kwargs = dict(args.dataset_arg or {})
+    name = load_kwargs.pop("name", None)
+    load_kwargs.pop("streaming", None)
+    try:
+      return hf_num_samples(args.dataset,
+                            name=name,
+                            split=split,
+                            cache_dir=args.cache_dir,
+                            token=getenv("HF_TOKEN", str, None),
+                            **load_kwargs)
+    except Exception as exc:
+      # The estimate feeds progress output only; any failure must degrade to
+      # "unknown" rather than break a run.
+      logging.debug("Sample-count estimate for %s (%s) failed: %s", args.dataset, split,
+                    exc)
+      return None
 
   def to_device(self, blob, device):
     """Move ``input_ids`` / ``attention_mask`` and ``meta['labels']``."""

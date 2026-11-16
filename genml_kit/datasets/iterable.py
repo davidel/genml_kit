@@ -176,6 +176,50 @@ class StreamingTransform(StreamingDataset):
       self._source.set_epoch(epoch)
 
 
+class DeclaredCountStream(StreamingTransform):
+  """Carry a declared item-count *estimate* for a stream that cannot be sized.
+
+    A HuggingFace streaming source has no ``__len__`` and ships no ``num_samples``
+    of its own, so a progress denominator cannot be derived from it.  This thin,
+    transparent wrapper carries the count recovered from cheap metadata (see
+    :mod:`genml_kit.datasets.counting`) without reading any payload, and forwards
+    everything else -- iteration, schema, per-epoch state -- to the source.
+
+    It is a :class:`StreamingTransform`, so it adds **no** worker split of its
+    own: the wrapped source already shards itself across workers, and a second
+    split here would keep only about ``1 / num_workers**2`` of the corpus.
+
+    The count is informational only -- it feeds progress output and must never
+    size a loop (see :func:`genml_kit.datasets.base.num_samples`).
+  """
+
+  def __init__(self, source, num_samples):
+    """Wrap *source*, declaring *num_samples* as its best-effort item count.
+
+        Args:
+          source: The stream to wrap.  Iterated unchanged.
+          num_samples: The estimated item count to report, or ``None``.
+        """
+    self._source = source
+    self._declared = num_samples
+
+  def source_iter(self):
+    yield from self._source
+
+  def num_samples(self):
+    """Return the source's own estimate when it has one, else the declared one.
+
+        Returns:
+          int | None: The estimated item count, or ``None`` when unknown.
+        """
+    from genml_kit.datasets.base import num_samples
+
+    inner = num_samples(self._source)
+    if inner is not None:
+      return inner
+    return self._declared
+
+
 def is_streaming_source(obj):
   """Return True when *obj* is a torch ``IterableDataset`` (no index space).
 

@@ -82,6 +82,34 @@ class TestTextProxyIteration:
     assert is_random_access(proxy) is False
 
 
+class TestProxyEstimateFallthrough:
+  """A stream proxy must not discard an estimate its wrapped source carries."""
+
+  def test_forwards_the_wrapped_source_estimate(self):
+    # ``--max_items`` wraps a stream in a ``CappedDataset`` that reports the cap
+    # as an upper bound; the proxy has to forward it rather than answer ``None``.
+    from genml_kit.datasets.capped import maybe_cap
+
+    capped = maybe_cap(_FakeStreamingHF([{"text": "a"}] * 4), 2)
+    proxy = TextDatasetProxy(capped, text_column="text")
+    assert num_samples(proxy) == 2
+
+  def test_explicit_estimate_wins_over_the_wrapped_source(self):
+    from genml_kit.datasets.capped import maybe_cap
+
+    capped = maybe_cap(_FakeStreamingHF([{"text": "a"}] * 4), 2)
+    proxy = TextDatasetProxy(capped, text_column="text", num_samples=99)
+    assert num_samples(proxy) == 99
+
+  def test_exact_length_still_wins_over_an_estimate(self):
+    proxy = TextDatasetProxy(_IndexableHF([{
+        "text": "a"
+    }] * 3),
+                             text_column="text",
+                             num_samples=99)
+    assert num_samples(proxy) == 3
+
+
 class TestStreamingPredicate:
 
   def test_fake_stream_is_recognised_by_protocol_not_type(self):

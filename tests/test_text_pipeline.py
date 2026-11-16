@@ -127,8 +127,8 @@ class TestBuildLoader:
     method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
     pipeline = TextPipeline()
     loader = pipeline.build_loader(_args(packing="wrapped",
-                                          sequence_mode="open",
-                                          batch_size=3),
+                                         sequence_mode="open",
+                                         batch_size=3),
                                    mode="train",
                                    method=method)
     batch_size = 3
@@ -142,8 +142,7 @@ class TestBuildLoader:
     self._patch_load(monkeypatch, _proxy())
     method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
     pipeline = TextPipeline()
-    loader = pipeline.build_loader(_args(packing="wrapped",
-                                          sequence_mode="open"),
+    loader = pipeline.build_loader(_args(packing="wrapped", sequence_mode="open"),
                                    mode="train",
                                    method=method)
     assert isinstance(loader.batch_sampler, PackingBatchSampler)
@@ -170,3 +169,75 @@ class TestBuildLoader:
                           method=method)
     assert len(pipeline.train_dataset) == 2
     assert len(pipeline.val_dataset) == 2
+
+
+class _FakeTextStream:
+  """A length-less HF-lookalike yielding plain-LM rows (no index space)."""
+
+  def __init__(self, n):
+    self._n = n
+
+  @property
+  def column_names(self):
+    return ["text"]
+
+  def __getitem__(self, idx):
+    raise TypeError("streaming text dataset has no index")
+
+  def __iter__(self):
+    for i in range(self._n):
+      yield {"text": str(i)}
+
+
+class TestStreamEstimateWiring:
+  """A streaming corpus reports a recovered estimate, not ``None``."""
+
+  def _patch_stream(self, monkeypatch, stream, estimate):
+    import genml_kit.datasets.counting as counting
+    import genml_kit.pipelines.text as text_mod
+
+    monkeypatch.setattr(text_mod,
+                        "load_raw_split",
+                        lambda name, split="train", **kw: stream)
+    monkeypatch.setattr(counting, "hf_num_samples", lambda *a, **kw: estimate)
+
+  def test_uncapped_stream_reports_the_recovered_estimate(self, monkeypatch):
+    from genml_kit.datasets.base import num_samples
+
+    self._patch_stream(monkeypatch, _FakeTextStream(50), 50)
+    method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
+    pipeline = TextPipeline()
+    pipeline.build_loader(_args(), mode="train", method=method)
+    assert num_samples(pipeline.train_dataset) == 50
+
+  def test_estimate_is_clamped_by_max_items(self, monkeypatch):
+    from genml_kit.datasets.base import num_samples
+
+    self._patch_stream(monkeypatch, _FakeTextStream(50), 50)
+    method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
+    pipeline = TextPipeline()
+    pipeline.build_loader(_args(max_items=8), mode="train", method=method)
+    # ``maybe_cap`` wraps the stream and reports the cap as an upper bound.
+    assert num_samples(pipeline.train_dataset) == 8
+
+  def test_unavailable_estimate_stays_unknown(self, monkeypatch):
+    from genml_kit.datasets.base import num_samples
+
+    self._patch_stream(monkeypatch, _FakeTextStream(50), None)
+    method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
+    pipeline = TextPipeline()
+    pipeline.build_loader(_args(), mode="train", method=method)
+    assert num_samples(pipeline.train_dataset) is None
+
+  def test_streaming_estimate_reaches_the_trainer_denominator(self, monkeypatch):
+    from genml_kit.datasets.iterable import safe_len
+    from genml_kit.training.trainer import _estimated_batches
+
+    self._patch_stream(monkeypatch, _FakeTextStream(50), 50)
+    monkeypatch.setattr("genml_kit.training.trainer.world_size", lambda: 1)
+    method = types.SimpleNamespace(tokenizer=load_tokenizer("byte"))
+    pipeline = TextPipeline()
+    pipeline.build_loader(_args(batch_size=4), mode="train", method=method)
+    loader = pipeline.train_loader
+    assert safe_len(loader) is None  # a stream has no batch count
+    assert _estimated_batches(loader) == 13  # ceil(50 / 4)

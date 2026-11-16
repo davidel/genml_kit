@@ -67,9 +67,10 @@ def _estimated_batches(loader):
     A length-less loader (a streaming source) declares its size in *samples*
     (``num_samples``), while the progress denominator counts *batches*, so the
     estimate is converted with the loader's own batch size and, under DDP, split
-    across ranks.  Returns ``None`` -- the honest "unknown" -- whenever any input
-    is missing (no batch size, e.g. a batch-sampler/packing stream loader, or no
-    estimate at all), rather than rendering a wrong or zero denominator.
+    across ranks.  A ``batch_size=None`` loader (a streaming batch pipe, which
+    emits whole batches) carries its batch size on the dataset instead, so that
+    is consulted as a fallback.  Returns ``None`` -- the honest "unknown" --
+    whenever any input is missing, rather than rendering a wrong denominator.
 
     Args:
       loader: The training loader (may be a sharded loader wrapper).
@@ -79,6 +80,8 @@ def _estimated_batches(loader):
     """
   samples = num_samples(loader)
   batch_size = getattr(loader, "batch_size", None)
+  if not batch_size:
+    batch_size = getattr(getattr(loader, "dataset", None), "batch_size", None)
   if samples is None or not batch_size:
     return None
   world = world_size() or 1
