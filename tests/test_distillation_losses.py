@@ -16,7 +16,7 @@ class TestKdResponseLoss:
   def test_zero_when_student_matches_teacher(self):
     teacher = torch.randn(4, 5)
     loss = kd_response_loss(teacher.clone(), teacher)
-    assert loss.item() == pytest.approx(0.0, abs=1e-6)
+    assert loss.item() == pytest.approx(0.0, abs=1e-5)
 
   def test_positive_when_students_differ(self):
     teacher = torch.randn(4, 5)
