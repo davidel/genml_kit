@@ -247,16 +247,19 @@ class _GpEiSampler(Sampler):
   @staticmethod
   def _cholesky(matrix):
     from scipy import linalg
+
     return linalg.cho_factor(matrix)
 
   @staticmethod
   def _solve(chol, rhs):
     from scipy import linalg
+
     return linalg.cho_solve(chol, rhs)
 
   def _posterior(self, candidates, x, kernel, chol, alpha, length_scale):
     """GP posterior mean / variance at *candidates* (a trivial grouping)."""
     from scipy import linalg
+
     k_star = self._kernel(candidates, x, length_scale)
     mean = k_star @ alpha
     v = linalg.cho_solve(chol, k_star.T)
@@ -266,6 +269,7 @@ class _GpEiSampler(Sampler):
   @staticmethod
   def _expected_improvement(mean, var, best):
     from scipy.stats import norm
+
     sigma = np.sqrt(var)
     z = (mean - best) / sigma
     return (mean - best) * norm.cdf(z) + sigma * norm.pdf(z)

@@ -84,7 +84,9 @@ class ClassificationMethod(Method):
           "ClassificationMethod.build_model requires wire_data(args, "
           "pipeline) to have provided the label space; check the run "
           "order (wire_data before build_model).", RuntimeError)
+
     from genml_kit.models import load_model
+
     model = load_model(
         args.model,
         num_labels=self._num_labels,
@@ -148,6 +150,7 @@ class ClassificationMethod(Method):
     check).  The driver's interrupt guard runs before this hook.
     """
     from genml_kit.training.train_compat import maybe_train_xgboost
+
     maybe_train_xgboost(args, pipeline, device)
 
   def train_step(self, model, blob, global_step, *, labels=None):

@@ -79,6 +79,7 @@ class PreferencePipeline(DataPipeline):
     # triggers the pipelines package __init__ (and therefore this module's
     # registration) -- a module-scope import here would close that cycle.
     from genml_kit.training.preference_collator import PreferenceCollator
+
     return PreferenceCollator(tokenizer,
                               max_seq_len=self._max_seq_len,
                               mask_prompt=self._mask_prompt,
@@ -146,6 +147,7 @@ class PreferencePipeline(DataPipeline):
     def _wrap(hf, cap=None):
       from genml_kit.datasets.capped import maybe_cap
       from genml_kit.datasets.preference_proxy import PreferenceDatasetProxy
+
       return PreferenceDatasetProxy(maybe_cap(hf, cap),
                                     chosen_column=chosen_column,
                                     rejected_column=rejected_column,

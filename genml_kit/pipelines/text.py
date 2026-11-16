@@ -158,8 +158,10 @@ class TextPipeline(DataPipeline):
                                         drop_last=False,
                                         seed=args.seed)
       return self._batch_pipe_loader(pipe, args.num_workers)
+
     from genml_kit.datasets.length_bucket_sampler import (LengthBucketBatchSampler,
                                                           text_length_proxy)
+
     # One length proxy per item drives the bucketing; computed once here (not
     # per epoch) since it is a property of the data, not of the run.
     lengths = text_length_proxy(self.train_dataset)
@@ -218,8 +220,10 @@ class TextPipeline(DataPipeline):
                                    drop_last=False,
                                    seed=args.seed)
       return self._batch_pipe_loader(pipe, args.num_workers)
+
     from genml_kit.datasets.length_bucket_sampler import text_length_proxy
     from genml_kit.datasets.packing_sampler import PackingBatchSampler
+
     lengths = text_length_proxy(self.train_dataset)
     sampler = PackingBatchSampler(lengths,
                                   batch_size=args.batch_size,
@@ -242,6 +246,7 @@ class TextPipeline(DataPipeline):
     # triggers the pipelines package __init__ (and therefore this module's
     # registration) -- a module-scope import here would close that cycle.
     from genml_kit.training.text_collator import TextCollator
+
     windowing = self._sequence.windowing
     packing = windowing in ("wrapped", "bfd")
     # Only ``wrapped`` can emit more rows than documents, so only it needs the
@@ -272,6 +277,7 @@ class TextPipeline(DataPipeline):
     # exclusive" guard and the mode's boundary/framing policy, so no callee
     # reads the raw flags again.
     from genml_kit.training.sequence_mode import resolve_sequence_mode
+
     self._sequence = resolve_sequence_mode(args.sequence_mode, args.packing,
                                            args.length_bucket)
     self._max_seq_len = args.max_seq_len
@@ -357,6 +363,7 @@ class TextPipeline(DataPipeline):
     def _wrap(hf, cap=None):
       from genml_kit.datasets.capped import maybe_cap
       from genml_kit.datasets.text_proxy import TextDatasetProxy
+
       return TextDatasetProxy(maybe_cap(hf, cap),
                               text_column=text_column,
                               prompt_column=prompt_column,

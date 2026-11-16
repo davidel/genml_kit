@@ -94,6 +94,7 @@ class DataPipeline(abc.ABC):  # noqa: B024
             args: Parsed CLI args (uses ``dist_arg["shard"]``).
         """
     from genml_kit.utils.distributed import shard_loader, world_size
+
     # Default: shard whenever more than one rank is present.  Every rank
     # iterating the full dataset is never what a multi-GPU run wants, and it
     # fails silently (no error, just N times the compute), so the default is
@@ -120,6 +121,7 @@ class DataPipeline(abc.ABC):  # noqa: B024
             args: Parsed CLI args (uses ``dist_arg["shard"]``).
         """
     from genml_kit.utils.distributed import shard_loader, world_size
+
     if not args.dist_arg.get("shard", world_size() > 1) or world_size() < 2:
       return
     if getattr(self, "val_loader", None) is not None:
@@ -160,8 +162,10 @@ class DataPipeline(abc.ABC):  # noqa: B024
       seen.add(id(obj))
       if hasattr(obj, "set_epoch"):
         obj.set_epoch(epoch)
+
     # 3. Sampler chain (random access).
     from genml_kit.utils.distributed import sampler_epoch
+
     sampler_epoch(loader, epoch)
 
   def seek_batch(self, batch_idx):
@@ -213,6 +217,7 @@ class DataPipeline(abc.ABC):  # noqa: B024
         a simple stride -- so the caller can fall back to draining.
         """
     from genml_kit.utils.distributed import _SkippedSampler
+
     inner = getattr(getattr(loader, "batch_sampler", None), "sampler", None)
     if inner is None:
       return False

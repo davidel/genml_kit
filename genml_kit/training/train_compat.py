@@ -125,6 +125,7 @@ def resolve_augmentations(args, processor):
 def apply_freeze_patterns(args, model):
   """Freeze parameters matching the user/LORA patterns, when requested."""
   from genml_kit.training.model_utils import extract_lora_params
+
   if args.freeze or args.lora:
     patterns = list(args.freeze.split(",")) if args.freeze else []
     if args.lora:
@@ -136,6 +137,7 @@ def maybe_train_xgboost(args, pipeline, device):
   """Free training VRAM, then optionally train the XGBoost head."""
   if not args.xgboost_model:
     return
+
   from genml_kit.training.xgb_pipeline import train_xgboost_on_backbone
 
   gc.collect()

@@ -89,6 +89,7 @@ class CappedDataset:
           int | None: The estimated item count, or ``None`` when unknown.
         """
     from genml_kit.datasets.base import num_samples
+
     inner = num_samples(self._dataset)
     if inner is None:
       return self._limit

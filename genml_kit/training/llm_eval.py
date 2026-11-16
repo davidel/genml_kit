@@ -143,6 +143,7 @@ def compute_perplexity(model, tokenizer, texts, device, max_seq_len=512, batch_s
     the non-ignored targets -- the same objective ``causal_lm`` uses.
     """
   model.eval()
+
   # Imported lazily: text_collator pulls in the pipelines package, and this
   # module is imported at CLI start-up before pipelines finish initializing.
   from genml_kit.training.text_collator import IGNORE_INDEX

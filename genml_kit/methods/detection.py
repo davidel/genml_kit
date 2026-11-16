@@ -199,6 +199,7 @@ class DetectionMethod(Method):
           "DetectionMethod.build_model requires wire_data(args, pipeline) "
           "to have inferred the class count; check the run order "
           "(wire_data before build_model).", RuntimeError)
+
     from genml_kit.models import load_model
 
     model = load_model(

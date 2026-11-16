@@ -341,6 +341,7 @@ class Method(abc.ABC):
       from genml_kit.models.init import init_orthogonal
 
       init_orthogonal(model)
+
     from genml_kit.training.train_compat import apply_freeze_patterns
 
     apply_freeze_patterns(args, model)

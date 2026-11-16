@@ -151,6 +151,7 @@ class StreamingTransform(StreamingDataset):
           int | None: The estimated item count, or ``None`` when unknown.
         """
     from genml_kit.datasets.base import num_samples
+
     return num_samples(self._source)
 
   @property

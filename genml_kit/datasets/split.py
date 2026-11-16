@@ -58,6 +58,7 @@ class _FilteredStream(StreamingTransform):
           int | None: The estimated item count, or ``None`` when unknown.
         """
     from genml_kit.datasets.base import num_samples
+
     total = num_samples(self._source)
     if total is None:
       return None

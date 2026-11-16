@@ -95,7 +95,9 @@ def encode_with_backbone(encoder, images):
   if embedding is not MISSING:
     return embedding
   # 2. Hook-based extraction via the classifier / pooling layer.
+
   from genml_kit.training.model_utils import extract_backbone_features
+
   try:
     return extract_backbone_features(encoder, images)
   except torch.cuda.OutOfMemoryError:

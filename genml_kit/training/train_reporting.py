@@ -501,7 +501,9 @@ class ImageTrainReporting(TrainReporting):
     """Macro-F1 over the current window's predictions (percent)."""
     if not self._window_preds:
       return 0.0
+
     from sklearn.metrics import f1_score
+
     return f1_score(
         self._window_labels, self._window_preds, average="macro",
         zero_division=0) * 100.0

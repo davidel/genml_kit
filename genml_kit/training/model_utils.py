@@ -121,6 +121,7 @@ def extract_lora_params(model):
   (the state dict strips the adapter name, e.g. ``.default.``).
   """
   from peft import get_peft_model_state_dict
+
   sd = get_peft_model_state_dict(model)
   prefixes = {key.rsplit(".", 1)[0] for key in sd}
   return {

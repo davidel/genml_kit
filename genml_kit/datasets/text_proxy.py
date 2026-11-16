@@ -172,6 +172,7 @@ class StreamingTextDataset(IterableDataset):
         a stream; forwarding keeps the progress estimate through the adapter.
         """
     from genml_kit.datasets.base import num_samples
+
     return num_samples(self.proxy)
 
   def set_epoch(self, epoch):

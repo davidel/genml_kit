@@ -482,7 +482,9 @@ class DatasetEnsemble:
         """
     if not self.streaming:
       return len(self)
+
     from genml_kit.datasets.base import num_samples
+
     total = 0
     for ds in self._datasets:
       count = num_samples(ds)

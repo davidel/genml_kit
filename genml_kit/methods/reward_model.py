@@ -110,7 +110,9 @@ class RewardModelMethod(Method):
   def prepare_transforms(self, args, device):
     """Resolve the tokenizer the preference pipeline reads (position 1)."""
     del device
+
     from genml_kit.models.tokenizer import load_tokenizer
+
     self.tokenizer = load_tokenizer(
         args.tokenizer or args.model,
         cache_dir=args.cache_dir,

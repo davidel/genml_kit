@@ -118,5 +118,6 @@ def load_uvito(
 def load_uvito_processor(*, image_size=224, cache_dir=None, **kwargs):
   """Return a UVitoProcessor for the given *image_size*."""
   from genml_kit.models.uvito.processor import UVitoProcessor
+
   del cache_dir  # UVito processor builds from a local data config.
   return UVitoProcessor(image_size=image_size)

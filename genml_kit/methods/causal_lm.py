@@ -139,7 +139,9 @@ class CausalLMMethod(Method):
         exactly as the classification method keeps its transforms.
         """
     del device
+
     from genml_kit.models.tokenizer import load_tokenizer
+
     self.tokenizer = load_tokenizer(
         args.tokenizer or args.model,
         cache_dir=args.cache_dir,
@@ -161,12 +163,14 @@ class CausalLMMethod(Method):
         **args.model_arg,
     )
     model = self._apply_model_extras(args, model, device)
+
     # The model is the only authority on how it keeps documents isolated in a
     # packed window.  Resolved (and memoized) here -- the one point where both
     # the model and the packing intent are known.  Packing comes from the
     # compiled ``--sequence_mode`` (the single source of truth), not the raw
     # ``--packing`` flag.
     from genml_kit.training.sequence_mode import resolve_sequence_mode
+
     sequence = resolve_sequence_mode(args.sequence_mode, args.packing,
                                      args.length_bucket)
     self._packed_capability = _resolve_packed_capability(model)

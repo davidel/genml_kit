@@ -187,6 +187,7 @@ def varlen_attention(q, k, v, cu_seqlens, max_seqlen, dropout_p=0.0, causal=True
   import is deferred so CPU-only installs (and CI) never need ``flash_attn``.
   """
   from flash_attn import flash_attn_varlen_func
+
   return flash_attn_varlen_func(q,
                                 k,
                                 v,

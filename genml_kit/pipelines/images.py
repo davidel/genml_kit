@@ -67,6 +67,7 @@ class _ProxyAdapterMixin:
       intact.  A genuinely length-less stream yields ``None``.
       """
     from genml_kit.datasets.base import num_samples
+
     return num_samples(self._proxy)
 
   def set_epoch(self, epoch):
@@ -104,6 +105,7 @@ class _DictAdapterMixin:
         iterable adapter.
         """
     from genml_kit.datasets.base import num_samples
+
     return num_samples(self._ds)
 
   def set_epoch(self, epoch):
