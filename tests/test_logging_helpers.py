@@ -5,7 +5,7 @@ import logging
 from tests.logging_helpers import log_capture
 
 
-def test_ignores_prior_records(caplog):
+def test_ignores_prior_records():
   logging.warning("noise before the block")
   logging.info("also noise before")
 
