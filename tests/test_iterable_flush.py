@@ -85,8 +85,30 @@ class TestProgressRendering:
     # The image reporter used to hardcode ``{total_batches}`` and print
     # ``[i/None]`` when the length was unknown; it now shares ``_progress``.
     assert self._report(total_batches=None)._progress(1249) == "[1250/?]"
+    # In-range index keeps the '~' estimate form (overflow is covered below).
     assert self._report(total_batches=10,
-                        total_batches_estimated=True)._progress(1249) == "[1250/~10]"
+                        total_batches_estimated=True)._progress(4) == "[5/~10]"
+
+  def test_progress_at_denominator_is_not_exceeded(self):
+    # The boundary itself must stay plain: overflow starts only past N.
+    assert self._report(total_batches=10)._progress(9) == "[10/10]"
+    assert self._report(total_batches=10,
+                        total_batches_estimated=True)._progress(9) == "[10/~10]"
+
+  def test_progress_tracks_numerator_when_estimate_exceeded(self):
+    # A stream that yields more batches than estimated must not print a
+    # numerator larger than its denominator; the denominator follows the
+    # numerator and gains a '+' (the '~' still marks the estimate).
+    assert self._report(total_batches=10,
+                        total_batches_estimated=True)._progress(10) == "[11/~11+]"
+    assert self._report(
+        total_batches=10,
+        total_batches_estimated=True)._progress(43049) == "[43050/~43050+]"
+
+  def test_progress_tracks_numerator_when_exact_count_exceeded(self):
+    # An exact count that is somehow exceeded overflows the same way, minus
+    # the '~' estimate marker.
+    assert self._report(total_batches=10)._progress(10) == "[11/11+]"
 
 
 class TestStreamEpochEnds:

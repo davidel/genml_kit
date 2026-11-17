@@ -315,8 +315,12 @@ class TrainReporting:
 
         ``N`` is the batch count when known, ``~N`` when it is only an estimate
         (a declared sample count converted to batches), and ``?`` when it is
-        unknown (a length-less stream with no estimate).  Shared by the base and
-        image reporters so the two cannot drift apart.
+        unknown (a length-less stream with no estimate).  When the run outgrows
+        the count -- a stream that yields more batches than estimated, or an
+        exact count that is somehow exceeded -- the denominator tracks the
+        numerator and gains a ``+`` suffix (``[i/N+]`` / ``[i/~N+]``) instead of
+        printing a numerator larger than its denominator.  Shared by the base
+        and image reporters so the two cannot drift apart.
 
         Args:
           batch_idx: Zero-based index of the current batch.
@@ -324,11 +328,15 @@ class TrainReporting:
         Returns:
           str: The bracketed progress prefix, e.g. ``[12/50]``.
         """
+    done = batch_idx + 1
     if self._total_batches is None:
-      return f"[{batch_idx + 1}/?]"
+      return f"[{done}/?]"
+    if done > self._total_batches:
+      tilde = "~" if self._total_batches_estimated else ""
+      return f"[{done}/{tilde}{done}+]"
     if self._total_batches_estimated:
-      return f"[{batch_idx + 1}/~{self._total_batches}]"
-    return f"[{batch_idx + 1}/{self._total_batches}]"
+      return f"[{done}/~{self._total_batches}]"
+    return f"[{done}/{self._total_batches}]"
 
   def _log_step(self, batch_idx, global_step):
     """Compute windowed & cumulative metrics and emit a log line."""
