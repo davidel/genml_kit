@@ -8,6 +8,8 @@ and contain expected metrics.
 import logging
 from unittest.mock import MagicMock, patch
 
+from tests.logging_helpers import log_capture
+
 
 def _import_train():
   """Lazy-import genml_kit.cli.train so module-level fixtures resolve cleanly."""
@@ -26,74 +28,74 @@ def _make_fake_logger():
 
 class TestTrainLogFormat:
 
-  def test_loss_format(self, caplog):
+  def test_loss_format(self):
     """loss should be formatted to 3 decimal places."""
-    with caplog.at_level(logging.INFO):
+    with log_capture() as logs:
       logging.info("  [Step 10/100] loss=1.500 top1=60.00% lr=5.00e-05 32.0 img/s")
-    msg = caplog.records[0].message
+    msg = logs.records[0].message
     assert "loss=1.500" in msg
 
-  def test_top1_format(self, caplog):
+  def test_top1_format(self):
     """top1 accuracy should be formatted to 2 decimal places with %%."""
-    with caplog.at_level(logging.INFO):
+    with log_capture() as logs:
       logging.info("  [Step 10/100] loss=1.500 top1=60.00% lr=5.00e-05 32.0 img/s")
-    msg = caplog.records[0].message
+    msg = logs.records[0].message
     assert "top1=60.00%" in msg
 
-  def test_lr_format(self, caplog):
+  def test_lr_format(self):
     """learning rate should use scientific notation."""
-    with caplog.at_level(logging.INFO):
+    with log_capture() as logs:
       logging.info("  [Step 10/100] loss=1.500 top1=60.00% lr=5.00e-05 32.0 img/s")
-    msg = caplog.records[0].message
+    msg = logs.records[0].message
     assert "lr=5.00e-05" in msg
 
-  def test_epoch_log_format(self, caplog):
+  def test_epoch_log_format(self):
     """End-of-epoch validation results."""
-    with caplog.at_level(logging.INFO):
+    with log_capture() as logs:
       logging.info("Epoch 1 Results -> Val Loss: 0.4377 | Top1: 81.78%")
-    msg = caplog.records[0].message
+    msg = logs.records[0].message
     assert "Val Loss: 0.4377" in msg
     assert "Top1: 81.78%" in msg
 
-  def test_eval_loss_format(self, caplog):
+  def test_eval_loss_format(self):
     """evaluate_performance returns eval_loss with 4 decimal places."""
-    with caplog.at_level(logging.INFO):
+    with log_capture() as logs:
       logging.info("Epoch 1 Results -> Val Loss: 0.4377 | Top1: 81.78%")
-    msg = caplog.records[0].message
+    msg = logs.records[0].message
     assert "0.4377" in msg
 
-  def test_eval_f1_format(self, caplog):
+  def test_eval_f1_format(self):
     """evaluate_performance computes F1 but it's not in the epoch summary log."""
     # The epoch log only shows Val Loss and Top1; F1 is in the returned tuple.
     # This test verifies the format if it were logged.
-    with caplog.at_level(logging.INFO):
+    with log_capture() as logs:
       logging.info("Epoch 1 F1: 79.98%")
-    msg = caplog.records[0].message
+    msg = logs.records[0].message
     assert "79.98%" in msg
 
-  def test_train_loss_format(self, caplog):
+  def test_train_loss_format(self):
     """End-of-epoch train stats."""
-    with caplog.at_level(logging.INFO):
+    with log_capture() as logs:
       logging.info("  Train Summary: loss=0.4377 top1=81.78% time=120.5s")
-    msg = caplog.records[0].message
+    msg = logs.records[0].message
     assert "loss=0.4377" in msg
     assert "top1=81.78%" in msg
 
-  def test_checkpoint_saved_message(self, caplog):
+  def test_checkpoint_saved_message(self):
     """Checkpoint save messages."""
-    with caplog.at_level(logging.INFO):
+    with log_capture() as logs:
       logging.info("New best Top1, checkpoint saved: 81.78%")
-    msg = caplog.records[0].message
+    msg = logs.records[0].message
     assert "81.78%" in msg
 
-  def test_resume_message(self, caplog):
+  def test_resume_message(self):
     """Resume from checkpoint messages."""
-    with caplog.at_level(logging.INFO):
+    with log_capture() as logs:
       logging.info("Resuming from checkpoint: scdiag_latest.pt")
       logging.info("  Resumed at epoch 3, best_top1=80.50%")
-    assert "scdiag_latest.pt" in caplog.records[0].message
-    assert "epoch 3" in caplog.records[1].message
-    assert "80.50%" in caplog.records[1].message
+    assert "scdiag_latest.pt" in logs.records[0].message
+    assert "epoch 3" in logs.records[1].message
+    assert "80.50%" in logs.records[1].message
 
 
 class TestGPUStatsFormat:

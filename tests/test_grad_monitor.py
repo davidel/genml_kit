@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.training.grad_monitor import GradMonitor
+from tests.logging_helpers import log_capture
 
 
 class TinyModel(nn.Module):
@@ -231,7 +232,7 @@ def test_log_every_zero_disables_logging(caplog):
   assert "Gradient Report" not in caplog.text
 
 
-def test_log_every_skips_steps(caplog):
+def test_log_every_skips_steps():
   """With log_every=3, only step 0, 3, 6, ... produce logs."""
   model = TinyModel()
   mon = GradMonitor(model, log_every=3)
@@ -241,45 +242,38 @@ def test_log_every_skips_steps(caplog):
 
   _train_step(model, x, target, opt)
 
-  caplog.clear()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
-  assert "Gradient Report" in caplog.text
+  assert "Gradient Report" in logs.text
 
-  caplog.clear()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(1)
-  assert "Gradient Report" not in caplog.text
+  assert "Gradient Report" not in logs.text
 
-  caplog.clear()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(2)
-  assert "Gradient Report" not in caplog.text
+  assert "Gradient Report" not in logs.text
 
   _train_step(model, x, target, opt)
-  caplog.clear()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(3)
-  r_first = caplog.text
+  r_first = logs.text
   assert "Gradient Report" in r_first
 
   _train_step(model, x, target, opt)
-  caplog.clear()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(4)
-  assert "Gradient Report" not in caplog.text
+  assert "Gradient Report" not in logs.text
 
   _train_step(model, x, target, opt)
-  caplog.clear()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(5)
-  assert "Gradient Report" not in caplog.text
+  assert "Gradient Report" not in logs.text
 
   _train_step(model, x, target, opt)
-  caplog.clear()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(6)
-  r_second = caplog.text
+  r_second = logs.text
   assert "Gradient Report" in r_second
   assert r_first != r_second
 
@@ -338,7 +332,7 @@ def test_no_trend_when_norm_history_disabled(caplog):
   assert "Norm Trends" not in caplog.text
 
 
-def test_trend_appears_after_two_snapshots(caplog):
+def test_trend_appears_after_two_snapshots():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1, norm_history=10)
   x = torch.randn(4, 10)
@@ -347,19 +341,17 @@ def test_trend_appears_after_two_snapshots(caplog):
 
   # First snapshot — only one entry, no trend yet.
   _train_step(model, x, target, opt)
-  caplog.clear()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
-  assert "Norm Trends" not in caplog.text
+  assert "Norm Trends" not in logs.text
 
   # Second snapshot — now we have two entries.
   _train_step(model, x, target, opt)
-  caplog.clear()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(1)
-  assert "Norm Trends" in caplog.text
-  assert "g_dir" in caplog.text
-  assert "p_dir" in caplog.text
+  assert "Norm Trends" in logs.text
+  assert "g_dir" in logs.text
+  assert "p_dir" in logs.text
 
 
 def test_norm_history_rolling_window(caplog):
@@ -407,7 +399,7 @@ def test_trend_direction_growing(caplog):
   assert "UP" in caplog.text
 
 
-def test_trend_top_n_limits_output(caplog):
+def test_trend_top_n_limits_output():
   """trend_top_n caps the number of rows in the trend table."""
   model = TinyModel()
   # 4 params total; limit to 2.
@@ -416,19 +408,20 @@ def test_trend_top_n_limits_output(caplog):
   target = torch.randn(4, 5)
   opt = torch.optim.SGD(model.parameters(), lr=0.01)
 
+  # Warm-up runs outside the capture block, so only step(10) is inspected.
   for i in range(10):
     _train_step(model, x, target, opt)
     mon.step(i)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(10)
 
-  trend_headers = [r.message for r in caplog.records if "params by change" in r.message]
+  trend_headers = logs.matching("params by change")
   assert len(trend_headers) == 1
   assert "top 2/4" in trend_headers[0]
 
 
-def test_trend_top_n_zero_shows_all(caplog):
+def test_trend_top_n_zero_shows_all():
   """trend_top_n=0 shows all params."""
   model = TinyModel()
   mon = GradMonitor(model, log_every=1, norm_history=10, trend_top_n=0)
@@ -436,19 +429,20 @@ def test_trend_top_n_zero_shows_all(caplog):
   target = torch.randn(4, 5)
   opt = torch.optim.SGD(model.parameters(), lr=0.01)
 
+  # Warm-up runs outside the capture block, so only step(10) is inspected.
   for i in range(10):
     _train_step(model, x, target, opt)
     mon.step(i)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(10)
 
-  trend_headers = [r.message for r in caplog.records if "params by change" in r.message]
+  trend_headers = logs.matching("params by change")
   assert len(trend_headers) == 1
   assert "top 4/4" in trend_headers[0]
 
 
-def test_trend_strips_common_prefix(caplog):
+def test_trend_strips_common_prefix():
   """Trend table shows 'Prefix (stripped):' when params share a prefix."""
 
   class NestedModel(nn.Module):
@@ -466,20 +460,21 @@ def test_trend_strips_common_prefix(caplog):
   target = torch.randn(4, 5)
   opt = torch.optim.SGD(model.parameters(), lr=0.01)
 
+  # Warm-up runs outside the capture block, so only step(10) is inspected.
   for i in range(10):
     _train_step(model, x, target, opt)
     mon.step(i)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(10)
 
-  prefix_lines = [r.message for r in caplog.records if "Prefix (stripped)" in r.message]
+  prefix_lines = logs.matching("Prefix (stripped)")
   # All params share "block." prefix; trend table should strip it.
   assert len(prefix_lines) == 1
   assert "block." in prefix_lines[0]
 
 
-def test_trend_disambiguates_duplicate_suffixes(caplog):
+def test_trend_disambiguates_duplicate_suffixes():
   """When stripping a prefix produces identical names, the full name is used."""
 
   class MultiHead(nn.Module):
@@ -498,22 +493,21 @@ def test_trend_disambiguates_duplicate_suffixes(caplog):
   target = torch.randn(4, 5)
   opt = torch.optim.SGD(model.parameters(), lr=0.01)
 
+  # Warm-up runs outside the capture block, so only step(10) is inspected.
   for i in range(10):
     _train_step(model, x, target, opt)
     mon.step(i)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(10)
 
-  trend_lines = [r.message for r in caplog.records if "Norm Trends" in r.message]
+  trend_lines = logs.matching("Norm Trends")
   assert len(trend_lines) == 1
 
   # Both .weight and .bias share the suffix "head_a.weight" / "head_b.weight"
   # after stripping "multi_head." — they must not collide.
   param_lines = [
-      r.message
-      for r in caplog.records
-      if "head_a" in r.message or "head_b" in r.message
+      msg for msg in logs.text.splitlines() if "head_a" in msg or "head_b" in msg
   ]
   # Should see both head_a and head_b in the trend table.
   assert any("head_a" in msg for msg in param_lines)
