@@ -12,12 +12,14 @@ with no network -- so nothing hits the hub.  ``.map()`` without declared
 features is used to reproduce the ``column_names is None`` case deterministically.
 """
 
+import math
 import types
 
 import datasets
 import pytest
 
 import genml_kit.pipelines.text as text_mod
+from genml_kit.datasets.base import num_samples
 from genml_kit.datasets.text_proxy import StreamingTextDataset, TextDatasetProxy
 from genml_kit.models.tokenizer import load_tokenizer
 from genml_kit.pipelines.text import TextPipeline
@@ -162,3 +164,43 @@ class TestStreamingBuildLoader:
     pipeline.build_loader(_args(dataset_arg=None), mode="train", method=method)
     assert not pipeline.streaming
     assert len(pipeline.train_dataset) == 10
+
+
+class TestStreamingBatchEstimate:
+  """The progress denominator for a streaming run, per windowing policy.
+
+    ``--batch_size`` counts documents on the padded/bucketed paths but
+    *windows* under ``wrapped`` packing, where a batch holds
+    ``batch_size * max_seq_len`` tokens.  A single ``items / batch_size``
+    conversion therefore under-reports a packed stream by its packing
+    fan-out -- the bug this estimate exists to avoid.
+    """
+
+  def test_wrapped_estimate_counts_token_budget(self, monkeypatch):
+    stream = _stream(40)
+    # A declared item count lets the pipeline estimate without draining.
+    from genml_kit.datasets.iterable import DeclaredCountStream
+
+    pipeline = _build(monkeypatch,
+                      DeclaredCountStream(stream, 40),
+                      packing="wrapped",
+                      sequence_mode="open")
+    assert pipeline._sequence.windowing == "wrapped"
+    items = num_samples(pipeline.train_dataset)
+    budget = 4 * 16  # batch_size * max_seq_len
+    expected = math.ceil(items * pipeline._token_stats.avg_tokens_per_item / budget)
+    assert pipeline.estimate_train_batches() == expected
+
+  def test_document_estimate_counts_documents(self, monkeypatch):
+    from genml_kit.datasets.iterable import DeclaredCountStream
+
+    pipeline = _build(monkeypatch,
+                      DeclaredCountStream(_stream(40), 40),
+                      sequence_mode="document")
+    assert pipeline._sequence.windowing is None
+    assert pipeline.estimate_train_batches() == math.ceil(40 / 4)
+
+  def test_estimate_is_none_without_an_item_count(self, monkeypatch):
+    pipeline = _build(monkeypatch, _stream(40), sequence_mode="document")
+    assert num_samples(pipeline.train_dataset) is None
+    assert pipeline.estimate_train_batches() is None

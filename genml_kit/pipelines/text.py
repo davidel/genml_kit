@@ -11,6 +11,8 @@ The tokenizer is resolved by the *method* during ``prepare_transforms``
 """
 
 import logging
+import math
+from collections import namedtuple
 from itertools import islice
 
 import torch
@@ -30,15 +32,22 @@ from genml_kit.utils.seed import seed_worker
 #: per-item tokenizer variance.
 _TOKENS_PER_UNIT_PROBES = 64
 
+#: Token-ratio probe result: ``tokens_per_unit`` (tokens per character) for
+#: length-proxy batching, and ``avg_tokens_per_item`` (tokens per document) for
+#: converting a stream's item estimate into a batch count.
+TokenStats = namedtuple("TokenStats", ["tokens_per_unit", "avg_tokens_per_item"])
 
-def _estimate_tokens_per_unit(dataset, tokenizer):
-  """Estimate tokens per character for *dataset*, for length-proxy batching.
+
+def _estimate_token_stats(dataset, tokenizer):
+  """Probe *dataset* for tokens-per-character and tokens-per-item.
 
     The packing sampler sizes batches from the cheap character-length proxy
     (``text_length_proxy``), so it needs the corpus' tokens-per-character ratio
     to convert that proxy to an approximate token count.  The ratio is measured
     on a small sample; it only steers how many documents fill a batch, never the
     hard window cap, so an imperfect estimate cannot break the memory bound.
+    The same pass also yields the average tokens per item, which converts a
+    stream's item-count estimate into a packed-batch count for progress output.
 
     A random-access dataset is sampled by striding its index space; a streaming
     source has none, so a bounded prefix is probed instead.  Either way only a
@@ -46,15 +55,17 @@ def _estimate_tokens_per_unit(dataset, tokenizer):
     """
   chars = 0
   tokens = 0
+  items = 0
   for item in _probe_items(dataset):
     text = item_text(item)
     if not text:
       continue
     chars += len(text)
     tokens += len(tokenizer.encode(text, add_special_tokens=False)) or 1
-  if chars == 0:
-    return 1.0
-  return tokens / chars
+    items += 1
+  if chars == 0 or items == 0:
+    return TokenStats(1.0, 0.0)
+  return TokenStats(tokens / chars, tokens / items)
 
 
 def _probe_items(dataset):
@@ -216,7 +227,7 @@ class TextPipeline(DataPipeline):
       pipe = StreamingPackingBatch(self.train_dataset,
                                    batch_size=args.batch_size,
                                    max_seq_len=self._max_seq_len,
-                                   tokens_per_unit=self._tokens_per_unit,
+                                   tokens_per_unit=self._token_stats.tokens_per_unit,
                                    drop_last=False,
                                    seed=args.seed)
       return self._batch_pipe_loader(pipe, args.num_workers)
@@ -228,7 +239,7 @@ class TextPipeline(DataPipeline):
     sampler = PackingBatchSampler(lengths,
                                   batch_size=args.batch_size,
                                   max_seq_len=self._max_seq_len,
-                                  tokens_per_unit=self._tokens_per_unit,
+                                  tokens_per_unit=self._token_stats.tokens_per_unit,
                                   seed=args.seed)
     # ``batch_sampler`` fully determines the batches, so DataLoader forbids
     # passing ``batch_size`` / ``shuffle`` alongside it.
@@ -281,12 +292,15 @@ class TextPipeline(DataPipeline):
     self._sequence = resolve_sequence_mode(args.sequence_mode, args.packing,
                                            args.length_bucket)
     self._max_seq_len = args.max_seq_len
+    self._batch_size = args.batch_size
     self._mask_prompt = args.mask_prompt
     self._pad_to_multiple_of = args.pad_to_multiple_of
 
     splits = self._load_splits(args)
     self.train_dataset, self.val_dataset = splits.train, splits.val
-    self._tokens_per_unit = _estimate_tokens_per_unit(self.train_dataset, tokenizer)
+    # One probe yields both ratios the pipeline needs: tokens per character
+    # (length-proxy batching) and tokens per item (the packed-batch estimate).
+    self._token_stats = _estimate_token_stats(self.train_dataset, tokenizer)
     self.train_collator = self._make_collator(tokenizer, args.batch_size)
     self.val_collator = self._make_collator(tokenizer, args.batch_size)
 
@@ -327,6 +341,32 @@ class TextPipeline(DataPipeline):
         "Text pipeline ready: %s train / %s val items.",
         num_samples(self.train_dataset),
         num_samples(self.val_dataset) if self.val_dataset is not None else "no")
+
+  def estimate_train_batches(self):
+    """Estimated train batches this rank runs, or ``None`` when unknown.
+
+        ``--batch_size`` counts documents on the padded/bucketed paths but
+        *windows* under ``wrapped`` packing, so the item estimate has to be
+        converted by the resolved windowing policy -- a single ``items /
+        batch_size`` would under-report a packed stream by its packing fan-out.
+
+        Returns a *per-rank* count (divided by ``world_size()`` here): the
+        trainer prints it beside a per-rank numerator and does not divide it
+        again (see ``BaseTrainer.train_epoch``).  ``None`` means unknown.
+        """
+    from genml_kit.utils.distributed import world_size
+
+    items = num_samples(self.train_dataset)
+    if items is None:
+      return None
+    world = world_size() or 1
+    if self._sequence.windowing == "wrapped":
+      budget = self._batch_size * self._max_seq_len
+      if not self._token_stats.avg_tokens_per_item:
+        return None
+      tokens = items * self._token_stats.avg_tokens_per_item
+      return math.ceil(tokens / budget / world)
+    return math.ceil(items / self._batch_size / world)
 
   def _plain_train_loader(self, args, drop_last):
     """Unsharded, unbatched-by-policy train loader.

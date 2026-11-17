@@ -201,7 +201,24 @@ class BaseTrainer:
     # ``batch_idx`` numerator it is printed beside.
     loader = self.pipeline.train_loader
     exact = safe_len(loader)
-    total_batches = exact if exact is not None else _estimated_batches(loader)
+    # Precedence: an exact ``len`` wins; else a pipeline that knows its own
+    # item->batch policy (packing counts windows, not documents); else the
+    # generic sample/batch-size conversion.
+    #
+    # Contract: ``estimate_train_batches`` must return a *per-rank* count, i.e.
+    # already divided by ``world_size()`` -- this denominator is printed beside
+    # a per-rank numerator, and the trainer does NOT divide it here (unlike the
+    # ``_estimated_batches`` fallback below, which owns its own divide).  Keep
+    # the two divides in step if the sharding ever changes.
+    pipeline_batches = maybe_call(self.pipeline, "estimate_train_batches")
+    if pipeline_batches is MISSING:
+      pipeline_batches = None
+    if exact is not None:
+      total_batches = exact
+    elif pipeline_batches is not None:
+      total_batches = pipeline_batches
+    else:
+      total_batches = _estimated_batches(loader)
     accum_steps = self.args.grad_accum_steps
 
     # A stream's length is at best a declared estimate, so render it with ``~``

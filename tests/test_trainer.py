@@ -10,6 +10,7 @@ v4.2: the best-checkpoint cycle is keyed off ``method.METRIC_KEY`` and
 """
 
 import logging
+import types
 
 import torch
 
@@ -426,3 +427,69 @@ class TestEstimatedBatches:
     loader = self._Loader(self._Dataset(100), batch_size=5)
     # ceil(100 / 5 / 4) == 5 batches per rank.
     assert trainer_mod._estimated_batches(loader) == 5
+
+
+class _LengthlessLoader:
+  """A streaming loader: no ``__len__`` (``TypeError`` means "unknown")."""
+
+  def __init__(self, batches):
+    self.batches = batches
+    self.dataset = None
+
+  def __iter__(self):
+    return iter(self.batches)
+
+  def __len__(self):
+    raise TypeError("streaming loader has no length")
+
+
+def _capture_total_batches(monkeypatch):
+  """Run one trainer epoch and return the reporter's ``total_batches``."""
+  captured = {}
+
+  class _SpyReporter:
+
+    def __init__(self, *, total_batches, **kwargs):
+      del kwargs
+      captured["total_batches"] = total_batches
+
+    def step(self, *args, **kwargs):
+      pass
+
+    def summary(self):
+      pass
+
+    def epoch_avg_loss(self):
+      return types.SimpleNamespace(loss=0.0)
+
+  monkeypatch.setattr("genml_kit.training.trainer.ImageTrainReporting", _SpyReporter)
+  return captured
+
+
+def test_pipeline_batch_estimate_overrides_the_stream_heuristic(tmp_path, monkeypatch):
+  """A pipeline that knows its item->batch policy wins over ``samples/batch``.
+
+  This is the packed-stream fix: ``_estimated_batches`` would divide items by
+  ``batch_size`` (wrong under ``wrapped`` packing, which counts windows), so
+  the pipeline's own estimate must take precedence.
+  """
+  captured = _capture_total_batches(monkeypatch)
+  pipeline = FakePipeline(torch.zeros(4, 3, 8, 8))
+  pipeline.train_loader = _LengthlessLoader(pipeline.train_loader.batches)
+  pipeline.val_loader = None
+  pipeline.estimate_train_batches = lambda: 777
+  trainer = _make_trainer(tmp_path, pipeline=pipeline)
+  trainer.run()
+  assert captured["total_batches"] == 777
+
+
+def test_exact_length_still_beats_the_pipeline_estimate(tmp_path, monkeypatch):
+  """A real ``len(loader)`` (random access) is preferred over any estimate."""
+  captured = _capture_total_batches(monkeypatch)
+  pipeline = FakePipeline(torch.zeros(4, 3, 8, 8))
+  pipeline.val_loader = None
+  pipeline.estimate_train_batches = lambda: 777
+  trainer = _make_trainer(tmp_path, pipeline=pipeline)
+  trainer.run()
+  # The fake loader has one batch; its exact length must win.
+  assert captured["total_batches"] == len(pipeline.train_loader)
