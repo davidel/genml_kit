@@ -12,6 +12,14 @@ jobs:
     # surfaces as a bare "exit code 143" with no logs.  Sized for a full
     # default + slow run, not the runner's ceiling.
     timeout-minutes: 60
+    env:
+      # CI-only diagnostics (never set locally): stream logs + stdout/stderr
+      # live so output survives a runner kill, and self-terminate with a
+      # stack trace if a single test wedges, instead of riding the 60-min
+      # SIGTERM (bare "exit code 143" with no logs).
+      PYTEST_ADDOPTS: >-
+        --log-cli-level=INFO --capture=tee-sys
+        -o faulthandler_timeout=3300 -o faulthandler_exit_on_timeout=true
 
     steps:
       - name: Check out repository
@@ -45,6 +53,14 @@ jobs:
     # Same bound as the ``test`` job: the README examples can wedge (torchrun,
     # downloads); fail on a clear timeout instead of a bare SIGTERM/143.
     timeout-minutes: 60
+    env:
+      # CI-only diagnostics (never set locally): stream logs + stdout/stderr
+      # live so output survives a runner kill, and self-terminate with a
+      # stack trace if a single test wedges, instead of riding the 60-min
+      # SIGTERM (bare "exit code 143" with no logs).
+      PYTEST_ADDOPTS: >-
+        --log-cli-level=INFO --capture=tee-sys
+        -o faulthandler_timeout=3300 -o faulthandler_exit_on_timeout=true
 
     steps:
       - name: Check out repository
