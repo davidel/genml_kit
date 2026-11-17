@@ -60,12 +60,49 @@ __all__ = [
 
 
 def load_augmentation_script(path_or_url):
-  """Load a Python script and return its ``create_train_transform`` callable."""
+  """Load an external augmentation script and return its train-transform factory.
+
+  The script (a local ``.py`` path or an HTTP/HTTPS URL) must define a
+  callable named ``create_train_transform``.  It is invoked once as
+  ``create_train_transform(image_size)`` and must return a ``list`` of
+  ``torchvision.transforms.v2`` transforms.
+
+  The returned transforms are composed *before* the automatic tail
+  (``ToImage`` -> ``ToDtype`` -> ``Normalize``) that
+  :func:`build_transforms` appends, so they receive the raw PIL image and
+  must not include conversion or normalization steps themselves.  Only the
+  training chain is replaced; validation stays ``Resize`` -> ``CenterCrop``
+  -> ``Normalize``.
+
+  Args:
+      path_or_url: Local file path or HTTP/HTTPS URL to the script.
+
+  Returns:
+      The extracted ``create_train_transform`` callable.
+
+  Raises:
+      FileNotFoundError: If a local path does not exist.
+      ValueError: If the script does not define a callable
+        ``create_train_transform``.
+  """
   return load_extern(path_or_url, "create_train_transform")
 
 
 def build_transforms(processor, image_size, train_aug_fn=None):
-  """Create train / val augmentation pipelines."""
+  """Create train / val augmentation pipelines.
+
+  Args:
+      processor: Model processor supplying ``image_mean`` / ``image_std``
+        for the normalization tail.
+      image_size: Target crop size, forwarded to *train_aug_fn*.
+      train_aug_fn: Optional ``create_train_transform`` callable from
+        :func:`load_augmentation_script`.  When ``None`` the built-in
+        classification train chain is used; otherwise the callable's list
+        of transforms is composed ahead of the normalization tail.
+
+  Returns:
+      A :class:`TransformPair` with the ``train`` and ``val`` chains.
+  """
   tail = [
       v2.ToImage(),
       v2.ToDtype(torch.float32, scale=True),

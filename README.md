@@ -1228,6 +1228,71 @@ Two details matter for the reader combining these flags:
 Use these tools deliberately; combining every regularizer is not
 automatically better.
 
+### Data Augmentation
+
+By default the `classification` method applies the following chain to the
+training set (built by `build_transforms` in
+`genml_kit/training/train_compat.py`):
+
+- `v2.RandomResizedCrop(image_size, scale=(0.2, 1.0), antialias=True)`
+- `v2.RandomHorizontalFlip(p=0.5)`
+- `v2.RandomVerticalFlip(p=0.5)`
+- `v2.RandomRotation(degrees=360)`
+- `v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.15, hue=0.05)`
+- `v2.ElasticTransform(alpha=50.0, sigma=5.0)`
+
+followed automatically by a fixed tail: `v2.ToImage()`,
+`v2.ToDtype(torch.float32, scale=True)`, then normalization with the
+processor's `image_mean` / `image_std`.  The validation chain is never
+augmented: it is always `Resize` → `CenterCrop` → `Normalize`.
+
+#### Custom Training Augmentation
+
+To override the training chain, pass `--train_augmentation_script <path>.py`
+(a local path or an HTTP/HTTPS URL).  The script is imported lazily, so a
+plain run never loads it.  It must define
+
+```python
+def create_train_transform(image_size: int):
+  ...
+```
+
+for example:
+
+```python
+# my_aug.py
+from torchvision.transforms import v2
+
+def create_train_transform(image_size):
+  return [
+      v2.RandomResizedCrop(image_size, scale=(0.4, 1.0), antialias=True),
+      v2.RandomHorizontalFlip(p=0.5),
+      v2.ColorJitter(brightness=0.3, contrast=0.3),
+  ]
+```
+
+The contract is:
+
+- The function is called once as `create_train_transform(image_size)` and
+  **must return a `list`** of transforms.  Any other return type raises a
+  `TypeError` (`create_train_transform() must return a list of transforms,
+  got <type>`).
+- The returned list is composed as `v2.Compose(user_transforms + tail)`,
+  where the fixed tail above (`ToImage` → `ToDtype` → `Normalize`) is
+  **always appended automatically**.  Your transforms therefore run on the
+  **raw PIL image**, and you must **not** add `ToImage`, `ToDtype`, or
+  `Normalize` yourself.
+- This differs from the segmentation method's `create_seg_transform`, which
+  owns the whole image + mask chain *including* normalization.  For
+  classification, normalization stays under the processor's control.
+- Only the **train** chain is replaced; validation is unaffected.  Use
+  `--tta` for test-time augmentation (see
+  [XGBoost And Test-Time Augmentation](#xgboost-and-test-time-augmentation)).
+
+Modules placed next to the script (or importable via `import` from the same
+directory) resolve by plain name, so a custom transform can live in a
+sibling file.
+
 ### Hyperparameter Guidance
 
 | Scenario | `--lr` | `--epochs` | `--batch_size` | Notes |
