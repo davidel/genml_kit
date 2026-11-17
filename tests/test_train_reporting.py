@@ -7,7 +7,6 @@ These are white-box tests: they deliberately assert on the private
 ``test_base_*`` tests exercise the generic ``TrainReporting`` (no logits).
 """
 
-import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -194,19 +193,19 @@ def test_image_omits_accuracy_when_no_labels():
   assert "macro_f1=" not in logs.text
 
 
-def test_image_renders_extra_metrics_in_both_lines(caplog):
+def test_image_renders_extra_metrics_in_both_lines():
   """Method metrics must reach the step line and the epoch summary."""
   from genml_kit.training.train_reporting import metric
   r = _make_reporter(log_every=2)
   extra = {"mce": metric("mce", 0.25), "dlog_s": metric("dlog_s", 0.1)}
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 1.0, 0, extra_metrics=extra)
     r.step(1, 4, 1.0, 1, extra_metrics=extra)
     r.summary()
-  assert "mce=0.2500" in caplog.text
-  assert "dlog_s=0.1000" in caplog.text
+  assert "mce=0.2500" in logs.text
+  assert "dlog_s=0.1000" in logs.text
   # Epoch summary repeats them (average of the windowed values).
-  assert caplog.text.count("mce=0.2500") >= 2
+  assert logs.text.count("mce=0.2500") >= 2
 
 
 def test_image_summary_averages_extra_metrics():
@@ -245,15 +244,15 @@ def test_image_summary_last_metric_still_not_averaged():
   assert "env_steps=200" not in logs.text
 
 
-def test_image_keeps_accuracy_when_labels_present(caplog):
+def test_image_keeps_accuracy_when_labels_present():
   """Classification must keep both accuracy tokens, unchanged."""
   r = _make_reporter(log_every=2)
   logits, targets = _dummy_batch()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 1.0, 0, logits=logits, targets=targets)
     r.step(1, 4, 1.0, 1, logits=logits, targets=targets)
-  assert "top1=" in caplog.text
-  assert "macro_f1=" in caplog.text
+  assert "top1=" in logs.text
+  assert "macro_f1=" in logs.text
 
 
 def test_image_window_and_epoch_accuracy_can_differ():
@@ -275,15 +274,15 @@ def test_image_window_and_epoch_accuracy_can_differ():
   assert window != epoch
 
 
-def test_image_log_triggered_on_boundary(caplog):
+def test_image_log_triggered_on_boundary():
   r = _make_reporter(log_every=3)
   logits, targets = _dummy_batch()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 1.0, 0, logits=logits, targets=targets)
     r.step(1, 4, 1.0, 1, logits=logits, targets=targets)
     r.step(2, 4, 1.0, 2, logits=logits, targets=targets)
-  assert "train [3/10]" in caplog.text
-  assert "loss=" in caplog.text
+  assert "train [3/10]" in logs.text
+  assert "loss=" in logs.text
 
 
 def test_image_no_log_when_not_on_boundary():
@@ -295,13 +294,13 @@ def test_image_no_log_when_not_on_boundary():
   assert "train [" not in logs.text
 
 
-def test_image_report_now_forces_log(caplog):
+def test_image_report_now_forces_log():
   r = _make_reporter(log_every=100)
   logits, targets = _dummy_batch()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 1.0, 0, logits=logits, targets=targets, report_now=True)
-  assert "train [1/10]" in caplog.text
-  assert "loss=" in caplog.text
+  assert "train [1/10]" in logs.text
+  assert "loss=" in logs.text
 
 
 def test_image_window_resets_after_log():
@@ -318,16 +317,16 @@ def test_image_window_resets_after_log():
   assert r._correct_top1 == 2
 
 
-def test_image_log_contains_key_fields(caplog):
+def test_image_log_contains_key_fields():
   r = _make_reporter(log_every=1, total_batches=5)
   logits, targets = _dummy_batch(batch_size=4, num_classes=3, num_correct=3)
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 2.0, 0, logits=logits, targets=targets)
-  assert "train [1/5]" in caplog.text
-  assert "loss=" in caplog.text
-  assert "top1=" in caplog.text
-  assert "macro_f1=" in caplog.text
-  assert "img/s=" in caplog.text
+  assert "train [1/5]" in logs.text
+  assert "loss=" in logs.text
+  assert "top1=" in logs.text
+  assert "macro_f1=" in logs.text
+  assert "img/s=" in logs.text
 
 
 def test_image_log_default_unit_is_img():
@@ -442,27 +441,27 @@ def test_image_summary_zero_samples():
   assert top1 == 0.0
 
 
-def test_image_macro_f1_in_log(caplog):
+def test_image_macro_f1_in_log():
   """All-correct single-class window should produce macro F1 = 100%."""
   r = _make_reporter(log_every=1)
   batch_size = 4
   targets = torch.zeros(batch_size, dtype=torch.long)
   logits = torch.zeros(batch_size, 2)
   logits[:, 0] = 10.0
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, batch_size, 1.0, 0, logits=logits, targets=targets)
-  assert "macro_f1=100.00%" in caplog.text
+  assert "macro_f1=100.00%" in logs.text
 
 
-def test_image_macro_f1_zero_when_no_correct(caplog):
+def test_image_macro_f1_zero_when_no_correct():
   """Single class always predicted wrong -> macro F1 = 0."""
   r = _make_reporter(log_every=1)
   targets = torch.tensor([0, 0, 0, 0])
   logits = torch.zeros(4, 2)
   logits[:, 1] = 10.0
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 1.0, 0, logits=logits, targets=targets)
-  assert "macro_f1=0.00%" in caplog.text
+  assert "macro_f1=0.00%" in logs.text
 
 
 def test_image_tensorboard_scalars_written():
@@ -549,10 +548,10 @@ def test_base_extra_metrics_tensor_conversion():
   assert r._extra["q_mean"].value == 42.0
 
 
-def test_base_log_contains_extra_metrics(caplog):
+def test_base_log_contains_extra_metrics():
   from genml_kit.training.train_reporting import MetricKind, metric
   r = _make_base_reporter(log_every=1, total_batches=5)
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0,
            4,
            1.0,
@@ -561,15 +560,15 @@ def test_base_log_contains_extra_metrics(caplog):
                "epsilon": metric("epsilon", 0.5),
                "env_steps": metric("env_steps", 500, MetricKind.LAST, ".0f"),
            })
-  assert "epsilon=0.5000" in caplog.text
-  assert "env_steps=500" in caplog.text
+  assert "epsilon=0.5000" in logs.text
+  assert "env_steps=500" in logs.text
 
 
-def test_base_log_throughput_unit(caplog):
+def test_base_log_throughput_unit():
   r = _make_base_reporter(log_every=1, total_batches=5, throughput_unit="step")
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 1.0, 0)
-  assert "step/s=" in caplog.text
+  assert "step/s=" in logs.text
 
 
 def test_derived_metric_uses_line_loss():
@@ -596,17 +595,19 @@ def test_derived_metric_uses_line_loss():
   assert "ppl=28.6592" not in logs.text
 
 
-def test_derived_metric_can_read_avg_loss(caplog):
+def test_derived_metric_can_read_avg_loss():
   """The context dict exposes more than the line loss (e.g. ``avg_loss``)."""
   from genml_kit.training.train_reporting import derived_metric
   r = _make_base_reporter(log_every=1, total_batches=2)
   marker = derived_metric("avg_marker", lambda ctx: ctx["avg_loss"])
-  with caplog.at_level(logging.INFO):
+  # Captures accumulate for the whole block, so each in-block assertion
+  # sees the output produced so far.
+  with log_capture() as logs:
     r.step(0, 4, 4.0, 0, extra_metrics={"avg_marker": marker})
-    assert "avg_marker=4.0000" in caplog.text
+    assert "avg_marker=4.0000" in logs.text
     r.step(1, 4, 2.0, 1, extra_metrics={"avg_marker": marker})
     # epoch mean of [4.0, 2.0] -- NOT the window loss 2.0.
-    assert "avg_marker=3.0000" in caplog.text
+    assert "avg_marker=3.0000" in logs.text
 
 
 def test_base_summary_returns_float():

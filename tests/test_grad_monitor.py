@@ -44,7 +44,7 @@ def test_step_does_not_log_off_step():
   assert "Gradient Report" not in logs.text
 
 
-def test_step_logs_on_log_step(caplog):
+def test_step_logs_on_log_step():
   model = TinyModel()
   mon = GradMonitor(model, log_every=10)
   x = torch.randn(4, 10)
@@ -53,14 +53,14 @@ def test_step_logs_on_log_step(caplog):
 
   _train_step(model, x, target, opt)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(10)
 
-  assert "[Step 10]" in caplog.text
-  assert "Gradient Report" in caplog.text
+  assert "[Step 10]" in logs.text
+  assert "Gradient Report" in logs.text
 
 
-def test_report_contains_param_count(caplog):
+def test_report_contains_param_count():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1)
   x = torch.randn(4, 10)
@@ -69,10 +69,10 @@ def test_report_contains_param_count(caplog):
 
   _train_step(model, x, target, opt)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
 
-  assert "4 params" in caplog.text
+  assert "4 params" in logs.text
 
 
 def test_grad_norms_positive_no_anomaly():
@@ -91,7 +91,7 @@ def test_grad_norms_positive_no_anomaly():
   assert "OVF" not in logs.text
 
 
-def test_nan_detection(caplog):
+def test_nan_detection():
   model = TinyModel()
   mon = GradMonitor(model, log_every=100, detect_nan=True)
   x = torch.randn(4, 10)
@@ -105,10 +105,10 @@ def test_nan_detection(caplog):
       p.grad.data.fill_(float("nan"))
       break
 
-  with caplog.at_level(logging.CRITICAL):
+  with log_capture() as logs:
     mon.step(1)
 
-  assert "NaN/Inf" in caplog.text
+  assert "NaN/Inf" in logs.text
 
 
 def test_no_stall_on_first_step():
@@ -126,7 +126,7 @@ def test_no_stall_on_first_step():
   assert "STL" not in logs.text
 
 
-def test_stall_detection_after_window(caplog):
+def test_stall_detection_after_window():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1, stall_window=3)
   x = torch.randn(4, 10)
@@ -136,7 +136,7 @@ def test_stall_detection_after_window(caplog):
   _train_step(model, x, target, opt)
   mon.step(0)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     for step in range(1, 10):
       opt.zero_grad()
       loss = nn.functional.mse_loss(model(x), target)
@@ -145,11 +145,11 @@ def test_stall_detection_after_window(caplog):
       opt.step()
       mon.step(step)
 
-  assert "STL" in caplog.text
-  assert "fc1.weight" in caplog.text
+  assert "STL" in logs.text
+  assert "fc1.weight" in logs.text
 
 
-def test_explosion_detection(caplog):
+def test_explosion_detection():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1, norm_ceiling=1.0)
   x = torch.randn(4, 10)
@@ -163,23 +163,23 @@ def test_explosion_detection(caplog):
       p.grad.data.fill_(100.0)
       break
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
 
-  assert "OVF" in caplog.text
+  assert "OVF" in logs.text
 
 
-def test_report_without_grad(caplog):
+def test_report_without_grad():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
 
-  assert "grad_rms: mean=0.00e+00" in caplog.text
+  assert "grad_rms: mean=0.00e+00" in logs.text
 
 
-def test_imbalance_detection(caplog):
+def test_imbalance_detection():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1)
   x = torch.randn(4, 10)
@@ -193,11 +193,11 @@ def test_imbalance_detection(caplog):
       p.grad.data.mul_(0.0001)
   model.fc2.weight.grad.data.fill_(10.0)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
 
-  assert "IMB" in caplog.text
-  assert "fc2.weight" in caplog.text
+  assert "IMB" in logs.text
+  assert "fc2.weight" in logs.text
 
 
 def test_zero_grad_handling():
@@ -278,7 +278,7 @@ def test_log_every_skips_steps():
   assert r_first != r_second
 
 
-def test_gpr_detection(caplog):
+def test_gpr_detection():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1, gpr_ceiling=0.5)
   x = torch.randn(4, 10)
@@ -293,11 +293,11 @@ def test_gpr_detection(caplog):
       p.grad.data.fill_(0.0)
   model.fc2.weight.grad.data.fill_(100.0)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
 
-  assert "GPR" in caplog.text
-  assert "fc2.weight" in caplog.text
+  assert "GPR" in logs.text
+  assert "fc2.weight" in logs.text
 
 
 def test_gpr_no_flag_when_below_ceiling():
@@ -355,7 +355,7 @@ def test_trend_appears_after_two_snapshots():
   assert "p_dir" in logs.text
 
 
-def test_norm_history_rolling_window(caplog):
+def test_norm_history_rolling_window():
   """Deque maxlen limits history to norm_history entries."""
   model = TinyModel()
   history_size = 5
@@ -373,7 +373,7 @@ def test_norm_history_rolling_window(caplog):
     assert len(buf) <= history_size
 
 
-def test_trend_direction_growing(caplog):
+def test_trend_direction_growing():
   """When param norm grows, trend reports UP."""
   model = TinyModel()
   mon = GradMonitor(model, log_every=1, norm_history=10)
@@ -387,7 +387,7 @@ def test_trend_direction_growing(caplog):
     mon.step(i)
 
   # Artificially inflate gradients to push param norms up.
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     for i in range(5, 15):
       _train_step(model, x, target, opt)
       # Scale up weights directly to make norm growth obvious.
@@ -397,7 +397,7 @@ def test_trend_direction_growing(caplog):
       mon.step(i)
 
   # At least one param should show UP in the trend.
-  assert "UP" in caplog.text
+  assert "UP" in logs.text
 
 
 def test_trend_top_n_limits_output():
