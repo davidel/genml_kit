@@ -29,7 +29,7 @@ def _train_step(model, x, target, optimizer):
   return loss
 
 
-def test_step_does_not_log_off_step(caplog):
+def test_step_does_not_log_off_step():
   model = TinyModel()
   mon = GradMonitor(model, log_every=50)
   x = torch.randn(4, 10)
@@ -38,10 +38,10 @@ def test_step_does_not_log_off_step(caplog):
 
   _train_step(model, x, target, opt)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(1)
 
-  assert "Gradient Report" not in caplog.text
+  assert "Gradient Report" not in logs.text
 
 
 def test_step_logs_on_log_step(caplog):
@@ -75,7 +75,7 @@ def test_report_contains_param_count(caplog):
   assert "4 params" in caplog.text
 
 
-def test_grad_norms_positive_no_anomaly(caplog):
+def test_grad_norms_positive_no_anomaly():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1)
   x = torch.randn(4, 10)
@@ -84,11 +84,11 @@ def test_grad_norms_positive_no_anomaly(caplog):
 
   _train_step(model, x, target, opt)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
 
-  assert "STL" not in caplog.text
-  assert "OVF" not in caplog.text
+  assert "STL" not in logs.text
+  assert "OVF" not in logs.text
 
 
 def test_nan_detection(caplog):
@@ -111,7 +111,7 @@ def test_nan_detection(caplog):
   assert "NaN/Inf" in caplog.text
 
 
-def test_no_stall_on_first_step(caplog):
+def test_no_stall_on_first_step():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1, stall_window=5)
   x = torch.randn(4, 10)
@@ -120,10 +120,10 @@ def test_no_stall_on_first_step(caplog):
 
   _train_step(model, x, target, opt)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
 
-  assert "STL" not in caplog.text
+  assert "STL" not in logs.text
 
 
 def test_stall_detection_after_window(caplog):
@@ -200,7 +200,7 @@ def test_imbalance_detection(caplog):
   assert "fc2.weight" in caplog.text
 
 
-def test_zero_grad_handling(caplog):
+def test_zero_grad_handling():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1)
 
@@ -210,13 +210,13 @@ def test_zero_grad_handling(caplog):
   for p in model.parameters():
     p.grad = torch.zeros_like(p.data)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
 
-  assert "nan" not in caplog.text.lower()
+  assert "nan" not in logs.text.lower()
 
 
-def test_log_every_zero_disables_logging(caplog):
+def test_log_every_zero_disables_logging():
   model = TinyModel()
   mon = GradMonitor(model, log_every=0)
 
@@ -224,12 +224,12 @@ def test_log_every_zero_disables_logging(caplog):
   target = torch.randn(4, 5)
   opt = torch.optim.SGD(model.parameters(), lr=0.01)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     for i in range(100):
       _train_step(model, x, target, opt)
       mon.step(i)
 
-  assert "Gradient Report" not in caplog.text
+  assert "Gradient Report" not in logs.text
 
 
 def test_log_every_skips_steps():
@@ -300,7 +300,7 @@ def test_gpr_detection(caplog):
   assert "fc2.weight" in caplog.text
 
 
-def test_gpr_no_flag_when_below_ceiling(caplog):
+def test_gpr_no_flag_when_below_ceiling():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1, gpr_ceiling=1000.0)
   x = torch.randn(4, 10)
@@ -309,27 +309,28 @@ def test_gpr_no_flag_when_below_ceiling(caplog):
 
   _train_step(model, x, target, opt)
 
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     mon.step(0)
 
-  assert "GPR" not in caplog.text
+  assert "GPR" not in logs.text
 
 
 # norm_history tests
 
 
-def test_no_trend_when_norm_history_disabled(caplog):
+def test_no_trend_when_norm_history_disabled():
   model = TinyModel()
   mon = GradMonitor(model, log_every=1, norm_history=0)
   x = torch.randn(4, 10)
   target = torch.randn(4, 5)
   opt = torch.optim.SGD(model.parameters(), lr=0.01)
 
-  for i in range(5):
-    _train_step(model, x, target, opt)
-    mon.step(i)
+  with log_capture() as logs:
+    for i in range(5):
+      _train_step(model, x, target, opt)
+      mon.step(i)
 
-  assert "Norm Trends" not in caplog.text
+  assert "Norm Trends" not in logs.text
 
 
 def test_trend_appears_after_two_snapshots():

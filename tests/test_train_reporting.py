@@ -13,6 +13,8 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
+from tests.logging_helpers import log_capture
+
 
 def _make_reporter(**kwargs):
   """Create an ImageTrainReporting with sensible defaults for testing."""
@@ -175,7 +177,7 @@ def test_image_step_accumulates_window():
   assert r._window_labels == targets.tolist()
 
 
-def test_image_omits_accuracy_when_no_labels(caplog):
+def test_image_omits_accuracy_when_no_labels():
   """A non-classification method must not print top1/macro_f1.
 
   Regression: the step line hardcoded "top1=0.00% macro_f1=0.00%" for
@@ -184,12 +186,12 @@ def test_image_omits_accuracy_when_no_labels(caplog):
   from genml_kit.training.train_reporting import metric
   r = _make_reporter(log_every=2)
   extra = {"mce": metric("mce", 0.25), "dlog_s": metric("dlog_s", 0.1)}
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 1.0, 0, extra_metrics=extra)
     r.step(1, 4, 1.0, 1, extra_metrics=extra)
-  assert "train [2/10]" in caplog.text
-  assert "top1=" not in caplog.text
-  assert "macro_f1=" not in caplog.text
+  assert "train [2/10]" in logs.text
+  assert "top1=" not in logs.text
+  assert "macro_f1=" not in logs.text
 
 
 def test_image_renders_extra_metrics_in_both_lines(caplog):
@@ -207,7 +209,7 @@ def test_image_renders_extra_metrics_in_both_lines(caplog):
   assert caplog.text.count("mce=0.2500") >= 2
 
 
-def test_image_summary_averages_extra_metrics(caplog):
+def test_image_summary_averages_extra_metrics():
   """AVERAGE extra metrics report the epoch mean, not the last batch.
 
   Regression test: the step line legitimately shows the most recent
@@ -220,14 +222,14 @@ def test_image_summary_averages_extra_metrics(caplog):
   r = _make_reporter(log_every=100)
   for i, v in enumerate([1.0, 2.0, 3.0, 100.0]):
     r.step(i, 4, 1.0, i, extra_metrics={"mce": metric("mce", v)})
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.summary()
   # Mean is 26.5; the last batch alone would print 100.0000.
-  assert "mce=26.5000" in caplog.text
-  assert "mce=100.0000" not in caplog.text
+  assert "mce=26.5000" in logs.text
+  assert "mce=100.0000" not in logs.text
 
 
-def test_image_summary_last_metric_still_not_averaged(caplog):
+def test_image_summary_last_metric_still_not_averaged():
   """LAST extra metrics keep reporting their final value."""
   from genml_kit.training.train_reporting import MetricKind, metric
   r = _make_reporter(log_every=100)
@@ -237,10 +239,10 @@ def test_image_summary_last_metric_still_not_averaged(caplog):
            1.0,
            i,
            extra_metrics={"env_steps": metric("env_steps", v, MetricKind.LAST, ".0f")})
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.summary()
-  assert "env_steps=300" in caplog.text
-  assert "env_steps=200" not in caplog.text
+  assert "env_steps=300" in logs.text
+  assert "env_steps=200" not in logs.text
 
 
 def test_image_keeps_accuracy_when_labels_present(caplog):
@@ -284,13 +286,13 @@ def test_image_log_triggered_on_boundary(caplog):
   assert "loss=" in caplog.text
 
 
-def test_image_no_log_when_not_on_boundary(caplog):
+def test_image_no_log_when_not_on_boundary():
   r = _make_reporter(log_every=10)
   logits, targets = _dummy_batch()
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 1.0, 0, logits=logits, targets=targets)
     r.step(1, 4, 1.0, 1, logits=logits, targets=targets)
-  assert "train [" not in caplog.text
+  assert "train [" not in logs.text
 
 
 def test_image_report_now_forces_log(caplog):
@@ -328,17 +330,17 @@ def test_image_log_contains_key_fields(caplog):
   assert "img/s=" in caplog.text
 
 
-def test_image_log_default_unit_is_img(caplog):
+def test_image_log_default_unit_is_img():
   """ImageTrainReporting defaults to the image unit (img/s)."""
   r = _make_reporter(log_every=1, total_batches=5)
   logits, targets = _dummy_batch(batch_size=4, num_classes=3, num_correct=3)
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 2.0, 0, logits=logits, targets=targets)
-  assert "img/s=" in caplog.text
-  assert "sample/s=" not in caplog.text
+  assert "img/s=" in logs.text
+  assert "sample/s=" not in logs.text
 
 
-def test_image_log_respects_configured_unit(caplog):
+def test_image_log_respects_configured_unit():
   """A configured throughput unit is honoured, not hardcoded (regression).
 
   ImageTrainReporting previously hardcoded ``img/s`` in its own
@@ -346,26 +348,26 @@ def test_image_log_respects_configured_unit(caplog):
   """
   r = _make_reporter(log_every=1, total_batches=5, throughput_unit="sample")
   logits, targets = _dummy_batch(batch_size=4, num_classes=3, num_correct=3)
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 2.0, 0, logits=logits, targets=targets)
-  assert "sample/s=" in caplog.text
-  assert "img/s=" not in caplog.text
+  assert "sample/s=" in logs.text
+  assert "img/s=" not in logs.text
 
 
-def test_image_log_metrics_are_correct(caplog):
+def test_image_log_metrics_are_correct():
   """Verify the windowed and cumulative numbers in the log line."""
   r = _make_reporter(log_every=2, total_batches=4)
   logits, targets = _dummy_batch(batch_size=4, num_classes=3, num_correct=4)
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.step(0, 4, 4.0, 0, logits=logits, targets=targets)
     r.step(1, 4, 2.0, 1, logits=logits, targets=targets)
 
   # Windowed mean of the two per-sample means (4.0, 2.0) is 3.0 --
   # sample-weighted, so equal batch sizes make it their average.
-  lines = [ln for ln in caplog.text.splitlines() if "loss=3.0000" in ln]
+  lines = [ln for ln in logs.text.splitlines() if "loss=3.0000" in ln]
   assert len(lines) >= 1
-  assert "0.7500" not in caplog.text  # the old mean/batch_size value
-  assert "100.00%" in caplog.text
+  assert "0.7500" not in logs.text  # the old mean/batch_size value
+  assert "100.00%" in logs.text
 
 
 def test_image_summary_returns_correct_values():
@@ -380,20 +382,20 @@ def test_image_summary_returns_correct_values():
   assert abs(top1 - 75.0) < 1e-6
 
 
-def test_image_summary_logs_final_line(caplog):
+def test_image_summary_logs_final_line():
   r = _make_reporter(log_every=100)
   logits, targets = _dummy_batch(batch_size=4, num_correct=2)
   r.step(0, 4, 3.0, 0, logits=logits, targets=targets)
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.summary()
-  assert "Train Summary:" in caplog.text
-  assert "loss=" in caplog.text
-  assert "top1=" in caplog.text
-  assert "time=" in caplog.text
-  assert " | " not in caplog.text
+  assert "Train Summary:" in logs.text
+  assert "loss=" in logs.text
+  assert "top1=" in logs.text
+  assert "time=" in logs.text
+  assert " | " not in logs.text
 
 
-def test_base_summary_space_separated_var_value(caplog):
+def test_base_summary_space_separated_var_value():
   """The summary line must use space-separated VAR=VALUE, like _log_step."""
   from genml_kit.training.train_reporting import MetricKind, metric
   r = _make_base_reporter(log_every=100)
@@ -405,17 +407,17 @@ def test_base_summary_space_separated_var_value(caplog):
              "critic_loss": metric("critic_loss", 10.0),
              "env_steps": metric("env_steps", 500, MetricKind.LAST, ".0f"),
          })
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.summary()
-  assert "Train Summary: " in caplog.text
-  assert "loss=" in caplog.text
-  assert "critic_loss=10.0000" in caplog.text
-  assert "time=" in caplog.text
-  assert " | " not in caplog.text
-  assert "loss:" not in caplog.text
+  assert "Train Summary: " in logs.text
+  assert "loss=" in logs.text
+  assert "critic_loss=10.0000" in logs.text
+  assert "time=" in logs.text
+  assert " | " not in logs.text
+  assert "loss:" not in logs.text
 
 
-def test_base_summary_last_metric_not_averaged(caplog):
+def test_base_summary_last_metric_not_averaged():
   """LAST metrics report their final value, not a mean over the epoch."""
   from genml_kit.training.train_reporting import MetricKind, metric
   r = _make_base_reporter(log_every=100)
@@ -426,11 +428,11 @@ def test_base_summary_last_metric_not_averaged(caplog):
            1.0,
            i,
            extra_metrics={"env_steps": metric("env_steps", v, MetricKind.LAST, ".0f")})
-  with caplog.at_level(logging.INFO):
+  with log_capture() as logs:
     r.summary()
-  assert "env_steps=300" in caplog.text
-  assert "env_steps=200" not in caplog.text
-  assert "env_steps=300.0000" not in caplog.text
+  assert "env_steps=300" in logs.text
+  assert "env_steps=200" not in logs.text
+  assert "env_steps=300.0000" not in logs.text
 
 
 def test_image_summary_zero_samples():
@@ -570,7 +572,7 @@ def test_base_log_throughput_unit(caplog):
   assert "step/s=" in caplog.text
 
 
-def test_derived_metric_uses_line_loss(caplog):
+def test_derived_metric_uses_line_loss():
   """A DERIVED metric is exp(window loss) on the step line, exp(epoch mean
   loss) in the summary -- never a mean of per-step exponentials.
 
@@ -582,14 +584,16 @@ def test_derived_metric_uses_line_loss(caplog):
   from genml_kit.training.train_reporting import derived_metric
   r = _make_base_reporter(log_every=1, total_batches=2)
   ppl = derived_metric("ppl", lambda ctx: math.exp(ctx["loss"]))
-  with caplog.at_level(logging.INFO):
+  # Captures accumulate for the whole block, so each in-block assertion
+  # sees the output produced so far.
+  with log_capture() as logs:
     r.step(0, 4, 4.0, 0, extra_metrics={"ppl": ppl})
-    assert "ppl=54.5982" in caplog.text
+    assert "ppl=54.5982" in logs.text
     r.step(1, 4, 1.0, 1, extra_metrics={"ppl": ppl})
-    assert "ppl=2.7183" in caplog.text
+    assert "ppl=2.7183" in logs.text
     r.summary()
-  assert "ppl=12.1825" in caplog.text
-  assert "ppl=28.6592" not in caplog.text
+  assert "ppl=12.1825" in logs.text
+  assert "ppl=28.6592" not in logs.text
 
 
 def test_derived_metric_can_read_avg_loss(caplog):
