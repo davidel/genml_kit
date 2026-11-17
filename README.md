@@ -1230,21 +1230,41 @@ automatically better.
 
 ### Data Augmentation
 
-By default the `classification` method applies the following chain to the
-training set (built by `build_transforms` in
-`genml_kit/training/train_compat.py`):
+By default the `classification` method augments the training set with the
+chain built by `build_transforms` in
+`genml_kit/training/train_compat.py`:
 
-- `v2.RandomResizedCrop(image_size, scale=(0.2, 1.0), antialias=True)`
-- `v2.RandomHorizontalFlip(p=0.5)`
-- `v2.RandomVerticalFlip(p=0.5)`
-- `v2.RandomRotation(degrees=360)`
-- `v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.15, hue=0.05)`
-- `v2.ElasticTransform(alpha=50.0, sigma=5.0)`
+```python
+import torch
+from torchvision.transforms import v2
 
-followed automatically by a fixed tail: `v2.ToImage()`,
-`v2.ToDtype(torch.float32, scale=True)`, then normalization with the
-processor's `image_mean` / `image_std`.  The validation chain is never
-augmented: it is always `Resize` → `CenterCrop` → `Normalize`.
+train_augmentations = v2.Compose([
+    # Randomly crop 20-100% of the image, then resize to image_size.
+    v2.RandomResizedCrop(size=(image_size, image_size),
+                         scale=(0.2, 1.0),
+                         antialias=True),
+    # Mirror left/right, applied half the time.
+    v2.RandomHorizontalFlip(p=0.5),
+    # Mirror top/bottom, applied half the time.
+    v2.RandomVerticalFlip(p=0.5),
+    # Rotate by an arbitrary angle.
+    v2.RandomRotation(degrees=360),
+    # Photometric jitter on brightness, contrast, saturation and hue.
+    v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.15, hue=0.05),
+    # Local elastic warping.
+    v2.ElasticTransform(alpha=50.0, sigma=5.0),
+    # Fixed tail, always appended automatically:
+    # PIL image -> tensor.
+    v2.ToImage(),
+    # uint8 -> float in [0, 1].
+    v2.ToDtype(torch.float32, scale=True),
+    # Model-specific normalization.
+    v2.Normalize(mean=processor.image_mean, std=processor.image_std),
+])
+```
+
+The validation chain is never augmented: it is always `Resize` →
+`CenterCrop` → `Normalize`.
 
 #### Custom Training Augmentation
 
