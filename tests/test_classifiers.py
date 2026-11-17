@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.training.classifiers import CLASSIFIERS, build_classifier
+from tests.logging_helpers import log_capture
 
 
 class TestBuildClassifier:
@@ -51,10 +52,10 @@ class TestBuildClassifier:
     with pytest.raises(ValueError, match="Unknown classifier"):
       build_classifier("nonexistent", num_labels=2, hidden_size=32)
 
-  def test_classifier_kwargs_logged(self, caplog):
-    with caplog.at_level("INFO"):
+  def test_classifier_kwargs_logged(self):
+    with log_capture(level="INFO") as logs:
       build_classifier("mlp", num_labels=3, hidden_size=64, hidden=128, dropout=0.5)
-    assert "'hidden': 128" in caplog.text
+    assert "'hidden': 128" in logs.text
 
   def test_registered_classifiers(self):
     assert "mlp" in CLASSIFIERS._entries

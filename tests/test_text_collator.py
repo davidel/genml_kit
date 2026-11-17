@@ -8,6 +8,7 @@ and the DataBlob contract.
 from genml_kit.models.tokenizer import load_tokenizer
 from genml_kit.pipelines.contracts import DataBlob
 from genml_kit.training.text_collator import IGNORE_INDEX, TextCollator
+from tests.logging_helpers import log_capture
 
 
 def _tok():
@@ -131,19 +132,17 @@ class TestPacking:
     # memory envelope as --batch_size documents.
     items = [{"input_ids": list(range(100, 200))} for _ in range(4)]
     uncapped = TextCollator(_tok(), max_seq_len=8, packing=True)(items)
-    capped = TextCollator(_tok(), max_seq_len=8, packing=True,
-                          max_windows=2)(items)
+    capped = TextCollator(_tok(), max_seq_len=8, packing=True, max_windows=2)(items)
     assert uncapped.data["input_ids"].shape[0] > 2
     assert capped.data["input_ids"].shape[0] == 2
     assert capped.data["input_ids"].shape[1] == 8
 
-  def test_max_windows_warns_on_truncation(self, caplog):
-    import logging
+  def test_max_windows_warns_on_truncation(self):
     items = [{"input_ids": list(range(100, 200))}]
     coll = TextCollator(_tok(), max_seq_len=8, packing=True, max_windows=2)
-    with caplog.at_level(logging.WARNING):
+    with log_capture(level="WARNING") as logs:
       coll(items)
-    assert any("truncated" in r.message for r in caplog.records)
+    assert any("truncated" in r.message for r in logs.records)
 
   def test_max_windows_keeps_short_documents_intact(self):
     # A batch that already fits the cap is untouched (no silent token loss).

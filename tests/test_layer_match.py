@@ -4,8 +4,6 @@ Pure CPU, no dataset, no GPU.  A fake backbone with a ``blocks`` ModuleList
 stands in for a real teacher/student transformer.
 """
 
-import logging
-
 import pytest
 import torch.nn as nn
 
@@ -15,6 +13,7 @@ from genml_kit.models.layer_match import (
     iter_named_layers,
     match_layers,
 )
+from tests.logging_helpers import log_capture
 
 
 def _make_backbone(depth, prefix=""):
@@ -151,18 +150,18 @@ class TestMatchLayersByName:
     pairs = match_layers(teacher, student, strategy="by_name", pattern=r"blocks\.\d+")
     assert len(pairs) == 2
 
-  def test_skips_extras_and_logs_warning(self, caplog):
+  def test_skips_extras_and_logs_warning(self):
     teacher, student = self._both(5, 3)
-    with caplog.at_level(logging.WARNING):
+    with log_capture(level="WARNING") as logs:
       pairs = match_layers(teacher, student, strategy="by_name", pattern=r"blocks\.\d+")
     assert len(pairs) == 3
-    assert any("Skipped 2 unmatched layer(s)" in r.message for r in caplog.records)
+    assert any("Skipped 2 unmatched layer(s)" in r.message for r in logs.records)
 
-  def test_logs_matches_at_info(self, caplog):
+  def test_logs_matches_at_info(self):
     teacher, student = self._both(2, 2)
-    with caplog.at_level(logging.INFO):
+    with log_capture(level="INFO") as logs:
       match_layers(teacher, student, strategy="by_name", pattern=r"blocks\.\d+")
-    assert any("Matched 2 layer(s)" in r.message for r in caplog.records)
+    assert any("Matched 2 layer(s)" in r.message for r in logs.records)
 
   def test_zero_pairs_raises(self):
     teacher, student = self._both(2, 2)

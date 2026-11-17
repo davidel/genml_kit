@@ -15,6 +15,8 @@ import pytest
 import torch
 from PIL import Image
 
+from tests.logging_helpers import log_capture
+
 # Helpers
 
 
@@ -243,21 +245,21 @@ class TestDetectLabelColumn:
     )
     assert train_mod.HFDatasetProxy.detect_label_column(ds) is None
 
-  def test_unknown_classlabel_column_warns(self, caplog):
+  def test_unknown_classlabel_column_warns(self):
     train_mod = _import_train()
     ds = _make_synthetic_dataset(label_col="lesion_type", image_col="image")
-    with caplog.at_level("WARNING"):
+    with log_capture(level="WARNING") as logs:
       assert train_mod.HFDatasetProxy.detect_label_column(ds) == "lesion_type"
-    assert any("No known label column name found" in r.message for r in caplog.records)
+    assert any("No known label column name found" in r.message for r in logs.records)
 
-  def test_known_label_name_does_not_warn(self, caplog):
+  def test_known_label_name_does_not_warn(self):
     train_mod = _import_train()
     ds = _make_synthetic_dataset(label_col="category", image_col="image")
-    with caplog.at_level("WARNING"):
+    with log_capture(level="WARNING") as logs:
       assert train_mod.HFDatasetProxy.detect_label_column(ds) == "category"
-    assert not any("No known label" in r.message for r in caplog.records)
+    assert not any("No known label" in r.message for r in logs.records)
 
-  def test_last_resort_fallback_warns(self, caplog):
+  def test_last_resort_fallback_warns(self):
     """Priority 4: the first non-ignored string/int column wins, loudly."""
     train_mod = _import_train()
     raw = datasets.Dataset.from_dict(
@@ -272,12 +274,12 @@ class TestDetectLabelColumn:
             "patient_id": datasets.Value("string"),
         }),
     )
-    with caplog.at_level("WARNING"):
+    with log_capture(level="WARNING") as logs:
       assert train_mod.HFDatasetProxy.detect_label_column(raw) == "patient_id"
     assert any("falling back to first string/int64 column 'patient_id'" in r.message
-               for r in caplog.records)
+               for r in logs.records)
 
-  def test_no_label_produces_no_warning(self, caplog):
+  def test_no_label_produces_no_warning(self):
     train_mod = _import_train()
     ds = datasets.Dataset.from_dict(
         {
@@ -289,9 +291,9 @@ class TestDetectLabelColumn:
             "image": datasets.Image(),
         }),
     )
-    with caplog.at_level("WARNING"):
+    with log_capture(level="WARNING") as logs:
       assert train_mod.HFDatasetProxy.detect_label_column(ds) is None
-    assert not any("falling back" in r.message for r in caplog.records)
+    assert not any("falling back" in r.message for r in logs.records)
 
 
 # Load and split dataset

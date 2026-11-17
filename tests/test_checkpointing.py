@@ -1,7 +1,6 @@
 """Tests for the shared checkpointing utilities."""
 
 import copy
-import logging
 import os
 
 import torch
@@ -20,6 +19,7 @@ from genml_kit.io.checkpointing import (
 )
 from genml_kit.io.storage_utils import save_checkpoint
 from genml_kit.training.model_utils import trainable_state_dict
+from tests.logging_helpers import log_capture
 
 
 class TestFormatCount:
@@ -60,23 +60,23 @@ class TestShouldSavePeriodic:
 class TestWarnWorldSizeMismatch:
   """Resume under a different rank count warns (never aborts)."""
 
-  def test_no_warning_when_matching(self, caplog):
-    with caplog.at_level(logging.WARNING):
+  def test_no_warning_when_matching(self):
+    with log_capture(level="WARNING") as logs:
       changed = warn_world_size_mismatch(2, 2)
     assert changed is False
-    assert not caplog.records
+    assert not logs.records
 
-  def test_no_warning_without_recorded_size(self, caplog):
-    with caplog.at_level(logging.WARNING):
+  def test_no_warning_without_recorded_size(self):
+    with log_capture(level="WARNING") as logs:
       changed = warn_world_size_mismatch(None, 4)
     assert changed is False
-    assert not caplog.records
+    assert not logs.records
 
-  def test_warns_on_mismatch(self, caplog):
-    with caplog.at_level(logging.WARNING):
+  def test_warns_on_mismatch(self):
+    with log_capture(level="WARNING") as logs:
       changed = warn_world_size_mismatch(2, 1)
     assert changed is True
-    assert any("world_size=2" in r.getMessage() for r in caplog.records)
+    assert any("world_size=2" in r.getMessage() for r in logs.records)
 
 
 class TestInProgressResume:
@@ -351,19 +351,19 @@ class TestLoadCheckpointWeights:
     torch.save({"model_state_dict": ckpt}, path)
     return path, backbone
 
-  def _loaded_record(self, caplog):
+  def _loaded_record(self, logs):
     """Return only the 'actually loaded' log record (not the align report)."""
-    return next(r.message for r in caplog.records if "actually loaded" in r.message)
+    return next(r.message for r in logs.records if "actually loaded" in r.message)
 
-  def test_logs_actually_loaded_params(self, tmp_path, caplog):
+  def test_logs_actually_loaded_params(self, tmp_path):
     path, backbone = self._save_ijepa_like(tmp_path)
     # Adapter-style target (backbone under model.*), as in fine-tuning.
     new_model = _WrappedAdapter(nn.Linear(10, 5))
-    with caplog.at_level(logging.INFO):
+    with log_capture(level="INFO") as logs:
       load_checkpoint_weights(path,
                               new_model,
                               param_rename=["student\\.encoder\\.(.*);model.$1"])
-    text = self._loaded_record(caplog)
+    text = self._loaded_record(logs)
     # Headline: exactly the backbone's keys, not the teacher's/predictor's.
     assert (f"param_align: {len(backbone.state_dict())} keys actually loaded" in text)
     # The renamed student keys matched exactly and are what got loaded.
@@ -373,7 +373,7 @@ class TestLoadCheckpointWeights:
     assert "<- student.model." not in text
     assert "<- predictor." not in text
 
-  def test_loaded_log_skips_head_keys(self, tmp_path, caplog):
+  def test_loaded_log_skips_head_keys(self, tmp_path):
     """A fresh head (no same-shape source key) never shows up as loaded."""
     path, _ = self._save_ijepa_like(tmp_path)
 
@@ -385,11 +385,11 @@ class TestLoadCheckpointWeights:
         self.model = nn.Linear(10, 5)
         self.head = nn.Linear(5, 2)
 
-    with caplog.at_level(logging.INFO):
+    with log_capture(level="INFO") as logs:
       load_checkpoint_weights(path,
                               _WithHead(),
                               param_rename=["student\\.encoder\\.(.*);model.$1"])
-    text = self._loaded_record(caplog)
+    text = self._loaded_record(logs)
     # Only the transferred backbone appears; the fresh head does not.
     assert "model.* <- model.*  (2 keys)" in text
     assert "head.weight" not in text
@@ -403,7 +403,7 @@ class TestFetchRemoteCheckpoint:
     best = str(tmp_path / "run_best.pt")
     assert fetch_remote_checkpoint(None, latest, best) == []
 
-  def test_local_present_skips_remote(self, tmp_path, monkeypatch, caplog):
+  def test_local_present_skips_remote(self, tmp_path, monkeypatch):
     """A locally present latest is never clobbered; only best is fetched."""
     latest = tmp_path / "run_latest.pt"
     latest.write_bytes(b"local")
@@ -411,11 +411,11 @@ class TestFetchRemoteCheckpoint:
     downloads = []
     monkeypatch.setattr("genml_kit.io.checkpointing.storage_download",
                         lambda uri, path: downloads.append(path) or True)
-    with caplog.at_level(logging.INFO):
+    with log_capture(level="INFO") as logs:
       restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
     assert restored == [str(best)]
     assert downloads == [str(best)]
-    assert "skipping remote fetch" in caplog.text
+    assert "skipping remote fetch" in logs.text
 
   def test_downloads_missing_latest_and_best(self, tmp_path, monkeypatch):
     latest = tmp_path / "run_latest.pt"
@@ -427,7 +427,7 @@ class TestFetchRemoteCheckpoint:
     # Stub does not write; path bookkeeping only.
     assert latest.exists() is False
 
-  def test_latest_tried_before_best(self, tmp_path, monkeypatch, caplog):
+  def test_latest_tried_before_best(self, tmp_path, monkeypatch):
     """Precedence mirrors resume_checkpoint: latest first, then best."""
     latest = tmp_path / "run_latest.pt"
     best = tmp_path / "run_best.pt"
@@ -437,16 +437,16 @@ class TestFetchRemoteCheckpoint:
     fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
     assert order == [str(latest), str(best)]
 
-  def test_both_missing_silent_noop(self, tmp_path, monkeypatch, caplog):
+  def test_both_missing_silent_noop(self, tmp_path, monkeypatch):
     latest = tmp_path / "run_latest.pt"
     best = tmp_path / "run_best.pt"
     monkeypatch.setattr("genml_kit.io.checkpointing.storage_download",
                         lambda uri, path: False)
-    with caplog.at_level(logging.WARNING):
+    with log_capture(level="WARNING") as logs:
       restored = fetch_remote_checkpoint("s3://b/runs", str(latest), str(best))
     assert restored == []
     # No warnings: a miss is normal.
-    assert caplog.records == []
+    assert logs.records == []
     assert not latest.exists()
     assert not best.exists()
 

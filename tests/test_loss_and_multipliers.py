@@ -314,7 +314,7 @@ class TestCombinedFocalLoss:
 
     torch.testing.assert_close(focal(logits, targets), expected, rtol=1e-5, atol=1e-6)
 
-  def test_label_smoothing_warning_emitted(self, caplog):
+  def test_label_smoothing_warning_emitted(self):
     """logging.warning should fire when gamma>0 and label_smoothing>0."""
     logits, targets = _make_batch()
     weights = torch.ones(7)

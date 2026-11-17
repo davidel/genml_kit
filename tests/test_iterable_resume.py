@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 
 from genml_kit.pipelines.base import DataPipeline
 from genml_kit.utils.distributed import _SkippedSampler
+from tests.logging_helpers import log_capture
 from tests.iterable_streams import (CountingMapDataset, CountingStream,
                                     NonResumableStream)
 
@@ -109,13 +110,13 @@ class TestStreamSeek:
     pipeline.seek_batch(2)
     assert _ids(pipeline) == full[2:]
 
-  def test_non_replayable_source_refuses_and_warns(self, caplog):
+  def test_non_replayable_source_refuses_and_warns(self):
     pipeline = _Pipeline(NonResumableStream(20))
     pipeline.train_loader.dataset.is_replayable = False
-    with caplog.at_level("WARNING"):
+    with log_capture(level="WARNING") as logs:
       assert pipeline.seek_batch(2) == 0
     assert any(
-        "restarts the epoch from the top" in r.getMessage() for r in caplog.records)
+        "restarts the epoch from the top" in r.getMessage() for r in logs.records)
 
   def test_only_one_seek_mechanism_is_armed(self):
     # Seeking a random-access loader must clear any stream offset, or the

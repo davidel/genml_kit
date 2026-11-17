@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from genml_kit.utils.attr import MISSING, get_attribute, maybe_call, maybe_setattr
+from tests.logging_helpers import log_capture
 
 
 class TestGetAttribute:
@@ -146,8 +147,7 @@ class TestEnableGradCheckpointing:
     enable_grad_checkpointing(model)
     model.set_grad_checkpointing.assert_called_once_with(enable=True)
 
-  def test_unknown_model_logs_warning(self, caplog):
-    import logging
+  def test_unknown_model_logs_warning(self):
     from unittest.mock import MagicMock
 
     from genml_kit.training.model_utils import enable_grad_checkpointing
@@ -155,7 +155,7 @@ class TestEnableGradCheckpointing:
     # Empty spec = no real attributes.
     model = MagicMock(spec=[])
 
-    with caplog.at_level(logging.WARNING):
+    with log_capture(level="WARNING") as logs:
       enable_grad_checkpointing(model)
 
-    assert "no known mechanism found" in caplog.text
+    assert "no known mechanism found" in logs.text

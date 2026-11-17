@@ -11,6 +11,7 @@ import pytest
 from PIL import Image
 
 from genml_kit.datasets.ensemble import DatasetEnsemble, _HFDataset
+from tests.logging_helpers import log_capture
 
 
 class _FakeLabeled:
@@ -153,13 +154,14 @@ class TestMixedEnsemble:
     for idx in range(len(ens)):
       assert set(ens[idx]) == {"image"}
 
-  def test_ensure_label_space_warns_on_mixed(self, caplog):
+  def test_ensure_label_space_warns_on_mixed(self):
     ens = _make_ensemble(_FakeLabeled(n=4), _FakeUnlabeled(n=2))
     ens._global_label_names = []
     ens._global_label2id = {}
-    ens.ensure_label_space()
+    with log_capture(level="WARNING") as logs:
+      ens.ensure_label_space()
     assert ens.num_labels == 2
-    assert any("no labels" in rec.message for rec in caplog.records)
+    assert any("no labels" in rec.message for rec in logs.records)
 
   def test_ensure_label_space_all_unlabeled_is_a_noop(self):
     ens = _make_ensemble(_FakeUnlabeled(n=3), _FakeUnlabeled(n=2))

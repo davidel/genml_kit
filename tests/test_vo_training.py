@@ -1,7 +1,6 @@
 """Unit tests for the VO training/evaluation pieces."""
 
 import collections
-import logging
 
 import pytest
 import torch
@@ -14,6 +13,7 @@ from genml_kit.training.vo.train_vo import (
     photometric_residual,
     vo_losses,
 )
+from tests.logging_helpers import log_capture
 
 
 class _Cfg:
@@ -121,7 +121,7 @@ def test_loss_zero_for_exact_prediction():
   assert parts["dtheta"].item() == pytest.approx(0.0, abs=1e-6)
 
 
-def test_reported_loss_is_never_below_its_mce_component(caplog):
+def test_reported_loss_is_never_below_its_mce_component():
   """The reported loss must be >= mce, since every VO term is >= 0.
 
   This is the invariant that exposed the reporting bug: the reporter
@@ -141,7 +141,7 @@ def test_reported_loss_is_never_below_its_mce_component(caplog):
                           device=torch.device("cpu"),
                           optimizer=opt,
                           throughput_unit="img")
-  with caplog.at_level(logging.INFO):
+  with log_capture(level="INFO") as logs:
     r.step(batch_idx=0,
            batch_size=32,
            loss_value=true_loss,
@@ -154,7 +154,7 @@ def test_reported_loss_is_never_below_its_mce_component(caplog):
   # Both the step line and the summary must carry the true per-sample
   # loss, and it can never sit below its own non-negative mce component.
   for token in ("loss=16.8697", "mce=16.5500"):
-    assert token in caplog.text
+    assert token in logs.text
   assert reported == pytest.approx(true_loss)
   assert reported >= mce, f"loss={reported} cannot be below mce={mce}"
 

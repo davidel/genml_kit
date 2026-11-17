@@ -9,13 +9,13 @@ v4.2: the best-checkpoint cycle is keyed off ``method.METRIC_KEY`` and
 ``best_<metric_key>`` and the loop never negates.
 """
 
-import logging
 import types
 
 import torch
 
 from genml_kit.pipelines.contracts import DataBlob, LossOutput, ValidationResult
 from genml_kit.training.trainer import BaseTrainer
+from tests.logging_helpers import log_capture
 
 
 class _Args:
@@ -215,7 +215,7 @@ def test_minimizing_metric_improves_downward(tmp_path):
   assert trainer.best_metric < float("inf")
 
 
-def test_new_best_line_keeps_subpixel_precision(tmp_path, caplog):
+def test_new_best_line_keeps_subpixel_precision(tmp_path):
   """The "New best" line must not round a pixel metric to 0.00.
 
   Real VO mce values sit in the 1e-3..1e-1 range, so the old ``.2f``
@@ -245,9 +245,9 @@ def test_new_best_line_keeps_subpixel_precision(tmp_path, caplog):
   # Seed the sentinel the fresh-run branch would use, so the first
   # epoch's mce counts as an improvement and the line actually fires.
   trainer.best_metric = float("inf")
-  with caplog.at_level(logging.INFO):
+  with log_capture(level="INFO") as logs:
     trainer.run()
-  new_best = [ln for ln in caplog.text.splitlines() if "New best" in ln]
+  new_best = [ln for ln in logs.text.splitlines() if "New best" in ln]
   assert new_best, "expected a 'New best' line"
   body = "\n".join(new_best)
   # The real regression: sub-pixel mce collapsed to a constant.

@@ -24,6 +24,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from genml_kit.datasets import counting
+from tests.logging_helpers import log_capture
 
 
 @pytest.fixture(autouse=True)
@@ -160,15 +161,15 @@ class TestDeclaredSplitSize:
     # No files resolve for a repo id with no data_files, so the count is None.
     assert counting.hf_num_samples("org/name", split="train") is None
 
-  def test_builder_failure_is_logged_not_raised(self, monkeypatch, caplog):
+  def test_builder_failure_is_logged_not_raised(self, monkeypatch):
 
     def boom(*a, **k):
       raise RuntimeError("gated")
 
     monkeypatch.setattr(counting.datasets, "load_dataset_builder", boom)
-    with caplog.at_level("DEBUG"):
+    with log_capture(level="DEBUG") as logs:
       assert counting.hf_num_samples("org/private", split="train") is None
-    assert any("load_dataset_builder" in record.message for record in caplog.records)
+    assert any("load_dataset_builder" in record.message for record in logs.records)
 
 
 class TestHubFiles:
@@ -385,15 +386,15 @@ class TestDatasetsServer:
     assert "dataset=org%2Fname" in response.urls[0]
     assert "config=plain_text" in response.urls[0]
 
-  def test_partial_scan_returns_the_labelled_estimate(self, monkeypatch, caplog):
+  def test_partial_scan_returns_the_labelled_estimate(self, monkeypatch):
     response = _ServerResponse(
         _server_payload("en", "train", 2207027, partial=True, estimate=364695767))
     monkeypatch.setattr(counting, "_http_get_json", response)
-    with caplog.at_level("INFO"):
+    with log_capture(level="INFO") as logs:
       assert counting.hf_num_samples("allenai/c4", name="en",
                                      split="train") == 364695767
     # The number is an estimate and must say so.
-    assert any("estimat" in record.message.lower() for record in caplog.records)
+    assert any("estimat" in record.message.lower() for record in logs.records)
 
   def test_partial_scan_without_estimate_is_none(self, monkeypatch):
     response = _ServerResponse(

@@ -1,5 +1,4 @@
 """Tests for cloud storage helpers (GCS, R2, S3 URI handling and S3 upload)."""
-import logging
 import os
 import sys
 from types import ModuleType, SimpleNamespace
@@ -13,6 +12,7 @@ from genml_kit.io.storage_utils import (
     storage_download,
     storage_upload,
 )
+from tests.logging_helpers import log_capture
 
 try:
   import boto3  # noqa: F401
@@ -224,14 +224,13 @@ class TestStorageDownloadS3:
     assert fake.calls == [("head", "my-bucket", "runs/model_latest.pt")]
     assert not local.exists()
 
-  def test_connection_error_warns_and_returns_false(self, tmp_path, monkeypatch,
-                                                    caplog):
+  def test_connection_error_warns_and_returns_false(self, tmp_path, monkeypatch):
     fake = _FakeDownloadClient(error="403")
     _use_boto3_client(fake, monkeypatch)
     local = tmp_path / "model_latest.pt"
-    with caplog.at_level(logging.WARNING):
+    with log_capture(level="WARNING") as logs:
       assert storage_download("s3://my-bucket/runs", str(local)) is False
-    assert "failed" in caplog.text
+    assert "failed" in logs.text
     # The failed attempt must not leave a partial file behind.
     assert not local.exists()
 

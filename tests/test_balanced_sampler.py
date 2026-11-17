@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from genml_kit.datasets.balanced_sampler import BalancedBatchSampler
+from tests.logging_helpers import log_capture
 
 
 class TestBalancedBatchSampler:
@@ -87,9 +88,8 @@ class TestBalancedBatchSampler:
     for batch in sampler:
       assert all(0 <= i < len(labels) for i in batch)
 
-  def test_warns_on_indivisible_batch(self, caplog):
-    import logging
+  def test_warns_on_indivisible_batch(self):
     labels = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2])
-    with caplog.at_level(logging.WARNING):
+    with log_capture(level="WARNING") as logs:
       BalancedBatchSampler(labels, batch_size=10, samples_per_class=3)
-    assert any("not divisible" in r.message for r in caplog.records)
+    assert any("not divisible" in r.message for r in logs.records)

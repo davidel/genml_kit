@@ -1,6 +1,5 @@
 """Tests for genml_kit.signal_utils (sigexcept context manager)."""
 
-import logging
 import os
 import signal
 import threading
@@ -10,6 +9,7 @@ import pytest
 
 from genml_kit.training.trainer import TrainingResult
 from genml_kit.utils.signal import InterruptedException, sigexcept
+from tests.logging_helpers import log_capture
 
 
 class TestSigexcept:
@@ -51,9 +51,9 @@ class TestSigexcept:
     finally:
       signal.signal(signal.SIGUSR1, original)
 
-  def test_unknown_name_logged_and_skipped(self, caplog):
+  def test_unknown_name_logged_and_skipped(self):
     with (
-        caplog.at_level(logging.WARNING),
+        log_capture(level="WARNING") as logs,
         sigexcept("SIGUSR1,SIGDOESNOTEXIST") as interrupts,
     ):
       try:
@@ -62,7 +62,7 @@ class TestSigexcept:
         pytest.fail("expected InterruptedException")
       except InterruptedException:
         pass
-    assert any("SIGDOESNOTEXIST" in rec.getMessage() for rec in caplog.records)
+    assert any("SIGDOESNOTEXIST" in rec.getMessage() for rec in logs.records)
     assert interrupts.received == ["SIGUSR1"]
 
   def test_unhandleable_rejected(self):

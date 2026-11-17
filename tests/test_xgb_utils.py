@@ -3,6 +3,7 @@
 import numpy as np
 
 from genml_kit.training.xgb_utils import eval_xgboost, train_xgboost
+from tests.logging_helpers import log_capture
 
 
 class TestTrainXGBoost:
@@ -200,7 +201,7 @@ class TestEvalLabelSpace:
     assert "y" in result["per_class_accuracy"]
     assert "z" in result["per_class_accuracy"]
 
-  def test_missing_id2label_entry_uses_placeholder(self, caplog):
+  def test_missing_id2label_entry_uses_placeholder(self):
     """A gap in id2label falls back to CLASS_N and warns instead of raising."""
     rng = np.random.RandomState(42)
     features = rng.randn(30, 16).astype(np.float32)
@@ -209,14 +210,14 @@ class TestEvalLabelSpace:
     clf = train_xgboost(features, labels, max_depth=3, n_estimators=10)
     # Class 2 missing.
     id2label = {"0": "a", "1": "b", "3": "d"}
-    with caplog.at_level("WARNING"):
+    with log_capture(level="WARNING") as logs:
       result = eval_xgboost(clf, features, labels, id2label=id2label)
 
     assert "CLASS_2" in result["per_class_accuracy"]
     assert "a" in result["per_class_accuracy"]
-    assert any("no entry for class 2" in r.message for r in caplog.records)
+    assert any("no entry for class 2" in r.message for r in logs.records)
 
-  def test_n_classes_mismatch_warns(self, caplog):
+  def test_n_classes_mismatch_warns(self):
     """Model trained on a different class count than id2label warns."""
     rng = np.random.RandomState(42)
     features = rng.randn(30, 16).astype(np.float32)
@@ -225,8 +226,8 @@ class TestEvalLabelSpace:
     clf = train_xgboost(features, labels, max_depth=3, n_estimators=10)
     # 5 vs 2 classes.
     id2label = {str(i): f"c{i}" for i in range(5)}
-    with caplog.at_level("WARNING"):
+    with log_capture(level="WARNING") as logs:
       eval_xgboost(clf, features, labels, id2label=id2label)
 
     assert any(
-        "trained on 2 classes but id2label has 5" in r.message for r in caplog.records)
+        "trained on 2 classes but id2label has 5" in r.message for r in logs.records)
