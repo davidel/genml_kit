@@ -2,12 +2,29 @@
 #
 # Run one README-CLI pytest marker suite, tolerating exit code 5.
 #
+# A suite label names the *reason* its marked README examples are isolated
+# from the default run (see ``addopts`` in pyproject.toml and the comment
+# block above ``jobs:`` in ci.yml); it is not merely a ``pytest -m``
+# expression.
+#
 # Usage: readme_cli_suite.sh <suite>
-#   network      tokenless network examples
-#   distributed  multi-process (torchrun) examples
-#   service      external-service examples (HF_TOKEN gated datasets)
-#   proxied      proxied / emulated services (== service, minus hf, so the
-#                gated step above is not re-run)
+#   network      Examples that need the internet but no credentials: they
+#                download public Hub models/datasets.  Selects
+#                ``network and not service`` because ``service:`` implies
+#                ``network:``; without that exclusion a service-marked example
+#                would run twice (here and under ``service``).
+#   distributed  The multi-process ``launcher: torchrun`` example.  Separate
+#                because it needs a different launcher and its own
+#                descendant-process reaper.
+#   service      Examples needing a third-party service (hf, s3, r2, gcs,
+#                github, wandb), reachable by credentials or an endpoint
+#                override.  They SKIP -- not fail -- when neither is present,
+#                so fork PRs stay green.
+#   proxied      ``service and not hf``: service examples that talk to an
+#                emulator or proxy rather than the real service.  Excludes hf
+#                so the ``service`` step is not re-run.  Collects nothing
+#                yet; it is a placeholder, hence the exit-code-5 tolerance
+#                below.
 #
 # Exit code 5 from pytest means "no tests collected": not an error while the
 # marker suites are still being populated.  Any other non-zero code is

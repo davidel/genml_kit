@@ -4,6 +4,67 @@ on:
   push:
   pull_request:
 
+# ---------------------------------------------------------------------------
+# How the README CLI examples are split across steps
+#
+# Every copy-pasteable ``genml-kit-*`` block in the READMEs is executed as a
+# smoke test by tests/test_readme_cli.py.  The harness derives pytest markers
+# from the invisible marker comment above each fence, and the ``addopts`` in
+# [tool.pytest.ini_options] (pyproject.toml) keep a bare ``pytest`` offline:
+#
+#   -m 'not slow and not network and not service and not distributed'
+#
+# Every README example carries ``slow``, so none of them run in the plain
+# ``pytest -q`` step; they all live in the steps below.  The buckets exist to
+# separate *why* an example can fail, so that an unavailable credential or a
+# dead network cannot turn into a red build, and so that a failure is
+# attributable to one named step instead of a generic suite.
+#
+#   none of these  Hermetic examples: local fixtures only, never a network
+#                  call.  Produced by fences with no ``network:``/``service:``
+#                  key, and by ``gated: true`` fences, whose HF dataset is
+#                  remapped to a local fixture so the example runs offline.
+#                  These are what the ``test`` job's "slow tests" step runs.
+#                                                        8 examples today
+#
+#   network        Needs the internet but no credentials: downloads public Hub
+#                  models/datasets.  Produced by ``network: true``.  Kept out
+#                  of local runs because a sandbox may be offline.
+#                                                       25 examples today
+#
+#   service        Needs a third-party service reachable either with
+#                  credentials or through an endpoint override -- hf, s3, r2,
+#                  gcs, github, wandb (see tests/services.py).  Produced by
+#                  ``service: <name>``, which *implies* network.  When neither
+#                  is configured the example is SKIPPED, not failed; that is
+#                  what keeps fork PRs green, since secrets.HF_TOKEN is empty
+#                  there.
+#                                                        1 example today (hf)
+#
+#   hf, s3, ...    One marker per service name, so a single service can be
+#                  selected with e.g. ``pytest -m hf``.
+#
+#   distributed    Must be launched multi-process (``launcher: torchrun``).
+#                  Separate because it needs a different launcher and its own
+#                  descendant-process reaper, so it cannot share a step with
+#                  single-process examples.
+#                                                        1 example today
+#
+# ``service`` implies ``network``, so the network step selects
+# ``network and not service``; otherwise a service-marked example would run
+# twice.  ``proxied`` selects ``service and not hf`` purely so that the
+# ``service`` step is not re-run -- it is a placeholder for s3/r2/gcs/github/
+# wandb emulator coverage and collects 0 examples today, which is why
+# readme_cli_suite.sh tolerates pytest's exit code 5.
+#
+# HF_TOKEN is set for the whole workflow (below) so that every Hub request
+# made by these examples is authenticated.  On fork PRs the secret is empty,
+# huggingface_hub treats an empty value as no token, and the examples fall
+# back to anonymous access instead of failing.
+# ---------------------------------------------------------------------------
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -74,21 +135,23 @@ jobs:
       - name: Install package and development dependencies
         run: python -m pip install -e ".[dev,llm,llm-spm,timm,uvito,lora,s3,rl]"
 
-      - name: Run README CLI examples (tokenless network)
+      - name: Run README CLI examples (network)
+        # Public-Hub-download examples.  Authenticated by the workflow-level
+        # HF_TOKEN; anonymous on fork PRs, where the secret is empty.
         run: bash .github/workflows/readme_cli_suite.sh network
 
       - name: Run README CLI examples (distributed / torchrun)
+        # The multi-process example: different launcher, own process tree.
         run: bash .github/workflows/readme_cli_suite.sh distributed
 
       - name: Run README CLI examples (gated / HF_TOKEN)
-        env:
-          # Gated datasets need a token whose owner has been granted access.
-          # On forks without the secret the spec skips, so this never
-          # hard-fails for lack of a token.
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        # ``service``-marked examples.  HF_TOKEN is inherited from the
+        # workflow env; where no credential or endpoint is configured they
+        # skip, they do not fail.
         run: bash .github/workflows/readme_cli_suite.sh service
 
       - name: Run README CLI examples (proxied / emulated services)
+        # ``service and not hf``: emulator/proxy coverage, currently empty.
         env:
           # Optional repo variables pointing the clients at a proxy or
           # emulator.  When unset the corresponding spec skips, so this
