@@ -296,7 +296,8 @@ $$
 
 where:
 
-- $`x_i`$ — the pixels of the $`i`$-th original patch;
+- $`x_i`$ — the pixels of the $`i`$-th original patch ($`i = 1, \dots, N`$;
+  $`N`$ = total number of patches);
 - $`\hat{x}_i`$ — the decoder's reconstruction of that patch;
 - $`\mathcal{M}`$ — the set of masked patch indices, and $`|\mathcal{M}|`$ its
   size (how many patches are masked);
@@ -467,24 +468,57 @@ into 2 **global** crops plus `--dino_local_num` (8) small **local** crops:
 the teacher sees only global views, the student sees all of them, so the
 student must produce globally consistent features from partial views.
 
-Both towers end in an MLP projection head whose output is turned into a
-probability vector over the projection dimension. The teacher's distribution
-is *sharpened* by its small temperature and *centered* by a running mean
-$`c \in \mathbb{R}^{D}`$ updated once per step,
+Both towers end in an MLP projection head that maps each backbone feature to a
+$`D`$-dimensional vector (`--dino_proj_dim`, 256); these vectors are turned
+into probability distributions over the $`D`$ projection dimensions. The
+teacher's logits are *centered* (a running-mean vector $`c`$ is subtracted) and
+*sharpened* (divided by a small temperature $`\tau_\xi`$) before the softmax,
+while the student's logits are divided only by its larger temperature
+$`\tau_\theta`$. Writing $`f_\theta(x)`$ and $`f_\xi(x)`$ for the student and
+teacher projections of an image $`x`$, the center is updated once per step,
 
 $$
 \large
-c \leftarrow m_c \\, c + (1 - m_c) \cdot \frac{1}{B}\sum_{i=1}^{B} f_\xi(x_i)
+c \leftarrow m_c \\, c + (1 - m_c) \cdot \frac{1}{B_g}\sum_{i=1}^{B_g} f_\xi(x_i)
 $$
 
-(`--dino_center_momentum` 0.9), and the loss is the cross-entropy between the
-teacher's processed distribution $`p_\xi`$ and the student's $`p_\theta`$,
-averaged over all (teacher global, student crop) pairings:
+and the teacher target and student prediction are
 
 $$
 \large
-\mathcal{L} = - \sum_{j} p_{\xi,j} \\, \log p_{\theta,j}
+p_\xi(x) = \mathrm{softmax}\left(\frac{f_\xi(x) - c}{\tau_\xi}\right),
+\qquad
+p_\theta(x) = \mathrm{softmax}\left(\frac{f_\theta(x)}{\tau_\theta}\right)
 $$
+
+$$
+\large
+\mathcal{L} = - \frac{1}{N}\sum_{n=1}^{N} \sum_{d=1}^{D} p_\xi(x^{(n)})_d \\, \log p_\theta(x^{(n)})_d
+$$
+
+where:
+
+- $`f_\theta(x), f_\xi(x) \in \mathbb{R}^{D}`$ — the student and teacher
+  projection-head outputs for image $`x`$ ($`D`$ = projection dimension,
+  `--dino_proj_dim`);
+- $`c \in \mathbb{R}^{D}`$ — the running center: a per-dimension mean of the
+  teacher's outputs, updated once per step with momentum $`m_c`$
+  (`--dino_center_momentum`, 0.9) over the $`B_g`$ teacher *global-crop*
+  outputs in the batch (two global views per image, so $`B_g = 2B`$). It is
+  subtracted from the teacher logits so that no single dimension can dominate
+  the target;
+- $`\tau_\xi`$ — the teacher temperature (`--dino_teacher_temp`, 0.04); small,
+  so the teacher distribution is sharp (confident);
+- $`\tau_\theta`$ — the student temperature (`--dino_student_temp`, 0.1);
+  larger, so the student distribution is softer and its gradients stay alive;
+- $`p_\xi(x)`$ — the teacher's target distribution over the $`D`$ dimensions
+  (centered, sharpened, softmaxed, and detached from the gradient graph);
+- $`p_\theta(x)`$ — the student's predicted distribution over the same
+  $`D`$ dimensions;
+- $`x^{(n)}`$ — the $`n`$-th (student crop, teacher view) pairing: each global
+  view is paired with the *other* global view of the same image, and each local
+  crop with the teacher's second global view. The loss averages the per-pairing
+  cross-entropy over all $`N`$ pairings.
 
 Centering and sharpening are the two anti-collapse mechanisms: centering
 cancels any component the teacher produces for *every* input (a constant
@@ -499,21 +533,27 @@ this is self-distillation — there are no external labels anywhere.
 The same two-tower idea as DINO but with two augmented views and no
 multi-crop. The **online** network (encoder + projector + predictor MLP) and
 the **target** network (encoder + projector, EMA copy) process the two views;
-only the online tower receives gradients. With $`z_1, z_2`$ the target
-projections of the two views and $`p_1, p_2`$ the online *predictions* of
-those projections, the loss is the symmetric cosine regression
+only the online tower receives gradients. The loss is the symmetric cosine
+regression
 
 $$
 \large
 \mathcal{L} = 2 - \cos(p_1, z_2) - \cos(p_2, z_1)
 $$
 
-which is 0 when predictions perfectly match target projections and reaches 4
-when they point in opposite directions; $`\cos(u,v) = u^\top v / (\lVert u \rVert_2 \lVert v \rVert_2)`$ is the cosine of the angle between the two
-vectors. Two asymmetries keep this from collapsing to a constant: the
-predictor exists only on the online side (predicting a target is easier than
-being one), and the targets move slowly under the EMA — exactly the
-teacher-follows-student trick noted under I-JEPA.
+where:
+
+- $`z_1, z_2`$ — the target network's projections of the two views
+  (stop-gradient, so no gradients flow into the target tower);
+- $`p_1, p_2`$ — the online network's *predictions* of those projections;
+- $`\cos(u, v) = u^\top v / (\lVert u \rVert_2 \lVert v \rVert_2)`$ — the
+  cosine of the angle between the two vectors.
+
+The loss is 0 when predictions perfectly match the target projections and
+reaches 4 when they point in opposite directions. Two asymmetries keep this
+from collapsing to a constant: the predictor exists only on the online side
+(predicting a target is easier than being one), and the targets move slowly
+under the EMA — exactly the teacher-follows-student trick noted under I-JEPA.
 
 ### Typical Hyperparameters
 
@@ -543,6 +583,9 @@ size and GPU memory:
 - DINO and BYOL train on smaller crops (224) with a larger LR because their
   loss acts on a small projection space rather than every pixel; the defaults
   above match the method-specific `--dino_*` / `--byol_*` flags.
+- The DINO/BYOL loss lives in that projection space (`--dino_proj_dim` /
+  `--byol_proj_dim`, both 256), not in the backbone feature space: the
+  objective compares 256-dimensional distributions or vectors, not pixels.
 - `--samples_per_class 16` with `--batch_size 64` gives 4 classes per batch
   on a 7-class dataset. batch_size need not be divisible by
   samples_per_class; the remainder is spread evenly across the per-class
