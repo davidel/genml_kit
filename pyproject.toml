@@ -35,7 +35,7 @@ tune = ["scipy"]
 gpu = ["nvidia-ml-py"]
 flash = ["flash-attn"]
 all = ["genml_kit[gcs,s3,lora,llm,llm-spm,timm,uvito,rl,tune,gpu]"]
-dev = ["pytest", "ruff", "yapf", "pyyaml"]
+dev = ["pytest", "pytest-timeout", "pytest-split", "ruff", "yapf", "pyyaml"]
 
 [project.urls]
 Homepage = "https://github.com/davidel/genml_kit"

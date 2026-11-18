@@ -5,7 +5,7 @@ on:
   pull_request:
 
 # ---------------------------------------------------------------------------
-# How the README CLI examples are split across steps
+# How the README CLI examples are split across jobs
 #
 # Every copy-pasteable ``genml-kit-*`` block in the READMEs is executed as a
 # smoke test by tests/test_readme_cli.py.  The harness derives pytest markers
@@ -15,16 +15,16 @@ on:
 #   -m 'not slow and not network and not service and not distributed'
 #
 # Every README example carries ``slow``, so none of them run in the plain
-# ``pytest -q`` step; they all live in the steps below.  The buckets exist to
+# ``pytest -q`` step; they all live in the jobs below.  The buckets exist to
 # separate *why* an example can fail, so that an unavailable credential or a
 # dead network cannot turn into a red build, and so that a failure is
-# attributable to one named step instead of a generic suite.
+# attributable to one named job instead of a generic suite.
 #
 #   none of these  Hermetic examples: local fixtures only, never a network
 #                  call.  Produced by fences with no ``network:``/``service:``
 #                  key, and by ``gated: true`` fences, whose HF dataset is
 #                  remapped to a local fixture so the example runs offline.
-#                  These are what the ``test`` job's "slow tests" step runs.
+#                  These are what the ``test-slow`` job runs.
 #                                                        8 examples today
 #
 #   network        Needs the internet but no credentials: downloads public Hub
@@ -46,14 +46,14 @@ on:
 #
 #   distributed    Must be launched multi-process (``launcher: torchrun``).
 #                  Separate because it needs a different launcher and its own
-#                  descendant-process reaper, so it cannot share a step with
+#                  descendant-process reaper, so it cannot share a job with
 #                  single-process examples.
 #                                                        1 example today
 #
-# ``service`` implies ``network``, so the network step selects
+# ``service`` implies ``network``, so the network job selects
 # ``network and not service``; otherwise a service-marked example would run
 # twice.  ``proxied`` selects ``service and not hf`` purely so that the
-# ``service`` step is not re-run -- it is a placeholder for s3/r2/gcs/github/
+# ``service`` job is not re-run -- it is a placeholder for s3/r2/gcs/github/
 # wandb emulator coverage and collects 0 examples today, which is why
 # readme_cli_suite.sh tolerates pytest's exit code 5.
 #
@@ -61,38 +61,41 @@ on:
 # made by these examples is authenticated.  On fork PRs the secret is empty,
 # huggingface_hub treats an empty value as no token, and the examples fall
 # back to anonymous access instead of failing.
+#
+# Shared setup (checkout / Python / install / Hub cache) is defined once as
+# YAML anchors in the ``lint`` job and aliased by the later jobs.  GitHub
+# Actions supports anchors/aliases (it does *not* support merge keys, so each
+# step is aliased whole).
 # ---------------------------------------------------------------------------
 env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
 jobs:
-  test:
+  # Cheap lint + doc-math gate.  Extracted from the old single ``test`` job so
+  # the sharded test jobs below do not each repeat it.
+  lint:
     runs-on: ubuntu-latest
-    # Bound the job against a hung test.  A wedge would otherwise ride the
-    # GitHub default (360 min) until the runner SIGTERMs the step, which
-    # surfaces as a bare "exit code 143" with no logs.  Sized for a full
-    # default + slow run, not the runner's ceiling.
-    timeout-minutes: 60
-    env:
-      # CI-only diagnostics (never set locally): stream logs + stdout/stderr
-      # live so output survives a runner kill, and self-terminate with a
-      # stack trace if a single test wedges, instead of riding the 60-min
-      # SIGTERM (bare "exit code 143" with no logs).
-      PYTEST_ADDOPTS: >-
-        --log-cli-level=INFO --capture=tee-sys
-        -o faulthandler_timeout=3300 -o faulthandler_exit_on_timeout=true
-
+    timeout-minutes: 15
     steps:
-      - name: Check out repository
+      - &checkout
+        name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - &setup-python
+        name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          # Reuse the pip wheel cache across runs and jobs.  The dependency
+          # graph is fully described by pyproject.toml (there is no
+          # requirements.txt), so pin the cache key to it explicitly.
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
 
-      - name: Install package and development dependencies
-        run: python -m pip install -e ".[dev,llm,llm-spm,timm,uvito,lora,s3,rl]"
+      - name: Install linters
+        # ruff + pyyaml come from the dev extra and scripts/md_latex.py is
+        # stdlib-only, so the heavy ML extras are not needed for this job.
+        run: python -m pip install -e ".[dev]"
 
       - name: Run Ruff
         run: ruff check .
@@ -100,49 +103,144 @@ jobs:
       - name: Check Markdown math
         run: python scripts/md_latex.py
 
-      - name: Run tests
-        run: pytest -q
-
-      - name: Run slow tests
-        # ``distributed`` (the multi-process torchrun example) is opted out of
-        # the default suite via addopts; an explicit -m overrides that, so it
-        # must be deselected here too.  It runs in its own README-CLI step.
-        run: pytest -q -m 'slow and not network and not service and not distributed'
-
-  readme-cli:
+  # Default suite, sharded across four fresh runners.  Each shard gets its own
+  # 60-minute budget instead of one job accumulating the whole suite's runtime
+  # (the cumulative-time SIGTERM/143 the old single job hit).
+  #
+  # Sharding is duration-balanced by the committed .test_durations file, using
+  # --splitting-algorithm=least_duration (order-free greedy LPT).  The file was
+  # generated on a developer box, but balance depends on the *relative* ranking
+  # of tests, not their absolute times: a uniformly slower CI runner leaves the
+  # assignment unchanged, and only per-test reordering (GPU vs CPU, network vs
+  # compute) can drift it -- and then only into a mildly uneven shard, never a
+  # failure.  Refresh it when a big test change lands with:
+  #   pytest --store-durations --durations-path=.test_durations            (default suite)
+  #   pytest -m 'slow and not network and not service and not distributed' \
+  #          --store-durations --durations-path=.test_durations            (slow suite)
+  test:
     runs-on: ubuntu-latest
-    # Same bound as the ``test`` job: the README examples can wedge (torchrun,
-    # downloads); fail on a clear timeout instead of a bare SIGTERM/143.
     timeout-minutes: 60
-    env:
+    strategy:
+      # One flaky shard must not SIGTERM the others.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env: &pytest-env
       # CI-only diagnostics (never set locally): stream logs + stdout/stderr
-      # live so output survives a runner kill, and self-terminate with a
-      # stack trace if a single test wedges, instead of riding the 60-min
-      # SIGTERM (bare "exit code 143" with no logs).
+      # live so output survives a runner kill, surface the 20 slowest tests,
+      # and bound every test so a wedge fails fast with a stack trace instead
+      # of riding to the 60-minute SIGTERM (bare "exit code 143").
+      #
+      # --timeout-method=signal (not thread) unwinds the test cleanly so the
+      # README-CLI harness's tree reaper still runs and torchrun ranks are
+      # reaped.  The faulthandler timer is armed slightly earlier and WITHOUT
+      # exit_on_timeout so it dumps all thread stacks first (a diagnostic),
+      # then pytest-timeout does the clean kill 60s later.
       PYTEST_ADDOPTS: >-
         --log-cli-level=INFO --capture=tee-sys
-        -o faulthandler_timeout=3300 -o faulthandler_exit_on_timeout=true
+        --durations=20
+        --timeout=900 --timeout-method=signal
+        -o faulthandler_timeout=840 -o faulthandler_exit_on_timeout=false
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - *checkout
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - *setup-python
 
-      - name: Install package and development dependencies
+      - &install
+        name: Install package and development dependencies
         run: python -m pip install -e ".[dev,llm,llm-spm,timm,uvito,lora,s3,rl]"
+
+      - name: Run tests (shard ${{ matrix.shard }}/4)
+        run: >-
+          pytest -q
+          --splits 4 --group ${{ matrix.shard }}
+          --splitting-algorithm=least_duration
+
+  # Slow/hermetic examples: a separate small matrix so their long runtimes do
+  # not share a budget with the default suite.
+  test-slow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    env: *pytest-env
+    steps:
+      - *checkout
+
+      - *setup-python
+
+      - *install
+
+      - name: Run slow tests (shard ${{ matrix.shard }}/2)
+        # ``distributed`` (the multi-process torchrun example) is opted out of
+        # the default suite via addopts; an explicit -m overrides that, so it
+        # must be deselected here too.  It runs in its own README-CLI job.
+        run: >-
+          pytest -q
+          -m 'slow and not network and not service and not distributed'
+          --splits 2 --group ${{ matrix.shard }}
+          --splitting-algorithm=least_duration
+
+  # README examples that download from the public Hub (no credentials).
+  readme-cli-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env: *pytest-env
+    steps:
+      - *checkout
+
+      - *setup-python
+
+      - *install
+
+      - &hf-cache
+        name: Cache Hugging Face Hub downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-${{ hashFiles('**/README.md', 'pyproject.toml') }}
+          restore-keys: |
+            hf-${{ runner.os }}-
 
       - name: Run README CLI examples (network)
         # Public-Hub-download examples.  Authenticated by the workflow-level
         # HF_TOKEN; anonymous on fork PRs, where the secret is empty.
         run: bash .github/workflows/readme_cli_suite.sh network
 
+  # The multi-process (torchrun) example: own launcher, own process tree.
+  readme-cli-distributed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env: *pytest-env
+    steps:
+      - *checkout
+
+      - *setup-python
+
+      - *install
+
+      - *hf-cache
+
       - name: Run README CLI examples (distributed / torchrun)
         # The multi-process example: different launcher, own process tree.
         run: bash .github/workflows/readme_cli_suite.sh distributed
+
+  # ``service``-marked examples, plus the proxied/emulated placeholder.
+  readme-cli-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env: *pytest-env
+    steps:
+      - *checkout
+
+      - *setup-python
+
+      - *install
+
+      - *hf-cache
 
       - name: Run README CLI examples (gated / HF_TOKEN)
         # ``service``-marked examples.  HF_TOKEN is inherited from the
