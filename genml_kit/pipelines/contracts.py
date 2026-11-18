@@ -30,8 +30,15 @@ DataBlob = collections.namedtuple("DataBlob", ["data", "meta", "size", "records"
 # What method.train_step returns.  loss is the (already averaged-across-the-batch),
 # UNSCALED objective; metrics is dict[str, torch.Tensor] for logging.
 # For PER: td_errors (optional) contains per-sample TD errors for priority updates.
-LossOutput = collections.namedtuple("LossOutput", ["loss", "metrics", "td_errors"],
-                                    defaults=[None])
+#
+# ``logits`` is the (optional) model output ``[batch, num_classes]`` the method
+# chose to expose; the reporter uses it, paired with the input-side targets, to
+# track classification accuracy/F1.  It is ``None`` for methods without a
+# classification head.  Appended last so the positional RL/pretrain constructors
+# (``LossOutput(loss, metrics, td_errors)``) stay valid.
+LossOutput = collections.namedtuple("LossOutput",
+                                    ["loss", "metrics", "td_errors", "logits"],
+                                    defaults=[None, None])
 
 # What method.evaluate returns.  ``metrics`` are this rank's validation scalars
 # (logged verbatim on a single rank); ``weight`` is the sample count the rank

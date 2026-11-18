@@ -330,13 +330,11 @@ class BaseTrainer:
 
       # Sample count and targets.  Collators publish ``size`` on the blob, so
       # the batch dimension is never re-derived by sniffing the shape of
-      # ``data`` (which may be a tensor, a tuple of views, or a dict).
-      if isinstance(blob, dict):
-        batch_size = blob["pixel_values"].shape[0]
-        targets = blob.get("labels", None)
-      else:
-        batch_size = blob.size
-        targets = blob.meta.get("labels", None) if isinstance(blob.meta, dict) else None
+      # ``data`` (which may be a tensor, a tuple of views, or a dict).  The
+      # classification target is an INPUT-side fact, so it comes from the
+      # method-consumable ``meta`` channel (``None`` for blobs without meta).
+      batch_size = blob.size
+      targets = blob.meta.get("labels", None) if blob.meta else None
 
       # Surface the method's per-component loss metrics (mce, dlog_s,
       # dtheta, conf, ...).  These are already returned by every method's
@@ -362,7 +360,7 @@ class BaseTrainer:
           batch_idx=step_in_epoch,
           batch_size=batch_size,
           loss_value=loss.item(),
-          logits=getattr(loss_out, "logits", None),
+          logits=loss_out.logits,
           targets=targets,
           global_step=step,
           # Report on the last known batch; ``None`` means the length is

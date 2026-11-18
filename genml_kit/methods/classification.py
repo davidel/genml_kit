@@ -185,7 +185,12 @@ class ClassificationMethod(Method):
       hard_targets = targets
 
     top1 = (logits.argmax(dim=1) == hard_targets).float().mean()
-    return LossOutput(loss=loss, metrics={"top1": top1.detach(), "loss": loss.detach()})
+    return LossOutput(loss=loss,
+                      metrics={
+                          "top1": top1.detach(),
+                          "loss": loss.detach()
+                      },
+                      logits=logits.detach())
 
   def _mixup_alpha(self):
     return getattr(self, "_mixup", 0.0)

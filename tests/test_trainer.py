@@ -570,3 +570,41 @@ def test_capped_epoch_still_runs_tail_flush_and_validation(tmp_path):
   assert method.epoch_ends == 2
   # 3 micro-batches / window 2 -> ceil = 2 optimizer steps per epoch.
   assert result.global_step == 4
+
+
+class _LogitsMethod(FakeMethod):
+  """Method that publishes model logits so the reporter tracks accuracy."""
+
+  #: 4 samples, class i predicts i in a 4-way head -> all correct.
+  LOGITS = torch.eye(4) * 10.0
+
+  def train_step(self, model, blob, global_step, *, labels=None):
+    loss = (model.fc.weight**2).mean() + self._loss
+    self._loss -= 0.05
+    return LossOutput(loss=loss, metrics={"loss": loss.detach()}, logits=self.LOGITS)
+
+
+def test_method_logits_and_blob_targets_drive_reporting(tmp_path):
+  """The loop wires ``LossOutput.logits`` + ``blob.meta['labels']`` to the reporter.
+
+  This is the seam that was previously dead: the trainer fabricated ``logits``
+  via ``getattr(loss_out, 'logits', None)`` (always ``None``, so accuracy never
+  tracked).  Now the method publishes typed logits, the input-side targets come
+  from the blob meta, and ``ImageTrainReporting`` accumulates both.
+  """
+  batch = DataBlob(data=torch.zeros(4, 3, 8, 8),
+                   meta={"labels": torch.arange(4)},
+                   size=4)
+  pipeline = FakePipeline(torch.zeros(4, 3, 8, 8))
+  pipeline.train_loader = _WrappedLoader([batch])
+  args = _Args()
+  args.log_every = 1
+  trainer = _make_trainer(tmp_path,
+                          method=_LogitsMethod(),
+                          pipeline=pipeline,
+                          args=args)
+  with log_capture(level="INFO") as logs:
+    trainer.run()
+  # All four predictions are correct -> the window accuracy is 100%.
+  assert "top1=100.00%" in logs.text
+  assert "macro_f1=" in logs.text
