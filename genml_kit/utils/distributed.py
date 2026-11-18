@@ -85,6 +85,25 @@ def all_reduce_sum(value):
   return tensor.item() if is_scalar else tensor
 
 
+def all_reduce_max(value):
+  """Elementwise maximum of *value* across ranks (same type contract as
+  :func:`all_reduce_sum`).
+
+  Args:
+      value: A ``float``/``int`` scalar or a ``torch.Tensor``.
+
+  Returns:
+      The reduced value: a Python scalar for a scalar input, else a tensor.
+  """
+  if not is_distributed():
+    return value
+  is_scalar = not torch.is_tensor(value)
+  tensor = torch.tensor(float(value)) if is_scalar else value.clone().detach()
+  tensor = tensor.to(_reduce_device())
+  dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
+  return tensor.item() if is_scalar else tensor
+
+
 def all_reduce_mean(value, world=None):
   """Average *value* across ranks (same type contract as :func:`all_reduce_sum`)."""
   total = all_reduce_sum(value)

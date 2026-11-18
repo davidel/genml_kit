@@ -32,6 +32,7 @@ from genml_kit.io.checkpointing import (
     create_model_report,
     parse_state_flags,
 )
+from genml_kit.training.budget import EpochBatches, TrainingBudget
 from genml_kit.training.grad_monitor import create_grad_monitor
 from genml_kit.training.metrics_sinks import ensure_logger
 from genml_kit.training.model_utils import set_train_mode
@@ -54,6 +55,7 @@ TrainingResult = namedtuple("TrainingResult", [
     "best_metric",
     "global_step",
     "interrupt_signals",
+    "stop_reason",
 ])
 
 # What ``train_epoch`` (and the RL subclasses' per-epoch helpers) return: the
@@ -167,6 +169,14 @@ class BaseTrainer:
     # epochs.  ``run``'s exit ``finally`` reads it to record where an
     # interrupted epoch should resume.
     self._epoch_progress = None
+    # Run-scoped budget (per-epoch ``max_batches`` + run-global ``max_train_time``)
+    # is built once here so its wall-clock origin spans the whole run, not one
+    # epoch.
+    self.budget = TrainingBudget(
+        max_batches=args.max_batches,
+        max_train_time=args.max_train_time,
+        grad_accum_steps=args.grad_accum_steps,
+    )
 
   def _resume_skip(self, epoch):
     """Return the grad-accum-aligned fast-forward for *epoch*.
@@ -219,6 +229,9 @@ class BaseTrainer:
       total_batches = pipeline_batches
     else:
       total_batches = _estimated_batches(loader)
+    # A per-epoch batch cap is the effective length of the epoch, so the progress
+    # denominator must not promise more batches than the loop will yield.
+    total_batches = self.budget.cap_epoch_batches(total_batches)
     accum_steps = self.args.grad_accum_steps
 
     # A stream's length is at best a declared estimate, so render it with ``~``
@@ -267,11 +280,17 @@ class BaseTrainer:
     # ``step_in_epoch`` restarts at ``skipped`` so the accumulation boundary,
     # the tail flush and the reporter all see the true position.  Seeded with
     # ``skipped - 1`` so an empty loader leaves the post-loop tail check with a
-    # defined value (and no window to flush).
+    # defined value (and no window to flush).  ``EpochBatches`` owns the
+    # per-epoch batch cap and the run-global time vote, and yields the *absolute*
+    # position (``batch_in_epoch``) that the boundary, flush and reporter key on.
     step_in_epoch = skipped - 1
-    for step_in_epoch, blob in enumerate(source, start=skipped):
+    for sample in EpochBatches(source,
+                               epoch=epoch,
+                               budget=self.budget,
+                               start_batch=skipped):
+      step_in_epoch = sample.batch_in_epoch
       # Data AND meta.
-      blob = self.pipeline.to_device(blob, self.device)
+      blob = self.pipeline.to_device(sample.blob, self.device)
       with torch.amp.autocast(
           "cuda",
           dtype=amp_dtype,
@@ -530,6 +549,9 @@ class BaseTrainer:
     # that save completed (the with-block encloses the try/finally).
     with sigexcept() as interrupts:
       try:
+        # Fix the single run-global wall-clock origin before the epoch loop, so
+        # ``max_train_time`` spans the whole run rather than resetting per epoch.
+        self.budget.begin_run()
         for epoch in range(self.start_epoch, args.epochs):
           # Cooperative guard: if an inner ``except Exception`` swallowed an
           # InterruptedException, the latch would keep logging later signals
@@ -602,6 +624,16 @@ class BaseTrainer:
           self.epoch_end()
           # Epoch fully done: train, validate, hooks.
           completed_epoch = epoch
+          # A run-global time budget ends the whole run, not just the epoch.  The
+          # vote itself fired mid-epoch (inside ``EpochBatches``); by here the
+          # tail flush, validation and hooks for that epoch have all completed,
+          # so breaking is safe and the exit ``finally`` still checkpoints.
+          if self.budget.time_exhausted:
+            logging.info(
+                "Stopping: --max_train_time budget exhausted "
+                "(%.1fs of %.1fs).",
+                self.budget.now() - self.budget.start, self.budget.max_train_time)
+            break
       except InterruptedException:
         logging.warning(f"Interrupted by {interrupts.received}; saving "
                         "checkpoint.")
@@ -627,5 +659,8 @@ class BaseTrainer:
         logging.info("Checkpoint saved on exit.")
         self.logger.close()
 
+    stop_reason = self.budget.stop_reason()
+    logging.info("Training stopped after epoch %d (%s); %d batches seen.",
+                 completed_epoch + 1, stop_reason, self.budget.batches_seen)
     return TrainingResult(completed_epoch, self.best_metric, self.global_step,
-                          interrupts.received)
+                          interrupts.received, stop_reason)

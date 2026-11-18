@@ -31,6 +31,28 @@ import json
 from genml_kit.utils.cli import KVPairAction
 
 
+def _non_negative_int(value):
+  """``argparse`` type for an integer cap that may be zero but not negative."""
+  try:
+    number = int(value)
+  except ValueError as e:
+    raise argparse.ArgumentTypeError(f"not an int: {value!r}") from e
+  if number < 0:
+    raise argparse.ArgumentTypeError(f"must be non-negative, got {number}")
+  return number
+
+
+def _positive_float(value):
+  """``argparse`` type for a duration that must be strictly positive."""
+  try:
+    number = float(value)
+  except ValueError as e:
+    raise argparse.ArgumentTypeError(f"not a number: {value!r}") from e
+  if number <= 0:
+    raise argparse.ArgumentTypeError(f"must be positive, got {number}")
+  return number
+
+
 def json_dict_type(value):
   """Argparse type converter: a JSON string that must parse to a dict.
 
@@ -194,6 +216,19 @@ ARG_EPOCHS = ("epochs", {
     "help": "Number of training epochs.",
 })
 
+ARG_MAX_BATCHES = ("max_batches", {
+    "type": _non_negative_int,
+    "help": "Cap the micro-batches per epoch (applied to every epoch). "
+            "The next epoch continues until --epochs. Unset means drain the "
+            "loader each epoch.",
+})
+
+ARG_MAX_TRAIN_TIME = ("max_train_time", {
+    "type": _positive_float,
+    "help": "Wall-clock training budget in seconds for the whole run. Stops "
+            "once exceeded (DDP-synchronized). Unset means no time limit.",
+})
+
 ARG_METHOD = ("method", {
     "type": str,
     "help": "Objective/method name.",
@@ -313,6 +348,8 @@ SHARED_ARGS = {
         ARG_SHUFFLE_BUFFER_K,
         ARG_SEED,
         ARG_EPOCHS,
+        ARG_MAX_BATCHES,
+        ARG_MAX_TRAIN_TIME,
         ARG_METHOD,
         ARG_GRAD_CLIP,
         ARG_GRAD_ACCUM_STEPS,

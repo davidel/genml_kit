@@ -10,6 +10,8 @@ exact builder used by the ``genml_kit-train`` entry point -- so the flag
 declaration and the action are never allowed to drift apart again.
 """
 
+import pytest
+
 from genml_kit.cli.train import parse_args
 
 
@@ -53,3 +55,28 @@ def test_kv_args_default_to_empty_dict():
   assert args.sched_arg == {}
   # build_param_groups guards with ``if lr_groups:`` so None means "no groups".
   assert args.lr_group is None
+
+
+def test_budget_flags_default_to_none():
+  """Both training-budget caps are unset by default (drain loader / no limit)."""
+  args = parse_args([])
+  assert args.max_batches is None
+  assert args.max_train_time is None
+
+
+def test_budget_flags_parse_values():
+  args = parse_args(["--max_batches", "10", "--max_train_time", "90.5"])
+  assert args.max_batches == 10
+  assert args.max_train_time == 90.5
+
+
+def test_max_batches_rejects_negative():
+  with pytest.raises(SystemExit):
+    parse_args(["--max_batches", "-1"])
+
+
+def test_max_train_time_rejects_non_positive():
+  with pytest.raises(SystemExit):
+    parse_args(["--max_train_time", "0"])
+  with pytest.raises(SystemExit):
+    parse_args(["--max_train_time", "-5"])

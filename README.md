@@ -676,6 +676,8 @@ genml-kit-train --pipeline images --method supcon \
 | `--batch_size` | `32` | Per-GPU batch size. |
 | `--seed` | `None` | Explicit RNG seed: pins the shuffling and enables full determinism (cuDNN deterministic kernels, benchmark off). Omit (default) to keep runs fast — RNG streams are still seeded from `$GENML_KIT_SEED` (default 42). See [Reproducibility](#reproducibility). |
 | `--epochs` | `5` | Number of epochs. The recipes below override this for pre-training. |
+| `--max_batches` | unset | Cap the micro-batches **per epoch**; the next epoch still runs (up to `--epochs`). Unset drains the loader each epoch. |
+| `--max_train_time` | unset | Wall-clock budget **in seconds for the whole run**. Stops mid-epoch once exceeded (DDP-synchronized); unset means no time limit. |
 | `--lr` | `3e-5` | Peak learning rate (base). The recipes below override this. |
 | `--amp_dtype` | `None` | Mixed precision: `float16` or `bfloat16`. Omit to disable. |
 | `--num_workers` | `4` | DataLoader worker processes. |

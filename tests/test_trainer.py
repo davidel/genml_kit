@@ -35,6 +35,8 @@ class _Args:
   norm_history = 0
   grad_monitor = -1
   dist_arg = {}
+  max_batches = None
+  max_train_time = None
 
 
 class _Optimization:
@@ -493,3 +495,78 @@ def test_exact_length_still_beats_the_pipeline_estimate(tmp_path, monkeypatch):
   trainer.run()
   # The fake loader has one batch; its exact length must win.
   assert captured["total_batches"] == len(pipeline.train_loader)
+
+
+def _multi_batch_pipeline(n_batches):
+  """A pipeline whose train loader yields *n_batches* fixed blobs."""
+  pipeline = FakePipeline(torch.zeros(4, 3, 8, 8))
+  pipeline.train_loader = _WrappedLoader([
+      DataBlob(data=torch.zeros(4, 3, 8, 8), meta={"labels": torch.zeros(4)}, size=4)
+      for _ in range(n_batches)
+  ])
+  pipeline.val_loader = None
+  return pipeline
+
+
+def test_max_batches_truncates_every_epoch_but_runs_all_epochs(tmp_path):
+  # max_batches is per-epoch: it caps each epoch's inner loop, while the outer
+  # loop still runs every epoch.  2 epochs x 2 batches = 4 optimizer steps, the
+  # same as the uncapped 2-epoch baseline would give with 2-batch loaders.
+  args = _Args()
+  args.max_batches = 2
+  pipeline = _multi_batch_pipeline(5)
+  trainer = _make_trainer(tmp_path, args=args, pipeline=pipeline)
+  result = trainer.run()
+  assert result.completed_epoch == 1
+  assert result.global_step == 4
+  assert result.stop_reason == "max_batches"
+
+
+def test_no_cap_drains_the_loader(tmp_path):
+  args = _Args()
+  args.max_batches = None
+  pipeline = _multi_batch_pipeline(3)
+  trainer = _make_trainer(tmp_path, args=args, pipeline=pipeline)
+  result = trainer.run()
+  # 2 epochs x 3 batches, one optimizer step each (grad_accum_steps == 1).
+  assert result.global_step == 6
+  assert result.stop_reason == "epochs"
+
+
+def test_max_train_time_stops_the_run(tmp_path, monkeypatch):
+  args = _Args()
+  args.epochs = 100
+  args.max_train_time = 1.0
+  args.max_batches = None
+  pipeline = _multi_batch_pipeline(4)
+  trainer = _make_trainer(tmp_path, args=args, pipeline=pipeline)
+
+  # Fake clock: each reading advances 0.4s, so the run expires early and the
+  # outer loop breaks well before 100 epochs.
+  ticks = {"t": 0.0}
+
+  def clock():
+    ticks["t"] += 0.4
+    return ticks["t"]
+
+  trainer.budget._clock = clock
+  result = trainer.run()
+  assert result.stop_reason == "max_time"
+  assert result.completed_epoch < 99
+
+
+def test_capped_epoch_still_runs_tail_flush_and_validation(tmp_path):
+  # A capped epoch must land its partial accumulation window (tail flush) and
+  # still validate, exactly like a loader-exhausted epoch.
+  method = FakeMethod()
+  args = _Args()
+  # 3 batches per epoch with an accumulation window of 2 -> the cap leaves a
+  # partial trailing window that only closes on the post-loop tail flush.
+  args.grad_accum_steps = 2
+  args.max_batches = 3
+  pipeline = _multi_batch_pipeline(10)
+  trainer = _make_trainer(tmp_path, method=method, args=args, pipeline=pipeline)
+  result = trainer.run()
+  assert method.epoch_ends == 2
+  # 3 micro-batches / window 2 -> ceil = 2 optimizer steps per epoch.
+  assert result.global_step == 4

@@ -39,6 +39,8 @@ class _Args:
     self.norm_history = 0
     self.grad_monitor = -1
     self.dist_arg = {}
+    self.max_batches = None
+    self.max_train_time = None
 
 
 class _Optimization:
