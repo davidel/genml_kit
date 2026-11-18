@@ -79,11 +79,11 @@ jobs:
     steps:
       - &checkout
         name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - &setup-python
         name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           # Reuse the pip wheel cache across runs and jobs.  The dependency
@@ -198,7 +198,7 @@ jobs:
 
       - &hf-cache
         name: Cache Hugging Face Hub downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface
           key: hf-${{ runner.os }}-${{ hashFiles('**/README.md', 'pyproject.toml') }}
