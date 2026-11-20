@@ -1,8 +1,7 @@
 """Method registry: objective side (model + loss + metric).
 
-Reshapes ``PretrainMethod`` into a general ``Method`` per the v4.2 plan
-(s 3): classification, VO (supervised/photometric) and the self-supervised
-pre-training methods all register here.
+General ``Method`` registry: classification, VO (supervised/photometric)
+and the self-supervised pre-training methods all register here.
 """
 
 from genml_kit.methods.base import Method

@@ -183,7 +183,8 @@ class ReturnNormalizer(torch.nn.Module):
     self.running_return = self.gamma * self.running_return + reward
     self.ret_rms.update(self.running_return.unsqueeze(0))
 
-  def state_dict(self):  # noqa: D102 - overrides nn.Module
+  def state_dict(self):
+    # Overrides nn.Module.state_dict with a plain checkpoint dict.
     return {
         "gamma": self.gamma,
         "clip_reward": self.clip_reward,
@@ -202,7 +203,7 @@ class ReturnNormalizer(torch.nn.Module):
     self.running_return.fill_(state.get("running_return", 0.0))
     return self
 
-  def __repr__(self):  # noqa: D105
+  def __repr__(self):
     return (f"ReturnNormalizer(gamma={self.gamma}, "
             f"clip_reward={self.clip_reward}, "
             f"count={int(self.ret_rms.count.item())})")

@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-import s3r2util  # noqa: E402
+import s3r2util
 
 
 class _RecordingS3Client:

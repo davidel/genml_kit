@@ -23,13 +23,13 @@ class TestGetAttribute:
   def test_missing_dotted(self):
     assert get_attribute(nn.Linear(4, 2), 'foo.bar') is MISSING
 
-  def test_none_value_treated_as_missing(self):
-    """An attribute whose value is literally None is treated as MISSING."""
+  def test_none_value_is_resolved(self):
+    """An attribute whose value is literally None is returned as None."""
 
     class Pseudo:
       x = None
 
-    assert get_attribute(Pseudo(), 'x') is MISSING
+    assert get_attribute(Pseudo(), 'x') is None
 
 
 class TestMaybeCall:
@@ -61,6 +61,15 @@ class TestMaybeCall:
     t = torch.tensor([1.0])
     assert maybe_call(t, 'shape') is MISSING
 
+  def test_callable_returning_none_is_resolved(self):
+
+    class Obj:
+
+      def clear(self):
+        return None
+
+    assert maybe_call(Obj(), 'clear') is None
+
 
 class TestMaybeSetattr:
 
@@ -81,6 +90,16 @@ class TestMaybeSetattr:
     obj = Obj()
     prev = maybe_setattr(obj, 'use_grad_checkpoint', True)
     assert prev is False
+
+  def test_returns_previous_none_value(self):
+
+    class Obj:
+      use_grad_checkpoint = None
+
+    obj = Obj()
+    prev = maybe_setattr(obj, 'use_grad_checkpoint', True)
+    assert prev is None
+    assert obj.use_grad_checkpoint is True
 
   def test_returns_missing_when_path_absent(self):
     result = maybe_setattr(nn.Linear(4, 2), 'missing.path.value', True)

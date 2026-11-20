@@ -12,13 +12,13 @@ from genml_kit.pipelines.contracts import ValidationResult
 class Method(abc.ABC):
   """Objective side of training: model + loss + metric.
 
-    ``PretrainMethod`` reshapes into this: a method builds the model,
+    A method builds the model,
     computes the loss from (model, blob, global_step), and declares the
     metric contract -- for supervised (classification, VO) and self-supervised
     (SimMIM, SupCon, DINO, BYOL, IJEPA, VO photometric) alike.
     """
 
-  # Registry key (matches PretrainMethod.NAME today).
+  # Registry key used by the method registry.
   NAME = ""
 
   # Best-checkpoint metric key (best_<METRIC_KEY>).
@@ -125,8 +125,8 @@ class Method(abc.ABC):
   def get_checkpoint_state(self, model, args):
     """Optional: dict of method-owned state persisted to every checkpoint.
 
-        Carried over verbatim from PretrainMethod (BYOL momentum bounds, DINO
-        center/EMA bounds, SimMIM mask/decoder config, IJEPA momentum).
+        Covers method-owned state such as BYOL momentum bounds, DINO
+        center/EMA bounds, SimMIM mask/decoder config, and IJEPA momentum.
         Called by BaseTrainer while saving; merged into the checkpoint dict.
         """
     return {}

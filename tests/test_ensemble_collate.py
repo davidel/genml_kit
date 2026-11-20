@@ -125,7 +125,7 @@ class TestFieldSectorOnMixedEnsemble:
                          writer,
                          global_step,
                          device,
-                         num_samples=8):  # noqa: B027
+                         num_samples=8):
         pass
 
     dataset, ensemble = build_pretrain_dataset(_pretrain_args(tmp_path),

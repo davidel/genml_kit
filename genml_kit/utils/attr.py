@@ -5,18 +5,18 @@ using dotted path strings (e.g. ``'model.backbone.gradient_checkpointing_enable'
 
 All public functions return a sentinel ``MISSING`` when any part of the
 attribute path cannot be resolved, instead of raising ``AttributeError``.
-This makes them useful for dispatch-style code that must probe multiple
-potential attribute locations.
+A resolved attribute whose value is ``None`` is returned as ``None``, not
+``MISSING``.  This makes them useful for dispatch-style code that must probe
+multiple potential attribute locations.
 
 Example
 -------
->>> from genml_kit.utils.attr import maybe_call, maybe_setattr, MISSING
+>>> from genml_kit.utils.attr import MISSING, get_attribute
 >>> class Wrapper:
-...     def __init__(self):
-...         self.model = nn.Module()
->>> maybe_call(Wrapper(), 'model.zero_grad')  # exists
-<bound method Module.zero_grad ...>
->>> maybe_call(Wrapper(), 'model.nonexistent') is MISSING
+...   model = None
+>>> get_attribute(Wrapper(), 'model') is None
+True
+>>> get_attribute(Wrapper(), 'nonexistent') is MISSING
 True
 """
 
@@ -33,24 +33,19 @@ AttrsResolved = collections.namedtuple("AttrsResolved", ["value", "parent", "att
 def _getattr(obj, attr):
   """Walk a dotted attribute path and return an :class:`AttrsResolved`.
 
-  Parameters
-  ----------
-  obj : Any
-      Root object to resolve against.
-  attr : str
-      Dotted attribute path (e.g. ``'a.b.c'``).
+  Args:
+    obj: Root object to resolve against.
+    attr: Dotted attribute path (e.g. ``'a.b.c'``).
 
-  Returns
-  -------
-  AttrsResolved
-      ``(value, parent, attr)`` on success, or
-      ``(MISSING, MISSING, MISSING)`` if any segment is missing.
+  Returns:
+    ``(value, parent, attr)`` on success, or
+    ``(MISSING, MISSING, MISSING)`` if any segment is missing.
   """
   parent, parts = MISSING, attr.split('.')
 
   for name in parts:
-    nobj = getattr(obj, name, None)
-    if nobj is None:
+    nobj = getattr(obj, name, MISSING)
+    if nobj is MISSING:
       return AttrsResolved(value=MISSING, parent=MISSING, attr=MISSING)
 
     parent, obj = obj, nobj
@@ -61,21 +56,12 @@ def _getattr(obj, attr):
 def get_attribute(obj, attr):
   """Retrieve a dotted attribute path, returning ``MISSING`` on failure.
 
-  Parameters
-  ----------
-  obj : Any
-      Root object.
-  attr : str
-      Dotted attribute path (e.g. ``'model.backbone'``).
+  Args:
+    obj: Root object.
+    attr: Dotted attribute path (e.g. ``'model.backbone'``).
 
-  Returns
-  -------
-  Any
-      The resolved attribute value, or ``MISSING`` if the path does not exist.
-
-  Examples
-  --------
-  >>> get_attribute(model, 'use_grad_checkpoint') is MISSING if no such attr else True
+  Returns:
+    The resolved attribute value, or ``MISSING`` if the path does not exist.
   """
   return _getattr(obj, attr).value
 
@@ -83,25 +69,15 @@ def get_attribute(obj, attr):
 def maybe_call(obj, attr, *args, **kwargs):
   """Call a method at a dotted path if it exists, else return ``MISSING``.
 
-  Parameters
-  ----------
-  obj : Any
-      Root object.
-  attr : str
-      Dotted path to a callable (e.g. ``'model.backbone.enable'``).
-  *args, **kwargs
-      Forwarded to the callable if resolved.
+  Args:
+    obj: Root object.
+    attr: Dotted path to a callable (e.g. ``'model.backbone.enable'``).
+    *args: Forwarded to the callable if resolved.
+    **kwargs: Forwarded to the callable if resolved.
 
-  Returns
-  -------
-  Any
-      The return value of the callable, or ``MISSING`` if the path does
-      not resolve or the target is not callable.
-
-  Examples
-  --------
-  >>> maybe_call(model, 'model.set_grad_checkpointing', enable=True)
-  >>> maybe_call(model, 'backbone.gradient_checkpointing_enable')
+  Returns:
+    The return value of the callable, or ``MISSING`` if the path does not
+    resolve or the target is not callable.
   """
   fn = _getattr(obj, attr).value
 
@@ -117,25 +93,16 @@ def maybe_call(obj, attr, *args, **kwargs):
 def maybe_setattr(obj, attr, value):
   """Set an attribute at a dotted path if it exists, else do nothing.
 
-  Parameters
-  ----------
-  obj : Any
-      Root object.
-  attr : str
-      Dotted path whose **parent** must exist (e.g. ``'model.use_grad_checkpoint'``
-      sets ``parent.model.use_grad_checkpoint = value``).
-  value : Any
-      Value to assign.
+  Args:
+    obj: Root object.
+    attr: Dotted path whose **parent** must exist (e.g.
+      ``'model.use_grad_checkpoint'`` sets
+      ``parent.model.use_grad_checkpoint = value``).
+    value: Value to assign.
 
-  Returns
-  -------
-  Any
-      The previous value of the attribute, or ``MISSING`` if the path
-      could not be resolved.
-
-  Examples
-  --------
-  >>> maybe_setattr(model, 'model.use_grad_checkpoint', True)
+  Returns:
+    The previous value of the attribute, or ``MISSING`` if the path could not
+    be resolved.
   """
   resolved = _getattr(obj, attr)
 

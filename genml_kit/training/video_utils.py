@@ -45,7 +45,7 @@ def write_video(frames, path, fps=30):
     return path
   except InterruptedException:
     raise
-  except Exception as exc:  # noqa: BLE001 - degrade to GIF
+  except Exception as exc:
     logger.warning("MP4 writer failed (%s); falling back to GIF.", exc)
     gif_path = os.path.splitext(path)[0] + ".gif"
     _write_gif(frames, gif_path, fps=fps)

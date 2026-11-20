@@ -1,8 +1,7 @@
 """Data pipelines: loaders + blob contract + device transfer.
 
 Pipelines own the DATA side of training only.  The model/loss/metric
-(objective side) belongs to the method registry -- ``PretrainMethod``
-becomes a general "Method".  See plans/GENERIC_PIPELINE.md (v4.2).
+(objective side) belongs to the method registry.
 """
 
 from genml_kit.pipelines.base import DataPipeline

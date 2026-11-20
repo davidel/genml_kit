@@ -101,7 +101,8 @@ class GymnasiumEnvWrapper:
       return self.env.render()
     except InterruptedException:
       raise
-    except Exception:  # noqa: BLE001 - any renderer failure => no video
+    except Exception:
+      # Any renderer failure means no video is available.
       return None
 
   def can_render(self):
@@ -125,7 +126,8 @@ class GymnasiumEnvWrapper:
       return frame is not None
     except InterruptedException:
       raise
-    except Exception:  # noqa: BLE001 - any renderer error => no video
+    except Exception:
+      # Any renderer error means this environment cannot render.
       return False
 
   def close(self):
@@ -460,7 +462,7 @@ class RLPipeline(DataPipeline):
       return frame is not None
     except InterruptedException:
       raise
-    except Exception:  # noqa: BLE001
+    except Exception:
       return False
 
   def render_frame(self):
@@ -474,7 +476,7 @@ class RLPipeline(DataPipeline):
         return render()
       except InterruptedException:
         raise
-      except Exception:  # noqa: BLE001
+      except Exception:
         return None
     render = getattr(env, "render", None)
     if callable(render):
@@ -482,7 +484,7 @@ class RLPipeline(DataPipeline):
         return render()
       except InterruptedException:
         raise
-      except Exception:  # noqa: BLE001
+      except Exception:
         return None
     return None
 

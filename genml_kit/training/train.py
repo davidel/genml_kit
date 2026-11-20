@@ -11,7 +11,7 @@ import logging
 import datasets as _datasets
 
 from genml_kit.datasets.capped import maybe_cap
-from genml_kit.datasets.hf_proxy import HFDatasetProxy  # noqa: F401
+from genml_kit.datasets.hf_proxy import HFDatasetProxy
 from genml_kit.models import load_model, load_processor  # noqa: F401
 from genml_kit.pipelines.contracts import SplitPair
 from genml_kit.pipelines.images import (  # noqa: F401

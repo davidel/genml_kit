@@ -10,13 +10,13 @@ by the training and inference harnesses.
 # PROCESSORS.register decorators run.  The imports are intentionally
 # unused as names; importing the modules performs the registration side
 # effects required by model loading.
-import genml_kit.models.cls_model_wrapper  # noqa: F401
-import genml_kit.models.convvit  # noqa: F401
-import genml_kit.models.det_model_wrapper  # noqa: F401
-import genml_kit.models.rl  # noqa: F401
-import genml_kit.models.seg_model_wrapper  # noqa: F401
-import genml_kit.models.timm  # noqa: F401
-import genml_kit.models.uvito  # noqa: F401
+import genml_kit.models.cls_model_wrapper
+import genml_kit.models.convvit
+import genml_kit.models.det_model_wrapper
+import genml_kit.models.rl
+import genml_kit.models.seg_model_wrapper
+import genml_kit.models.timm
+import genml_kit.models.uvito
 import genml_kit.models.vo  # noqa: F401
 from genml_kit.models.registry import (
     MODELS,

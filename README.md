@@ -3536,7 +3536,7 @@ new example cannot be added untested by accident.
   leading underscore.  A member called from other classes, overridden as
   an extension point, or documented as API stays public.
 - Extension-point methods that *callers* invoke (e.g.
-  `PretrainMethod.build_transform`) are public; same-named hooks the
+  `Method.build_transform`) are public; same-named hooks the
   base class *itself* dispatches (e.g. `BaseImageProcessor._build_transform`)
   are private.
 

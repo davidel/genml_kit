@@ -137,7 +137,7 @@ class _RenderableScriptedEnv(_ScriptedEnv):
     try:
       self.render()
       return True
-    except Exception:  # noqa: BLE001
+    except Exception:
       return False
 
   def render(self):

@@ -139,15 +139,15 @@ def add_source_checkpoint_args(parser):
   """Add the shared ``--source_checkpoint`` / ``--param_rename`` flags.
 
       ``--source_checkpoint`` absorbs pretrained parameters (typically
-      from ``genml_kit-pretrain``); ``--param_rename`` optionally rewrites
-      keys before shape-based alignment.
+      from a prior ``genml-kit`` training run); ``--param_rename`` optionally
+      rewrites keys before shape-based alignment.
     """
   add_shared_arg(
       parser,
       ARG_SOURCE_CHECKPOINT,
       help="Path to a source checkpoint to absorb parameters from. "
       "Keys are aligned by shape and name before loading. "
-      "Typically produced by genml_kit-pretrain.",
+      "Typically produced by a prior genml-kit training run.",
   )
   parser.add_argument(
       "--param_rename",
