@@ -41,6 +41,7 @@ from genml_kit.utils.args import amp_dtype_from_args
 from genml_kit.utils.attr import MISSING, maybe_call
 from genml_kit.utils.distributed import (
     all_gather_object,
+    all_reduce_gradients,
     barrier,
     is_distributed,
     is_main_process,
@@ -326,6 +327,9 @@ class BaseTrainer:
     # per-epoch batch cap and the run-global time vote, and yields the *absolute*
     # position (``batch_in_epoch``) that the boundary, flush and reporter key on.
     step_in_epoch = skipped - 1
+    # Gradients pending in the open accumulation window (cleared by every
+    # flush); drives the post-loop tail flush for streams.
+    window_open = False
     for sample in EpochBatches(source,
                                epoch=epoch,
                                budget=self.budget,
@@ -333,35 +337,41 @@ class BaseTrainer:
       step_in_epoch = sample.batch_in_epoch
       # Data AND meta.
       blob = self.pipeline.to_device(sample.blob, self.device)
-      with torch.amp.autocast(
-          "cuda",
-          dtype=amp_dtype,
-          enabled=(amp_dtype is not None and self.device.type == "cuda"),
-      ):
-        loss_out = self.method.train_step(self.model, blob, step)
-        # Raw, UNSCALED mean batch objective.
-        loss = loss_out.loss
-      # Accumulation boundary.  Purely position-based: a full window closes
-      # here, and a trailing partial window is closed *after* the loop when the
-      # loader is exhausted.  Nothing needs to know the epoch length up front,
-      # so the exact same loop runs over a map-style loader and a stream.
-      is_flush = (step_in_epoch + 1) % accum_steps == 0
-      # Scale ONLY for grad.
-      grad = loss / accum_steps
-      # Defer the DDP all-reduce on non-final micro-steps: gradients still
-      # accumulate locally, and the flush step's backward performs the single
-      # synchronized reduction over the whole window.  ``no_sync`` is absent on
-      # an unwrapped model (world_size == 1), so fall back to a no-op context.
+      # Last batch of a known-length epoch: close the trailing partial window
+      # here rather than after the loop, so the flush backward is the window's
+      # single reduced all-reduce.  A stream has no reliable length and defers
+      # the tail to the post-loop flush instead.
+      last_batch = (total_batches is not None and not total_batches_estimated and
+                    step_in_epoch + 1 == total_batches)
+      is_flush = (step_in_epoch + 1) % accum_steps == 0 or last_batch
+      # Defer the DDP all-reduce on non-final micro-steps.  The reducer is
+      # armed by the *forward* pass, so forward and backward must share the
+      # context: gradients still accumulate locally, and the flush backward
+      # performs the single synchronized reduction over the whole window.
+      # ``no_sync`` is absent on an unwrapped model (world_size == 1), so fall
+      # back to a no-op context.
       no_sync = getattr(self.model, "no_sync", None)
       ctx = (contextlib.nullcontext() if (is_flush or no_sync is None) else no_sync())
       with ctx:
+        with torch.amp.autocast(
+            "cuda",
+            dtype=amp_dtype,
+            enabled=(amp_dtype is not None and self.device.type == "cuda"),
+        ):
+          loss_out = self.method.train_step(self.model, blob, step)
+          # Raw, UNSCALED mean batch objective.
+          loss = loss_out.loss
+        # Scale ONLY for grad.
+        grad = loss / accum_steps
         if scaler is not None:
           scaler.scale(grad).backward()
         else:
           grad.backward()
+      window_open = not is_flush
 
-      # Close the window when it is full.  A trailing partial window is closed
-      # after the loop, on exhaustion (see below).
+      # Close the window when it is full (or at the epoch's last batch, which
+      # closes a trailing partial window in-loop; see above).  A stream's tail
+      # window is closed after the loop, on exhaustion.
       if is_flush:
         step = self._optimizer_step(step,
                                     step_in_epoch,
@@ -415,11 +425,15 @@ class BaseTrainer:
           extra_metrics=extra_metrics,
       )
 
-    # Exhaustion: close a trailing partial accumulation window.  Its gradients
-    # were already back-propagated (DDP synchronised them because ``no_sync`` is
-    # skipped when fewer than ``accum_steps`` micro-batches remain), so this is
-    # exactly the step an in-loop tail flush used to take.
-    if (step_in_epoch + 1) % accum_steps != 0:
+    # Exhaustion: close a trailing partial accumulation window.  Only a stream
+    # (or a cap / time-vote stop mid-window) reaches this branch: a known-length
+    # epoch already closed its final window in-loop.  Non-final backwards ran
+    # under ``no_sync``, which defers the reduction, so the accumulated grads
+    # are still local -- reduce them here (mean, matching DDP semantics) before
+    # stepping, exactly as the flush backward would have.  No-op on a single
+    # process.
+    if window_open:
+      all_reduce_gradients(unwrap(self.model).parameters())
       step = self._optimizer_step(step,
                                   step_in_epoch,
                                   epoch=epoch,
