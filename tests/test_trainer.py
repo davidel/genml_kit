@@ -30,6 +30,11 @@ class _Args:
   grad_accum_steps = 1
   grad_clip = 0.0
   amp_dtype = None
+  # EMA flags (mixin-registered on the real parser; off by default).
+  ema_decay = 0.0
+  ema_final_decay = None
+  ema_warmup_steps = 0
+  ema_eval = False
   log_every = 50
   vis_every = 0
   norm_history = 0

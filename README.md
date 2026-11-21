@@ -695,6 +695,10 @@ genml-kit-train --pipeline images --method supcon \
 | `--norm_history` | `0` | Keep last N norm snapshots per parameter for trend analysis. |
 | `--trend_top_n` | `10` | Show top N params in trend table by abs change %. `0` = show all. |
 | `--grad_clip` | `1.0` | Maximum gradient norm for clipping. `0` disables. |
+| `--ema_decay` | `0.0` | Weights-EMA decay for validation and the best checkpoint. `0` disables the shadow (supported methods only -- see [Weights EMA](#weights-ema)). |
+| `--ema_final_decay` | `None` | Optional ramp target: the effective decay moves linearly to this value over the run. |
+| `--ema_warmup_steps` | `0` | Linear warmup of the effective decay from `0` up to `--ema_decay` over this many optimizer steps. Ignored when `--ema_final_decay` is set. |
+| `--ema_eval` | `False` | Evaluate and best-save the EMA weights instead of the raw trajectory (`best.pt` carries EMA weights; `latest.pt` always carries the raw trajectory plus the shadow). |
 | `--lr_group` | `None` | Per-parameter-group learning rates (repeatable). Format: `"REGEX=LR"`. |
 | `--llrd_decay` | `None` | Layer-wise learning rate decay factor. |
 | `--vis_every` | `0` | Log reconstruction visualisation every N steps (SimMIM only). |
@@ -1251,6 +1255,42 @@ A `--sched_arg warmup_epochs=...` override wins over the generic flag, and
 `--sched_arg T_max=...` overrides the cosine total (the epoch of the first
 minimum).  Plain torch names (`CosineAnnealingLR`, ...) ignore the warmup
 flag entirely, so existing invocations are unchanged.
+
+### Weights EMA
+
+Alongside the *loss-coupled* EMA teachers (DINO/BYOL/I-JEPA, and
+`--teacher_kind ema` in distillation), the trainer can maintain an
+*eval-time* shadow of the trained weights: after every optimizer step the
+shadow blends toward the live weights (`shadow <- decay * shadow +
+(1 - decay) * model`), damping the step-to-step noise of the optimisation
+trajectory.  Validation and the best checkpoint then run on the shadow
+instead of the raw weights -- the classic timm / MMDetection weights-EMA,
+which typically buys a fraction of a point on noisy runs.
+
+The feature is **opt-in per method**: only the method knows whether a
+shadow of "the model" is meaningful for its topology (DPO owns a frozen
+reference tower, distillation owns teacher towers -- neither is EMA
+material).  Methods opt in by inheriting `WeightsEMAMixin`
+(`ClassificationMethod` does); methods without the mixin never see the
+feature, and setting `--ema_decay` on one logs a warning instead of
+silently doing nothing.  The RL trainer shares the loop and simply never
+wires a shadow.  The `--ema_*` flags are declared by the mixin's
+`add_args`, which adopting methods chain into their own `--help` group,
+so the flags render inside "classification method".
+
+<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+```bash
+genml-kit-train --method classification --ema_decay 0.9995 --ema_eval ...
+```
+
+`--ema_decay 0` (the default) keeps the run exactly as before.  With
+`--ema_eval`, validation and `best.pt` carry the EMA weights while
+`latest.pt` keeps the raw trajectory plus the shadow in `ema_state`, so an
+interrupted run resumes exactly.  `--ema_final_decay` ramps the effective
+decay linearly over the run (the DINO-style momentum schedule) and
+`--ema_warmup_steps` ramps it up from zero; when both are absent the decay
+is constant.  `run.json` records the decay, so provenance of "which weights
+the best checkpoint holds" is unambiguous.
 
 ### Mixup, Label Smoothing, And Imbalance
 

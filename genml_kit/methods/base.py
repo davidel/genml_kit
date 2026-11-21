@@ -346,3 +346,70 @@ class Method(abc.ABC):
 
     apply_freeze_patterns(args, model)
     return model
+
+
+class WeightsEMAMixin:
+  """Opt-in mixin for the trainer-driven eval-time weights EMA.
+
+  Subclassing this mixin (next to :class:`Method`) is the opt-in: the
+  trainer then calls :meth:`wire_ema` and drives the shadow -- one update
+  per optimizer step, plus an eval/best-checkpoint window on the EMA
+  weights when ``--ema_eval`` is set.  Methods that do *not* inherit from
+  it never see the feature, and the trainer converts the absent hook into
+  "feature off", so RL and the other trainers are untouched.
+
+  The flags are declared here because they belong to the capability, not
+  to the CLI's shared table: ``register_all_owners`` unions every owner's
+  ``add_args`` onto the one parser, so ``--help`` shows the EMA group
+  regardless of ``--method``.
+  """
+
+  @classmethod
+  def add_args(cls, parser):
+    """Register the EMA flags (via the single-declaration ARG_ tuples).
+
+    Called with whatever container the adopting method passes -- typically
+    its own ``--help`` group, so the EMA flags render inside that method's
+    section.  Re-requesting the flags is safe: ``add_shared_arg`` skips
+    shared arguments that are already registered on the parser.
+    """
+    from genml_kit.utils.shared_args import (ARG_EMA_DECAY, ARG_EMA_EVAL,
+                                             ARG_EMA_FINAL_DECAY,
+                                             ARG_EMA_WARMUP_STEPS,
+                                             add_shared_arg)
+
+    add_shared_arg(parser, ARG_EMA_DECAY)
+    add_shared_arg(parser, ARG_EMA_FINAL_DECAY)
+    add_shared_arg(parser, ARG_EMA_WARMUP_STEPS)
+    add_shared_arg(parser, ARG_EMA_EVAL)
+
+  def wire_ema(self, args, model, pipeline):
+    """Build the eval-time weights EMA, or ``None`` to keep it off.
+
+    Wires the shadow when ``--ema_decay`` is set (> 0).  Methods override
+    to specialise the shadow (e.g. a different topology slice or a
+    CPU-held shadow); they should keep returning ``None`` for a falsy
+    decay so the flag stays the off switch.
+
+    Args:
+        args: The CLI args namespace (``ema_*`` flags; may be absent in
+            non-CLI test harnesses).
+        model: The unwrapped semantic model, as built by
+            :meth:`build_model`.
+        pipeline: The built pipeline, for the step budget.
+
+    Returns:
+        A :class:`~genml_kit.models.ema.WeightsEMA`, or ``None``.
+    """
+    if not args.ema_decay:
+      return None
+    from genml_kit.models.ema import WeightsEMA, compute_step_budget
+
+    return WeightsEMA(
+        model,
+        decay=args.ema_decay,
+        final_decay=args.ema_final_decay,
+        warmup_steps=args.ema_warmup_steps or 0,
+        total_steps=compute_step_budget(args, pipeline),
+        eval_enabled=bool(args.ema_eval),
+    )

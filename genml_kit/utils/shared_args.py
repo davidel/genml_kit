@@ -240,6 +240,36 @@ ARG_GRAD_CLIP = ("grad_clip", {
     "help": "Max gradient norm for clipping (0 disables).",
 })
 
+ARG_EMA_DECAY = ("ema_decay", {
+    "type": float,
+    "default": 0.0,
+    "help": "Weights-EMA decay for validation and the best checkpoint. "
+            "0 disables the shadow entirely (default); only methods that "
+            "opt in via their WEIGHTS_EMA flag wire it.",
+})
+
+ARG_EMA_FINAL_DECAY = ("ema_final_decay", {
+    "type": float,
+    "help": "Optional ramp target for --ema_decay: the effective decay moves "
+            "linearly to this value over the run (DINO-style momentum "
+            "schedule). Omit for a constant decay.",
+})
+
+ARG_EMA_WARMUP_STEPS = ("ema_warmup_steps", {
+    "type": int,
+    "default": 0,
+    "help": "Linear warmup of the effective decay from 0 up to --ema_decay "
+            "over this many optimizer steps. Ignored when "
+            "--ema_final_decay is set.",
+})
+
+ARG_EMA_EVAL = ("ema_eval", {
+    "action": "store_true",
+    "help": "Evaluate and best-save the EMA weights instead of the raw "
+            "trajectory (best.pt then carries the EMA weights; latest.pt "
+            "always carries the raw trajectory plus the shadow).",
+})
+
 ARG_GRAD_ACCUM_STEPS = ("grad_accum_steps", {
     "type": int,
     "default": 1,
@@ -372,6 +402,18 @@ SHARED_ARGS = {
 def add_shared_arg(parser, shared_arg, **overrides):
   """Register a globally declared shared argument on *parser*.
 
+  Idempotent per container: a shared argument that is already present on
+  *parser* (or on the root parser of the group it belongs to) is skipped,
+  because the whole point of a shared arg is that it is declared once --
+  composable callers (e.g. several methods chaining a common mixin's
+  ``add_args``) can re-request it without argparse raising a duplicate
+  option conflict.  The skip is only valid for an *identical* spec: the
+  re-request must match the registered flag on name, default, type,
+  description (``help``), ``required`` and ``nargs``; a differing spec
+  raises ``ValueError`` instead of silently keeping whichever variant was
+  registered first (that would make ``--help`` and parsed defaults depend
+  on registration order).
+
   Args:
       parser: An ``argparse.ArgumentParser`` or ``argparse._ArgumentGroup``
           to register the flag on.  Passing a group keeps ``--help`` nicely
@@ -383,10 +425,15 @@ def add_shared_arg(parser, shared_arg, **overrides):
           shared flag without duplicating its whole spec.
 
   Returns:
-      The ``argparse.Action`` created by ``add_argument``.
+      The ``argparse.Action`` created by ``add_argument``, or ``None`` when
+      the shared argument was already registered with the same spec.
   """
   dest, kwargs = shared_arg
   merged = {**kwargs, **overrides}
+  existing = _find_option(parser, dest)
+  if existing is not None:
+    _assert_same_spec(dest, existing, merged)
+    return None
   return parser.add_argument(f"--{dest}", **merged)
 
 
@@ -394,3 +441,97 @@ def add_shared_args(parser, *shared_args):
   """Register several shared arguments at once (see :func:`add_shared_arg`)."""
   for shared_arg in shared_args:
     add_shared_arg(parser, shared_arg)
+
+
+def _has_option(container, dest):
+  """Whether ``--{dest}`` is already registered on *container*.
+
+  For an ``_ArgumentGroup`` the check walks up to the owning root parser,
+  so a flag registered anywhere in the same parser counts as present --
+  argparse treats option strings parser-wide, and the duplicate conflict
+  fires at that level regardless of which group holds the flag.
+  """
+  root = container
+  while getattr(root, "parent", None) is not None:
+    root = root.parent
+  return any(f"--{dest}" in action.option_strings for action in root._actions)
+
+
+def _find_option(container, dest):
+  """The registered action for ``--{dest}`` on *container*, or ``None``.
+
+ For an ``_ArgumentGroup`` the search walks up to the owning root parser:
+ argparse treats option strings parser-wide, so a flag registered via one
+ group is present for every other group of the same parser too.
+ """
+  root = container
+  while getattr(root, "parent", None) is not None:
+    root = root.parent
+  for action in root._actions:
+    if f"--{dest}" in action.option_strings:
+      return action
+  return None
+
+
+_ABSENT = object()
+
+# argparse's signature-level defaults, used when a re-request omits a field
+# that the registered action filled with an action-specific value (e.g.
+# ``store_true`` implies ``default=False`` even when the spec does not say
+# so -- comparing against ``None`` would falsely report a mismatch).
+_ARGPARSE_DEFAULTS = {
+    "default": None,
+    "type": None,
+    "help": None,
+    "required": False,
+    "nargs": None,
+    "const": None,
+}
+
+# Fields an action class fills in at signature level when the spec omits
+# them (e.g. ``store_true`` implies ``default=False``, ``nargs=0``,
+# ``const=True`` -- comparing against the generic fallbacks would falsely
+# report a mismatch on a bare, consistent re-request).
+_ACTION_SIGNATURE_DEFAULTS = {
+    "default": {
+        argparse._StoreTrueAction: False,
+        argparse._StoreFalseAction: False
+    },
+    "nargs": {
+        argparse._StoreTrueAction: 0,
+        argparse._StoreFalseAction: 0
+    },
+    "const": {
+        argparse._StoreTrueAction: True,
+        argparse._StoreFalseAction: False
+    },
+}
+
+
+def _assert_same_spec(dest, existing, merged):
+  """A skipped re-registration must request the identical spec.
+
+ Compares the fields that define the flag's observable behaviour: default
+ value, type converter, help text, ``required`` and ``nargs``.  Raises
+ ``ValueError`` on the first difference, naming both sides.
+ """
+  mismatched = []
+  for name, fallback in _ARGPARSE_DEFAULTS.items():
+    wanted = merged.get(name, _ABSENT)
+    if wanted is _ABSENT:
+      wanted = _ACTION_SIGNATURE_DEFAULTS.get(name, {}).get(type(existing), fallback)
+    have = getattr(existing, name, fallback)
+    if not _spec_equal(have, wanted):
+      mismatched.append(f"{name}: registered={have!r} incoming={wanted!r}")
+  if mismatched:
+    raise ValueError(f"--{dest} is already registered with a different spec: " +
+                     "; ".join(mismatched))
+
+
+def _spec_equal(have, wanted):
+  """Strict equality for specs: type-strict for values, identity for callables."""
+  if callable(wanted) or callable(have):
+    return have is wanted
+  if type(have) is not type(wanted):
+    return False
+  return have == wanted

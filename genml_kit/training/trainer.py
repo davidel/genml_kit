@@ -118,7 +118,8 @@ class BaseTrainer:
                start_epoch,
                best_metric,
                global_step,
-               resume_progress=None):
+               resume_progress=None,
+               ema_state=None):
     """Bind the run's collaborators and restored training state.
 
     Args:
@@ -169,6 +170,14 @@ class BaseTrainer:
     # epochs.  ``run``'s exit ``finally`` reads it to record where an
     # interrupted epoch should resume.
     self._epoch_progress = None
+    # True between an eval-on-EMA swap and its restore, so the epoch
+    # ``finally`` can hand the raw trajectory back even when an interrupt
+    # lands inside the validation window.
+    self._ema_swapped = False
+    # Eval-time weights EMA, wired by the method (``None`` for every method
+    # that did not opt in -- the loop treats that as plain no-EMA, which is
+    # the historic behaviour every existing fixture and RL trainer relies on).
+    self.ema = self._wire_ema(ema_state)
     # Run-scoped budget (per-epoch ``max_batches`` + run-global ``max_train_time``)
     # is built once here so its wall-clock origin spans the whole run, not one
     # epoch.
@@ -177,6 +186,39 @@ class BaseTrainer:
         max_train_time=args.max_train_time,
         grad_accum_steps=args.grad_accum_steps,
     )
+
+  def _wire_ema(self, ema_state):
+    """Build the method-declared EMA shadow and restore its saved state.
+
+    Args:
+        ema_state: The ``ema_state`` payload from a resumed checkpoint, or
+            ``None`` on a fresh run (the shadow starts from the current
+            weights).
+
+    Returns:
+        The :class:`~genml_kit.models.ema.WeightsEMA`, or ``None`` when the
+        method did not opt in or no ``--ema_decay`` was requested.
+    """
+    # ``maybe_call`` returns the MISSING sentinel (not ``None``) when the
+    # method does not implement the hook; convert it here so the loop's
+    # single ``self.ema is not None`` check means exactly "feature off".
+    ema = maybe_call(self.method, "wire_ema", self.args, self.model, self.pipeline)
+    if ema is MISSING or ema is None:
+      # One deliberately tolerant read: the method registry is import-driven,
+      # so a method's ``add_args`` flags exist on the parser only when that
+      # method's module is imported in this process.  A targeted RL-only
+      # process never parses ``--ema_decay``, so a direct read would crash
+      # for every non-mixin method there.  The mixin's own ``wire_ema``
+      # reads the flags directly -- they always exist for a mixin method.
+      if getattr(self.args, "ema_decay", 0.0):
+        logging.warning(
+            "--ema_decay is set but method %s does not support the "
+            "eval-time weights EMA (it does not inherit WeightsEMAMixin); "
+            "the flag is ignored.", self.method.NAME)
+      return None
+    if ema_state:
+      ema.load_state_dict(ema_state)
+    return ema
 
   def _resume_skip(self, epoch):
     """Return the grad-accum-aligned fast-forward for *epoch*.
@@ -413,6 +455,8 @@ class BaseTrainer:
       self.optimization.optimizer.step()
     self.optimization.optimizer.zero_grad(set_to_none=True)
     step += 1
+    if self.ema is not None:
+      self.ema.update(self.model, step)
     # Flush boundary reached: record progress so an interrupt after this
     # point resumes from here (grad-accum-aligned) instead of replaying.
     self._epoch_progress = {"epoch": epoch, "micro_step": step_in_epoch + 1}
@@ -489,7 +533,14 @@ class BaseTrainer:
 
   def saver_extra(self):
     """Extra state attached to every checkpoint write (method state)."""
-    return {"method_state": self.method.get_checkpoint_state(self.model, self.args)}
+    extra = {"method_state": self.method.get_checkpoint_state(self.model, self.args)}
+    # The EMA shadow rides every save (best / latest / periodic): ``best.pt``
+    # written inside the swap window carries EMA weights in the model slot,
+    # so its ``ema_state`` is the *pre-swap* shadow snapshot -- exactly what
+    # an exact resume needs.
+    if self.ema is not None:
+      extra["ema_state"] = self.ema.state_dict()
+    return extra
 
   def ckpt_extra(self, best, step):
     """Extra state attached to best-checkpoint and exit saves."""
@@ -588,6 +639,14 @@ class BaseTrainer:
           if self.optimization.scheduler is not None:
             self.optimization.scheduler.step()
 
+          # Eval-on-EMA window: swap the shadow into the live weights so
+          # validation (and, below, the best checkpoint) sees the EMA
+          # trajectory, then hand the raw trajectory back.  ``latest.pt``
+          # (exit/interrupt saves) runs after the swap-out, so it always
+          # carries the raw weights plus the shadow in ``ema_state``.
+          if self.ema is not None and self.ema.eval_enabled:
+            self.ema.swap(self.model)
+            self._ema_swapped = True
           metrics = self.validate()
           # Ranks that skipped validation (rank 0 owns it by default) wait here,
           # so a slow validation cannot let a peer run ahead and hit the next
@@ -619,6 +678,10 @@ class BaseTrainer:
             logging.info(f"New best {self.best_metric_key}: "
                          f"{best_metric:.4f} -> {self.best_metric:.4f}")
 
+          if self._ema_swapped:
+            self.ema.restore(self.model)
+            self._ema_swapped = False
+
           self.epoch_end()
           # Epoch fully done: train, validate, hooks.
           completed_epoch = epoch
@@ -636,6 +699,12 @@ class BaseTrainer:
         logging.warning(f"Interrupted by {interrupts.received}; saving "
                         "checkpoint.")
       finally:
+        # Undo a pending eval-on-EMA swap before writing the exit/interrupt
+        # checkpoint: ``latest.pt`` must carry the raw trajectory (plus the
+        # shadow in ``ema_state``), never the swapped-in EMA weights.
+        if self._ema_swapped:
+          self.ema.restore(self.model)
+          self._ema_swapped = False
         # The ``epoch`` field always means the last *fully completed* epoch;
         # when the interrupt landed inside one, the ``in_progress`` overlay
         # records that epoch plus the micro-step reached so resume continues

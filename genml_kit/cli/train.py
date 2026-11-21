@@ -431,6 +431,10 @@ def _run(args):
   best_metric = resume.best_metric
   ckpt_extra = resume.extra
   method.load_checkpoint_state(model, ckpt_extra.get("method_state", {}), args)
+  # Capture the EMA shadow (if any) before the extras dict is dropped below:
+  # the trainer re-hydrates it into the shadow the method wires after the
+  # state broadcast.  Absent for pre-EMA checkpoints -> fresh re-seed.
+  ema_state = ckpt_extra.get("ema_state")
   # Restore pipeline state (e.g., observation-normalization RMS for RL) saved
   # by RLTrainer.saver_extra() into the checkpoint.  Only pipelines that opt
   # in (RLPipeline) define load_checkpoint_state; no-op for image/vo pipelines
@@ -465,6 +469,8 @@ def _run(args):
   # Drop the reference to the full checkpoint extras dict so the potentially
   # large optimizer/scheduler/scaler state can be GC'd before the trainer is
   # constructed. This is intentional memory hygiene, not vestigial code.
+  # (``ema_state`` was copied out above and survives this drop: it is the one
+  # resume payload the trainer still needs.)
   del ckpt_extra
 
   # Wrap LAST: the checkpoint restore and the optimizer were built against the
@@ -497,6 +503,7 @@ def _run(args):
       best_metric=best_metric,
       global_step=global_step,
       resume_progress=resume_progress,
+      ema_state=ema_state,
   )
   result = trainer.run()
   _post_train(args, pipeline, method, device, result)

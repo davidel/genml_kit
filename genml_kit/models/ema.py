@@ -22,11 +22,29 @@ That is what lets each parent keep the target as a direct attribute (e.g.
 existing checkpoints keep loading.  Attaching an ``nn.Module`` holder
 instead would rename those keys (``target_encoder.*`` ->
 ``ema.target.*``) and silently break resume.
+
+Two EMA idioms coexist and are kept deliberately separate:
+
+1. **Loss-coupled** target/teacher networks (the ``EMAModel`` users above,
+   plus distillation's ``--teacher_kind ema``): the EMA copy is *part of
+   the objective* -- the loss reads it -- so it is owned, updated and
+   checkpointed by the method itself.
+2. **Eval-time** weights EMA (:class:`WeightsEMA`): the shadow is *not*
+   part of the loss.  It exists so validation and the best checkpoint can
+   be computed on a low-pass-filtered copy of the optimisation trajectory
+   (the timm / MMDetection weights-EMA).  The trainer drives its cadence
+   (one update per optimizer step, swap-in around validation); the
+   *method* decides whether it applies, because only the method knows its
+   topology (DPO owns a frozen reference tower, distillation owns teacher
+   towers -- neither is EMA material).
 """
+
+import copy
 
 import torch
 
 from genml_kit.datasets.iterable import safe_len
+from genml_kit.utils.distributed import unwrap
 
 
 class EMAModel:
@@ -64,6 +82,153 @@ class EMAModel:
   def copy_hard(self):
     """Hard copy: ``target <- source`` (parameter-wise)."""
     self.target.load_state_dict(self.source.state_dict())
+
+
+class WeightsEMA:
+  """Shadow copy of the trained weights, driven by the trainer.
+
+  Unlike :class:`EMAModel` (loss-coupled, method-owned), a ``WeightsEMA``
+  is a pure eval-time artifact: it never enters a loss.  The trainer
+  updates it once per optimizer step and may swap it in around validation
+  so the best checkpoint carries the EMA weights (see
+  :meth:`Method.wire_ema`).
+
+  Args:
+      model: The training module; a DDP facade is accepted -- the shadow
+          is built from the *semantic* module underneath it, so the
+          state-dict keys match the portable checkpoint contract.
+      decay: EMA coefficient; the update is
+          ``shadow <- decay * shadow + (1 - decay) * model``.
+      final_decay: Optional ramp target: the effective decay moves linearly
+          from *decay* to *final_decay* over *total_steps* (the DINO-style
+          momentum schedule, via :func:`linear_momentum`).  Ignored when
+          ``None`` or when *total_steps* is not computable (iterable-only
+          datasets keep the schedule at *decay*).
+      warmup_steps: Without *final_decay*: linear warmup of the effective
+          decay from 0 up to *decay* over this many optimizer steps
+          (0 disables the warmup).
+      total_steps: Total optimizer steps of the run, when known (see
+          :func:`compute_step_budget`).
+      eval_enabled: Whether the trainer may evaluate and best-save the EMA
+          weights.  Decided by the method (via its ``WEIGHTS_EMA`` flag and
+          :meth:`Method.wire_ema`), *not* read from args by the trainer --
+          other trainers share the loop and must never read a
+          supervised-only flag.
+      device: Optional device to hold the shadow on (e.g. ``"cpu"`` to
+          save accelerator memory, at the cost of a per-step copy).
+  """
+
+  def __init__(self,
+               model,
+               decay,
+               final_decay=None,
+               warmup_steps=0,
+               total_steps=None,
+               eval_enabled=True,
+               device=None):
+    self.decay = decay
+    self.final_decay = final_decay
+    self.warmup_steps = warmup_steps
+    self.total_steps = total_steps
+    self.eval_enabled = eval_enabled
+    # Deepcopy the semantic module, never the DDP facade: the shadow must
+    # carry the portable state-dict keys, and facades may not deepcopy.
+    self.target = copy.deepcopy(unwrap(model))
+    if device is not None:
+      self.target.to(device)
+    for p in self.target.parameters():
+      p.requires_grad = False
+    self.step = 0
+
+  @torch.no_grad()
+  def update(self, model, step):
+    """One blend toward the live weights; call once per optimizer step.
+
+    Args:
+        model: The training module (facade-safe: parameters are matched
+            positionally, and facades expose the same order).
+        step: Current optimizer step, driving the decay schedule.
+    """
+    effective = self._effective_decay(step)
+    t_params = list(self.target.parameters())
+    m_params = list(model.parameters())
+    if len(t_params) == len(m_params):
+      for tp, mp in zip(t_params, m_params):
+        tp.data.mul_(effective).add_(mp.data, alpha=1.0 - effective)
+    self._update_buffers(model, effective)
+    self.step = step
+
+  @torch.no_grad()
+  def _update_buffers(self, model, effective):
+    """Blend float buffers, copy integer buffers (BN stats vs. counters)."""
+    t_buffers = list(self.target.buffers())
+    m_buffers = list(model.buffers())
+    if len(t_buffers) != len(m_buffers):
+      return  # Structure drift: skip rather than corrupt the shadow.
+    for tb, mb in zip(t_buffers, m_buffers):
+      if tb.is_floating_point() and mb.is_floating_point():
+        tb.data.mul_(effective).add_(mb.data, alpha=1.0 - effective)
+      elif tb.shape == mb.shape:
+        tb.copy_(mb)  # Integer counters (e.g. BN num_batches_tracked).
+
+  def _effective_decay(self, step):
+    """Decay actually applied at *step* (ramp, warmup, or flat)."""
+    if self.final_decay is not None:
+      return linear_momentum(step, self.total_steps, self.decay, self.final_decay)
+    if self.warmup_steps and step < self.warmup_steps:
+      return self.decay * (step / self.warmup_steps)
+    return self.decay
+
+  @torch.no_grad()
+  def state_dict(self):
+    """Checkpoint payload: shadow tensors plus the schedule position."""
+    return {
+        "state": {
+            k: v.detach().clone() for k, v in self.target.state_dict().items()
+        },
+        "step": self.step,
+    }
+
+  @torch.no_grad()
+  def load_state_dict(self, state):
+    """Restore shadow tensors and schedule position (tolerant filtering).
+
+    Keys absent from the current model (architecture drift) are skipped, so
+    a shadow saved for an older topology never hard-fails a resume; the
+    skipped keys keep their re-seeded values.
+    """
+    target_state = self.target.state_dict()
+    filtered = {k: v for k, v in state["state"].items() if k in target_state}
+    self.target.load_state_dict(filtered, strict=False)
+    self.step = int(state.get("step", 0))
+
+  @torch.no_grad()
+  def copy_to(self, model):
+    """Overwrite the live weights with the shadow (filtered, tolerant)."""
+    model_state = model.state_dict()
+    filtered = {k: v for k, v in self.target.state_dict().items() if k in model_state}
+    model.load_state_dict(filtered, strict=False)
+
+  @torch.no_grad()
+  def swap(self, model):
+    """Exchange the live weights with the shadow.
+
+    Paired with :meth:`restore` around the validation window: the model
+    evaluates (and best-saves) the EMA weights, then gets the raw
+    trajectory back bit-for-bit.
+    """
+    self._backup = {k: v.detach().clone() for k, v in model.state_dict().items()}
+    self.copy_to(model)
+    self._swapped = True
+
+  @torch.no_grad()
+  def restore(self, model):
+    """Undo :meth:`swap` (the inverse exchange)."""
+    if not getattr(self, "_swapped", False):
+      raise RuntimeError("restore() called without a matching swap()")
+    model.load_state_dict(self._backup)
+    del self._backup
+    self._swapped = False
 
 
 def linear_momentum(step, total, start, end):

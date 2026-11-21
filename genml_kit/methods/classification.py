@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from genml_kit.methods.base import Method
+from genml_kit.methods.base import Method, WeightsEMAMixin
 from genml_kit.methods.registry import METHODS
 from genml_kit.pipelines.contracts import LossOutput, ValidationResult
 from genml_kit.losses import load_loss
@@ -19,7 +19,7 @@ from genml_kit.utils.logging import fatal
 
 
 @METHODS.register
-class ClassificationMethod(Method):
+class ClassificationMethod(WeightsEMAMixin, Method):
   """Supervised image classification (HuggingFace / timm models).
 
   Owns the criterion (:class:`CombinedFocalLoss`) and the validation
@@ -41,6 +41,7 @@ class ClassificationMethod(Method):
   @classmethod
   def add_args(cls, parser):
     group = parser.add_argument_group("classification method")
+    super().add_args(group)  # the --ema_* flags render inside this group
     group.add_argument("--mixup_alpha",
                        type=float,
                        default=0.0,
@@ -202,8 +203,7 @@ class ClassificationMethod(Method):
         logits.append(out.logits.cpu())
         labels.append(batch_labels)
     temperature = fit_temperature(torch.cat(logits), torch.cat(labels))
-    out_path = os.path.join(os.path.dirname(checkpoint_dir) or ".",
-                            "temperature.json")
+    out_path = os.path.join(os.path.dirname(checkpoint_dir) or ".", "temperature.json")
     with open(out_path, "w", encoding="utf-8") as f:
       json.dump({"temperature": temperature}, f, indent=2)
     logging.info("Fitted temperature %.4f -> %s", temperature, out_path)
