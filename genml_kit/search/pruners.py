@@ -16,6 +16,13 @@ Three pruners ship in-tree:
 ``asha``
     Asynchronous Successive Halving / Hyperband: keep the top ``1/rf`` of
     trials at each geometric rung, prune the rest.
+``hyperband``
+    Hyperband bracketing: multiple ASHA brackets with progressively smaller
+    rung grids, so aggressive early halving and wide late coverage are
+    both available.  Each trial is assigned to a bracket round-robin by
+    trial id hash; the bracket with the most rungs (``s_max``) uses rungs
+    ``min_resource * rf**k``, while shallower brackets start at
+    ``s_max - s`` and keep the same geometric spacing.
 
 Interface
 ---------
@@ -159,6 +166,74 @@ class AshaPruner(Pruner):
     keep = max(1, len(values) // self.reduction_factor)
     cutoff = sorted(values, reverse=True)[keep - 1]
     return value < cutoff
+
+
+@PRUNERS.register
+class HyperbandPruner(Pruner):
+  """Hyperband: several ASHA brackets over nested rung grids.
+
+  A single ASHA pruner fixes one trade-off: aggressive rungs (many halvings,
+  ``s = s_max``) prune fast but may kill late bloomers, while shallow
+  brackets (few halvings) keep everything but prune rarely.  Hyperband runs
+  ``s_max + 1`` brackets with ``s = 0..s_max`` and lets trials spread across
+  them, so the sweep gets both behaviours.
+
+  Trials are assigned to brackets deterministically (``trial_id % n_brackets``)
+  so the same trial always lands in the same bracket across pool workers.
+  Within a bracket, pruning is exactly ASHA's rule over the bracket's rung
+  grid; bracket ``s`` starts at rung ``min_resource * rf**s`` (bracket 0 is
+  the deepest: first rung ``min_resource``, the most halvings available).
+  """
+
+  NAME = "hyperband"
+
+  def __init__(self,
+               objective_is_min=False,
+               min_resource=1,
+               reduction_factor=3,
+               min_trials_per_rung=None,
+               s_max=None,
+               **kwargs):
+    super().__init__(objective_is_min, min_resource, reduction_factor, **kwargs)
+    self.min_trials_per_rung = (min_trials_per_rung or self.reduction_factor)
+    # Number of halvings in the deepest bracket.  ``None`` means "derive
+    # from the observed epoch budget" (set on first observation).
+    self._s_max = int(s_max) if s_max is not None else None
+    self._asha = {}  # bracket index -> AshaPruner over that bracket's grid
+
+  def _n_brackets(self):
+    """``s_max + 1`` brackets (the classic Hyperband set)."""
+    return (self._s_max or 1) + 1
+
+  def _bracket_of(self, trial_id):
+    """Deterministic bracket assignment: stable across workers."""
+    return int(trial_id) % self._n_brackets()
+
+  def _ensure_bracket(self, n_epochs):
+    """Lazily size ``s_max`` and build one ASHA pruner per bracket."""
+    if self._s_max is None:
+      rungs = self._rungs_up_to(n_epochs)
+      self._s_max = max(1, len(rungs) - 1)
+    for s in range(self._n_brackets()):
+      if s in self._asha:
+        continue
+      # Bracket s starts at rung min_resource * rf**s.  Bracket 0 therefore
+      # has the smallest first rung and the most halvings available before
+      # the epoch budget; higher s are shallower and prune later.
+      first_rung = self.min_resource * (self.reduction_factor**s)
+      self._asha[s] = AshaPruner(
+          objective_is_min=self.objective_is_min,
+          min_resource=first_rung,
+          reduction_factor=self.reduction_factor,
+          min_trials_per_rung=self.min_trials_per_rung)
+
+  def should_stop(self, trial_id, series):
+    if len(series) < self.min_resource:
+      return False
+    with self._lock:
+      self._ensure_bracket(len(series))
+      bracket = self._bracket_of(trial_id)
+      return self._asha[bracket].should_stop(trial_id, series)
 
 
 def build_pruner(name, objective_is_min=False, **kwargs):

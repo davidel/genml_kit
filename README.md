@@ -168,7 +168,7 @@ reuse the same hook.
 | `genml_kit.io` | `checkpointing.py` (atomic saves, LoRA state, remote fetch), `storage_utils.py` (S3 / GCS / R2) |
 | `genml_kit.utils` | glog-style logging, CLI arg groups + `shared_args.py` (globally shared `ARG_*` CLI flags), seeding, signal handling, GPU info, tables, external `.py` script loading, `image_dump`, transformer init helpers, `generation.py` (samplers + batched `generate`) |
 | `genml_kit.cli` | console-script entry points: `train.py` (`genml-kit-train`), `infer.py` (`genml-kit-infer`), `llm.py` (`genml-kit-llm`, `generate` / `eval` subcommands), `tune.py` (`genml-kit-tune`, `run` / `report` subcommands) |
-| `genml_kit.search` | hyperparameter search: `space.py` (typed dimensions + argv encoding), `study.py` (declarative study spec), `samplers.py` (`SEARCHERS`: grid/random/tpe/gpei), `pruners.py` (`PRUNERS`: none/median/asha), `runner.py` (subprocess-isolated trials), `store.py` (resumable ledger), `trial.py` |
+| `genml_kit.search` | hyperparameter search: `space.py` (typed dimensions + argv encoding), `study.py` (declarative study spec), `samplers.py` (`SEARCHERS`: grid/random/tpe/gpei), `pruners.py` (`PRUNERS`: none/median/asha/hyperband), `runner.py` (subprocess-isolated trials), `store.py` (resumable ledger), `trial.py` |
 
 ## Installation
 
@@ -202,11 +202,14 @@ pip install "genml_kit[tune]"
 # With NVML GPU utilization in the training logs (the 'util=...%' field):
 pip install "genml_kit[gpu]"
 
+# With Weights & Biases metric streaming (the 'wandb' metrics sink):
+pip install "genml_kit[wandb]"
+
 # With flash-attn packing support (requires the CUDA toolkit with CUDA_HOME
 # set to an nvcc, plus torch already installed):
 pip install "genml_kit[flash]"
 
-# Everything above in one shot (gcs, s3, lora, llm, llm-spm, timm, uvito, rl, tune, gpu):
+# Everything above in one shot (gcs, s3, lora, llm, llm-spm, timm, uvito, rl, tune, gpu, wandb):
 # (flash is intentionally excluded: it needs a CUDA toolkit to build)
 pip install "genml_kit[all]"
 ```
@@ -700,8 +703,9 @@ genml-kit-train --pipeline images --method supcon \
 | `--proc_arg` | `{}` | Override processor configuration (repeatable). |
 | `--optimizer` | `AdamW` | `torch.optim` optimizer class name or `.py` script path. |
 | `--opt_arg` | `{}` | Extra optimizer kwargs (repeatable). |
-| `--scheduler` | `None` | `torch.optim.lr_scheduler` class name or `.py` script path. |
+| `--scheduler` | `None` | `torch.optim.lr_scheduler` class name or `.py` script path, or a built-in warmup shape: `warmup_cosine`, `warmup_linear`, `warmup_rsqrt`. |
 | `--sched_arg` | `{}` | Extra scheduler kwargs (repeatable). |
+| `--warmup_epochs` | `0` | Linear LR ramp length in epochs (integer or fraction) for the `warmup_*` schedulers; 0 disables the ramp. See [Warmup](#warmup). |
 | `--source_checkpoint` | `None` | Path to source checkpoint to absorb parameters from. |
 | `--param_rename` | `None` | Regex-based key rename patterns (`SEARCH;REPLACE`). |
 | `--grad_checkpoint` | `False` | Enable gradient checkpointing. Reduces activation memory by ~40-50% at the cost of ~25-35% more compute per step. Enables larger batch sizes. See [Gradient Checkpointing](#gradient-checkpointing). |
@@ -1051,6 +1055,28 @@ The confusion matrix uses rows for true classes and columns for predicted
 classes. Diagonal entries are correct predictions. The compact confusion
 summary reports each class's recall and its largest confusion destinations.
 
+Two ranking/calibration metrics are also reported when the validation
+predictions carry logits (the default for model-based methods):
+
+- **AUROC (macro, one-vs-rest):** how well the model's scores rank a random
+  positive of a class above a random negative, averaged over classes.  It is
+  threshold-free and therefore the right summary for imbalanced clinical
+  workloads where the operating point is chosen later.
+- **ECE (expected calibration error):** the average absolute gap between the
+  model's confidence and its observed accuracy over 15 confidence bins.  A
+  model can be accurate and still overconfident; ECE quantifies that gap.
+
+Overconfidence is fixed post hoc with `--fit_temperature`: after training, a
+single scalar $`T`$ is fitted on the validation set (minimising negative
+log-likelihood of `logits / T`), written to `temperature.json` next to the
+checkpoint, and applied at inference via `genml-kit-infer --temperature T`:
+
+<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+```bash
+genml-kit-train --model convvit --method classification --fit_temperature ...
+genml-kit-infer --checkpoint ... --temperature 1.31 --top_k 3 image.jpg
+```
+
 
 When TTA is enabled, validation loss is computed from the original image only,
 while Top-1 accuracy, balanced accuracy, macro F1, weighted F1, and per-class
@@ -1197,6 +1223,34 @@ the loss surface — and slows down smoothly as it approaches zero, which lets
 the model settle into a minimum instead of bouncing around it. Late-training
 low learning rates are also what make the EMA teacher of DINO/BYOL
 effective: the teacher tracks a student that changes gently.
+
+### Warmup
+
+Transformer fine-tuning is unstable at the step-off: the randomly initialised
+head meets a pre-trained backbone with full force.  The three warmup
+schedulers ramp the learning rate up linearly from zero over `--warmup_epochs`
+epochs (an integer or fraction) before handing over to the chosen decay
+shape:
+
+<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+```bash
+genml-kit-train --model convvit --method classification \
+  --scheduler warmup_cosine --warmup_epochs 2.5 ...
+```
+
+`--warmup_epochs 0` (the default) disables the ramp and every `warmup_*`
+name then behaves exactly like its plain shape.  Available shapes:
+
+| Name | Shape after warmup |
+|---|---|
+| `warmup_cosine` | half-cosine decay to `eta_min` (0), as above |
+| `warmup_linear` | linear decay to 0 over `--epochs` |
+| `warmup_rsqrt` | inverse square-root decay |
+
+A `--sched_arg warmup_epochs=...` override wins over the generic flag, and
+`--sched_arg T_max=...` overrides the cosine total (the epoch of the first
+minimum).  Plain torch names (`CosineAnnealingLR`, ...) ignore the warmup
+flag entirely, so existing invocations are unchanged.
 
 ### Mixup, Label Smoothing, And Imbalance
 
@@ -1416,6 +1470,56 @@ Checkpointing is atomic: `_latest.pt` is written to a temporary file
 and renamed into place, so an interrupted run never leaves a truncated
 resume point.
 
+### Run Manifest
+
+Every training run writes `<log_dir>/run.json` — a reproducibility
+snapshot of *how* the run was launched: the fully resolved argparse
+namespace (defaults filled in), the git SHA of the checkout, the
+`torch` / `transformers` versions, hostname, device, resolved seeds, and
+timestamp.  Together with `metrics.jsonl` this makes any result traceable
+back to the exact code and invocation that produced it:
+
+<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+```bash
+genml-kit-train --model convvit --method classification ... 
+cat <checkpoint_dir>/logs/run.json
+```
+
+The same facts are emitted to the metric sinks as `manifest/*` and
+`args/<name>` run-facts, so they land in TensorBoard and any configured
+sink alongside the metrics.  `--dry_run` logs the manifest as JSON and
+exits before the dataset is touched — a fast way to inspect what an
+invocation would actually do:
+
+<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+```bash
+genml-kit-train --model convvit --method classification --dry_run
+```
+
+### Metric Sinks
+
+`--metrics_sinks` selects where training metrics go, as a comma-separated
+fan-out: `tb` (TensorBoard event files), `jsonl` (one JSON record per line in
+`<log_dir>/metrics.jsonl` — the file the search subsystem reads), and `wandb`
+(a live Weights & Biases run).  The default `tb,jsonl` is unchanged; sinks
+are independent, so any combination works:
+
+<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+```bash
+genml-kit-train --model convvit --method classification \
+  --metrics_sinks tb,jsonl,wandb --wandb_project my-team ... 
+```
+
+The `wandb` sink requires the optional extra (`pip install
+"genml_kit[wandb]"`); the run name defaults to `--run_name` when given, the
+run finishes on exit, and the fully resolved args are uploaded as the run
+config.  `--wandb_mode` selects how the run is recorded: `online` (default,
+syncs to the W&B service), `offline` (a local `.wandb` transaction log,
+synced later with `wandb sync` — no network or credentials needed), or
+`disabled` (wandb's no-op stub).  New sinks implement the same tiny
+duck-typed protocol (`scalar` / `image` / `video` / `run_fact` / `close`) in
+`genml_kit/training/metrics_sinks.py`.
+
 ### Fine-Tuning CLI Reference
 
 | Argument | Default | Description |
@@ -1452,6 +1556,11 @@ resume point.
 | `--log_level` | `INFO` | Logging level. |
 | `--log_targets` | `STDERR` | Comma-separated log destinations. `STDERR` logs to standard error; any other entry is a log file path (appended). Example: `STDERR,/tmp/train.log` logs to both. |
 | `--log_dir` | `None` | TensorBoard log directory (default: `<checkpoint_dir>/logs`). Requires the `tensorboard` package. |
+| `--metrics_sinks` | `tb,jsonl` | Comma-separated metric sinks: `tb` (TensorBoard), `jsonl` (`<log_dir>/metrics.jsonl`), `wandb` (Weights & Biases, requires `pip install "genml_kit[wandb]"`), `none`. |
+| `--wandb_project` | `None` | W&B project name when `wandb` is in `--metrics_sinks` (default: `genml-kit`). |
+| `--wandb_mode` | `online` | W&B run mode: `online` (sync to the service), `offline` (local `.wandb` log, sync later with `wandb sync`), `disabled` (stub, no network/files). |
+| `--run_name` | `None` | W&B run name when `wandb` is in `--metrics_sinks`. |
+| `--fit_temperature` | `False` | After training, fit a temperature-scaling T on the validation set of the best checkpoint and write `temperature.json` next to it. Classification methods only. |
 | `--cache_dir` | `None` | HuggingFace cache directory. |
 | `--remote_checkpoint` | `None` | Remote URI for checkpoint sync (`gs://BUCKET/PREFIX`, `r2://BUCKET/PREFIX`, or `s3://BUCKET/PREFIX`). |
 | `--source_checkpoint` | `None` | Path to source checkpoint to absorb parameters from. |
@@ -1464,8 +1573,9 @@ resume point.
 | `--lora_target_modules` | `None` | Comma-separated module names for LoRA (e.g. `"q_proj,k_proj,v_proj"`). When omitted, targets are resolved from the model (see LoRA section). |
 | `--optimizer` | `AdamW` | `torch.optim` optimizer class name or `.py` script path. |
 | `--opt_arg` | `{}` | Extra optimizer kwargs (repeatable). |
-| `--scheduler` | `None` | `torch.optim.lr_scheduler` class name or `.py` script path. |
+| `--scheduler` | `None` | `torch.optim.lr_scheduler` class name or `.py` script path, or a built-in warmup shape: `warmup_cosine`, `warmup_linear`, `warmup_rsqrt`. |
 | `--sched_arg` | `{}` | Extra scheduler kwargs (repeatable). |
+| `--warmup_epochs` | `0` | Linear LR ramp length in epochs (integer or fraction) for the `warmup_*` schedulers; 0 disables the ramp. See [Warmup](#warmup). |
 | `--state_save` | `opt,sched,amp` | States to save: `opt`, `sched`, `amp`, `none`. |
 | `--state_load` | `opt,sched,amp` | States to restore on resume. |
 | `--xgboost_model` | `None` | Output path for XGBoost model (trains after PyTorch). |
@@ -1727,6 +1837,7 @@ does not erase the cue that distinguishes the classes.
 | `--model` | (required) | HuggingFace model name or custom model. |
 | `--checkpoint` | (required) | Path to state dict or wrapped checkpoint. |
 | `--top_k` | `None` | Show top-K predictions; omit for all classes. |
+| `--temperature` | `1.0` | Divide logits by this before the softmax (1.0 = unchanged). Use the value written to `temperature.json` by `--fit_temperature`. |
 | `--output` | `None` | Write JSON results to file. |
 | `--device` | `None` | Force PyTorch device (`cuda`, `cpu`). Auto-detected if omitted. |
 | `--cache_dir` | `None` | HuggingFace cache directory. |
@@ -3421,7 +3532,8 @@ checkpoints) and the study ledger is `runs/study-<timestamp>/study.jsonl`.
 | `gpei` | sampler | Gaussian-Process Expected Improvement (registered only when `scipy` is installed; `pip install "genml_kit[tune]"`). |
 | `none` | pruner | Run every trial to its full budget. |
 | `median` | pruner | Stop trials below the running median at a rung. |
-| `asha` | pruner | Asynchronous Successive Halving / Hyperband; keeps the top `1/reduction_factor` at each rung. |
+| `asha` | pruner | Asynchronous Successive Halving; keeps the top `1/reduction_factor` at each rung. |
+| `hyperband` | pruner | Multiple ASHA brackets over `min_resource * rf^s` budgets; trials are assigned round-robin so every resource level gets explored. |
 
 Pruning is delivered as a clean `SIGTERM` to the trial subprocess, which the
 trainer's existing signal guard turns into a consistent checkpoint before exit.

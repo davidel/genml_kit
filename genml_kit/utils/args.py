@@ -133,6 +133,15 @@ def add_optimization_args(parser,
       default=50,
       help="Log training metrics every N batches.",
   )
+  parser.add_argument(
+      "--warmup_epochs",
+      type=float,
+      default=0.0,
+      help="Linear LR warmup ramp length in epochs (fractions allowed). "
+      "Only read by the warmup_cosine/warmup_linear/warmup_rsqrt "
+      "schedulers; 0 disables the ramp. A --sched_arg warmup_epochs=... "
+      "override wins.",
+  )
 
 
 def add_source_checkpoint_args(parser):
@@ -189,5 +198,37 @@ def add_logging_args(parser):
       default="tb,jsonl",
       help="Comma-separated list of metric sinks. 'tb' writes TensorBoard "
       "scalars; 'jsonl' appends structured records to <log_dir>/metrics.jsonl; "
+      "'wandb' streams to Weights & Biases (requires the 'wandb' extra); "
       "'none' disables metrics output. Example: 'tb,jsonl'.",
+  )
+  parser.add_argument(
+      "--wandb_project",
+      type=str,
+      default=None,
+      help="Weights & Biases project name when 'wandb' is in --metrics_sinks "
+      "(default: 'genml-kit').",
+  )
+  parser.add_argument(
+      "--wandb_mode",
+      type=str,
+      default="online",
+      choices=["online", "offline", "disabled"],
+      help="Weights & Biases run mode when 'wandb' is in --metrics_sinks: "
+      "'online' syncs to the service, 'offline' writes a local run that can "
+      "be synced later with 'wandb sync', 'disabled' sends calls to a stub "
+      "(no network, no files).",
+  )
+  parser.add_argument(
+      "--run_name",
+      type=str,
+      default=None,
+      help="Human-readable name for this run (used by the 'wandb' metrics "
+      "sink; default: none).",
+  )
+  parser.add_argument(
+      "--fit_temperature",
+      action="store_true",
+      help="After training, fit a temperature-scaling T on the validation "
+      "set of the best checkpoint and write temperature.json next to it. "
+      "Classification methods only.",
   )

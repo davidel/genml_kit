@@ -304,16 +304,18 @@ class CausalLMMethod(Method):
     }, None)
 
   def evaluate(self, model, loader, device, to_device):
-    """This rank's token CE / perplexity as a ``ValidationResult``.
+    """This rank's token CE / perplexity / token accuracy as a ``ValidationResult``.
 
         Returns the raw summed loss as the ``loss`` metric and the token count
         as ``weight``; ``merge_validation`` divides once over the merged totals.
         Perplexity is nonlinear in the mean, so it is computed after the merge
-        rather than per-rank.
+        rather than per-rank.  Token accuracy is the fraction of supervised
+        (non-IGNORE) positions whose argmax equals the target token, summed
+        over positions so ranks merge by the same token weighting.
         """
     from genml_kit.training.model_utils import model_mode
 
-    total_loss, total_tokens = 0.0, 0
+    total_loss, total_tokens, total_correct = 0.0, 0, 0
     with torch.no_grad(), model_mode(model, "eval"):
       for blob in loader:
         blob = to_device(blob, device)
@@ -323,7 +325,8 @@ class CausalLMMethod(Method):
         # labels[..., 1:, ...] ([B, L, V] -> [B, L-1, V], [B, L] -> [B, L-1]).
         shift_logits = out.logits[:, :-1, :].contiguous()
         shift_labels = targets[:, 1:].contiguous()
-        n_tokens = (shift_labels != IGNORE_INDEX).sum().item()
+        supervised = shift_labels != IGNORE_INDEX
+        n_tokens = supervised.sum().item()
         if n_tokens == 0:
           continue
         # Sum (not mean) so the merge can weight by the true token count.
@@ -333,24 +336,30 @@ class CausalLMMethod(Method):
                                    reduction="sum")
         total_loss += loss_sum.item()
         total_tokens += n_tokens
+        # Argmax over the full vocab, counted only on supervised positions.
+        pred = shift_logits.argmax(dim=-1)
+        total_correct += (pred[supervised] == shift_labels[supervised]).sum().item()
     mean_loss = total_loss / max(total_tokens, 1)
-    # ``metrics`` is this rank's own (correct) value; the raw sum + token count
+    # ``metrics`` is this rank's own (correct) value; the raw sums + token count
     # ride along in ``accumulators`` so ranks merge by re-deriving the mean
     # rather than averaging means.
     return ValidationResult(
         {
             "loss": mean_loss,
             "ppl": float(torch.exp(torch.tensor(mean_loss))),
-        }, float(total_tokens), (total_loss, total_tokens))
+            "token_acc": total_correct / max(total_tokens, 1),
+        }, float(total_tokens), (total_loss, total_tokens, total_correct))
 
   def merge_validation(self, results):
-    """Merge summed loss over ranks, then derive the mean CE and perplexity."""
+    """Merge summed loss over ranks, then derive the mean CE, ppl and accuracy."""
     total_loss = sum(r.accumulators[0] for r in results)
     total_tokens = sum(r.accumulators[1] for r in results) or 1.0
+    total_correct = sum(r.accumulators[2] for r in results)
     mean_loss = total_loss / total_tokens
     return {
         "loss": mean_loss,
         "ppl": float(torch.exp(torch.tensor(mean_loss))),
+        "token_acc": total_correct / total_tokens,
     }
 
   def get_checkpoint_state(self, model, args):

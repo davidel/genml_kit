@@ -34,12 +34,17 @@ def rank_indices(probs):
   return np.argsort(-np.asarray(probs), kind="stable")
 
 
-def predict_single(model, transform, image, device):
-  """Run inference on one image. Returns (logits, pixel_values) tensor."""
+def predict_single(model, transform, image, device, temperature=1.0):
+  """Run inference on one image. Returns (probs, pixel_values) tensor.
+
+  ``temperature`` divides the logits before the softmax (1.0 = unchanged);
+  values below 1.0 sharpen the distribution, above 1.0 flatten it.  Pair
+  with a ``temperature.json`` written by ``--fit_temperature``.
+  """
   pixel_values = transform(image).unsqueeze(0).to(device)
   with torch.no_grad():
     logits = model(pixel_values).logits
-  probs = torch.softmax(logits, dim=-1)[0]
+  probs = torch.softmax(logits / temperature, dim=-1)[0]
   return probs, pixel_values
 
 

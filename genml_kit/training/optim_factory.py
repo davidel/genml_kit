@@ -6,6 +6,7 @@ scheduler creation with configurable versions driven by CLI arguments.
 
 import collections
 import logging
+import math
 import re
 
 import torch
@@ -94,12 +95,19 @@ def build_optimization(args, model, device, ckpt_extra, states_to_load, method=N
       **args.opt_arg,
   )
 
+  # ``--sched_arg`` is the explicit per-scheduler channel and therefore wins
+  # over the generic ``--warmup_epochs`` convenience flag.  The generic flag
+  # is only forwarded to the warmup_* schedules: plain torch schedulers
+  # would reject the extra keyword.
+  sched_kwargs = dict(args.sched_arg)
+  if (args.scheduler or "").startswith("warmup_"):
+    sched_kwargs.setdefault("warmup_epochs", args.warmup_epochs)
   scheduler = create_scheduler(
       optimizer,
       name=args.scheduler,
       epochs=args.epochs,
       base_lr=args.lr,
-      **args.sched_arg,
+      **sched_kwargs,
   )
 
   # Only use GradScaler with float16 AMP (not bfloat16 which has native
@@ -436,6 +444,75 @@ def report_lr(optimizer, logger=None, step=0):
   return f"lr=[{lr_min:.2e}, {lr_max:.2e}]"
 
 
+class WarmupScheduler(optim.lr_scheduler.LRScheduler):
+  """LR schedule with a linear warmup ramp, stepped once per epoch.
+
+  The base LR in the optimizer param groups is the *peak* LR.  During warmup
+  (the first ``warmup_epochs`` epochs, fractionally allowed) the multiplier
+  ramps linearly 0 -> 1; afterwards the *shape* branch takes over and returns
+  the multiplier of the wrapped shape function.
+
+  The trainer steps its scheduler once per epoch
+  (``BaseTrainer.run``), so the unit of "steps" here is epochs.  The class
+  deliberately has no external warmup wrapper: warmup and shape live in one
+  ``get_lr`` so the ramp and the decay can never disagree about which epoch
+  is which.
+
+  Args:
+      optimizer: Bound optimizer; its ``param_groups`` LRs are the peaks.
+      shape_fn: Callable ``epoch_multiplier(int epoch) -> float`` giving the
+          post-warmup decay shape as a multiplier of the peak LR.  Built by
+          :func:`_build_shape_fn` from the ``warmup_shape`` name.
+      warmup_epochs: Length of the linear ramp in epochs (fractions allowed).
+      warmup_shape: Shape name for logging/error messages only.
+  """
+
+  def __init__(self, optimizer, shape_fn, warmup_epochs=0.0, warmup_shape=""):
+    self._shape_fn = shape_fn
+    self._warmup_epochs = max(0.0, float(warmup_epochs))
+    self._warmup_shape = warmup_shape
+    super().__init__(optimizer)
+
+  def get_lr(self):
+    if self._warmup_epochs > 0 and self.last_epoch < self._warmup_epochs:
+      # Linear ramp over the first ``warmup_epochs`` epochs.  ``(t + 1) / w``
+      # (not ``t / w``) so epoch 0 trains at a fraction of the peak instead
+      # of exactly zero, which would waste the epoch.
+      return [
+          base_lr * min(1.0, (self.last_epoch + 1.0) / self._warmup_epochs)
+          for base_lr in self.base_lrs
+      ]
+    return [base_lr * self._shape_fn(self.last_epoch) for base_lr in self.base_lrs]
+
+
+def _build_shape_fn(name, epochs, kwargs):
+  """Build the post-warmup decay branch of :class:`WarmupScheduler`.
+
+  Returns a callable ``epoch -> multiplier of the peak LR``.
+  """
+  kwargs = dict(kwargs)
+  if name == "cosine":
+    eta_min = float(kwargs.pop("eta_min", 0.0))
+    # ``T_max`` keeps its torch meaning: the epoch of the first minimum.
+    total = max(1, int(kwargs.pop("T_max", epochs)))
+    return lambda ep: (eta_min + (1.0 - eta_min) * 0.5 *
+                       (1.0 + math.cos(math.pi * min(1.0, ep / total))))
+
+  if name == "linear":
+    total = max(1, int(epochs))
+    return lambda ep: max(0.0, 1.0 - ep / total)
+
+  if name == "rsqrt":
+    warmup_squared = float(kwargs.pop("rsqrt_offset", 0.0))**2
+    return lambda ep: math.sqrt(
+        max(1, int(epochs)) / max(1.0, ep + warmup_squared + 1.0))
+
+  fatal(f"Unknown warmup shape {name!r}. Available: cosine, linear, rsqrt.", ValueError)
+
+
+_WARMUP_SHAPES = ("warmup_cosine", "warmup_linear", "warmup_rsqrt")
+
+
 def create_scheduler(optimizer, *, name=None, epochs=100, base_lr=1e-4, **kwargs):
   """Create a LR scheduler by name, forwarding extra keyword arguments.
 
@@ -465,6 +542,16 @@ def create_scheduler(optimizer, *, name=None, epochs=100, base_lr=1e-4, **kwargs
   if not name:
     logging.info("No scheduler requested.")
     return None
+
+  if name in _WARMUP_SHAPES:
+    shape_name = name[len("warmup_"):]
+    warmup_epochs = float(kwargs.pop("warmup_epochs", 0.0))
+    logging.info("Creating %s scheduler (warmup_epochs=%.3g, kwargs=%s)", name,
+                 warmup_epochs, kwargs)
+    return WarmupScheduler(optimizer,
+                           shape_fn=_build_shape_fn(shape_name, epochs, kwargs),
+                           warmup_epochs=warmup_epochs,
+                           warmup_shape=shape_name)
 
   if is_script_spec(name):
     return _load_scheduler_script(optimizer,

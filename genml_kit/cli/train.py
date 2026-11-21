@@ -12,6 +12,7 @@ helper (:func:`genml_kit.training.train.load_and_split_dataset`) stays in
 """
 
 import argparse
+import json
 import logging
 import sys
 
@@ -43,7 +44,8 @@ from genml_kit.utils.distributed import (
     world_size,
 )
 from genml_kit.utils.gpu import resolve_device
-from genml_kit.training.metrics_sinks import build_metrics_logger
+from genml_kit.training.metrics_sinks import build_metrics_logger, default_log_dir
+from genml_kit.training.run_manifest import log_manifest_facts, write_manifest
 from genml_kit.utils.logging import setup_logging
 from genml_kit.utils.seed import resolve_seed, seed_everything
 from genml_kit.utils.shared_args import (
@@ -254,6 +256,12 @@ def build_parser():
       help="Device: cpu, cuda, or cuda:INDEX.",
   )
   parser.add_argument(
+      "--dry_run",
+      action="store_true",
+      help="Log the resolved configuration as JSON (the same content as "
+      "the run manifest) and exit without building datasets or models.",
+  )
+  parser.add_argument(
       "--log_dir",
       type=str,
       help="TensorBoard log directory.",
@@ -358,6 +366,16 @@ def _run(args):
   # do not interleave writes to the same file.  Every rank keeps stderr.
   log_targets = args.log_targets if is_main_process() else "STDERR"
   setup_logging(args.log_level, log_targets)
+  if args.dry_run:
+    # Pure introspection: log the resolved configuration and exit before
+    # any dataset/model/GPU work.  Uses the same code path as the manifest
+    # so what you preview is exactly what a real run would record.
+    logging.info(
+        "Dry run: resolved configuration:\n%s",
+        json.dumps(write_manifest(args, default_log_dir(args)),
+                   indent=2,
+                   sort_keys=True))
+    return None
   # Rank-aware seeding: offset by global rank so ranks draw different
   # augmentation/dropout streams (identical streams would waste the ensemble
   # and can mask a sharding bug).
@@ -365,6 +383,7 @@ def _run(args):
                   deterministic=(args.seed is not None))
 
   device = resolve_device(args.device)
+  manifest_facts = write_manifest(args, default_log_dir(args))
   pipeline = build_pipeline(args.pipeline)
   method = build_method(args.method)
   logging.info(
@@ -463,6 +482,7 @@ def _run(args):
   broadcast_model_state(model)
 
   logger = build_metrics_logger(args)
+  log_manifest_facts(logger, manifest_facts)
   # Select trainer class via Method.get_trainer_class() (C13 fix).
   trainer_cls = method.get_trainer_class()
   trainer = trainer_cls(

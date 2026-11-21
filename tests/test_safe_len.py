@@ -224,6 +224,9 @@ class _NullLogger:
   def add_scalar(self, *a, **k):
     pass
 
+  def log_run_fact(self, *a, **k):
+    pass
+
   def close(self):
     pass
 
@@ -271,6 +274,7 @@ class TestTrainDriverStreamingLoader:
         grad_accum_steps=4,
         log_dir=str(tmp_path),
         checkpoint=str(tmp_path / "ckpt"),
+        dry_run=False,
     )
 
     train._run(args)

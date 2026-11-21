@@ -1,9 +1,13 @@
 """Supervised classification method: model + loss + macro-F1 metric."""
 
+import gc
+import json
 import logging
+import os
 
 import torch
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
 from genml_kit.methods.base import Method
 from genml_kit.methods.registry import METHODS
@@ -144,14 +148,69 @@ class ClassificationMethod(Method):
     self.build_criterion(args, class_weights)
 
   def post_train(self, args, pipeline, device, result):
-    """Train the XGBoost head on frozen embeddings after a successful run.
+    """Post-training stages: XGBoost head and/or temperature calibration.
 
     No-op unless --xgboost_model is set (maybe_train_xgboost owns that
-    check).  The driver's interrupt guard runs before this hook.
+    check) or --fit_temperature is set.  The driver's interrupt guard runs
+    before this hook.
     """
     from genml_kit.training.train_compat import maybe_train_xgboost
 
     maybe_train_xgboost(args, pipeline, device)
+    if args.fit_temperature:
+      self._fit_and_save_temperature(args, pipeline, device)
+
+  def _fit_and_save_temperature(self, args, pipeline, device):
+    """Fit T on the validation set of the *best* checkpoint and persist it.
+
+    Mirrors the XGBoost post-train flow: reload the best checkpoint into a
+    fresh model, rebuild the val loader with val transforms, collect logits,
+    fit T, then free the model.
+    """
+    from genml_kit.datasets.hf_proxy import HFDatasetProxy
+    from genml_kit.io.checkpointing import select_best_checkpoint
+    from genml_kit.training.calibration import fit_temperature
+    from genml_kit.training.model_utils import (
+        build_val_transform,
+        load_model_for_inference,
+    )
+
+    checkpoint_dir = args.checkpoint or ""
+    ckpt_path = select_best_checkpoint(checkpoint_dir)
+    if ckpt_path is None:
+      logging.warning("--fit_temperature: no checkpoint found under %s; "
+                      "skipping.", checkpoint_dir)
+      return
+    loaded = load_model_for_inference(
+        args.model,
+        ckpt_path,
+        device=device,
+        cache_dir=args.cache_dir,
+        num_labels=pipeline.num_labels,
+        image_size=args.image_size,
+        proc_kwargs=args.proc_arg,
+    )
+    model = loaded.model
+    val_transform = build_val_transform(loaded.processor, args.image_size)
+    val_proxy = HFDatasetProxy(pipeline.val_proxy.dataset, transform=val_transform)
+    logits, labels = [], []
+    with model_mode(model, "eval"), torch.no_grad():
+      for pixel_values, batch_labels in DataLoader(val_proxy,
+                                                   batch_size=64,
+                                                   shuffle=False):
+        out = model(pixel_values=pixel_values.to(device))
+        logits.append(out.logits.cpu())
+        labels.append(batch_labels)
+    temperature = fit_temperature(torch.cat(logits), torch.cat(labels))
+    out_path = os.path.join(os.path.dirname(checkpoint_dir) or ".",
+                            "temperature.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+      json.dump({"temperature": temperature}, f, indent=2)
+    logging.info("Fitted temperature %.4f -> %s", temperature, out_path)
+    del model
+    gc.collect()
+    if hasattr(torch, "cuda") and torch.cuda.is_available():
+      torch.cuda.empty_cache()
 
   def train_step(self, model, blob, global_step, *, labels=None):
     images = blob.data
@@ -222,10 +281,12 @@ class ClassificationMethod(Method):
         macro-F1 is not additive: it cannot be recovered from per-rank means, so
         the raw prediction / target lists ride along in ``accumulators`` and
         ``merge_validation`` recomputes the metric over the concatenation.
+        Raw logits also ride along so the merged report can derive
+        calibration-aware metrics (ECE, AUROC) without a second pass.
         """
     import torch
 
-    all_preds, all_targets = [], []
+    all_preds, all_targets, all_logits = [], [], []
     with model_mode(model, "eval"), torch.no_grad():
       for blob in loader:
         blob = to_device(blob, device)
@@ -234,9 +295,11 @@ class ClassificationMethod(Method):
         logits = model(pixel_values=images).logits
         all_preds.extend(logits.argmax(dim=1).cpu().tolist())
         all_targets.extend(targets.cpu().tolist())
+        all_logits.append(logits.cpu())
 
     metrics = self._classification_metrics(all_preds, all_targets)
-    return ValidationResult(metrics, float(len(all_targets)), (all_preds, all_targets))
+    return ValidationResult(metrics, float(len(all_targets)),
+                            (all_preds, all_targets, torch.cat(all_logits)))
 
   def _classification_metrics(self, all_preds, all_targets):
     """Compute macro-F1 and top1 from flat prediction / target lists."""
@@ -250,12 +313,32 @@ class ClassificationMethod(Method):
     return {"macro_f1": macro_f1, "top1": top1}
 
   def merge_validation(self, results):
-    """Recompute macro-F1 / top1 over every rank's predictions."""
-    preds, targets = [], []
+    """Recompute macro-F1 / top1 over every rank's predictions.
+
+        When ranks carry logits (recent evaluate), the merged report also
+        derives ECE and macro-OvR AUROC; older rank results without logits
+        skip those two metrics.
+        """
+    preds, targets, logits = [], [], []
     for r in results:
       preds.extend(r.accumulators[0])
       targets.extend(r.accumulators[1])
-    return self._classification_metrics(preds, targets)
+      if len(r.accumulators) > 2:
+        logits.append(r.accumulators[2])
+
+    metrics = self._classification_metrics(preds, targets)
+    if logits:
+      from genml_kit.training.calibration import (
+          auroc_macro_ovr,
+          expected_calibration_error,
+      )
+
+      all_logits = torch.cat(logits)
+      metrics["ece"] = expected_calibration_error(all_logits, targets)
+      auroc = auroc_macro_ovr(all_logits, targets, num_labels=self._num_labels)
+      if auroc is not None:
+        metrics["auroc"] = auroc
+    return metrics
 
   def has_metric_improved(self, new_metric, best_metric):
     return new_metric > best_metric

@@ -32,6 +32,7 @@ __all__ = [
     "NullSink",
     "TensorBoardSink",
     "JsonlSink",
+    "WandBSink",
     "build_metrics_logger",
     "ensure_logger",
     "parse_sink_names",
@@ -259,20 +260,80 @@ def parse_sink_names(spec):
   return [name.strip().lower() for name in spec.split(",") if name.strip()]
 
 
+def default_log_dir(args):
+  """The run's log directory, mirroring ``open_writer``'s defaulting."""
+  if args.log_dir is not None:
+    return args.log_dir
+  checkpoint = args.checkpoint
+  return os.path.join(os.path.dirname(checkpoint) or ".", "logs")
+
+
 def _default_jsonl_path(args):
   """Return the JSONL path, mirroring ``open_writer``'s log-dir defaulting."""
-  log_dir = args.log_dir
-  if log_dir is None:
-    checkpoint = args.checkpoint
-    log_dir = os.path.join(os.path.dirname(checkpoint) or ".", "logs")
+  log_dir = default_log_dir(args)
   return os.path.join(log_dir, "metrics.jsonl")
+
+
+class WandBSink:
+  """Streams metrics to Weights & Biases (optional dependency).
+
+  Implements the same duck-typed protocol as the other sinks.  ``wandb`` is
+  imported lazily so the rest of the toolkit works without the extra
+  (``pip install genml_kit[wandb]``).  Run configuration is taken from the
+  resolved args namespace; the run finishes on ``close()``.
+  """
+
+  def __init__(self, args, project=None, run_name=None, mode="online"):
+    import wandb
+
+    self._wandb = wandb
+    self._mode = mode
+    wandb.init(
+        project=project or "genml-kit",
+        name=run_name or args.run_name,
+        mode=mode,
+        config={
+            k: _as_float(v) if isinstance(v, (int, float)) else str(v)
+            for k, v in vars(args).items()
+        },
+        reinit=True,
+    )
+
+  def scalar(self,
+             tag,
+             value,
+             *,
+             scope,
+             kind=None,
+             resolution=None,
+             step=None,
+             epoch=None):
+    # wandb steps are strictly increasing; use the global step when present
+    # and fall back to the epoch otherwise (epoch-scope records).
+    x = step if step is not None else (epoch or 0)
+    self._wandb.log({tag: _as_float(value)}, step=x)
+
+  def artifact(self, tag, payload_kind, payload, *, step=None):
+    if payload_kind == "video":
+      self._wandb.log({tag: self._wandb.Video(payload)}, step=step)
+    else:
+      self._wandb.log({tag: self._wandb.Image(payload)}, step=step)
+
+  def run_fact(self, key, value):
+    # Run facts are one-shot config-level values; surface them as wandb
+    # "summary" entries so they are visible next to the final metrics.
+    self._wandb.run.summary[key] = value
+
+  def close(self):
+    self._wandb.finish()
 
 
 def build_metrics_logger(args):
   """Build a :class:`MetricsLogger` from ``args.metrics_sinks``.
 
   Recognised sink names are ``tb`` (TensorBoard), ``jsonl`` (structured file),
-  and ``none``/``null`` (explicitly nothing).  Unknown names are ignored.
+  ``wandb`` (Weights & Biases), and ``none``/``null`` (explicitly nothing).
+  Unknown names are ignored.
 
   Under ``torchrun`` only rank 0 gets real sinks: peers would otherwise open
   the same TensorBoard log dir and append to the same JSONL file, interleaving
@@ -292,6 +353,8 @@ def build_metrics_logger(args):
                                       checkpoint=args.checkpoint)))
     elif name == "jsonl":
       sinks.append(JsonlSink(_default_jsonl_path(args)))
+    elif name == "wandb":
+      sinks.append(WandBSink(args, project=args.wandb_project, mode=args.wandb_mode))
     elif name in ("none", "null"):
       sinks.append(NullSink())
   return MetricsLogger(sinks)

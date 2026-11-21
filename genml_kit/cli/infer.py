@@ -57,6 +57,13 @@ def build_parser():
       help="Only show top-K predictions.",
   )
   parser.add_argument(
+      "--temperature",
+      type=float,
+      default=1.0,
+      help="Divide logits by this temperature before the softmax (1.0 = "
+      "unchanged). Pair with a temperature.json written by --fit_temperature.",
+  )
+  parser.add_argument(
       "--device",
       type=str,
       help="Device: cuda or cpu.",
@@ -129,7 +136,11 @@ def main(argv=None):
   results = []
   for source in args.images:
     image = open_image(source)
-    probs, pixel_values = predict_single(model, transform, image, device)
+    probs, pixel_values = predict_single(model,
+                                         transform,
+                                         image,
+                                         device,
+                                         temperature=args.temperature)
 
     predictions = []
     for idx in rank_indices(probs).tolist():
