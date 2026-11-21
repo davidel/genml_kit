@@ -613,3 +613,42 @@ def test_method_logits_and_blob_targets_drive_reporting(tmp_path):
   # All four predictions are correct -> the window accuracy is 100%.
   assert "top1=100.00%" in logs.text
   assert "macro_f1=" in logs.text
+
+
+def test_grad_accum_last_batch_closes_partial_window_in_loop(tmp_path):
+  """Known-length epochs close the trailing partial window in-loop.
+
+  5 batches, accum=2 -> windows [2, 2, 1]; the last window closes at batch
+  index 4 in-loop, so the post-loop tail flush must not fire and the optimizer
+  step count stays ceil(5 / 2) == 3 per epoch (6 over two epochs).
+  """
+  args = _Args()
+  args.grad_accum_steps = 2
+  trainer = _make_trainer(tmp_path, pipeline=_multi_batch_pipeline(5), args=args)
+  result = trainer.run()
+  # 3 steps/epoch x 2 epochs; ``completed_epoch`` is the last epoch index,
+  # matching the existing tests' convention.
+  assert result.global_step == 6
+  assert result.completed_epoch == 1
+
+
+def test_grad_accum_stream_tail_flush_closes_partial_window(tmp_path):
+  """A stream (length-less loader) defers its trailing window to the tail flush.
+
+  accum=3 over 5 batches -> windows [3, 2]; the partial tail window is closed
+  by the post-loop flush, so the step count is still ceil(5 / 3) == 2 per epoch
+  (4 over two epochs).  Regression for the stream path of the no_sync fix.
+  """
+  pipeline = FakePipeline(torch.zeros(4, 3, 8, 8))
+  pipeline.val_loader = None
+  pipeline.train_loader = _LengthlessLoader([
+      DataBlob(data=torch.zeros(4, 3, 8, 8), meta={"labels": torch.zeros(4)}, size=4)
+      for _ in range(5)
+  ])
+  args = _Args()
+  args.grad_accum_steps = 3
+  trainer = _make_trainer(tmp_path, pipeline=pipeline, args=args)
+  result = trainer.run()
+  # 2 steps/epoch x 2 epochs; ``completed_epoch`` is the last epoch index.
+  assert result.global_step == 4
+  assert result.completed_epoch == 1
