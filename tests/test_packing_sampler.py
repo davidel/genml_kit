@@ -53,10 +53,8 @@ class TestPackingBatchSampler:
   def test_tokens_per_unit_scales_estimate(self):
     # A character proxy with 0.5 tokens/char halves the estimated cost, so
     # more items fit in a batch.
-    unit = list(_sampler([8] * 20, batch_size=4, max_seq_len=8,
-                         tokens_per_unit=1.0))
-    scaled = list(
-        _sampler([8] * 20, batch_size=4, max_seq_len=8, tokens_per_unit=0.25))
+    unit = list(_sampler([8] * 20, batch_size=4, max_seq_len=8, tokens_per_unit=1.0))
+    scaled = list(_sampler([8] * 20, batch_size=4, max_seq_len=8, tokens_per_unit=0.25))
     assert len(scaled) < len(unit)
 
   def test_set_epoch_reshuffles(self):

@@ -91,10 +91,10 @@ class TestPacking:
     # Within a document, position_ids start at 0 and increase by one; a new
     # document (segment change) resets the running position back to 0.
     real = out.data["attention_mask"] == 1
-    for row_seg, row_pos, row_real in zip(seg, pos, real):
+    for row_seg, row_pos, row_real in zip(seg, pos, real, strict=False):
       rs, rp = row_seg[row_real].tolist(), row_pos[row_real].tolist()
       prev_seg, prev_pos = None, None
-      for s, p in zip(rs, rp):
+      for s, p in zip(rs, rp, strict=False):
         if s != prev_seg:
           assert p == 0
         else:

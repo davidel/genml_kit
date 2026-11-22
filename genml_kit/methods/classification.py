@@ -310,7 +310,7 @@ class ClassificationMethod(WeightsEMAMixin, Method):
     labels = list(range(self._num_labels or 0))
     macro_f1 = f1_score(
         all_targets, all_preds, labels=labels, average="macro", zero_division=0) * 100.0
-    top1 = (sum(p == t for p, t in zip(all_preds, all_targets)) /
+    top1 = (sum(p == t for p, t in zip(all_preds, all_targets, strict=False)) /
             max(len(all_targets), 1)) * 100.0
     return {"macro_f1": macro_f1, "top1": top1}
 

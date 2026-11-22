@@ -100,7 +100,7 @@ class BalancedBatchSampler(Sampler):
       # Pick which classes appear in this batch.
       chosen = rng.choice(self._all_classes, size=self._n_groups, replace=True)
       batch = []
-      for cls, group_size in zip(chosen, self._group_sizes):
+      for cls, group_size in zip(chosen, self._group_sizes, strict=False):
         pool = self._class_indices[int(cls)]
         chosen_idx = rng.choice(
             pool,

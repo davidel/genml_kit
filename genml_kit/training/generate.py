@@ -211,7 +211,10 @@ def run_generate(args):
                                       batch_size=args.batch_size,
                                       chat_template=not args.no_chat_template)
 
-  records = [{"prompt": p, "completion": c} for p, c in zip(prompts, completions)]
+  records = [{
+      "prompt": p,
+      "completion": c
+  } for p, c in zip(prompts, completions, strict=False)]
   for record in records:
     logging.info("prompt: %s\ncompletion: %s", record["prompt"], record["completion"])
   _write_records(records, args.output)

@@ -148,7 +148,7 @@ def require_matching_features(*features, names=None):
   shapes = [tuple(f.shape) for f in features]
   if len(set(shapes)) != 1:
     if names is not None:
-      labels = [f"{n}:{s}" for n, s in zip(names, shapes)]
+      labels = [f"{n}:{s}" for n, s in zip(names, shapes, strict=False)]
     else:
       labels = [str(s) for s in shapes]
     fatal(

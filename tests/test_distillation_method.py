@@ -202,11 +202,11 @@ class TestEmaTeacher:
     method.train_step(pair, _blob(), 0)
     after_train = [p.detach().clone() for p in pair.teacher.parameters()]
     # Some teacher parameter changed -> the EMA actually advanced.
-    assert any(not torch.equal(a, b) for a, b in zip(before, after_train))
+    assert any(not torch.equal(a, b) for a, b in zip(before, after_train, strict=False))
     method.eval_step(pair, _blob(), 0)
     after_eval = [p.detach().clone() for p in pair.teacher.parameters()]
     # No parameter changed -> eval left the teacher untouched.
-    assert all(torch.equal(a, b) for a, b in zip(after_train, after_eval))
+    assert all(torch.equal(a, b) for a, b in zip(after_train, after_eval, strict=False))
 
   def test_checkpoint_state_records_kind(self):
     method, args = _make_method(teacher_kind="ema")

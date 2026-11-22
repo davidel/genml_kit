@@ -91,7 +91,7 @@ class TestAllReduceGradientsSingleProcess:
     model = torch.nn.Linear(2, 2)
     before = [p.detach().clone() for p in model.parameters()]
     distributed.broadcast_model_state(model)
-    for old, new in zip(before, model.parameters()):
+    for old, new in zip(before, model.parameters(), strict=False):
       assert torch.equal(old, new.detach())
 
 

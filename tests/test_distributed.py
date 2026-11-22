@@ -682,7 +682,7 @@ def test_two_rank_step_yields_identical_parameters(tmp_path):
   rank0 = torch.load(tmp_path / "rank0.pt", weights_only=False)
   rank1 = torch.load(tmp_path / "rank1.pt", weights_only=False)
   assert len(rank0) == len(rank1)
-  for a, b in zip(rank0, rank1):
+  for a, b in zip(rank0, rank1, strict=False):
     assert torch.equal(a, b)
 
 
@@ -770,7 +770,7 @@ def test_nosync_accumulation_matches_single_batch(tmp_path):
 
   blob = torch.load(tmp_path / "boundary.pt", weights_only=False)
   assert len(blob["acc"]) == len(blob["ref"])
-  for acc, ref in zip(blob["acc"], blob["ref"]):
+  for acc, ref in zip(blob["acc"], blob["ref"], strict=False):
     assert torch.allclose(acc, ref, atol=1e-6)
 
 

@@ -48,7 +48,7 @@ def _find_common_root(strings):
     return ""
   split = [s.split(".") for s in strings]
   common = []
-  for components in zip(*split):
+  for components in zip(*split, strict=False):
     if len(set(components)) == 1:
       common.append(components[0])
     else:
@@ -388,7 +388,7 @@ class GradMonitor:
       # Detect duplicates — fall back to full name for any collision.
       counts = collections.Counter(s for s, _ in stripped)
       rows = [(full if counts[short] > 1 else short,) + r[1:]
-              for (short, full), r in zip(stripped, rows)]
+              for (short, full), r in zip(stripped, rows, strict=False)]
 
     lines = []
     lines.append(

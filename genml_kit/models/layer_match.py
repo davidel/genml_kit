@@ -145,9 +145,11 @@ def match_layers(teacher_layers, student_layers, strategy="uniform", pattern=Non
           "for different depths.", ValueError)
     pairs = [
         LayerPair(t_mod, s_mod)
-        for (_, t_mod), (_, s_mod) in zip(teacher_layers, student_layers)
+        for (_, t_mod), (_, s_mod) in zip(teacher_layers, student_layers, strict=False)
     ]
-    _log_matches([(t[0], s[0]) for t, s in zip(teacher_layers, student_layers)])
+    _log_matches([
+        (t[0], s[0]) for t, s in zip(teacher_layers, student_layers, strict=False)
+    ])
     return pairs
 
   if strategy == "uniform":
@@ -156,11 +158,10 @@ def match_layers(teacher_layers, student_layers, strategy="uniform", pattern=Non
     s_idx = _even_indices(len(student_layers), count)
     pairs = [
         LayerPair(teacher_layers[i][1], student_layers[j][1])
-        for i, j in zip(t_idx, s_idx)
+        for i, j in zip(t_idx, s_idx, strict=False)
     ]
-    _log_matches([
-        (teacher_layers[i][0], student_layers[j][0]) for i, j in zip(t_idx, s_idx)
-    ])
+    _log_matches([(teacher_layers[i][0], student_layers[j][0])
+                  for i, j in zip(t_idx, s_idx, strict=False)])
     return pairs
 
   if strategy == "by_name":

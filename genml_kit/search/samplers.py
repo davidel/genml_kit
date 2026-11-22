@@ -78,7 +78,7 @@ class Sampler(abc.ABC):
     """Decode a unit-hypercube vector back into a config dict."""
     return {
         name: dim.from_unit(u)
-        for (name, dim), u in zip(self.space.dimensions.items(), vector)
+        for (name, dim), u in zip(self.space.dimensions.items(), vector, strict=False)
     }
 
 

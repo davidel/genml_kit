@@ -343,7 +343,7 @@ def group_split_by_attribute(
   val_examples = []
   test_examples = []
 
-  for item, group in zip(data, groups):
+  for item, group in zip(data, groups, strict=False):
     if group in test_groups:
       test_examples.append(item)
     elif group in val_groups:

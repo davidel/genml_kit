@@ -405,7 +405,7 @@ def _check_display_block(path, lines, roles, findings):
       i for i in range(len(lines))
       if roles[i] == 'display' and DISPLAY_TOGGLE_RE.match(lines[i])
   ]
-  for start, end in zip(toggles[0::2], toggles[1::2]):
+  for start, end in zip(toggles[0::2], toggles[1::2], strict=False):
     if start + 1 < len(lines):
       first = lines[start + 1]
       if not first.strip().startswith('\\large'):
@@ -439,7 +439,7 @@ def _check_r11(path, lines, roles, findings):
       i for i, role in enumerate(roles)
       if role == 'display' and DISPLAY_TOGGLE_RE.match(lines[i])
   ]
-  display_blocks = list(zip(toggles[0::2], toggles[1::2]))
+  display_blocks = list(zip(toggles[0::2], toggles[1::2], strict=False))
   total_y = 0
   math_idx = 0
   limit_reported = False

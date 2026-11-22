@@ -704,7 +704,8 @@ class TestCheckpointRoundtrip:
 
       # Compare every parameter
       for (n1, p1), (n2, p2) in zip(model.named_parameters(),
-                                    model2.named_parameters()):
+                                    model2.named_parameters(),
+                                    strict=False):
         assert n1 == n2, f"Name mismatch: {n1} vs {n2}"
         assert torch.allclose(p1, p2, atol=1e-6), \
             f"Weight mismatch in {n1}"

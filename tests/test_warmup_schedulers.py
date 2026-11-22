@@ -61,7 +61,7 @@ class TestDispatch:
       zero.step()
     # torch's recursion vs our closed form differ in the last bits, so
     # compare with a tolerance instead of exact equality.
-    for a, b in zip(plain.get_last_lr(), zero.get_last_lr()):
+    for a, b in zip(plain.get_last_lr(), zero.get_last_lr(), strict=False):
       assert a == pytest.approx(b, abs=1e-9)
 
 
@@ -178,9 +178,10 @@ class TestSchedArgOverride:
     # --sched_arg warmup_epochs=4 must override --warmup_epochs 1.  This is
     # tested through build_optimization, the same precedence path the CLI
     # uses (the override is splatted, not passed as a nested dict).
-    args = train_args(["--scheduler", "warmup_cosine",
-                       "--warmup_epochs", "1",
-                       "--sched_arg", "warmup_epochs=4"],
+    args = train_args([
+        "--scheduler", "warmup_cosine", "--warmup_epochs", "1", "--sched_arg",
+        "warmup_epochs=4"
+    ],
                       lr=1.0)
     model = nn.Linear(4, 2)
     optim = build_optimization(args, model, torch.device("cpu"), {}, [])
@@ -203,9 +204,10 @@ class TestSchedArgOverride:
   def test_warmup_flag_not_forwarded_to_plain_torch(self):
     # The generic --warmup_epochs flag must NOT reach plain torch schedulers
     # (they would reject the unknown keyword).
-    args = train_args(["--scheduler", "CosineAnnealingLR",
-                       "--sched_arg", "T_max=10",
-                       "--warmup_epochs", "1"],
+    args = train_args([
+        "--scheduler", "CosineAnnealingLR", "--sched_arg", "T_max=10",
+        "--warmup_epochs", "1"
+    ],
                       lr=1.0)
     model = nn.Linear(4, 2)
     optim = build_optimization(args, model, torch.device("cpu"), {}, [])

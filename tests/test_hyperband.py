@@ -73,9 +73,7 @@ class TestDecisions:
     assert pruner.should_stop(0, [(0, 99.0)]) is False  # single trial
 
   def test_max_direction(self):
-    pruner = HyperbandPruner(objective_is_min=False,
-                             min_resource=1,
-                             reduction_factor=2)
+    pruner = HyperbandPruner(objective_is_min=False, min_resource=1, reduction_factor=2)
     pruner._ensure_bracket(4)
     pruner.should_stop(0, [(0, 0.1), (1, 0.1)])
     pruner.should_stop(2, [(0, 0.2), (1, 0.2)])

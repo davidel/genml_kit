@@ -96,7 +96,7 @@ class VOPairMethod(Method):
       return cfg
     parts = spec.split(",")
     names = ("w_log_s", "w_theta", "w_conf", "w_photo")
-    for name, raw in zip(names, parts):
+    for name, raw in zip(names, parts, strict=False):
       setattr(cfg, name, float(raw))
     return cfg
 

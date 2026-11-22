@@ -43,8 +43,7 @@ class TestEce:
     labels = np.arange(n) % 3
     logits = np.full((n, 3), -10.0)
     logits[np.arange(n), labels] = 10.0
-    assert expected_calibration_error(logits, labels) == pytest.approx(0.0,
-                                                                       abs=1e-6)
+    assert expected_calibration_error(logits, labels) == pytest.approx(0.0, abs=1e-6)
 
   def test_ece_bounded_by_one(self):
     rng = np.random.default_rng(1)
@@ -59,8 +58,8 @@ class TestEce:
     logits = torch.tensor([[2.0, 0.0], [0.0, 2.0]])
     labels = torch.tensor([0, 1])
     conf = 1.0 / (1.0 + math.exp(-2.0))
-    assert expected_calibration_error(logits, labels) == pytest.approx(
-        1.0 - conf, abs=1e-6)
+    assert expected_calibration_error(logits, labels) == pytest.approx(1.0 - conf,
+                                                                       abs=1e-6)
 
   def test_confidence_one_samples_are_binned(self):
     # confidence == 1.0 must land in the last bin (right-edge inclusive).

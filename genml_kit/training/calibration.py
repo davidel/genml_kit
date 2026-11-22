@@ -50,7 +50,7 @@ def expected_calibration_error(logits, labels, n_bins=15):
   n = len(labels)
   bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
   ece = 0.0
-  for lo, hi in zip(bin_edges[:-1], bin_edges[1:]):
+  for lo, hi in zip(bin_edges[:-1], bin_edges[1:], strict=False):
     in_bin = (confidences > lo) & (confidences <= hi)
     if not in_bin.any():
       continue
@@ -112,8 +112,11 @@ def auroc_macro_ovr(logits, labels, num_labels=None):
   if num_labels <= 2:
     return float(roc_auc_score(labels, probs[:, 1]))
   return float(
-      roc_auc_score(labels, probs, multi_class="ovr",
-                    average="macro", labels=list(range(num_labels))))
+      roc_auc_score(labels,
+                    probs,
+                    multi_class="ovr",
+                    average="macro",
+                    labels=list(range(num_labels))))
 
 
 def _softmax(logits):

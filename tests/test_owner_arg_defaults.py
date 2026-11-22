@@ -66,8 +66,7 @@ class TestApplyArgDefaults:
 
   def test_dict_default_merges_per_key(self):
     parser = _parser()
-    apply_arg_defaults(
-        parser, [_Owner({"dist_arg": {"find_unused_parameters": True}})])
+    apply_arg_defaults(parser, [_Owner({"dist_arg": {"find_unused_parameters": True}})])
     args = parser.parse_args(["--dist_arg", "static_graph"])
     assert args.dist_arg == {
         "find_unused_parameters": True,
@@ -81,8 +80,7 @@ class TestApplyArgDefaults:
 
   def test_dict_same_key_override(self):
     parser = _parser()
-    apply_arg_defaults(
-        parser, [_Owner({"dist_arg": {"find_unused_parameters": True}})])
+    apply_arg_defaults(parser, [_Owner({"dist_arg": {"find_unused_parameters": True}})])
     args = parser.parse_args(["--dist_arg", "find_unused_parameters=false"])
     assert args.dist_arg == {"find_unused_parameters": False}
 
@@ -93,21 +91,27 @@ class TestApplyArgDefaults:
 
   def test_declared_names_accumulate(self):
     parser = _parser()
-    declared = apply_arg_defaults(
-        parser,
-        [_Owner({"epochs": 7}),
-         _Owner({"batch_size": 8, "dist_arg": {
-             "static_graph": True
-         }})])
+    declared = apply_arg_defaults(parser, [
+        _Owner({"epochs": 7}),
+        _Owner({
+            "batch_size": 8,
+            "dist_arg": {
+                "static_graph": True
+            }
+        })
+    ])
     assert declared == {"epochs", "batch_size", "dist_arg"}
 
   def test_dict_defaults_merge_across_owners(self):
     parser = _parser()
-    apply_arg_defaults(
-        parser, [
-            _Owner({"dist_arg": {"find_unused_parameters": True}}),
-            _Owner({"dist_arg": {"static_graph": True}}),
-        ])
+    apply_arg_defaults(parser, [
+        _Owner({"dist_arg": {
+            "find_unused_parameters": True
+        }}),
+        _Owner({"dist_arg": {
+            "static_graph": True
+        }}),
+    ])
     assert parser.get_default("dist_arg") == {
         "find_unused_parameters": True,
         "static_graph": True,
@@ -207,8 +211,7 @@ class TestParseArgsIntegration:
     method._DEFAULTS = {"dist_arg": {"find_unused_parameters": True}}
     args = parse_args(["--method", _DefaultMethod.NAME])
     assert args.dist_arg == {"find_unused_parameters": True}
-    args = parse_args(
-        ["--method", _DefaultMethod.NAME, "--dist_arg", "static_graph"])
+    args = parse_args(["--method", _DefaultMethod.NAME, "--dist_arg", "static_graph"])
     assert args.dist_arg == {
         "find_unused_parameters": True,
         "static_graph": True,

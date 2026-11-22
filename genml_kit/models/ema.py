@@ -75,7 +75,7 @@ class EMAModel:
             momentum ``m`` (close to 1 keeps the target nearly frozen);
             for a Polyak update with coefficient ``tau`` pass ``1 - tau``.
     """
-    for sp, tp in zip(self.source.parameters(), self.target.parameters()):
+    for sp, tp in zip(self.source.parameters(), self.target.parameters(), strict=False):
       tp.data.mul_(decay).add_(sp.data, alpha=1.0 - decay)
 
   @torch.no_grad()
@@ -153,7 +153,7 @@ class WeightsEMA:
     t_params = list(self.target.parameters())
     m_params = list(model.parameters())
     if len(t_params) == len(m_params):
-      for tp, mp in zip(t_params, m_params):
+      for tp, mp in zip(t_params, m_params, strict=False):
         tp.data.mul_(effective).add_(mp.data, alpha=1.0 - effective)
     self._update_buffers(model, effective)
     self.step = step
@@ -165,7 +165,7 @@ class WeightsEMA:
     m_buffers = list(model.buffers())
     if len(t_buffers) != len(m_buffers):
       return  # Structure drift: skip rather than corrupt the shadow.
-    for tb, mb in zip(t_buffers, m_buffers):
+    for tb, mb in zip(t_buffers, m_buffers, strict=False):
       if tb.is_floating_point() and mb.is_floating_point():
         tb.data.mul_(effective).add_(mb.data, alpha=1.0 - effective)
       elif tb.shape == mb.shape:

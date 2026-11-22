@@ -60,7 +60,9 @@ class FPNDecoder(BaseDecoder):
     levels = levels[len(levels) - self.depth:]
 
     # Lateral 1x1 projections: (B, C_i, H_i, W_i) -> (B, F, H_i, W_i).
-    laterals = [lat(level.feature) for lat, level in zip(self.lateral, levels)]
+    laterals = [
+        lat(level.feature) for lat, level in zip(self.lateral, levels, strict=False)
+    ]
 
     # Top-down pass: fuse each level with the upsampled coarser level.
     # Each coarser level is upsampled to the finer level's resolution.
@@ -76,7 +78,7 @@ class FPNDecoder(BaseDecoder):
     # Re-order from coarsest-first to finest-first.
     top_down.reverse()
 
-    smoothed = [sm(lvl) for sm, lvl in zip(self.smooth, top_down)]
+    smoothed = [sm(lvl) for sm, lvl in zip(self.smooth, top_down, strict=False)]
 
     # Upsample every level to the finest resolution and concatenate:
     # list of (B, F, H, W) -> (B, depth * F, H, W).

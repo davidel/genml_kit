@@ -222,7 +222,7 @@ class DetectionMethod(Method):
     targets = [{
         "boxes": b,
         "labels": lab
-    } for b, lab in zip(blob.meta["boxes"], blob.meta["labels"])]
+    } for b, lab in zip(blob.meta["boxes"], blob.meta["labels"], strict=False)]
     loss, extra = self._criterion(out.logits, targets)
     metrics = {"loss": loss.detach()}
     metrics.update(extra)
@@ -248,7 +248,7 @@ class DetectionMethod(Method):
         targets = [{
             "boxes": b,
             "labels": lab
-        } for b, lab in zip(blob.meta["boxes"], blob.meta["labels"])]
+        } for b, lab in zip(blob.meta["boxes"], blob.meta["labels"], strict=False)]
         loss, _ = self._criterion(out.logits, targets)
         total_loss += float(loss) * blob.size
         weight += blob.size

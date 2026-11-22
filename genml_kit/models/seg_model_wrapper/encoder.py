@@ -82,9 +82,15 @@ class TimmEncoder(nn.Module):
     if not isinstance(feats, (list, tuple)):
       feats = [feats]
     selected = [feats[i] for i in self._selected]
-    selected = [self._to_nchw(f, c) for f, c in zip(selected, self._expected_channels)]
+    selected = [
+        self._to_nchw(f, c)
+        for f, c in zip(selected, self._expected_channels, strict=False)
+    ]
     self._channels = [f.shape[1] for f in selected]
-    levels = [EncoderLevel(f, stride) for f, stride in zip(selected, self._reductions)]
+    levels = [
+        EncoderLevel(f, stride)
+        for f, stride in zip(selected, self._reductions, strict=False)
+    ]
     return EncoderPyramid(levels)
 
 

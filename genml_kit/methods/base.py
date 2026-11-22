@@ -374,8 +374,7 @@ class WeightsEMAMixin:
     shared arguments that are already registered on the parser.
     """
     from genml_kit.utils.shared_args import (ARG_EMA_DECAY, ARG_EMA_EVAL,
-                                             ARG_EMA_FINAL_DECAY,
-                                             ARG_EMA_WARMUP_STEPS,
+                                             ARG_EMA_FINAL_DECAY, ARG_EMA_WARMUP_STEPS,
                                              add_shared_arg)
 
     add_shared_arg(parser, ARG_EMA_DECAY)

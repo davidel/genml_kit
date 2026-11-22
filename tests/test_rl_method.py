@@ -132,7 +132,9 @@ class TestDQNMethod:
       for p in model.online.parameters():
         p.add_(1.0)
     method.update_target(model, global_step=1)
-    for p1, p2 in zip(model.online.parameters(), model.target.parameters()):
+    for p1, p2 in zip(model.online.parameters(),
+                      model.target.parameters(),
+                      strict=False):
       assert torch.allclose(p1, p2)
 
   def test_target_update_soft(self):
@@ -145,8 +147,10 @@ class TestDQNMethod:
         p.add_(1.0)
     method.update_target(model, global_step=1)
     # Polyak: target = (1-tau)*old_target + tau*online
-    for p_old, p_online, p_target in zip(old_target, model.online.parameters(),
-                                         model.target.parameters()):
+    for p_old, p_online, p_target in zip(old_target,
+                                         model.online.parameters(),
+                                         model.target.parameters(),
+                                         strict=False):
       expected = 0.9 * p_old.data + 0.1 * p_online.data
       assert torch.allclose(p_target.data, expected, atol=1e-5)
 

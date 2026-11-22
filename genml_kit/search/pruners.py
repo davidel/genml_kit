@@ -221,11 +221,10 @@ class HyperbandPruner(Pruner):
       # has the smallest first rung and the most halvings available before
       # the epoch budget; higher s are shallower and prune later.
       first_rung = self.min_resource * (self.reduction_factor**s)
-      self._asha[s] = AshaPruner(
-          objective_is_min=self.objective_is_min,
-          min_resource=first_rung,
-          reduction_factor=self.reduction_factor,
-          min_trials_per_rung=self.min_trials_per_rung)
+      self._asha[s] = AshaPruner(objective_is_min=self.objective_is_min,
+                                 min_resource=first_rung,
+                                 reduction_factor=self.reduction_factor,
+                                 min_trials_per_rung=self.min_trials_per_rung)
 
   def should_stop(self, trial_id, series):
     if len(series) < self.min_resource:

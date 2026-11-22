@@ -79,6 +79,7 @@ class TestSACMethod:
         old_q1_target,
         model.q1.net.parameters(),
         model.q1.target.parameters(),
+        strict=False,
     ):
       expected = (1.0 - method._tau) * p_old + method._tau * p_online
       assert torch.allclose(p_target.data, expected, atol=1e-5)
