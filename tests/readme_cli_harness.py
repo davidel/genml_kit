@@ -78,6 +78,7 @@ _EXTRA_IMPORTS = {
     "llm": "transformers",
     "rl": "gymnasium",
     "timm": "timm",
+    "wandb": "wandb",
 }
 
 _DEFAULT_TIMEOUT = 300

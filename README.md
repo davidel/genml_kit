@@ -1645,6 +1645,7 @@ are independent, so any combination works:
 
 <!-- genml-cli-test
 name: metric-sinks
+extras: wandb
 override:
   - --dataset {tmp}/img
   - --label_column label

@@ -284,7 +284,11 @@ class WandBSink:
   """
 
   def __init__(self, args, project=None, run_name=None, mode="online"):
-    import wandb
+    try:
+      import wandb
+    except ImportError as exc:
+      raise ImportError("wandb is required for the 'wandb' metric sink.  "
+                        "Install it with:  pip install 'genml_kit[wandb]'") from exc
 
     self._wandb = wandb
     self._mode = mode
