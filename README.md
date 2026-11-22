@@ -373,6 +373,28 @@ Three mechanism details complete the picture:
   matures, the teacher freezes progressively, stabilizing the targets late in
   training.
 
+Run it like any other image pre-training configuration — here on a small
+unlabeled collection:
+
+<!-- genml-cli-test
+name: pretrain-ijepa
+network: true
+gated: true
+override:
+  - --datasets {tmp}/img
+extra: --epochs 1 --batch_size 2 --max_items 16 --predictor_heads 8 --predictor_depth 2 --ijepa_weight 0.5
+-->
+```bash
+genml-kit-train --pipeline images --method ijepa \
+                --model convvit \
+                --datasets uoft-cs/cifar10 \
+                --image_size 32 \
+                --batch_size 32 \
+                --epochs 100 \
+                --predictor_heads 8 \
+                --lr 1e-4
+```
+
 **SupCon** (Supervised Contrastive Learning): Uses labels to define "positive"
 pairs (same class) and "negative" pairs (different classes). The loss pulls
 features of same-class images together and pushes different-class features
@@ -531,6 +553,26 @@ its argmax rather than drifting toward a flat, uninformative distribution.
 Because the targets come from the teacher and the teacher follows the student,
 this is self-distillation — there are no external labels anywhere.
 
+A DINO run adds the multi-crop knobs on top of the standard configuration:
+
+<!-- genml-cli-test
+name: pretrain-dino
+network: true
+gated: true
+override:
+  - --datasets {tmp}/img
+extra: --epochs 1 --batch_size 2 --max_items 16 --dino_local_num 2 --dino_local_size 16 --dino_global_size 32
+-->
+```bash
+genml-kit-train --pipeline images --method dino \
+                --model convvit \
+                --datasets uoft-cs/cifar10 \
+                --image_size 32 \
+                --batch_size 32 \
+                --epochs 100 \
+                --lr 1e-4
+```
+
 **BYOL** (**B**ootstrap **Y**our **O**wn **L**atent): Grill et al.,
 [Bootstrap Your Own Latent](https://arxiv.org/abs/2006.07733), NeurIPS 2020.
 The same two-tower idea as DINO but with two augmented views and no
@@ -557,6 +599,26 @@ reaches 4 when they point in opposite directions. Two asymmetries keep this
 from collapsing to a constant: the predictor exists only on the online side
 (predicting a target is easier than being one), and the targets move slowly
 under the EMA — exactly the teacher-follows-student trick noted under I-JEPA.
+
+The BYOL configuration differs only in the method name:
+
+<!-- genml-cli-test
+name: pretrain-byol
+network: true
+gated: true
+override:
+  - --datasets {tmp}/img
+extra: --epochs 1 --batch_size 2 --max_items 16 --byol_proj_hidden 256 --byol_predictor_hidden 256 --byol_final_momentum 1.0
+-->
+```bash
+genml-kit-train --pipeline images --method byol \
+                --model convvit \
+                --datasets uoft-cs/cifar10 \
+                --image_size 32 \
+                --batch_size 32 \
+                --epochs 100 \
+                --lr 1e-4
+```
 
 ### Typical Hyperparameters
 
@@ -1075,10 +1137,19 @@ single scalar $`T`$ is fitted on the validation set (minimising negative
 log-likelihood of `logits / T`), written to `temperature.json` next to the
 checkpoint, and applied at inference via `genml-kit-infer --temperature T`:
 
-<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+<!-- genml-cli-test
+name: fit-temperature
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1 --max_items 16 --image_size 32
+-->
 ```bash
-genml-kit-train --model convvit --method classification --fit_temperature ...
-genml-kit-infer --checkpoint ... --temperature 1.31 --top_k 3 image.jpg
+genml-kit-train --model convvit --method classification --fit_temperature \
+  --dataset my-org/my-labeled-images --label_column category \
+  --epochs 5 --batch_size 32
+genml-kit-infer --model convvit --checkpoint genml_kit_best.pt \
+  --temperature 1.31 --top_k 3 path/to/lesion.jpg
 ```
 
 
@@ -1236,10 +1307,18 @@ schedulers ramp the learning rate up linearly from zero over `--warmup_epochs`
 epochs (an integer or fraction) before handing over to the chosen decay
 shape:
 
-<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+<!-- genml-cli-test
+name: warmup-scheduler
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 2 --max_items 16
+-->
 ```bash
 genml-kit-train --model convvit --method classification \
-  --scheduler warmup_cosine --warmup_epochs 2.5 ...
+  --dataset my-org/my-labeled-images --label_column category \
+  --scheduler warmup_cosine --warmup_epochs 2.5 \
+  --epochs 20 --batch_size 32
 ```
 
 `--warmup_epochs 0` (the default) disables the ramp and every `warmup_*`
@@ -1278,9 +1357,19 @@ wires a shadow.  The `--ema_*` flags are declared by the mixin's
 `add_args`, which adopting methods chain into their own `--help` group,
 so the flags render inside "classification method".
 
-<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+<!-- genml-cli-test
+name: weights-ema
+override:
+  - --model convvit
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1 --max_items 16
+-->
 ```bash
-genml-kit-train --method classification --ema_decay 0.9995 --ema_eval ...
+genml-kit-train --model google/vit-base-patch16-224 --method classification \
+  --dataset my-org/my-labeled-images --label_column category \
+  --ema_decay 0.9995 --ema_eval \
+  --epochs 5 --batch_size 32
 ```
 
 `--ema_decay 0` (the default) keeps the run exactly as before.  With
@@ -1488,9 +1577,17 @@ Two levels of determinism:
 Passing an explicit `--seed` therefore buys full determinism at a
 throughput cost (typically 10–20%); omit it for maximum speed:
 
-<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+<!-- genml-cli-test
+name: reproducibility-seed
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1 --batch_size 4 --max_items 16
+-->
 ```bash
-genml-kit-train --model convvit --seed 42 ...
+genml-kit-train --model convvit --seed 42 \
+  --dataset my-org/my-labeled-images --label_column category \
+  --epochs 5 --batch_size 32
 ```
 
 The train/val split and the XGBoost stage follow the user's seed: with
@@ -1531,7 +1628,9 @@ sink alongside the metrics.  `--dry_run` logs the manifest as JSON and
 exits before the dataset is touched — a fast way to inspect what an
 invocation would actually do:
 
-<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+<!-- genml-cli-test
+name: run-manifest-dry-run
+-->
 ```bash
 genml-kit-train --model convvit --method classification --dry_run
 ```
@@ -1544,10 +1643,18 @@ fan-out: `tb` (TensorBoard event files), `jsonl` (one JSON record per line in
 (a live Weights & Biases run).  The default `tb,jsonl` is unchanged; sinks
 are independent, so any combination works:
 
-<!-- genml-cli-test-exclude: illustrative ellipsis, no dataset; not a runnable command -->
+<!-- genml-cli-test
+name: metric-sinks
+override:
+  - --dataset {tmp}/img
+  - --label_column label
+extra: --epochs 1 --max_items 16 --wandb_mode disabled
+-->
 ```bash
 genml-kit-train --model convvit --method classification \
-  --metrics_sinks tb,jsonl,wandb --wandb_project my-team ... 
+  --dataset my-org/my-labeled-images --label_column category \
+  --metrics_sinks tb,jsonl,wandb --wandb_project my-team \
+  --epochs 5 --batch_size 32
 ```
 
 The `wandb` sink requires the optional extra (`pip install
@@ -1821,11 +1928,21 @@ network: true
 override:
   - --checkpoint {tmp}/chk_infer/model_best.pt
   - --model convvit --image_size 32
+extra: --top_k 3 --image_size 32
 -->
 ```bash
 genml-kit-infer --model facebook/convnextv2-base-22k-224 \
                 --checkpoint genml_kit_best.pt \
                 path/to/image.jpg path/to/other_image.png
+
+# Structured output and an XGBoost head on the backbone features (the .json
+# model is the one trained by `train_xgboost_on_backbone`, see
+# tests/test_xgb_pipeline.py).
+genml-kit-infer --model facebook/convnextv2-base-22k-224 \
+                --checkpoint genml_kit_best.pt \
+                --xgboost_model path/to/xgboost_model.json \
+                --output results.json \
+                path/to/image.jpg
 ```
 
 Output is JSON with per-class probabilities:
@@ -3130,7 +3247,7 @@ pip install 'genml_kit[rl]'
 <!-- genml-cli-test
 name: rl-quick-start
 extras: rl
-extra: --epochs 1
+extra: --epochs 1 --env_steps_per_epoch 64 --eval_episodes 2
 -->
 ```bash
 # DQN on CartPole (discrete)
@@ -3359,12 +3476,29 @@ A typical "serious" continuous-PPO setup (Pendulum-style) looks like:
 <!-- genml-cli-test
 name: rl-ppo-serious
 extras: rl
-extra: --epochs 1
+extra: --epochs 1 --env_steps_per_epoch 64 --eval_episodes 2
 -->
 ```bash
 genml-kit-train --pipeline rl --method ppo --env_id Pendulum-v1 \
     --ppo_continuous --obs_normalize --reward_normalize --param_init ortho \
     --ppo_target_kl 0.03 --epochs 500
+```
+
+SAC's temperature auto-tuning and critic/policy learning rates follow the
+same pattern (the critic head is `rl/sac_critic`, the policy is
+`rl/actor_critic`):
+
+<!-- genml-cli-test
+name: rl-sac-tuning
+extras: rl
+extra: --epochs 1 --env_steps_per_epoch 64 --eval_episodes 2
+-->
+```bash
+genml-kit-train --pipeline rl --method sac --env_id Pendulum-v1 \
+    --sac_auto_alpha --sac_alpha_lr 3e-4 --sac_target_entropy -1.0 \
+    --sac_critic_lr 3e-4 --sac_actor_lr 3e-4 --sac_tau 0.005 \
+    --replay_capacity 5000 --batch_size 64 \
+    --epochs 200
 ```
 
 ### Custom environments
@@ -3382,6 +3516,24 @@ Relevant flags:
   - `--env_id`, `--obs_dim`, `--env_script` -- environment selection.
   - `--replay_capacity`, `--batch_size`, `--n_step`, `--prioritized`,
     `--per_alpha`, `--per_beta_start`, `--per_beta_frames` -- replay tuning.
+
+A DQN run with the full replay/epsilon machinery (dueling head, double-Q,
+n-step returns, prioritized replay):
+
+<!-- genml-cli-test
+name: rl-dqn-replay
+extras: rl
+extra: --epochs 1 --env_steps_per_epoch 64 --eval_episodes 2
+-->
+```bash
+genml-kit-train --pipeline rl --method dqn --env_id CartPole-v1 \
+    --dqn_dueling --dqn_ddqn --n_step 3 --prioritized \
+    --replay_capacity 5000 --batch_size 32 \
+    --dqn_gamma 0.99 --dqn_tau 0.005 --dqn_target_update_freq 100 \
+    --dqn_epsilon_start 1.0 --dqn_epsilon_end 0.05 \
+    --dqn_epsilon_decay_steps 500 \
+    --epochs 50
+```
   - **Discount factor** -- there is intentionally **no** global `--gamma`: each
     method owns its own because RL objectives are not active simultaneously and
     tune it differently. DQN uses `--dqn_gamma`, PPO `--ppo_gamma`, SAC
@@ -3548,12 +3700,21 @@ base_args: ["--pipeline", "images", "--method", "classification"]
 
 Points after a literal `--` are forwarded verbatim to every trial:
 
-<!-- genml-cli-test-exclude: tune spawns nested training subprocesses; covered by tests/test_search_runner.py instead -->
+<!-- genml-cli-test
+name: tune-run-study
+override:
+  - --max_trials 2
+  - --workers 1
+  - -.--model
+  - -.--dataset
+  - -- --model convvit --dataset {tmp}/img --image_size 32 --max_items 16
+-->
 ```bash
 genml-kit-tune run \
     --space opt.lr=log(1e-4:1e-1) --space batch_size=32,64 \
-    --objective val/macro_f1 --sampler tpe --pruner asha \
+    --objective val/macro_f1 --direction max --sampler tpe --pruner asha \
     --max_trials 8 --workers 2 \
+    --epochs 1 \
     -- --model google/vit-base-patch16-224 --dataset uoft-cs/cifar10
 ```
 
@@ -3582,12 +3743,26 @@ trainer's existing signal guard turns into a consistent checkpoint before exit.
 
 By default studies run **one trial at a time**.  `--workers N` runs `N` trials
 concurrently, and `--gpus 0,1,2,3` pins each trial to a slot from that pool via
-`CUDA_VISIBLE_DEVICES`.  Interrupt a study at any time and continue it later:
+Interrupt a study at any time and continue it later (the second command
+prints the leaderboard of the same study):
 
-<!-- genml-cli-test-exclude: illustrative resume/report of an existing study dir; covered by tests/test_search_runner.py -->
+<!-- genml-cli-test
+name: tune-resume-report
+override:
+  - --max_trials 2
+  - -.--model
+  - -.--dataset
+  - -- --model convvit --dataset {tmp}/img --image_size 32 --max_items 16
+-->
 ```bash
+# First invocation creates the study; a later one resumes it (the budget
+# already spent is subtracted, so only the remaining trials run).
+genml-kit-tune run --study_dir runs/study-20250101-120000 \
+    --space opt.lr=log(1e-4:1e-1) --objective val/macro_f1 --max_trials 50 \
+    -- --model google/vit-base-patch16-224 --dataset uoft-cs/cifar10
 genml-kit-tune run --study_dir runs/study-20250101-120000 --resume \
-    --space opt.lr=log(1e-4:1e-1) --objective val/macro_f1 --max_trials 50
+    --space opt.lr=log(1e-4:1e-1) --objective val/macro_f1 --max_trials 50 \
+    -- --model google/vit-base-patch16-224 --dataset uoft-cs/cifar10
 genml-kit-tune report runs/study-20250101-120000 --top 10
 ```
 

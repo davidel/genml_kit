@@ -147,6 +147,20 @@ class DINOMethod(Method):
         center_momentum=args.dino_center_momentum,
     ).to(device)
 
+  def prepare_transforms(self, args, device):
+    """Resolve the multi-crop knobs before the loaders are built.
+
+    Lifecycle position 1: the pipeline calls ``build_transform`` while it
+    constructs the loaders, which happens *before* ``build_model``.  The
+    ``_dino_*`` attributes ``build_transform`` reads therefore have to be
+    cached here -- assigning them only in ``build_model`` silently left the
+    transform on the class defaults (96px local crops), ignoring
+    ``--dino_local_size``/``--dino_local_num``.
+    """
+    self._dino_global_size = args.dino_global_size
+    self._dino_local_size = args.dino_local_size
+    self._dino_local_num = args.dino_local_num
+
   def build_transform(self, args, image_size):
     return MultiCropTransform(
         global_size=min(image_size, self._global_size),

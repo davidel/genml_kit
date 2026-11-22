@@ -189,7 +189,9 @@ class ClassificationMethod(WeightsEMAMixin, Method):
         cache_dir=args.cache_dir,
         num_labels=pipeline.num_labels,
         image_size=args.image_size,
-        proc_kwargs=args.proc_arg,
+        # The *train* parser has no ``--proc_arg`` (it is an infer/search-only
+        # flag); default to an empty override rather than crash here.
+        proc_kwargs=getattr(args, "proc_arg", None),
     )
     model = loaded.model
     val_transform = build_val_transform(loaded.processor, args.image_size)

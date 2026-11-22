@@ -256,6 +256,15 @@ class IJEPAMethod(Method):
     )
 
   def build_model(self, args, device):
+    if args.predictor_dim % args.predictor_heads:
+      from genml_kit.utils.logging import fatal
+      fatal(
+          f"--predictor_dim ({args.predictor_dim}) must be divisible by "
+          f"--predictor_heads ({args.predictor_heads}) so each attention head "
+          "gets an integer query/key width (e.g. --predictor_dim 768 with "
+          "--predictor_heads 12).",
+          ValueError,
+      )
     encoder = load_model(
         args.model,
         num_labels=0,

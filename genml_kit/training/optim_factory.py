@@ -485,6 +485,46 @@ class WarmupScheduler(optim.lr_scheduler.LRScheduler):
     return [base_lr * self._shape_fn(self.last_epoch) for base_lr in self.base_lrs]
 
 
+class _WarmupShape:
+  """Post-warmup decay branch of :class:`WarmupScheduler`.
+
+  A picklable callable instead of a closure/lambda: the scheduler is
+  saved inside every checkpoint (``optimizer`` state includes the
+  scheduler in torch's serialization path), and ``torch.save`` pickles
+  its attributes.  A local lambda raised ``AttributeError: Can't pickle
+  local object`` and made every ``warmup_*`` run crash at the first
+  best/latest save.
+
+  Args:
+      shape: Decay branch name, ``"cosine"`` | ``"linear"`` | ``"rsqrt"``.
+      epochs: Total training epochs (linear/rsqrt denominators).
+      eta_min: Cosine floor as a fraction of the peak LR.
+      total: Cosine ``T_max``: the epoch of the first minimum.
+      rsqrt_offset: ``rsqrt`` warm-squared offset.
+  """
+
+  def __init__(self, shape, epochs, eta_min=0.0, total=0, rsqrt_offset=0.0):
+    self.shape = shape
+    self.epochs = epochs
+    self.eta_min = eta_min
+    self.total = total
+    self.rsqrt_offset = rsqrt_offset
+
+  def __call__(self, ep):
+    """Return the LR multiplier for post-warmup epoch *ep*."""
+    if self.shape == "cosine":
+      # ``T_max`` keeps its torch meaning: the epoch of the first minimum.
+      total = max(1, self.total)
+      return (self.eta_min + (1.0 - self.eta_min) * 0.5 *
+              (1.0 + math.cos(math.pi * min(1.0, ep / total))))
+    if self.shape == "linear":
+      total = max(1, self.epochs)
+      return max(0.0, 1.0 - ep / total)
+    # rsqrt
+    warmup_squared = self.rsqrt_offset**2
+    return math.sqrt(max(1, self.epochs) / max(1.0, ep + warmup_squared + 1.0))
+
+
 def _build_shape_fn(name, epochs, kwargs):
   """Build the post-warmup decay branch of :class:`WarmupScheduler`.
 
@@ -493,19 +533,19 @@ def _build_shape_fn(name, epochs, kwargs):
   kwargs = dict(kwargs)
   if name == "cosine":
     eta_min = float(kwargs.pop("eta_min", 0.0))
-    # ``T_max`` keeps its torch meaning: the epoch of the first minimum.
     total = max(1, int(kwargs.pop("T_max", epochs)))
-    return lambda ep: (eta_min + (1.0 - eta_min) * 0.5 *
-                       (1.0 + math.cos(math.pi * min(1.0, ep / total))))
+    return _WarmupShape("cosine",
+                        epochs=max(1, int(epochs)),
+                        eta_min=eta_min,
+                        total=total)
 
   if name == "linear":
-    total = max(1, int(epochs))
-    return lambda ep: max(0.0, 1.0 - ep / total)
+    return _WarmupShape("linear", epochs=max(1, int(epochs)))
 
   if name == "rsqrt":
-    warmup_squared = float(kwargs.pop("rsqrt_offset", 0.0))**2
-    return lambda ep: math.sqrt(
-        max(1, int(epochs)) / max(1.0, ep + warmup_squared + 1.0))
+    return _WarmupShape("rsqrt",
+                        epochs=max(1, int(epochs)),
+                        rsqrt_offset=float(kwargs.pop("rsqrt_offset", 0.0)))
 
   fatal(f"Unknown warmup shape {name!r}. Available: cosine, linear, rsqrt.", ValueError)
 
