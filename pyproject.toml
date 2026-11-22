@@ -1,14 +1,22 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "genml_kit"
-version = "0.3.0"
+version = "0.3.1"
 description = "General-purpose ML toolkit: image-classification, visual-odometry and self-supervised pre-training through one unified harness."
 readme = "README.md"
-license = {text = "Apache-2.0"}
-requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
     "numpy",
     "torch",
@@ -54,7 +62,7 @@ genml-kit-tokenizer = "genml_kit.cli.tokenizer:main"
 include = ["genml_kit*"]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "SIM", "UP", "RUF100"]

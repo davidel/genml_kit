@@ -217,7 +217,7 @@ pip install "genml_kit[flash]"
 pip install "genml_kit[all]"
 ```
 
-**Requirements:** Python ≥ 3.9, PyTorch, torchvision, transformers, datasets,
+**Requirements:** Python ≥ 3.10, PyTorch, torchvision, transformers, datasets,
 NumPy, scikit-learn ≥ 1.3, XGBoost ≥ 2.0, Pillow, tensorboard.
 
 ## Quick Start
