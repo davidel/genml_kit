@@ -350,7 +350,7 @@ class DistillationMethod(Method):
     t_dims = _activation_dims(args, teacher, [p.teacher for p in self._feature_pairs],
                               device)
     projectors = nn.ModuleList()
-    for s_dim, t_dim in zip(s_dims, t_dims, strict=False):
+    for s_dim, t_dim in zip(s_dims, t_dims, strict=True):
       if s_dim == t_dim:
         # Widths already agree: r is the identity (the loss applies None).
         projectors.append(nn.Identity())
@@ -460,7 +460,7 @@ class DistillationMethod(Method):
     """Feature/attention KD averaged over the matched layer pairs (scalar)."""
     # None until the first live pair is seen (a layer may not have fired).
     total = None
-    for proj, s_feat, t_feat in zip(model.projectors, s_feats, t_feats, strict=False):
+    for proj, s_feat, t_feat in zip(model.projectors, s_feats, t_feats, strict=True):
       if s_feat is None or t_feat is None:
         # This paired layer never fired for the given input: skip it.
         continue

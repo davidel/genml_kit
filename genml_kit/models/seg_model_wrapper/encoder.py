@@ -84,12 +84,12 @@ class TimmEncoder(nn.Module):
     selected = [feats[i] for i in self._selected]
     selected = [
         self._to_nchw(f, c)
-        for f, c in zip(selected, self._expected_channels, strict=False)
+        for f, c in zip(selected, self._expected_channels, strict=True)
     ]
     self._channels = [f.shape[1] for f in selected]
     levels = [
         EncoderLevel(f, stride)
-        for f, stride in zip(selected, self._reductions, strict=False)
+        for f, stride in zip(selected, self._reductions, strict=True)
     ]
     return EncoderPyramid(levels)
 

@@ -48,6 +48,8 @@ def _find_common_root(strings):
     return ""
   split = [s.split(".") for s in strings]
   common = []
+  # Names have ragged depth by construction (e.g. "backbone.0.w" vs "bias"),
+  # so truncation to the shortest is the intended behaviour here.
   for components in zip(*split, strict=False):
     if len(set(components)) == 1:
       common.append(components[0])
@@ -388,7 +390,7 @@ class GradMonitor:
       # Detect duplicates — fall back to full name for any collision.
       counts = collections.Counter(s for s, _ in stripped)
       rows = [(full if counts[short] > 1 else short,) + r[1:]
-              for (short, full), r in zip(stripped, rows, strict=False)]
+              for (short, full), r in zip(stripped, rows, strict=True)]
 
     lines = []
     lines.append(

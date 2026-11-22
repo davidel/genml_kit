@@ -316,10 +316,10 @@ def _quality_report(model, tokenizer, prompts, references, args, device):
                                       batch_size=args.batch_size,
                                       chat_template=not args.no_chat_template)
   if "exact_match" in args.metrics:
-    scores = [exact_match(c, r) for c, r in zip(completions, references, strict=False)]
+    scores = [exact_match(c, r) for c, r in zip(completions, references, strict=True)]
     report["exact_match"] = sum(scores) / max(len(scores), 1)
   if "token_f1" in args.metrics:
-    scores = [token_f1(c, r) for c, r in zip(completions, references, strict=False)]
+    scores = [token_f1(c, r) for c, r in zip(completions, references, strict=True)]
     report["token_f1"] = sum(scores) / max(len(scores), 1)
   if "pass_at_k" in args.metrics:
     report["pass_at_k"] = _pass_at_k(model, tokenizer, prompts, references, args,
@@ -339,7 +339,7 @@ def _pass_at_k(model, tokenizer, prompts, references, args, device):
   config.do_sample = True
   k = args.pass_at_k
   passed = 0
-  for prompt, reference in zip(prompts, references, strict=False):
+  for prompt, reference in zip(prompts, references, strict=True):
     batch = [prompt] * k
     completions = generate_from_prompts(model,
                                         tokenizer,

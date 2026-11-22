@@ -23,6 +23,7 @@ from genml_kit.methods.registry import METHODS
 from genml_kit.models.registry import load_model
 from genml_kit.pipelines.contracts import LossOutput, ValidationResult
 from genml_kit.training.vo.train_vo import STAGES, vo_losses
+from genml_kit.utils.logging import fatal
 
 # What train_step/evaluate pass to vo_losses: the model's similarity
 # estimate and its confidence head (namedtuple for ``pred.params`` access).
@@ -96,7 +97,11 @@ class VOPairMethod(Method):
       return cfg
     parts = spec.split(",")
     names = ("w_log_s", "w_theta", "w_conf", "w_photo")
-    for name, raw in zip(names, parts, strict=False):
+    if len(parts) != len(names):
+      fatal(
+          f"Expected {len(names)} comma-separated loss weights "
+          f"({', '.join(names)}), got {len(parts)} in {spec!r}.", ValueError)
+    for name, raw in zip(names, parts, strict=True):
       setattr(cfg, name, float(raw))
     return cfg
 

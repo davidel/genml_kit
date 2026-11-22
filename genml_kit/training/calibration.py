@@ -50,7 +50,7 @@ def expected_calibration_error(logits, labels, n_bins=15):
   n = len(labels)
   bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
   ece = 0.0
-  for lo, hi in zip(bin_edges[:-1], bin_edges[1:], strict=False):
+  for lo, hi in zip(bin_edges[:-1], bin_edges[1:], strict=True):
     in_bin = (confidences > lo) & (confidences <= hi)
     if not in_bin.any():
       continue

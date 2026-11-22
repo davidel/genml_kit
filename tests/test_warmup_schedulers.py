@@ -61,7 +61,7 @@ class TestDispatch:
       zero.step()
     # torch's recursion vs our closed form differ in the last bits, so
     # compare with a tolerance instead of exact equality.
-    for a, b in zip(plain.get_last_lr(), zero.get_last_lr(), strict=False):
+    for a, b in zip(plain.get_last_lr(), zero.get_last_lr(), strict=True):
       assert a == pytest.approx(b, abs=1e-9)
 
 

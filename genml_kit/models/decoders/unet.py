@@ -88,7 +88,7 @@ class UNetDecoder(BaseDecoder):
 
     # Lateral projections: (B, C_i, H_i, W_i) -> (B, D, H_i, W_i) per level.
     feats = [
-        lat(level.feature) for lat, level in zip(self.lateral, levels, strict=False)
+        lat(level.feature) for lat, level in zip(self.lateral, levels, strict=True)
     ]
 
     # Coarsest level starts the top-down pathway: (B, D, H/32, W/32).

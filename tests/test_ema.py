@@ -42,7 +42,7 @@ class TestEMAModel:
     ema.update(decay)
     after = [p.detach() for p in target.parameters()]
 
-    for b, s, a in zip(before, src, after, strict=False):
+    for b, s, a in zip(before, src, after, strict=True):
       expected = decay * b + (1.0 - decay) * s
       # Tolerance covers the 1-ULP difference between the fused
       # ``mul_().add_(alpha=)`` op and the separately-rounded expectation.
@@ -54,7 +54,7 @@ class TestEMAModel:
     ema = EMAModel(target, source)
     src_before = [p.detach().clone() for p in source.parameters()]
     ema.update(0.5)
-    for before, p in zip(src_before, source.parameters(), strict=False):
+    for before, p in zip(src_before, source.parameters(), strict=True):
       assert torch.equal(before, p.detach())
 
   def test_copy_hard_is_exact_state_dict_copy(self):
@@ -67,7 +67,7 @@ class TestEMAModel:
     ema.copy_hard()
     for st, ss in zip(target.state_dict().values(),
                       source.state_dict().values(),
-                      strict=False):
+                      strict=True):
       assert torch.equal(st, ss)
 
   def test_polyak_convention_matches_tau(self):
@@ -82,12 +82,12 @@ class TestEMAModel:
     # Reference: target = (1 - tau) * target + tau * source.
     ref = copy.deepcopy(target)
     with torch.no_grad():
-      for pt, ps in zip(ref.parameters(), source.parameters(), strict=False):
+      for pt, ps in zip(ref.parameters(), source.parameters(), strict=True):
         pt.mul_(1.0 - tau).add_(ps, alpha=tau)
 
     ema = EMAModel(target, source)
     ema.update(1.0 - tau)
-    for a, b in zip(target.parameters(), ref.parameters(), strict=False):
+    for a, b in zip(target.parameters(), ref.parameters(), strict=True):
       assert torch.allclose(a.detach(), b.detach(), atol=1e-6, rtol=1e-6)
 
   def test_holder_not_registered_as_submodule(self):

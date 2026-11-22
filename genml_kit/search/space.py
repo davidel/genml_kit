@@ -276,7 +276,7 @@ class SearchSpace:
     """Return the cartesian product of all dimension grids."""
     per_dim = [dim.grid(max_points) for dim in self.dimensions.values()]
     combos = [{}]
-    for name, values in zip(self.dimensions.keys(), per_dim, strict=False):
+    for name, values in zip(self.dimensions.keys(), per_dim, strict=True):
       combos = [dict(base, **{name: v}) for base in combos for v in values]
     return combos
 

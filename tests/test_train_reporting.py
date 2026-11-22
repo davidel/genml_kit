@@ -114,7 +114,7 @@ def test_image_step_accumulates_loss():
 def _epoch_avg(per_sample_means, batch_sizes):
   """Feed a reporter and return its reported epoch mean."""
   r = _make_reporter(total_batches=len(per_sample_means), log_every=10000)
-  for i, (m, bs) in enumerate(zip(per_sample_means, batch_sizes, strict=False)):
+  for i, (m, bs) in enumerate(zip(per_sample_means, batch_sizes, strict=True)):
     r.step(batch_idx=i,
            batch_size=bs,
            loss_value=m,
@@ -150,7 +150,7 @@ def test_epoch_avg_loss_weights_ragged_batches_by_sample_count():
   means = [16.87, 16.50, 17.10]
   sizes = [32, 32, 11]
   got = _epoch_avg(means, sizes)
-  expected = sum(m * s for m, s in zip(means, sizes, strict=False)) / sum(sizes)
+  expected = sum(m * s for m, s in zip(means, sizes, strict=True)) / sum(sizes)
   assert got == pytest.approx(expected)
   # Distinct from the naive equal-weight mean, which over-counts batch 3.
   assert got != pytest.approx(sum(means) / 3)

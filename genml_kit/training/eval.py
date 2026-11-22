@@ -26,7 +26,7 @@ def _compute_classification_metrics(all_labels, all_preds, num_labels, id2label)
   per_class_metrics = {}
   for idx, (precision, recall, f1,
             support) in enumerate(zip(precisions, recalls, f1s, supports,
-                                      strict=False)):
+                                      strict=True)):
     name = (id2label.get(str(idx), id2label.get(idx, f"Class {idx}"))
             if id2label else f"Class {idx}")
     per_class_metrics[name] = {
@@ -140,7 +140,7 @@ def evaluate_performance(model,
                                                        num_labels, id2label)
     original_metrics["top1"] = (
         sum(pred == target
-            for pred, target in zip(all_orig_preds, all_labels, strict=False)) /
+            for pred, target in zip(all_orig_preds, all_labels, strict=True)) /
         total_samples * 100.0)
 
   return EvalReport(avg_loss, top1, metrics["balanced_accuracy"], metrics["macro_f1"],

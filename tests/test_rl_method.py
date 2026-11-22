@@ -134,7 +134,7 @@ class TestDQNMethod:
     method.update_target(model, global_step=1)
     for p1, p2 in zip(model.online.parameters(),
                       model.target.parameters(),
-                      strict=False):
+                      strict=True):
       assert torch.allclose(p1, p2)
 
   def test_target_update_soft(self):
@@ -150,7 +150,7 @@ class TestDQNMethod:
     for p_old, p_online, p_target in zip(old_target,
                                          model.online.parameters(),
                                          model.target.parameters(),
-                                         strict=False):
+                                         strict=True):
       expected = 0.9 * p_old.data + 0.1 * p_online.data
       assert torch.allclose(p_target.data, expected, atol=1e-5)
 

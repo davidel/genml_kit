@@ -66,7 +66,7 @@ class TestQNetwork:
 
   def test_target_matches_online_at_init(self):
     net = QNetwork(obs_dim=4, n_actions=2)
-    for p1, p2 in zip(net.online.parameters(), net.target.parameters(), strict=False):
+    for p1, p2 in zip(net.online.parameters(), net.target.parameters(), strict=True):
       assert torch.equal(p1, p2)
 
   def test_hard_update_copies(self):
@@ -76,7 +76,7 @@ class TestQNetwork:
       for p in net.online.parameters():
         p.add_(1.0)
     net.hard_update()
-    for p1, p2 in zip(net.online.parameters(), net.target.parameters(), strict=False):
+    for p1, p2 in zip(net.online.parameters(), net.target.parameters(), strict=True):
       assert torch.allclose(p1, p2)
 
   def test_dueling_variant(self):

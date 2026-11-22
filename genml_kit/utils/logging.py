@@ -105,7 +105,7 @@ def _glog_handlers_match(root, targets):
       isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
       if t == STDERR_TARGET else isinstance(h, logging.FileHandler) and
       getattr(h, "baseFilename", None) == os.path.abspath(t)
-      for h, t in zip(glog_handlers, targets, strict=False))
+      for h, t in zip(glog_handlers, targets, strict=True))
 
 
 def setup_logging(level="INFO", destinations="STDERR"):

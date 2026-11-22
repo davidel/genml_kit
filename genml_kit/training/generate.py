@@ -214,7 +214,7 @@ def run_generate(args):
   records = [{
       "prompt": p,
       "completion": c
-  } for p, c in zip(prompts, completions, strict=False)]
+  } for p, c in zip(prompts, completions, strict=True)]
   for record in records:
     logging.info("prompt: %s\ncompletion: %s", record["prompt"], record["completion"])
   _write_records(records, args.output)

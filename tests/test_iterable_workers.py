@@ -73,7 +73,7 @@ class TestCoverage:
     for batch in batches:
       for item_id, worker in zip(batch["id"].tolist(),
                                  batch["worker"].tolist(),
-                                 strict=False):
+                                 strict=True):
         by_worker.setdefault(worker, []).append(item_id)
     assert sorted(by_worker) == list(range(num_workers))
     assert_disjoint(list(by_worker.values()))

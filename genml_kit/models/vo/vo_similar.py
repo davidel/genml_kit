@@ -99,7 +99,7 @@ class _Encoder(nn.Module):
     super().__init__()
     stages = []
     current = in_ch
-    for width, count in zip(widths, blocks, strict=False):
+    for width, count in zip(widths, blocks, strict=True):
       for index in range(count):
         stride = 2 if index == 0 else 1
         stages.append(_conv_block(current, width, stride, norm))

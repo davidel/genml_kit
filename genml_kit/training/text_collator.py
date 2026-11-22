@@ -238,7 +238,7 @@ class TextCollator:
     # as its label (a real target, matching the non-packing contract).
     stream = []
     for doc_idx, encoded in enumerate(sequences):
-      for tok, label in zip(encoded.ids, encoded.labels, strict=False):
+      for tok, label in zip(encoded.ids, encoded.labels, strict=True):
         stream.append((tok, label, doc_idx))
       if sep is not None:
         stream.append((sep, sep, doc_idx))
@@ -293,7 +293,7 @@ class TextCollator:
     for doc_idx, encoded in enumerate(sequences):
       toks = [
           (tok, label, doc_idx)
-          for tok, label in zip(encoded.ids[:keep], encoded.labels[:keep], strict=False)
+          for tok, label in zip(encoded.ids[:keep], encoded.labels[:keep], strict=True)
       ]
       if sep is not None:
         toks.append((sep, sep, doc_idx))
