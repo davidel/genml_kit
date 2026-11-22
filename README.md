@@ -1,8 +1,8 @@
 # genml_kit
 
 [![CI](https://github.com/davidel/genml_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/davidel/genml_kit/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/genml_kit.svg)](https://pypi.org/project/genml_kit/)
-[![Python](https://img.shields.io/pypi/pyversions/genml_kit.svg)](https://pypi.org/project/genml_kit/)
+[![PyPI version](https://img.shields.io/badge/pypi-v0.3.1-blue.svg)](https://pypi.org/project/genml_kit/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 A general-purpose toolkit for image classification and decoder-only language
