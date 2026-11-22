@@ -3,7 +3,7 @@
 
 GitHub runs its Markdown parser *before* handing math to KaTeX.  A number
 of otherwise-innocent byte patterns therefore render as raw text instead of
-math.  This script implements the checks R1-R11 documented in
+math.  This script implements the checks R1-R12 documented in
 ``docs/MARKDOWN_LATEX.txt`` and reports violations as::
 
     file:line:col: [R<n>] message
@@ -215,6 +215,51 @@ def _emit(findings, path, idx, col, rule, message, fixable=False):
   findings.append(Finding(path, idx + 1, col + 1, rule, message, fixable))
 
 
+def _display_toggles(lines, roles):
+  """Indices of lines that are a bare ``$$`` fence (either open or close).
+
+  ``roles`` is required because a ``$$`` line inside a fenced code block is
+  literal text, not a display fence.
+  """
+  return [
+      i for i, role in enumerate(roles)
+      if role == 'display' and DISPLAY_TOGGLE_RE.match(lines[i])
+  ]
+
+
+def _closed_display_spans(toggles):
+  """Pair ``$$`` toggles into ``(open, close)`` spans.
+
+  Returns ``(spans, unclosed)``.  An odd number of toggles means the file
+  ends inside display math: the trailing unpaired opener is dropped from
+  ``spans`` and returned as ``unclosed`` so it can be reported once (R12),
+  which lets the pairing itself be asserted strictly instead of silently
+  losing the tail of the list.
+  """
+  unclosed = toggles[-1] if len(toggles) % 2 else None
+  paired = toggles[:len(toggles) - 1] if unclosed is not None else toggles
+  return list(zip(paired[0::2], paired[1::2], strict=True)), unclosed
+
+
+def resolve_roles(lines):
+  """Classify ``lines`` and demote the tail of an unclosed ``$$`` to prose.
+
+  Returns ``(roles, spans, unclosed)`` where ``spans`` are the closed
+  ``(open, close)`` display fences.  GitHub would keep rendering the tail as
+  math after a missing closing ``$$``, but the structural fault is reported
+  by R12, and leaving the tail as ``display`` would silently skip every
+  prose rule for the rest of the document -- including genuine bugs sitting
+  below the bad fence.  Demoting it keeps the remaining checks running.
+  """
+  roles = [role for _, role, _ in classify(lines)]
+  spans, unclosed = _closed_display_spans(_display_toggles(lines, roles))
+  if unclosed is not None:
+    for i in range(unclosed + 1, len(roles)):
+      if roles[i] == 'display':
+        roles[i] = 'text'
+  return roles, spans, unclosed
+
+
 def _check_r1(path, idx, line, spans, findings):
   """R1 - bare ``$...$`` / ``\\(...\\)`` and the `` ``$ `` extra backtick."""
   for kind, start, end in spans:
@@ -399,13 +444,9 @@ def _check_display_line(path, idx, line, findings):
             f'bare {ch!r} in math renders as {entity} in KaTeX; use {repl}', True)
 
 
-def _check_display_block(path, lines, roles, findings):
+def _check_display_block(path, lines, spans, findings):
   """R3 - fence placement, \\large directive and blank-line hygiene."""
-  toggles = [
-      i for i in range(len(lines))
-      if roles[i] == 'display' and DISPLAY_TOGGLE_RE.match(lines[i])
-  ]
-  for start, end in zip(toggles[0::2], toggles[1::2], strict=False):
+  for start, end in spans:
     if start + 1 < len(lines):
       first = lines[start + 1]
       if not first.strip().startswith('\\large'):
@@ -433,13 +474,9 @@ def _check_inline_r8(path, idx, line, spans, findings):
       pos = seg.find('\\\\,', pos + 1)
 
 
-def _check_r11(path, lines, roles, findings):
+def _check_r11(path, lines, roles, spans, findings):
   """R11 - GitHub page-level math complexity budget (y.total() <= 2000)."""
-  toggles = [
-      i for i, role in enumerate(roles)
-      if role == 'display' and DISPLAY_TOGGLE_RE.match(lines[i])
-  ]
-  display_blocks = list(zip(toggles[0::2], toggles[1::2], strict=False))
+  display_blocks = spans
   total_y = 0
   math_idx = 0
   limit_reported = False
@@ -466,8 +503,7 @@ def _check_r11(path, lines, roles, findings):
       continue
     if roles[i] == 'text':
       line = lines[i]
-      spans = split_inline(line)
-      for kind, start, end in spans:
+      for kind, start, end in split_inline(line):
         if kind == MATH and line[end - 2:end] == _CLOSE:
           span_body = line[start + 2:end - 2]
           e = span_body.count('{') + 1
@@ -488,12 +524,22 @@ def _check_r11(path, lines, roles, findings):
     i += 1
 
 
+def _check_r12(path, unclosed, findings):
+  """R12 - a ``$$`` display block that is opened but never closed."""
+  if unclosed is None:
+    return
+  _emit(
+      findings, path, unclosed, 0, 'R12',
+      'unclosed $$ display block: this opener has no closing $$; '
+      'prose below it is rendered as math')
+
+
 def check_file(path):
   """Return the list of findings for ``path``."""
   findings = []
   with open(path, encoding='utf-8') as fh:
     lines = fh.read().split('\n')
-  roles = [role for _, role, _ in classify(lines)]
+  roles, display_spans, unclosed = resolve_roles(lines)
   for idx, line in enumerate(lines):
     role = roles[idx]
     if role == 'fence':
@@ -513,8 +559,9 @@ def check_file(path):
     _check_r7(path, idx, line, spans, nxt, findings)
     _check_inline_r8(path, idx, line, spans, findings)
     _check_math_unicode(path, idx, line, spans, findings)
-  _check_display_block(path, lines, roles, findings)
-  _check_r11(path, lines, roles, findings)
+  _check_display_block(path, lines, display_spans, findings)
+  _check_r11(path, lines, roles, display_spans, findings)
+  _check_r12(path, unclosed, findings)
   findings.sort(key=lambda f: (f.line, f.col, f.rule))
   return findings
 
@@ -588,7 +635,7 @@ def apply_fixes(path, findings):
     return 0
   with open(path, encoding='utf-8') as fh:
     lines = fh.read().split('\n')
-  roles = [role for _, role, _ in classify(lines)]
+  roles, _, _ = resolve_roles(lines)
   by_line = {}
   for f in fixable:
     by_line.setdefault(f.line - 1, []).append(f)

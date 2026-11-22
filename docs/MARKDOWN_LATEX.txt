@@ -491,6 +491,7 @@ The checks it performs, in the script's own numbering:
        ``>= <= ->``; and bare ``< / >`` in math position
   R10  a ``$$`` line-start ``|...|`` absolute value
   R11  document-level math complexity budget exceeded (> 2000 braces / math tokens) or single expression > 1000 braces
+  R12  a ``$$`` display block that is opened but never closed (everything below it renders as math)
 
 Fenced code blocks and inline code spans are literals: the linter never
 checks them, which is also how a document may legitimately *show* a

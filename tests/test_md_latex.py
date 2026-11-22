@@ -243,6 +243,48 @@ class TestR11MathBudget:
     assert _check(tmp_path, "\n$$\n\\large\na + b\n$$\n\n") == []
 
 
+class TestR12UnclosedDisplay:
+
+  def test_unclosed_display_flagged(self, tmp_path):
+    text = "\n$$\n\\large\na + b\n\nprose\n"
+    assert "R12" in _rules(_check(tmp_path, text))
+
+  def test_unclosed_display_reported_on_the_opener(self, tmp_path):
+    text = "\n$$\n\\large\na + b\n\nprose\n"
+    findings = [f for f in _check(tmp_path, text) if f.rule == "R12"]
+    assert len(findings) == 1
+    assert findings[0].line == 2
+
+  def test_unclosed_display_after_clean_block(self, tmp_path):
+    """A balanced block followed by an unclosed one: only the latter is R12."""
+    text = "\n$$\n\\large\na + b\n$$\n\nprose\n\n$$\n\\large\nc + d\n"
+    findings = [f for f in _check(tmp_path, text) if f.rule == "R12"]
+    assert len(findings) == 1
+    assert findings[0].line == 9
+
+  def test_odd_toggles_are_not_mistaken_for_clean_pairs(self, tmp_path):
+    """The balanced pair before the bad fence must still reach R3."""
+    text = "\n$$\na + b\n$$\n\nprose\n\n$$\n\\large\nc\n"
+    rules = _rules(_check(tmp_path, text))
+    assert "R12" in rules
+    assert "R3" in rules
+
+  def test_unclosed_display_inside_fence_is_not_flagged(self, tmp_path):
+    text = "```\n$$\nprose\n```\n"
+    assert "R12" not in _rules(_check(tmp_path, text))
+
+  def test_prose_below_unclosed_display_is_still_checked(self, tmp_path):
+    """Cascade suppression: R1 keeps firing below an unclosed $$ fence."""
+    text = "\n$$\n\\large\nx = y\n\nprose with bare $a$ math\n"
+    rules = _rules(_check(tmp_path, text))
+    assert "R12" in rules
+    assert "R1" in rules
+
+  def test_balanced_blocks_are_clean(self, tmp_path):
+    text = "\n$$\n\\large\na + b\n$$\n\n$$\n\\large\nc + d\n$$\n\n"
+    assert _check(tmp_path, text) == []
+
+
 class TestFix:
 
   def test_fix_caret_asterisk(self, tmp_path):
