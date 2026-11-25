@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/davidel/genml_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/davidel/genml_kit/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/badge/pypi-v0.3.1-blue.svg)](https://pypi.org/project/genml_kit/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 A general-purpose toolkit for image classification and decoder-only language
@@ -217,7 +217,7 @@ pip install "genml_kit[flash]"
 pip install "genml_kit[all]"
 ```
 
-**Requirements:** Python ≥ 3.10, PyTorch, torchvision, transformers, datasets,
+**Requirements:** Python ≥ 3.12, PyTorch, torchvision, transformers, datasets,
 NumPy, scikit-learn ≥ 1.3, XGBoost ≥ 2.0, Pillow, tensorboard.
 
 ## Quick Start

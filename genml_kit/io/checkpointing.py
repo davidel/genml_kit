@@ -107,10 +107,17 @@ def serialize_lora_state(model):
 def _extract_lora_archive(tar, destination):
   """Extract a LoRA archive safely by validating members manually.
 
-  Does not rely on ``tarfile``'s ``filter=`` argument (only available on
-  Python >= 3.12): we always iterate the members ourselves, which gives the
-  same safety guarantees on every supported Python version, and is also
-  compatible with code that wraps ``TarFile.extractall``.
+  Safety is enforced by iterating the members ourselves and rejecting any that
+  are unsafe (``..``, absolute paths, drive letters, backslashes, or non
+  file/dir entries): this keeps the guarantee explicit in this function rather
+  than delegating it to ``tarfile``'s extraction policy.
+
+  ``filter="fully_trusted"`` then tells ``TarFile.extractall`` to extract the
+  members as-is.  That is the right policy precisely *because* every member was
+  validated above; passing it explicitly also opts out of the ``filter``
+  deprecation on Python 3.12/3.13 (and the changed default that follows), which
+  would otherwise surface as a ``DeprecationWarning`` -- an error under this
+  project's warnings policy.
   """
   members = tar.getmembers()
   for member in members:
@@ -122,7 +129,7 @@ def _extract_lora_archive(tar, destination):
     if not (member.isdir() or member.isfile()):
       fatal(f"Unsupported LoRA archive member: {name!r}", ValueError)
 
-  tar.extractall(destination, members)
+  tar.extractall(destination, members, filter="fully_trusted")
 
 
 def deserialize_lora_state(model, blob):

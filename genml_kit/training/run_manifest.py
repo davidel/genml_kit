@@ -70,7 +70,7 @@ def collect_run_manifest(args):
           "deterministic": args.seed is not None,
       },
       "hostname": platform.node(),
-      "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+      "timestamp_utc": datetime.datetime.now(datetime.UTC).isoformat(),
   }
   return manifest
 

@@ -153,7 +153,7 @@ class TestMvDirDestination:
     assert client.copies == [("srca", "aaaa/bbbb", "destr2", "cccc")]
 
 
-_STUB_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
+_STUB_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
 
 
 @pytest.fixture(autouse=True)

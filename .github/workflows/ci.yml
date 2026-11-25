@@ -85,7 +85,7 @@ jobs:
         name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           # Reuse the pip wheel cache across runs and jobs.  The dependency
           # graph is fully described by pyproject.toml (there is no
           # requirements.txt), so pin the cache key to it explicitly.
