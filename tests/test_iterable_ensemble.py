@@ -103,6 +103,7 @@ class TestIterableEnsemble:
       _ = ensemble.labels_array
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestWebdatasetSpec:
 
   def test_spec_parsed_as_webdataset_source(self):
@@ -179,6 +180,7 @@ class TestWebdatasetSpec:
     assert os.path.isdir(cache)
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestWebDatasetSourceEnsembleContract:
 
   def test_source_reports_unlabeled(self, tmp_path):

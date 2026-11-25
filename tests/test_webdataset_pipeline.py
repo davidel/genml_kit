@@ -8,6 +8,7 @@ to be recognised and wrapped correctly.
 
 import io
 
+import pytest
 import webdataset
 from PIL import Image
 from torchvision.transforms import v2
@@ -46,6 +47,7 @@ def _args(**overrides):
   return train_args(**pinned)
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestWebdatasetThroughImagesPipeline:
 
   def test_loader_yields_image_batches(self, tmp_path):

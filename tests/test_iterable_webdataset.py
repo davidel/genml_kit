@@ -89,6 +89,7 @@ class _LoopbackShards:
     return f"http://127.0.0.1:{port}/{name}"
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestSampleContract:
   """A sample is a dict of decoded members; nothing is dropped."""
 
@@ -180,6 +181,7 @@ class TestSampleContract:
     assert isinstance(sample["gray"], bytes)
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestImageFormat:
 
   @pytest.mark.parametrize("fmt", ["RGB", "L", "RGBA"])
@@ -210,6 +212,7 @@ class TestImageFormat:
     assert next(iter(source))["png"].size == (2, 2)
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestIterationAndEpoch:
 
   def test_second_pass_replays_the_same_samples(self, tmp_path):
@@ -226,6 +229,7 @@ class TestIterationAndEpoch:
     assert _labels(source) == list(range(4))
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestCompositionWithFieldSelector:
 
   def test_field_selection_and_rename(self, tmp_path):
@@ -295,6 +299,7 @@ class TestCompositionWithFieldSelector:
     assert [item["text"] for item in picked] == ["l0", "l1"]
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestNoInternalSplitting:
   """webdataset's own splitters must stay off; ours does the work."""
 
@@ -352,6 +357,7 @@ class TestNoInternalSplitting:
         assert set(per_rank[a]).isdisjoint(per_rank[b])
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestFailureModes:
 
   def test_non_image_member_raises(self, tmp_path):
@@ -380,6 +386,7 @@ class TestFailureModes:
       gc.collect()
 
 
+@pytest.mark.filterwarnings("ignore:unclosed file:ResourceWarning")
 class TestCacheDir:
   """``cache_dir`` forwards to webdataset, so remote shards are cached."""
 
